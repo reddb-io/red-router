@@ -23,7 +23,7 @@ mod usage_stream;
 use axum::{
     body::{to_bytes, Body, Bytes},
     extract::{Path, Request, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
@@ -48,6 +48,25 @@ const MAX_ROUTE_TARGETS: usize = 8;
 const NO_ROUTE_TARGET: usize = usize::MAX;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVIDER_ERROR_BODY_TIMEOUT: Duration = Duration::from_secs(2);
+const RED_ROUTER_CATALOG_VERSION: &str = "x-redrouter-catalog-version";
+const RED_ROUTER_SERVED_MODEL: &str = "x-redrouter-served-model";
+const ROUTING_STRATEGIES: &[&str] = &[
+    "priority",
+    "fill-first",
+    "round-robin",
+    "weighted",
+    "random",
+    "strict-random",
+    "least-used",
+    "p2c",
+    "cost-optimized",
+    "context-optimized",
+    "reset-aware",
+    "reset-window",
+    "headroom",
+    "quota-weighted",
+    "lkgp",
+];
 
 struct BufferedProviderResponse {
     status: StatusCode,
@@ -1634,6 +1653,10 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/v1/models", get(models))
         .route("/v1/models", get(models))
+        .route("/api/v1/catalog", get(catalog_discovery))
+        .route("/v1/catalog", get(catalog_discovery))
+        .route("/api/v1/capabilities", get(capabilities_discovery))
+        .route("/v1/capabilities", get(capabilities_discovery))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -1679,22 +1702,118 @@ fn model_list_response(data: Vec<ListedModel>) -> Response {
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("authorization"));
-    if let Some(version) = catalog_version {
-        response.headers_mut().insert(
-            axum::http::HeaderName::from_static("x-redrouter-catalog-version"),
-            version,
-        );
+    if let Some(version) = catalog_version.and_then(|value| HeaderValue::from_str(&value).ok()) {
+        response
+            .headers_mut()
+            .insert(RED_ROUTER_CATALOG_VERSION, version);
     }
     response
 }
 
-fn model_catalog_version(data: &[ListedModel]) -> Option<HeaderValue> {
+fn model_catalog_version(data: &[ListedModel]) -> Option<String> {
     let mut stable = serde_json::to_value(data).ok()?;
     for entry in stable.as_array_mut()? {
         entry.as_object_mut()?.remove("created");
     }
     let digest = Sha256::digest(serde_json::to_vec(&stable).ok()?);
-    HeaderValue::from_str(&hex::encode(digest)[..16]).ok()
+    Some(hex::encode(digest)[..16].to_owned())
+}
+
+fn validate_discovery_query(uri: &Uri) -> bool {
+    let mut seen_for = false;
+    let mut seen_variants = false;
+    for (name, value) in url::form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes()) {
+        match name.as_ref() {
+            "for" if !seen_for && value.len() <= 128 => seen_for = true,
+            "variants" if !seen_variants && value == "expand" => seen_variants = true,
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn normalized_discovery_headers(headers: &HeaderMap) -> HeaderMap {
+    if headers.contains_key(header::AUTHORIZATION) {
+        return headers.clone();
+    }
+    let mut api_keys = headers.get_all("x-api-key").iter();
+    let mut google_keys = headers.get_all("x-goog-api-key").iter();
+    let api_key = api_keys.next();
+    let google_key = google_keys.next();
+    if api_keys.next().is_some()
+        || google_keys.next().is_some()
+        || [api_key.is_some(), google_key.is_some()]
+            .into_iter()
+            .filter(|value| *value)
+            .count()
+            != 1
+    {
+        return headers.clone();
+    }
+    let Some(candidate) = api_key.or(google_key).and_then(|value| value.to_str().ok()) else {
+        return headers.clone();
+    };
+    let Ok(mut authorization) = HeaderValue::from_str(&format!("Bearer {candidate}")) else {
+        return headers.clone();
+    };
+    authorization.set_sensitive(true);
+    let mut normalized = headers.clone();
+    normalized.remove("x-api-key");
+    normalized.remove("x-goog-api-key");
+    normalized.insert(header::AUTHORIZATION, authorization);
+    normalized
+}
+
+fn private_discovery_response(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response.headers_mut().insert(
+        header::VARY,
+        HeaderValue::from_static("authorization, x-api-key, x-goog-api-key"),
+    );
+    if response.status() == StatusCode::UNAUTHORIZED {
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"red-router\""),
+        );
+    }
+    response
+}
+
+fn discovery_response(body: serde_json::Value, version: &str) -> Response {
+    let mut response = private_discovery_response(Json(body).into_response());
+    if let Ok(value) = HeaderValue::from_str(version) {
+        response
+            .headers_mut()
+            .insert(RED_ROUTER_CATALOG_VERSION, value);
+    }
+    response
+}
+
+fn served_model_header(provider: Option<&str>, model: &str) -> Option<HeaderValue> {
+    let provider = provider?.trim();
+    if provider.is_empty() || model.is_empty() {
+        return None;
+    }
+    let identity = if model
+        .strip_prefix(provider)
+        .is_some_and(|suffix| suffix.starts_with('/'))
+    {
+        model.to_owned()
+    } else {
+        format!("{provider}/{model}")
+    };
+    HeaderValue::from_str(&identity).ok()
+}
+
+fn attach_served_model(response: &mut Response, served_model: Option<&HeaderValue>) {
+    if let Some(value) = served_model {
+        response
+            .headers_mut()
+            .insert(RED_ROUTER_SERVED_MODEL, value.clone());
+    }
 }
 
 fn route_category(protocol: ProviderProtocol) -> &'static str {
@@ -1936,71 +2055,164 @@ async fn authenticate_product_request(
     Err(Box::new(error(StatusCode::UNAUTHORIZED, "Invalid API key")))
 }
 
-async fn models(State(state): State<ProxyState>, request: Request) -> Response {
+async fn authorized_models(
+    state: &ProxyState,
+    headers: &HeaderMap,
+) -> Result<Vec<ListedModel>, Box<Response>> {
     if state.product_client_keys {
         let (access, _, _) =
-            match authenticate_product_request(&state, request.headers(), ProviderProtocol::OpenAi)
-                .await
-            {
-                Ok(authenticated) => authenticated,
-                Err(response) => return *response,
-            };
+            authenticate_product_request(state, headers, ProviderProtocol::OpenAi).await?;
         let Some(policy) = access
             .policies
-            .authenticate(request.headers(), ProviderProtocol::OpenAi)
+            .authenticate(headers, ProviderProtocol::OpenAi)
         else {
-            return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+            return Err(Box::new(error(StatusCode::UNAUTHORIZED, "Invalid API key")));
         };
         if let Some(combo) = &state.product_combo {
             if !combo.unchanged().await {
-                return error(
+                return Err(Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Product combo changed or is unavailable; restart required",
-                );
+                )));
             }
-            return match listed_models(state.routes.as_ref(), policy) {
-                Ok(models) => model_list_response(models),
-                Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
-            };
+            return listed_models(state.routes.as_ref(), policy).map_err(|_| {
+                Box::new(error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Model catalog unavailable",
+                ))
+            });
         }
         // Direct provider mode has no durable, entitlement-scoped inventory.
         // Never turn the descriptive models.dev catalog into an allow-list.
-        return model_list_response(Vec::new());
+        return Ok(Vec::new());
     }
 
     let control_clients = match &state.control_plane {
         Some(control) => match control.client_policies().await {
             Ok(policies) => policies,
             Err(_) => {
-                return error(
+                return Err(Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Client key policy unavailable",
-                )
+                )))
             }
         },
         None => None,
     };
     let clients = control_clients.as_deref().unwrap_or(state.clients.as_ref());
-    let Some(policy) = clients.authenticate(request.headers(), ProviderProtocol::OpenAi) else {
-        return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+    let Some(policy) = clients.authenticate(headers, ProviderProtocol::OpenAi) else {
+        return Err(Box::new(error(StatusCode::UNAUTHORIZED, "Invalid API key")));
     };
     let control_routes = match &state.control_plane {
         Some(control) => match control.routes().await {
             Ok(routes) => routes,
             Err(_) => {
-                return error(
+                return Err(Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Combo routing policy unavailable",
-                )
+                )))
             }
         },
         None => None,
     };
     let routes = control_routes.as_deref().unwrap_or(state.routes.as_ref());
-    match listed_models(routes, policy) {
+    listed_models(routes, policy).map_err(|_| {
+        Box::new(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Model catalog unavailable",
+        ))
+    })
+}
+
+async fn models(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    match authorized_models(&state, &headers).await {
         Ok(models) => model_list_response(models),
-        Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+        Err(response) => *response,
     }
+}
+
+async fn catalog_discovery(
+    State(state): State<ProxyState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let headers = normalized_discovery_headers(&headers);
+    let models = match authorized_models(&state, &headers).await {
+        Ok(models) => models,
+        Err(response) => return private_discovery_response(*response),
+    };
+    if !validate_discovery_query(&uri) {
+        return private_discovery_response(error(
+            StatusCode::BAD_REQUEST,
+            "Unsupported discovery query; only for and variants=expand are supported",
+        ));
+    }
+    let Some(version) = model_catalog_version(&models) else {
+        return private_discovery_response(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Model catalog unavailable",
+        ));
+    };
+    discovery_response(
+        serde_json::json!({
+            "version":version,
+            "groups":[],
+            "combos":models,
+            "aliases":[],
+            "recommended":{},
+            "compatibility":{"baseline":"v0.33.0","complete":false}
+        }),
+        &version,
+    )
+}
+
+async fn capabilities_discovery(
+    State(state): State<ProxyState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let headers = normalized_discovery_headers(&headers);
+    let models = match authorized_models(&state, &headers).await {
+        Ok(models) => models,
+        Err(response) => return private_discovery_response(*response),
+    };
+    if !validate_discovery_query(&uri) {
+        return private_discovery_response(error(
+            StatusCode::BAD_REQUEST,
+            "Unsupported discovery query; only for and variants=expand are supported",
+        ));
+    }
+    let Some(version) = model_catalog_version(&models) else {
+        return private_discovery_response(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Model catalog unavailable",
+        ));
+    };
+    discovery_response(
+        serde_json::json!({
+            "product":"red-router",
+            "version":env!("CARGO_PKG_VERSION"),
+            "systemone":{
+                "endpoint":"/v1/systemone",
+                "aliases":["/v1/decisions"],
+                "models":[],
+                "available":false,
+                "availability":"not_implemented"
+            },
+            "combos":{"strategies":ROUTING_STRATEGIES},
+            "served_model_header":"X-RedRouter-Served-Model",
+            "catalog":{
+                "version":version,
+                "catalog_endpoint":"/v1/catalog",
+                "variants":"expand",
+                "recommendations":false,
+                "account_metadata":false,
+                "key_id_format_applied":false
+            },
+            "compatibility":{"baseline":"v0.33.0","complete":false}
+        }),
+        &version,
+    )
 }
 
 fn circuit_open_error(retry_after_ms: u64) -> Response {
@@ -2406,6 +2618,7 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_accounting = None;
+    let mut final_served_model = None;
     let mut final_load_guard = None;
     let mut last_retry_load_guard = None;
     let mut saw_open_circuit = false;
@@ -2946,6 +3159,11 @@ async fn proxy_request(
         }
         final_translated = translate_anthropic;
         final_accounting = accounting_attempt;
+        final_served_model = response
+            .status()
+            .is_success()
+            .then(|| served_model_header(provider_name, target_model))
+            .flatten();
         final_response = Some(response);
         final_load_guard = load_guard;
         break;
@@ -3000,7 +3218,7 @@ async fn proxy_request(
                 let _keep_alive = (&permit, &client_permit, &provider_load_guard);
                 chunk
             });
-            return (
+            let mut result = (
                 [
                     (header::CONTENT_TYPE, "text/event-stream"),
                     (header::CACHE_CONTROL, "no-cache"),
@@ -3009,6 +3227,8 @@ async fn proxy_request(
                 Body::from_stream(stream),
             )
                 .into_response();
+            attach_served_model(&mut result, final_served_model.as_ref());
+            return result;
         }
         let read = async {
             let mut bytes = Vec::new();
@@ -3024,7 +3244,11 @@ async fn proxy_request(
             translation::response(&value).map_err(|_| ())
         };
         return match tokio::time::timeout(HEADER_TIMEOUT, read).await {
-            Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
+            Ok(Ok(value)) => {
+                let mut result = (StatusCode::OK, Json(value)).into_response();
+                attach_served_model(&mut result, final_served_model.as_ref());
+                result
+            }
             _ => error(StatusCode::BAD_GATEWAY, "Invalid Anthropic response"),
         };
     }
@@ -3081,6 +3305,7 @@ async fn proxy_request(
                 result
                     .headers_mut()
                     .insert("x-accel-buffering", HeaderValue::from_static("no"));
+                attach_served_model(&mut result, final_served_model.as_ref());
                 return result;
             }
             let read = async {
@@ -3144,6 +3369,7 @@ async fn proxy_request(
                     .headers_mut()
                     .insert(header::CONTENT_TYPE, content_type);
             }
+            attach_served_model(&mut result, final_served_model.as_ref());
             return result;
         }
     }
@@ -3170,6 +3396,7 @@ async fn proxy_request(
     let mut result = Response::new(Body::from_stream(stream));
     *result.status_mut() = status;
     *result.headers_mut() = headers;
+    attach_served_model(&mut result, final_served_model.as_ref());
     result
 }
 

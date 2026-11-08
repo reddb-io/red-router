@@ -649,6 +649,7 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let mut catalog_version = None;
     for path in ["/v1/models", "/api/v1/models"] {
         let response = client
             .get(format!("{base}{path}"))
@@ -673,6 +674,10 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
             .to_str()
             .unwrap()
             .to_owned();
+        assert_eq!(
+            catalog_version.get_or_insert_with(|| version.clone()),
+            &version
+        );
         assert_eq!(version.len(), 16);
         assert!(version.bytes().all(|byte| byte.is_ascii_hexdigit()));
         let body: serde_json::Value =
@@ -698,6 +703,115 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         ));
         assert_eq!(version, expected[..16]);
     }
+
+    let catalog = client
+        .get(format!("{base}/v1/catalog?for=redcode&variants=expand"))
+        .header("x-api-key", RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(catalog.status(), StatusCode::OK);
+    assert_eq!(
+        catalog.headers()["x-redrouter-catalog-version"]
+            .to_str()
+            .unwrap(),
+        catalog_version.as_deref().unwrap()
+    );
+    assert!(catalog.headers()[header::VARY]
+        .to_str()
+        .unwrap()
+        .contains("x-api-key"));
+    let catalog: serde_json::Value = serde_json::from_str(&catalog.text().await.unwrap()).unwrap();
+    assert_eq!(
+        catalog["version"],
+        catalog_version.as_ref().unwrap().as_str()
+    );
+    assert_eq!(catalog["groups"], serde_json::json!([]));
+    assert_eq!(catalog["combos"][0]["id"], "visible-combo");
+    assert_eq!(catalog["compatibility"]["complete"], false);
+
+    let capabilities = client
+        .get(format!("{base}/api/v1/capabilities"))
+        .header("x-goog-api-key", RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(capabilities.status(), StatusCode::OK);
+    assert_eq!(
+        capabilities.headers()["x-redrouter-catalog-version"]
+            .to_str()
+            .unwrap(),
+        catalog_version.as_deref().unwrap()
+    );
+    let capabilities: serde_json::Value =
+        serde_json::from_str(&capabilities.text().await.unwrap()).unwrap();
+    assert_eq!(capabilities["product"], "red-router");
+    assert_eq!(capabilities["catalog"]["version"], catalog["version"]);
+    assert_eq!(capabilities["catalog"]["key_id_format_applied"], false);
+    assert_eq!(
+        capabilities["served_model_header"],
+        "X-RedRouter-Served-Model"
+    );
+    assert_eq!(capabilities["systemone"]["available"], false);
+    assert!(capabilities["combos"]["strategies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|strategy| strategy == "quota-weighted"));
+
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/catalog?limit=1"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/catalog"))
+            .header(header::AUTHORIZATION.as_str(), "Basic invalid")
+            .header("x-api-key", RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let served = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"visible-combo",
+                "messages":[{"role":"user","content":"hello"}]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(served.status(), StatusCode::OK);
+    assert_eq!(
+        served.headers()["x-redrouter-served-model"],
+        "openai/gpt-4o"
+    );
+    assert_eq!(served.text().await.unwrap(), "visible");
+
+    let denied = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"model":"provider-hidden","messages":[]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert!(!denied.headers().contains_key("x-redrouter-served-model"));
 
     gateway_task.abort();
     visible_task.abort();

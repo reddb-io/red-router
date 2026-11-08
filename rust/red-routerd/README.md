@@ -10,6 +10,9 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 Its authenticated `/v1/models` and `/api/v1/models` discovery endpoints list only routes
 permitted for that client key, enrich configured targets from the bundled models.dev snapshot,
 and emit the stable `X-RedRouter-Catalog-Version` cache-invalidation contract.
+`/v1/catalog` groups that same scoped inventory for RedCode, while `/v1/capabilities` reports
+only Rust-implemented routing behavior. Successful provider responses include
+`X-RedRouter-Served-Model` for the concrete target selected after fallback.
 It binds only to loopback. The operator can configure supported protocol HTTPS
 endpoints or literal-loopback HTTP mocks. It does not provide a public listener.
 `RED_ROUTER_MAX_IN_FLIGHT` configures the process-wide simultaneous-request

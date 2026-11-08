@@ -167,6 +167,13 @@ routes that the authenticated key can actually use. Models.dev enriches those ro
 grants access. The response includes RedRouter's stable 16-hex catalog-version header, computed
 without the volatile `created` timestamp, so RedCode can invalidate its cache when the key's
 visible routes or metadata change without refreshing on every catalog read.
+The same authenticated projection now backs `/v1/catalog` and `/v1/capabilities` (plus their
+`/api/v1` aliases). Alternate discovery key headers are normalized only for these read paths,
+unsupported query semantics fail explicitly, and every document carries the same private
+catalog version. Capabilities advertise only implemented Rust strategies; System One is returned
+as unavailable rather than being falsely promised. Successful inference responses identify the
+actual provider/model selected after fallback through `X-RedRouter-Served-Model`; errors never
+carry that header.
 Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
 migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin
