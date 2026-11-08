@@ -47,8 +47,8 @@ features must not be implemented only there.
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
 | Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
-| Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
-| Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and streaming settlement; budgets, schedules and non-SQLite stores remain |
+| Usage and audit             | SQLite foundation      | Rust-owned chat/SSE ledger and counters; reporting APIs, retention/export and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
@@ -63,9 +63,9 @@ their Rust migration state:
 
 | Next.js change | Rust state | Remaining acceptance work |
 | --- | --- | --- |
-| Frozen model-price snapshots in usage export | Implemented for product-SQLite chat and streaming | Move the ledger behind the Rust-owned storage repository and cover every protocol |
+| Frozen model-price snapshots in usage export | Product bridge preserves snapshots; native Rust ledger uses the active exact-ID models.dev price | Persist the full native price breakdown and cover every protocol |
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
-| Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses | Move reservation and ledger ownership into the Rust storage repository |
+| Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses; native Rust ledger currently covers chat/SSE | Add native embedding settlement and protocol-wide fixtures |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
 | Signed OIDC claim policies | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
@@ -137,6 +137,14 @@ Independent Rust replicas refresh the client-key/tenant snapshot from the shared
 on a bounded two-second cadence. A malformed or partially committed generation makes that
 replica reject client authentication until a complete snapshot can be read; disabling a
 tenant therefore retires its keys across the cluster without reviving environment keys.
+The same revision-coupling applies to the native quota sidecar. SQLite-backed keys can own
+token-per-minute, token-per-day and monthly micro-USD limits plus explicit per-attempt
+reservation bounds. Admission and settlement are Rust-owned and use durable immediate
+transactions against `redrouter_usage_reservations`, `redrouter_usage_ledger` and
+`redrouter_usage_counters`; normal and SSE responses share the same accounting path.
+Uncertain attempts remain reserved. Other storage engines keep the portable quota
+configuration record but fail closed if a key tries to activate it until an equivalent
+atomic ledger implementation exists.
 
 Verified OIDC identity is deliberately separate from authorization. Durable identity
 bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`

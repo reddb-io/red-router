@@ -82,11 +82,28 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
   required on creation and may be omitted on later policy updates. Optional
   `model_id_format` is `prefixed` (default) or `flat`; omitting it on an update
-  preserves the committed value.
+  preserves the committed value. With the default SQLite backend, native keys may
+  also set `max_tokens_per_minute`, `max_tokens_per_day`,
+  `max_spend_per_month_usd`, `reservation_tokens` and
+  `reservation_spend_usd`. Reservation values are conservative per-provider-attempt
+  bounds and are required when a corresponding quota is enabled.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 - `GET /v1/key` and `/api/v1/key` return only the caller's persisted key identity. The
   dashboard SQLite compatibility reader preserves its configured `flat` or `prefixed`
   model-ID format; Rust-owned keys return their own durable setting.
+
+Native SQLite quotas are enforced entirely by Rust. Every attempt acquires a durable
+`BEGIN IMMEDIATE` reservation before dispatch; independent Rust processes sharing the
+same file therefore cannot pass the same remaining budget concurrently. Successful
+OpenAI-compatible chat and streaming responses atomically append to
+`redrouter_usage_ledger`, update the weighted token window and release the reservation.
+Streaming requires `stream_options.include_usage=true`; `[DONE]` is forwarded only after
+settlement. A failed, interrupted, crashed or oversized attempt keeps its dispatched
+reservation for explicit reconciliation rather than silently making budget available.
+Money is stored as integer micro-USD. Prices come from the active exact-ID models.dev
+snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
+The operational ledger is SQLite-only for now; configuring native token/spend quotas on
+RedDB or PostgreSQL is rejected instead of falling back to process-local counters.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `GET /api/admin/model-catalog` lists the active models.dev manifest, provider index and
   whether the generation is bundled or persisted. `GET /api/admin/model-catalog/{provider}`

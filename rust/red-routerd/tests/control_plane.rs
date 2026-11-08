@@ -1159,7 +1159,8 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
     let ordinary = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("native-non-stream-key-1234567890")
-        .json(&serde_json::json!({"model":"gpt-3.5-turbo","messages":[]}))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"model":"gpt-3.5-turbo","messages":[]}).to_string())
         .send()
         .await
         .unwrap();
@@ -1183,12 +1184,16 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
     let stream = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("native-stream-key-1234567890")
-        .json(&serde_json::json!({
-            "model":"gpt-3.5-turbo",
-            "messages":[],
-            "stream":true,
-            "stream_options":{"include_usage":true}
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"gpt-3.5-turbo",
+                "messages":[],
+                "stream":true,
+                "stream_options":{"include_usage":true}
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -1197,12 +1202,16 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
     let blocked_stream = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("native-stream-key-1234567890")
-        .json(&serde_json::json!({
-            "model":"gpt-3.5-turbo",
-            "messages":[],
-            "stream":true,
-            "stream_options":{"include_usage":true}
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"gpt-3.5-turbo",
+                "messages":[],
+                "stream":true,
+                "stream_options":{"include_usage":true}
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
