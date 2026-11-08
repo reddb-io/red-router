@@ -1,19 +1,22 @@
 //! Signed OIDC bearer authentication for the Rust management API.
-use crate::storage::StoredOidcConfig;
+use crate::storage::{StoredOidcBrowserConfig, StoredOidcConfig};
 use futures_util::StreamExt;
 use jsonwebtoken::{
     decode, decode_header,
     jwk::{AlgorithmParameters, Jwk, JwkSet, KeyOperations, PublicKeyUse},
     Algorithm, DecodingKey, Validation,
 };
+use serde::Deserialize;
 use serde_json::Value;
 use std::{collections::BTreeMap, net::IpAddr, time::Duration};
+use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 
 const MAX_JWKS_BYTES: usize = 1024 * 1024;
 const MAX_TOKEN_BYTES: usize = 16 * 1024;
 const JWKS_TTL: Duration = Duration::from_secs(300);
 const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
+const MAX_TOKEN_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(crate) struct OidcPolicy {
@@ -35,6 +38,64 @@ pub(crate) struct OidcVerifier {
     policy: OidcPolicy,
     allow_private: bool,
     cache: Mutex<Option<CachedKeys>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OidcBrowserConfig {
+    pub(crate) public_origin: reqwest::Url,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_ciphertext: String,
+    pub(crate) authorization_endpoint: reqwest::Url,
+    pub(crate) token_endpoint: reqwest::Url,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) revision: i64,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    id_token: String,
+}
+
+impl OidcBrowserConfig {
+    pub(crate) fn from_stored(stored: &StoredOidcBrowserConfig) -> Result<Self, &'static str> {
+        let public_origin = validate_public_origin(&stored.public_origin)?;
+        let authorization_endpoint = validate_endpoint(&stored.authorization_endpoint)?;
+        let token_endpoint = validate_endpoint(&stored.token_endpoint)?;
+        let scopes: Vec<String> =
+            serde_json::from_str(&stored.scopes_json).map_err(|_| "invalid OIDC browser scopes")?;
+        validate_scopes(&scopes)?;
+        if stored.client_id.is_empty()
+            || stored.client_id.len() > 200
+            || stored.client_id.trim() != stored.client_id
+            || stored.client_secret_ciphertext.is_empty()
+            || stored.client_secret_ciphertext.len() > 8192
+            || stored.revision < 0
+            || authorization_endpoint.query().is_some()
+            || token_endpoint.query().is_some()
+        {
+            return Err("invalid OIDC browser configuration");
+        }
+        Ok(Self {
+            public_origin,
+            client_id: stored.client_id.clone(),
+            client_secret_ciphertext: stored.client_secret_ciphertext.clone(),
+            authorization_endpoint,
+            token_endpoint,
+            scopes,
+            revision: stored.revision,
+        })
+    }
+
+    pub(crate) fn callback_uri(&self) -> String {
+        self.public_origin
+            .join("/api/auth/oidc/callback")
+            .expect("validated public origin")
+            .to_string()
+    }
+
+    pub(crate) fn secure_cookies(&self) -> bool {
+        self.public_origin.scheme() == "https"
+    }
 }
 
 impl OidcVerifier {
@@ -96,6 +157,70 @@ impl OidcVerifier {
     }
 
     pub(crate) async fn verify(&self, token: &str) -> Result<String, &'static str> {
+        self.verify_for_audience(token, &self.policy.audience, None)
+            .await
+    }
+
+    pub(crate) async fn exchange_browser_code(
+        &self,
+        browser: &OidcBrowserConfig,
+        code: &str,
+        verifier: &str,
+        nonce: &str,
+        client_secret: &str,
+    ) -> Result<String, &'static str> {
+        if code.is_empty()
+            || code.len() > 4096
+            || verifier.len() < 43
+            || verifier.len() > 128
+            || nonce.is_empty()
+            || nonce.len() > 256
+            || client_secret.is_empty()
+            || client_secret.len() > 4096
+        {
+            return Err("invalid OIDC authorization response");
+        }
+        let mut body = url::form_urlencoded::Serializer::new(String::new());
+        body.append_pair("grant_type", "authorization_code")
+            .append_pair("code", code)
+            .append_pair("redirect_uri", &browser.callback_uri())
+            .append_pair("client_id", &browser.client_id)
+            .append_pair("client_secret", client_secret)
+            .append_pair("code_verifier", verifier);
+        let body = body.finish();
+        let client = pinned_client(&browser.token_endpoint, self.allow_private).await?;
+        let response = tokio::time::timeout(
+            Duration::from_secs(10),
+            client
+                .post(browser.token_endpoint.clone())
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("accept", "application/json")
+                .body(body)
+                .send(),
+        )
+        .await
+        .map_err(|_| "OIDC token request timed out")?
+        .map_err(|_| "OIDC token request failed")?;
+        if !response.status().is_success()
+            || response
+                .content_length()
+                .is_some_and(|length| length > MAX_TOKEN_RESPONSE_BYTES as u64)
+        {
+            return Err("OIDC token response is unavailable");
+        }
+        let bytes = bounded_body(response, MAX_TOKEN_RESPONSE_BYTES, "OIDC token response").await?;
+        let response: TokenResponse =
+            serde_json::from_slice(&bytes).map_err(|_| "OIDC token response is invalid")?;
+        self.verify_for_audience(&response.id_token, &browser.client_id, Some(nonce))
+            .await
+    }
+
+    async fn verify_for_audience(
+        &self,
+        token: &str,
+        audience: &str,
+        expected_nonce: Option<&str>,
+    ) -> Result<String, &'static str> {
         if !self.policy.enabled || token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err("invalid OIDC token");
         }
@@ -138,13 +263,33 @@ impl OidcVerifier {
         }
         let key = DecodingKey::from_jwk(&key).map_err(|_| "invalid OIDC verification key")?;
         let mut validation = Validation::new(header.alg);
-        validation.set_audience(&[&self.policy.audience]);
+        validation.set_audience(&[audience]);
         let issuers = accepted_issuers(&self.policy.issuer);
         validation.set_issuer(&issuers);
         validation.set_required_spec_claims(&["exp", "iss", "aud"]);
         validation.validate_nbf = true;
         let token = decode::<Value>(token, &key, &validation).map_err(|_| "invalid OIDC token")?;
         let claims = token.claims.as_object().ok_or("invalid OIDC claims")?;
+        let authorized_party = claims.get("azp").and_then(Value::as_str);
+        let multiple_audiences = claims
+            .get("aud")
+            .and_then(Value::as_array)
+            .is_some_and(|audiences| audiences.len() > 1);
+        if authorized_party.is_some_and(|party| party != audience)
+            || (multiple_audiences && authorized_party != Some(audience))
+        {
+            return Err("OIDC authorized party does not match");
+        }
+        if let Some(expected_nonce) = expected_nonce {
+            let Some(actual_nonce) = claims.get("nonce").and_then(Value::as_str) else {
+                return Err("OIDC nonce is missing");
+            };
+            if actual_nonce.len() != expected_nonce.len()
+                || !bool::from(actual_nonce.as_bytes().ct_eq(expected_nonce.as_bytes()))
+            {
+                return Err("OIDC nonce does not match");
+            }
+        }
         if !matches_claims(&self.policy.required_claims, claims) {
             return Err("OIDC claims are not allowed");
         }
@@ -197,24 +342,7 @@ impl OidcVerifier {
         {
             return Err("OIDC JWKS response is unavailable");
         }
-        let bytes = tokio::time::timeout(Duration::from_secs(5), async move {
-            let mut body = Vec::new();
-            let mut stream = response.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|_| "OIDC JWKS response is invalid")?;
-                if body
-                    .len()
-                    .checked_add(chunk.len())
-                    .is_none_or(|length| length > MAX_JWKS_BYTES)
-                {
-                    return Err("OIDC JWKS response is too large");
-                }
-                body.extend_from_slice(&chunk);
-            }
-            Ok::<_, &'static str>(body)
-        })
-        .await
-        .map_err(|_| "OIDC JWKS response timed out")??;
+        let bytes = bounded_body(response, MAX_JWKS_BYTES, "OIDC JWKS response").await?;
         let keys: JwkSet =
             serde_json::from_slice(&bytes).map_err(|_| "OIDC JWKS response is invalid")?;
         if keys.keys.is_empty() || keys.keys.len() > 64 {
@@ -229,6 +357,40 @@ impl OidcVerifier {
         });
         Ok(keys)
     }
+}
+
+async fn bounded_body(
+    response: reqwest::Response,
+    limit: usize,
+    label: &'static str,
+) -> Result<Vec<u8>, &'static str> {
+    tokio::time::timeout(Duration::from_secs(5), async move {
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| match label {
+                "OIDC JWKS response" => "OIDC JWKS response is invalid",
+                _ => "OIDC token response is invalid",
+            })?;
+            if body
+                .len()
+                .checked_add(chunk.len())
+                .is_none_or(|length| length > limit)
+            {
+                return Err(match label {
+                    "OIDC JWKS response" => "OIDC JWKS response is too large",
+                    _ => "OIDC token response is too large",
+                });
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok::<_, &'static str>(body)
+    })
+    .await
+    .map_err(|_| match label {
+        "OIDC JWKS response" => "OIDC JWKS response timed out",
+        _ => "OIDC token response timed out",
+    })?
 }
 
 fn usable_verification_key(key: &Jwk) -> bool {
@@ -366,6 +528,47 @@ fn validate_issuer(raw: &str) -> Result<(), &'static str> {
         || issuer.fragment().is_some()
     {
         return Err("OIDC issuer must be a credential-free HTTPS URL");
+    }
+    Ok(())
+}
+
+fn validate_public_origin(raw: &str) -> Result<reqwest::Url, &'static str> {
+    if raw.is_empty() || raw.len() > 2048 || raw.ends_with('/') {
+        return Err("invalid OIDC public origin");
+    }
+    let origin = reqwest::Url::parse(raw).map_err(|_| "invalid OIDC public origin")?;
+    let literal_loopback = origin.host().is_some_and(|host| match host {
+        url::Host::Ipv4(ip) => ip.is_loopback(),
+        url::Host::Ipv6(ip) => ip.is_loopback(),
+        _ => false,
+    });
+    if !(origin.scheme() == "https" || (origin.scheme() == "http" && literal_loopback))
+        || origin.host_str().is_none()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+    {
+        return Err("OIDC public origin must be HTTPS or literal loopback HTTP");
+    }
+    Ok(origin)
+}
+
+pub(crate) fn validate_scopes(scopes: &[String]) -> Result<(), &'static str> {
+    let mut unique = std::collections::BTreeSet::new();
+    if scopes.is_empty()
+        || scopes.len() > 16
+        || !scopes.iter().any(|scope| scope == "openid")
+        || scopes.iter().any(|scope| {
+            scope.is_empty()
+                || scope.len() > 100
+                || scope.trim() != scope
+                || scope.chars().any(char::is_whitespace)
+                || !unique.insert(scope)
+        })
+    {
+        return Err("invalid OIDC browser scopes");
     }
     Ok(())
 }

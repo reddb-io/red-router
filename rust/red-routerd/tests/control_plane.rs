@@ -53,6 +53,29 @@ fn oidc_token(kid: &str, audience: &str, role: &str) -> String {
     .unwrap()
 }
 
+fn oidc_browser_token(nonce: &str) -> String {
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some("ec01".to_owned());
+    encode(
+        &header,
+        &serde_json::json!({
+            "iss":"https://issuer.example",
+            "aud":"red-router-dashboard",
+            "sub":"operator-123",
+            "email":"operator@example.com",
+            "email_verified":true,
+            "org_role":"operator",
+            "nonce":nonce,
+            "exp":SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() + 300
+        }),
+        &EncodingKey::from_ec_pem(OIDC_PRIVATE_KEY.as_bytes()).unwrap(),
+    )
+    .unwrap()
+}
+
 async fn oidc_jwks() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
     let requests = Arc::new(AtomicUsize::new(0));
     let observed = requests.clone();
@@ -78,6 +101,64 @@ async fn oidc_jwks() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) 
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (format!("http://{address}/jwks"), requests, task)
+}
+
+async fn oidc_token_server(
+    nonce: Arc<tokio::sync::RwLock<String>>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/token",
+        post(move |headers: HeaderMap, body: String| {
+            let nonce = nonce.clone();
+            async move {
+                assert_eq!(
+                    headers[header::CONTENT_TYPE].to_str().unwrap(),
+                    "application/x-www-form-urlencoded"
+                );
+                let fields: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect();
+                assert_eq!(
+                    fields.get("grant_type").map(String::as_str),
+                    Some("authorization_code")
+                );
+                assert_eq!(fields.get("code").map(String::as_str), Some("fixture-code"));
+                assert_eq!(
+                    fields.get("client_id").map(String::as_str),
+                    Some("red-router-dashboard")
+                );
+                assert_eq!(
+                    fields.get("client_secret").map(String::as_str),
+                    Some("browser-secret")
+                );
+                assert!(fields
+                    .get("code_verifier")
+                    .is_some_and(|value| value.len() >= 43));
+                let nonce = nonce.read().await.clone();
+                Json(serde_json::json!({"id_token":oidc_browser_token(&nonce)}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}"), task)
+}
+
+fn response_cookie(response: &reqwest::Response, name: &str) -> Option<String> {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| {
+            value
+                .split(';')
+                .next()
+                .filter(|pair| pair.starts_with(&format!("{name}=")))
+                .map(str::to_owned)
+        })
 }
 
 async fn provider(
@@ -346,6 +427,151 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     );
 
     restarted_task.abort();
+    jwks_task.abort();
+}
+
+#[tokio::test]
+async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("oidc-browser.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (jwks_uri, _, jwks_task) = oidc_jwks().await;
+    let nonce = Arc::new(tokio::sync::RwLock::new(String::new()));
+    let (issuer_server, issuer_task) = oidc_token_server(nonce.clone()).await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let configured = client
+        .put(format!("{base}/api/admin/oidc"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "enabled":true,
+                "issuer":"https://issuer.example",
+                "audience":"red-router-admin",
+                "jwks_uri":jwks_uri,
+                "required_claims":{"org_role":["operator"]},
+                "allowed_subjects":["operator@example.com"],
+                "browser":{
+                    "public_origin":base.clone(),
+                    "client_id":"red-router-dashboard",
+                    "client_secret":"browser-secret",
+                    "authorization_endpoint":format!("{issuer_server}/authorize"),
+                    "token_endpoint":format!("{issuer_server}/token"),
+                    "scopes":["openid","profile","email"]
+                }
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured_body: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(
+        configured_body["oidc"]["browser"]["has_client_secret"],
+        true
+    );
+    assert!(!configured_body.to_string().contains("browser-secret"));
+    let stored_browser = database.oidc_browser_config().await.unwrap().unwrap();
+    assert_ne!(stored_browser.client_secret_ciphertext, "browser-secret");
+
+    let login = client
+        .get(format!("{base}/api/auth/oidc/login"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), StatusCode::TEMPORARY_REDIRECT);
+    let flow_cookie = response_cookie(&login, "redrouter_oidc_flow").unwrap();
+    let authorization = Url::parse(login.headers()[header::LOCATION].to_str().unwrap()).unwrap();
+    let parameters: std::collections::HashMap<_, _> =
+        authorization.query_pairs().into_owned().collect();
+    assert_eq!(
+        parameters.get("response_type").map(String::as_str),
+        Some("code")
+    );
+    assert_eq!(
+        parameters.get("code_challenge_method").map(String::as_str),
+        Some("S256")
+    );
+    assert!(parameters
+        .get("code_challenge")
+        .is_some_and(|challenge| challenge.len() == 43));
+    let state = parameters.get("state").unwrap().clone();
+    *nonce.write().await = parameters.get("nonce").unwrap().clone();
+
+    let callback = client
+        .get(format!(
+            "{base}/api/auth/oidc/callback?code=fixture-code&state={state}"
+        ))
+        .header(header::COOKIE, flow_cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(callback.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        callback.headers()[header::LOCATION].to_str().unwrap(),
+        format!("{base}/dashboard")
+    );
+    let session_cookie = response_cookie(&callback, "redrouter_admin_session").unwrap();
+    let csrf_cookie = response_cookie(&callback, "redrouter_admin_csrf").unwrap();
+    let csrf = csrf_cookie.split_once('=').unwrap().1.to_owned();
+    let cookies = format!("{session_cookie}; {csrf_cookie}");
+
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &cookies)
+            .header("x-red-router-csrf", &csrf)
+            .header(header::ORIGIN, &base)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for denied in [
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &cookies)
+            .header(header::ORIGIN, &base)
+            .send()
+            .await
+            .unwrap(),
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &cookies)
+            .header("x-red-router-csrf", &csrf)
+            .header(header::ORIGIN, "https://attacker.example")
+            .send()
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    let logout = client
+        .post(format!("{base}/api/auth/logout"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        logout.headers().get_all(header::SET_COOKIE).iter().count(),
+        3
+    );
+
+    gateway_task.abort();
+    issuer_task.abort();
     jwks_task.abort();
 }
 

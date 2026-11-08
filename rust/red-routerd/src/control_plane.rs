@@ -3,8 +3,8 @@ use crate::{
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
     storage::{
-        StoredClientKey, StoredCombo, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-        StoredRoutePin,
+        StoredClientKey, StoredCombo, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
+        StoredProviderQuota, StoredRoutePin,
     },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
@@ -15,11 +15,12 @@ use aes_gcm::{
     AesGcm, Nonce,
 };
 use axum::{
-    extract::{Path, State},
-    http::{header, HeaderMap, StatusCode},
+    extract::{Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -41,6 +42,7 @@ struct Inner {
     quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
+    oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -209,6 +211,21 @@ pub struct OidcInput {
     pub required_claims: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub allowed_subjects: Vec<String>,
+    pub browser: Option<OidcBrowserInput>,
+    #[serde(default)]
+    pub clear_browser: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcBrowserInput {
+    pub public_origin: String,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    #[serde(default = "default_oidc_scopes")]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -220,6 +237,77 @@ pub struct OidcView {
     pub required_claims: BTreeMap<String, Vec<String>>,
     pub allowed_subjects: Vec<String>,
     pub revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser: Option<OidcBrowserView>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OidcBrowserView {
+    pub public_origin: String,
+    pub client_id: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub scopes: Vec<String>,
+    pub has_client_secret: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcLoginQuery {
+    pub test: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcCallbackQuery {
+    pub code: Option<String>,
+    pub state: Option<String>,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OidcFlowState {
+    state: String,
+    nonce: String,
+    verifier: String,
+    expires_at: u64,
+    revision: i64,
+    test: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AdminSession {
+    subject: String,
+    csrf_hash: String,
+    expires_at: u64,
+    revision: i64,
+}
+
+const OIDC_FLOW_COOKIE: &str = "redrouter_oidc_flow";
+const ADMIN_SESSION_COOKIE: &str = "redrouter_admin_session";
+const ADMIN_CSRF_COOKIE: &str = "redrouter_admin_csrf";
+const ADMIN_CSRF_HEADER: &str = "x-red-router-csrf";
+const OIDC_FLOW_SECONDS: u64 = 10 * 60;
+const ADMIN_SESSION_SECONDS: u64 = 12 * 60 * 60;
+
+struct BrowserLogin {
+    location: String,
+    flow_cookie: String,
+    secure: bool,
+}
+
+enum BrowserCallback {
+    Session {
+        location: String,
+        session_cookie: String,
+        csrf: String,
+        secure: bool,
+    },
+    Test {
+        location: String,
+        secure: bool,
+    },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -258,6 +346,14 @@ fn default_quota_ttl_seconds() -> u64 {
     360
 }
 
+fn default_oidc_scopes() -> Vec<String> {
+    vec![
+        "openid".to_owned(),
+        "profile".to_owned(),
+        "email".to_owned(),
+    ]
+}
+
 impl ControlPlane {
     pub async fn new(
         database: Arc<crate::storage::Database>,
@@ -293,12 +389,18 @@ impl ControlPlane {
                 return Err("duplicate provider quota state");
             }
         }
-        let oidc = database
-            .oidc_config()
-            .await?
-            .map(|record| crate::oidc::OidcVerifier::from_stored(&record, allow_private))
+        let stored_oidc = database.oidc_config().await?;
+        let oidc = stored_oidc
+            .as_ref()
+            .map(|record| crate::oidc::OidcVerifier::from_stored(record, allow_private))
             .transpose()?
             .map(Arc::new);
+        let oidc_browser = match (stored_oidc.as_ref(), database.oidc_browser_config().await?) {
+            (Some(policy), Some(browser)) if policy.revision == browser.revision => Some(Arc::new(
+                crate::oidc::OidcBrowserConfig::from_stored(&browser)?,
+            )),
+            _ => None,
+        };
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
@@ -307,6 +409,7 @@ impl ControlPlane {
             quotas: RwLock::new(quotas),
             breakers: RwLock::new(breakers),
             oidc: RwLock::new(oidc),
+            oidc_browser: RwLock::new(oidc_browser),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -426,15 +529,15 @@ impl ControlPlane {
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
-        self.0
-            .oidc
-            .read()
-            .await
-            .as_ref()
-            .map(|verifier| oidc_view(verifier.policy()))
+        let verifier = self.0.oidc.read().await.clone()?;
+        let browser = self.0.oidc_browser.read().await.clone();
+        Some(oidc_view(verifier.policy(), browser.as_deref()))
     }
 
     pub async fn configure_oidc(&self, mut input: OidcInput) -> Result<OidcView, &'static str> {
+        if input.clear_browser && input.browser.is_some() {
+            return Err("OIDC browser configuration is ambiguous");
+        }
         for allowed in input.required_claims.values_mut() {
             for value in allowed {
                 *value = value.trim().to_owned();
@@ -461,6 +564,55 @@ impl ControlPlane {
         let _mutation = self.0.mutation.lock().await;
         record.revision = revision()?;
         candidate.set_revision(record.revision);
+        let browser_record = if input.clear_browser {
+            None
+        } else if let Some(browser) = input.browser {
+            let existing = self.0.database.oidc_browser_config().await?;
+            let client_secret_ciphertext = match browser.client_secret {
+                Some(mut secret) => {
+                    if secret.is_empty() || secret.len() > 4096 {
+                        secret.zeroize();
+                        return Err("invalid OIDC client secret");
+                    }
+                    let encrypted = encrypt(
+                        &secret,
+                        "oidc-browser-client-secret",
+                        self.0.encryption_key.as_str(),
+                    )?;
+                    secret.zeroize();
+                    encrypted
+                }
+                None => existing
+                    .map(|stored| stored.client_secret_ciphertext)
+                    .ok_or("OIDC client secret is required")?,
+            };
+            let stored = StoredOidcBrowserConfig {
+                public_origin: browser.public_origin,
+                client_id: browser.client_id,
+                client_secret_ciphertext,
+                authorization_endpoint: browser.authorization_endpoint,
+                token_endpoint: browser.token_endpoint,
+                scopes_json: serde_json::to_string(&browser.scopes)
+                    .map_err(|_| "cannot encode OIDC browser scopes")?,
+                revision: record.revision,
+            };
+            crate::oidc::OidcBrowserConfig::from_stored(&stored)?;
+            Some(stored)
+        } else {
+            self.0
+                .database
+                .oidc_browser_config()
+                .await?
+                .map(|mut stored| {
+                    stored.revision = record.revision;
+                    stored
+                })
+        };
+        if let Some(browser) = &browser_record {
+            self.0.database.upsert_oidc_browser(browser).await?;
+        } else if input.clear_browser {
+            self.0.database.delete_oidc_browser().await?;
+        }
         self.0.database.upsert_oidc(&record).await?;
         let stored = self
             .0
@@ -475,15 +627,158 @@ impl ControlPlane {
             verifier.prime().await?;
             verifier
         };
+        let stored_browser = self.0.database.oidc_browser_config().await?;
+        let browser = stored_browser
+            .as_ref()
+            .filter(|browser| browser.revision == stored.revision)
+            .map(crate::oidc::OidcBrowserConfig::from_stored)
+            .transpose()?
+            .map(Arc::new);
         *self.0.oidc.write().await = Some(Arc::new(verifier));
-        oidc_stored_view(&stored)
+        *self.0.oidc_browser.write().await = browser.clone();
+        oidc_stored_view(&stored, browser.as_deref())
     }
 
     pub async fn delete_oidc(&self) -> Result<(), &'static str> {
         let _mutation = self.0.mutation.lock().await;
+        self.0.database.delete_oidc_browser().await?;
         self.0.database.delete_oidc().await?;
         *self.0.oidc.write().await = None;
+        *self.0.oidc_browser.write().await = None;
         Ok(())
+    }
+
+    async fn start_oidc_login(&self, test: bool) -> Result<BrowserLogin, &'static str> {
+        let verifier = self.0.oidc.read().await.clone().ok_or("OIDC is disabled")?;
+        let browser = self
+            .0
+            .oidc_browser
+            .read()
+            .await
+            .clone()
+            .ok_or("OIDC browser login is disabled")?;
+        if !verifier.policy().enabled || browser.revision != verifier.policy().revision {
+            return Err("OIDC browser login is disabled");
+        }
+        let now = unix_time_seconds()?;
+        let state = random_token(24)?;
+        let nonce = random_token(24)?;
+        let verifier_value = random_token(32)?;
+        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier_value.as_bytes()));
+        let flow = OidcFlowState {
+            state: state.clone(),
+            nonce: nonce.clone(),
+            verifier: verifier_value,
+            expires_at: now
+                .checked_add(OIDC_FLOW_SECONDS)
+                .ok_or("system clock is out of range")?,
+            revision: browser.revision,
+            test,
+        };
+        let flow = serde_json::to_string(&flow).map_err(|_| "cannot encode OIDC login state")?;
+        let flow_cookie = encrypt(
+            &flow,
+            "oidc-browser-login-flow",
+            self.0.encryption_key.as_str(),
+        )?;
+        let mut location = browser.authorization_endpoint.clone();
+        location
+            .query_pairs_mut()
+            .append_pair("response_type", "code")
+            .append_pair("client_id", &browser.client_id)
+            .append_pair("redirect_uri", &browser.callback_uri())
+            .append_pair("scope", &browser.scopes.join(" "))
+            .append_pair("state", &state)
+            .append_pair("nonce", &nonce)
+            .append_pair("code_challenge", &challenge)
+            .append_pair("code_challenge_method", "S256");
+        Ok(BrowserLogin {
+            location: location.to_string(),
+            flow_cookie,
+            secure: browser.secure_cookies(),
+        })
+    }
+
+    async fn complete_oidc_login(
+        &self,
+        flow_cookie: &str,
+        code: &str,
+        returned_state: &str,
+    ) -> Result<BrowserCallback, &'static str> {
+        if flow_cookie.len() > 8192 || code.is_empty() || returned_state.is_empty() {
+            return Err("invalid OIDC authorization response");
+        }
+        let flow = decrypt(
+            flow_cookie,
+            "oidc-browser-login-flow",
+            self.0.encryption_key.as_str(),
+        )?;
+        let flow: OidcFlowState =
+            serde_json::from_str(&flow).map_err(|_| "invalid OIDC login state")?;
+        let now = unix_time_seconds()?;
+        if flow.expires_at < now
+            || flow.state.len() != returned_state.len()
+            || !bool::from(flow.state.as_bytes().ct_eq(returned_state.as_bytes()))
+        {
+            return Err("invalid OIDC login state");
+        }
+        let verifier = self.0.oidc.read().await.clone().ok_or("OIDC is disabled")?;
+        let browser = self
+            .0
+            .oidc_browser
+            .read()
+            .await
+            .clone()
+            .ok_or("OIDC browser login is disabled")?;
+        if !verifier.policy().enabled
+            || flow.revision != verifier.policy().revision
+            || flow.revision != browser.revision
+        {
+            return Err("OIDC login state is stale");
+        }
+        let secret = decrypt(
+            &browser.client_secret_ciphertext,
+            "oidc-browser-client-secret",
+            self.0.encryption_key.as_str(),
+        )?;
+        let subject = verifier
+            .exchange_browser_code(&browser, code, &flow.verifier, &flow.nonce, &secret)
+            .await?;
+        if flow.test {
+            return Ok(BrowserCallback::Test {
+                location: browser
+                    .public_origin
+                    .join("/settings?tab=security&oidcTest=success")
+                    .map_err(|_| "invalid OIDC public origin")?
+                    .to_string(),
+                secure: browser.secure_cookies(),
+            });
+        }
+        let csrf = random_token(32)?;
+        let session = AdminSession {
+            subject,
+            csrf_hash: hex::encode(Sha256::digest(csrf.as_bytes())),
+            expires_at: now
+                .checked_add(ADMIN_SESSION_SECONDS)
+                .ok_or("system clock is out of range")?,
+            revision: browser.revision,
+        };
+        let session = serde_json::to_string(&session).map_err(|_| "cannot encode admin session")?;
+        let session_cookie = encrypt(
+            &session,
+            "oidc-browser-admin-session",
+            self.0.encryption_key.as_str(),
+        )?;
+        Ok(BrowserCallback::Session {
+            location: browser
+                .public_origin
+                .join("/dashboard")
+                .map_err(|_| "invalid OIDC public origin")?
+                .to_string(),
+            session_cookie,
+            csrf,
+            secure: browser.secure_cookies(),
+        })
     }
 
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
@@ -1044,32 +1339,99 @@ impl ControlPlane {
     }
 
     async fn authorized(&self, headers: &HeaderMap) -> bool {
-        if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
+        let authorization_count = headers.get_all(header::AUTHORIZATION).iter().count();
+        if authorization_count > 0 {
+            if authorization_count != 1 {
+                return false;
+            }
+            let Some(candidate) = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
+            else {
+                return false;
+            };
+            if (32..=512).contains(&candidate.len()) {
+                let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
+                if bool::from(self.0.admin_hash.ct_eq(&digest)) {
+                    return true;
+                }
+            }
+            let verifier = self.0.oidc.read().await.clone();
+            return match verifier {
+                Some(verifier) => verifier.verify(candidate).await.is_ok(),
+                None => false,
+            };
+        }
+
+        let Some(session_cookie) = unique_cookie(headers, ADMIN_SESSION_COOKIE) else {
+            return false;
+        };
+        let Some(csrf_cookie) = unique_cookie(headers, ADMIN_CSRF_COOKIE) else {
+            return false;
+        };
+        if headers.get_all(ADMIN_CSRF_HEADER).iter().count() != 1
+            || headers.get_all(header::ORIGIN).iter().count() != 1
+        {
             return false;
         }
-        let Some(candidate) = headers
-            .get(header::AUTHORIZATION)
+        let Some(csrf_header) = headers
+            .get(ADMIN_CSRF_HEADER)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
+            .filter(|value| value.len() <= 256)
         else {
             return false;
         };
-        if (32..=512).contains(&candidate.len()) {
-            let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
-            if bool::from(self.0.admin_hash.ct_eq(&digest)) {
-                return true;
-            }
+        if csrf_cookie.len() != csrf_header.len()
+            || !bool::from(csrf_cookie.as_bytes().ct_eq(csrf_header.as_bytes()))
+        {
+            return false;
         }
+        let browser = self.0.oidc_browser.read().await.clone();
         let verifier = self.0.oidc.read().await.clone();
-        match verifier {
-            Some(verifier) => verifier.verify(candidate).await.is_ok(),
-            None => false,
+        let (Some(browser), Some(verifier)) = (browser, verifier) else {
+            return false;
+        };
+        let expected_origin = browser.public_origin.origin().ascii_serialization();
+        if headers
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            != Some(expected_origin.as_str())
+        {
+            return false;
         }
+        let Ok(session) = decrypt(
+            &session_cookie,
+            "oidc-browser-admin-session",
+            self.0.encryption_key.as_str(),
+        ) else {
+            return false;
+        };
+        let Ok(session) = serde_json::from_str::<AdminSession>(&session) else {
+            return false;
+        };
+        let Ok(now) = unix_time_seconds() else {
+            return false;
+        };
+        if session.subject.is_empty()
+            || session.subject.len() > 512
+            || session.expires_at < now
+            || session.revision != verifier.policy().revision
+            || session.revision != browser.revision
+        {
+            return false;
+        }
+        let csrf_hash = hex::encode(Sha256::digest(csrf_cookie.as_bytes()));
+        csrf_hash.len() == session.csrf_hash.len()
+            && bool::from(csrf_hash.as_bytes().ct_eq(session.csrf_hash.as_bytes()))
     }
 }
 
-fn oidc_view(policy: &crate::oidc::OidcPolicy) -> OidcView {
+fn oidc_view(
+    policy: &crate::oidc::OidcPolicy,
+    browser: Option<&crate::oidc::OidcBrowserConfig>,
+) -> OidcView {
     OidcView {
         enabled: policy.enabled,
         issuer: policy.issuer.clone(),
@@ -1078,12 +1440,27 @@ fn oidc_view(policy: &crate::oidc::OidcPolicy) -> OidcView {
         required_claims: policy.required_claims.clone(),
         allowed_subjects: policy.allowed_subjects.clone(),
         revision: policy.revision.to_string(),
+        browser: browser.map(|browser| OidcBrowserView {
+            public_origin: browser
+                .public_origin
+                .to_string()
+                .trim_end_matches('/')
+                .to_owned(),
+            client_id: browser.client_id.clone(),
+            authorization_endpoint: browser.authorization_endpoint.to_string(),
+            token_endpoint: browser.token_endpoint.to_string(),
+            scopes: browser.scopes.clone(),
+            has_client_secret: !browser.client_secret_ciphertext.is_empty(),
+        }),
     }
 }
 
-fn oidc_stored_view(stored: &StoredOidcConfig) -> Result<OidcView, &'static str> {
+fn oidc_stored_view(
+    stored: &StoredOidcConfig,
+    browser: Option<&crate::oidc::OidcBrowserConfig>,
+) -> Result<OidcView, &'static str> {
     let verifier = crate::oidc::OidcVerifier::from_stored(stored, false)?;
-    Ok(oidc_view(verifier.policy()))
+    Ok(oidc_view(verifier.policy(), browser))
 }
 
 fn view(record: &StoredProvider) -> ProviderView {
@@ -1499,6 +1876,75 @@ fn unix_time_ms() -> Result<i64, &'static str> {
     i64::try_from(millis).map_err(|_| "system clock is out of range")
 }
 
+fn unix_time_seconds() -> Result<u64, &'static str> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is unavailable")
+        .map(|duration| duration.as_secs())
+}
+
+fn random_token(bytes: usize) -> Result<String, &'static str> {
+    let mut value = Zeroizing::new(vec![0u8; bytes]);
+    getrandom::fill(value.as_mut()).map_err(|_| "cannot generate OIDC login state")?;
+    Ok(URL_SAFE_NO_PAD.encode(value.as_ref()))
+}
+
+fn unique_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
+    let mut found = None;
+    for header in headers.get_all(header::COOKIE) {
+        let value = header.to_str().ok()?;
+        if value.len() > 16 * 1024 {
+            return None;
+        }
+        for pair in value.split(';') {
+            let (candidate_name, candidate_value) = pair.trim().split_once('=')?;
+            if candidate_name == name {
+                if found.is_some() || candidate_value.is_empty() || candidate_value.len() > 8192 {
+                    return None;
+                }
+                found = Some(candidate_value.to_owned());
+            }
+        }
+    }
+    found
+}
+
+fn cookie(
+    name: &str,
+    value: &str,
+    max_age: u64,
+    http_only: bool,
+    secure: bool,
+    same_site: &str,
+) -> String {
+    let mut cookie = format!("{name}={value}; Path=/; Max-Age={max_age}; SameSite={same_site}");
+    if http_only {
+        cookie.push_str("; HttpOnly");
+    }
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+fn redirect_response(status: StatusCode, location: String, cookies: &[String]) -> Response {
+    let Ok(location) = HeaderValue::from_str(&location) else {
+        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid redirect target");
+    };
+    let mut response = status.into_response();
+    response.headers_mut().insert(header::LOCATION, location);
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    for value in cookies {
+        let Ok(value) = HeaderValue::from_str(value) else {
+            return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid session cookie");
+        };
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    response
+}
+
 fn derive_key(secret: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, &'static str> {
     let mut key = Zeroizing::new([0u8; 32]);
     let params = scrypt::Params::new(14, 8, 1, 32).map_err(|_| "invalid encryption parameters")?;
@@ -1573,6 +2019,150 @@ fn api_error(status: StatusCode, message: &'static str) -> Response {
         Json(serde_json::json!({"error":{"message":message,"type":"control_plane_error"}})),
     )
         .into_response()
+}
+
+pub async fn oidc_login(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<OidcLoginQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let test = match query.test.as_deref() {
+        None => false,
+        Some("1") => true,
+        _ => return api_error(StatusCode::BAD_REQUEST, "Invalid OIDC login request"),
+    };
+    if test && !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
+    }
+    match control.start_oidc_login(test).await {
+        Ok(login) => redirect_response(
+            StatusCode::TEMPORARY_REDIRECT,
+            login.location,
+            &[cookie(
+                OIDC_FLOW_COOKIE,
+                &login.flow_cookie,
+                OIDC_FLOW_SECONDS,
+                true,
+                login.secure,
+                "Lax",
+            )],
+        ),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OIDC browser login unavailable",
+        ),
+    }
+}
+
+pub async fn oidc_callback(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<OidcCallbackQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let secure = control
+        .0
+        .oidc_browser
+        .read()
+        .await
+        .as_ref()
+        .is_some_and(|browser| browser.secure_cookies());
+    let clear_flow = cookie(OIDC_FLOW_COOKIE, "", 0, true, secure, "Lax");
+    if query.error.is_some() {
+        let mut response = api_error(StatusCode::UNAUTHORIZED, "OIDC authorization was denied");
+        if let Ok(value) = HeaderValue::from_str(&clear_flow) {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+        return response;
+    }
+    let (Some(code), Some(returned_state), Some(flow_cookie)) = (
+        query.code.as_deref(),
+        query.state.as_deref(),
+        unique_cookie(&headers, OIDC_FLOW_COOKIE),
+    ) else {
+        let mut response = api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid OIDC authorization response",
+        );
+        if let Ok(value) = HeaderValue::from_str(&clear_flow) {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+        return response;
+    };
+    match control
+        .complete_oidc_login(&flow_cookie, code, returned_state)
+        .await
+    {
+        Ok(BrowserCallback::Test { location, secure }) => redirect_response(
+            StatusCode::SEE_OTHER,
+            location,
+            &[cookie(OIDC_FLOW_COOKIE, "", 0, true, secure, "Lax")],
+        ),
+        Ok(BrowserCallback::Session {
+            location,
+            session_cookie,
+            csrf,
+            secure,
+        }) => redirect_response(
+            StatusCode::SEE_OTHER,
+            location,
+            &[
+                cookie(OIDC_FLOW_COOKIE, "", 0, true, secure, "Lax"),
+                cookie(
+                    ADMIN_SESSION_COOKIE,
+                    &session_cookie,
+                    ADMIN_SESSION_SECONDS,
+                    true,
+                    secure,
+                    "Strict",
+                ),
+                cookie(
+                    ADMIN_CSRF_COOKIE,
+                    &csrf,
+                    ADMIN_SESSION_SECONDS,
+                    false,
+                    secure,
+                    "Strict",
+                ),
+            ],
+        ),
+        Err(_) => {
+            let mut response = api_error(StatusCode::UNAUTHORIZED, "OIDC authentication failed");
+            if let Ok(value) = HeaderValue::from_str(&clear_flow) {
+                response.headers_mut().append(header::SET_COOKIE, value);
+            }
+            response
+        }
+    }
+}
+
+pub async fn oidc_logout(State(state): State<ProxyState>) -> Response {
+    let secure = match &state.control_plane {
+        Some(control) => control
+            .0
+            .oidc_browser
+            .read()
+            .await
+            .as_ref()
+            .is_some_and(|browser| browser.secure_cookies()),
+        None => false,
+    };
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    for value in [
+        cookie(ADMIN_SESSION_COOKIE, "", 0, true, secure, "Strict"),
+        cookie(ADMIN_CSRF_COOKIE, "", 0, false, secure, "Strict"),
+        cookie(OIDC_FLOW_COOKIE, "", 0, true, secure, "Lax"),
+    ] {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+    }
+    response
 }
 
 pub async fn get_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Response {

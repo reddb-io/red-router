@@ -42,6 +42,10 @@ const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
 const DELETE_OIDC: &str = "DELETE FROM redrouter_control_oidc WHERE id = 1";
+const CREATE_OIDC_BROWSER: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc_browser (id INTEGER PRIMARY KEY, public_origin TEXT NOT NULL, client_id TEXT NOT NULL, client_secret_ciphertext TEXT NOT NULL, authorization_endpoint TEXT NOT NULL, token_endpoint TEXT NOT NULL, scopes_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const READ_OIDC_BROWSER: &str = "SELECT public_origin, client_id, client_secret_ciphertext, authorization_endpoint, token_endpoint, scopes_json, revision FROM redrouter_control_oidc_browser WHERE id = 1";
+const UPSERT_OIDC_BROWSER: &str = "INSERT INTO redrouter_control_oidc_browser (id, public_origin, client_id, client_secret_ciphertext, authorization_endpoint, token_endpoint, scopes_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET public_origin = $1, client_id = $2, client_secret_ciphertext = $3, authorization_endpoint = $4, token_endpoint = $5, scopes_json = $6, revision = $7";
+const DELETE_OIDC_BROWSER: &str = "DELETE FROM redrouter_control_oidc_browser WHERE id = 1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -129,6 +133,17 @@ pub struct StoredOidcConfig {
     pub revision: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredOidcBrowserConfig {
+    pub public_origin: String,
+    pub client_id: String,
+    pub client_secret_ciphertext: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub scopes_json: String,
+    pub revision: i64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     ReddbEmbedded,
@@ -212,6 +227,7 @@ impl Database {
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
                         CREATE_OIDC,
+                        CREATE_OIDC_BROWSER,
                     ] {
                         db.query(statement)
                             .await
@@ -299,6 +315,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
+                db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -330,6 +347,7 @@ impl Database {
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
                     CREATE_OIDC,
+                    CREATE_OIDC_BROWSER,
                 ] {
                     sqlx::query(statement)
                         .execute(&pool)
@@ -1010,6 +1028,68 @@ impl Database {
         Ok(())
     }
 
+    pub async fn oidc_browser_config(
+        &self,
+    ) -> Result<Option<StoredOidcBrowserConfig>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_OIDC_BROWSER)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read OIDC browser configuration")?
+                .as_ref()
+                .map(read_sql_oidc_browser)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_OIDC_BROWSER, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_oidc_browser)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_OIDC_BROWSER)
+                .await
+                .map_err(|_| "cannot read OIDC browser configuration")?
+                .rows
+                .first()
+                .map(read_reddb_oidc_browser)
+                .transpose(),
+        }
+    }
+
+    pub async fn upsert_oidc_browser(
+        &self,
+        config: &StoredOidcBrowserConfig,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_OIDC_BROWSER)
+                    .bind(&config.public_origin)
+                    .bind(&config.client_id)
+                    .bind(&config.client_secret_ciphertext)
+                    .bind(&config.authorization_endpoint)
+                    .bind(&config.token_endpoint)
+                    .bind(&config.scopes_json)
+                    .bind(config.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write OIDC browser configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_OIDC_BROWSER, &oidc_browser_params(config))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_OIDC_BROWSER, oidc_browser_params(config))
+                    .await
+                    .map_err(|_| "cannot write OIDC browser configuration")?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn delete_oidc(&self) -> Result<(), &'static str> {
         match self {
             Self::Sql(pool) => {
@@ -1026,6 +1106,27 @@ impl Database {
                 db.query(DELETE_OIDC)
                     .await
                     .map_err(|_| "cannot delete OIDC configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_oidc_browser(&self) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_OIDC_BROWSER)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete OIDC browser configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_OIDC_BROWSER, &[]).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query(DELETE_OIDC_BROWSER)
+                    .await
+                    .map_err(|_| "cannot delete OIDC browser configuration")?;
             }
         }
         Ok(())
@@ -1558,6 +1659,60 @@ fn oidc_params(config: &StoredOidcConfig, enabled: i64) -> Vec<reddb_client::Val
         reddb_client::Value::Text(config.jwks_uri.clone()),
         reddb_client::Value::Text(config.required_claims_json.clone()),
         reddb_client::Value::Text(config.allowed_subjects_json.clone()),
+        reddb_client::Value::Int(config.revision),
+    ]
+}
+
+fn read_sql_oidc_browser(row: &sqlx::any::AnyRow) -> Result<StoredOidcBrowserConfig, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid OIDC browser record");
+    let integer = |name| row.try_get(name).map_err(|_| "invalid OIDC browser record");
+    Ok(StoredOidcBrowserConfig {
+        public_origin: text("public_origin")?,
+        client_id: text("client_id")?,
+        client_secret_ciphertext: text("client_secret_ciphertext")?,
+        authorization_endpoint: text("authorization_endpoint")?,
+        token_endpoint: text("token_endpoint")?,
+        scopes_json: text("scopes_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_oidc_browser(
+    row: &reddb_client::Row,
+) -> Result<StoredOidcBrowserConfig, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid OIDC browser record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid OIDC browser record"),
+    };
+    Ok(StoredOidcBrowserConfig {
+        public_origin: text("public_origin")?,
+        client_id: text("client_id")?,
+        client_secret_ciphertext: text("client_secret_ciphertext")?,
+        authorization_endpoint: text("authorization_endpoint")?,
+        token_endpoint: text("token_endpoint")?,
+        scopes_json: text("scopes_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn oidc_browser_params(config: &StoredOidcBrowserConfig) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(config.public_origin.clone()),
+        reddb_client::Value::Text(config.client_id.clone()),
+        reddb_client::Value::Text(config.client_secret_ciphertext.clone()),
+        reddb_client::Value::Text(config.authorization_endpoint.clone()),
+        reddb_client::Value::Text(config.token_endpoint.clone()),
+        reddb_client::Value::Text(config.scopes_json.clone()),
         reddb_client::Value::Int(config.revision),
     ]
 }

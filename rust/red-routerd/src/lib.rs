@@ -1389,6 +1389,9 @@ pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/readyz", get(ready))
+        .route("/api/auth/oidc/login", get(control_plane::oidc_login))
+        .route("/api/auth/oidc/callback", get(control_plane::oidc_callback))
+        .route("/api/auth/logout", post(control_plane::oidc_logout))
         .route("/api/admin/providers", get(control_plane::list))
         .route(
             "/api/admin/oidc",

@@ -1,6 +1,6 @@
 use red_routerd::storage::{
-    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredOidcConfig,
-    StoredProvider, StoredProviderQuota, StoredRoutePin,
+    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredOidcBrowserConfig,
+    StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -134,6 +134,20 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_oidc(&oidc).await.unwrap();
     assert_eq!(db.oidc_config().await.unwrap(), Some(oidc.clone()));
+    let oidc_browser = StoredOidcBrowserConfig {
+        public_origin: "https://router.example".into(),
+        client_id: "red-router-dashboard".into(),
+        client_secret_ciphertext: "encrypted-client-secret".into(),
+        authorization_endpoint: "https://issuer.example/authorize".into(),
+        token_endpoint: "https://issuer.example/token".into(),
+        scopes_json: r#"["openid","profile","email"]"#.into(),
+        revision: 12,
+    };
+    db.upsert_oidc_browser(&oidc_browser).await.unwrap();
+    assert_eq!(
+        db.oidc_browser_config().await.unwrap(),
+        Some(oidc_browser.clone())
+    );
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -154,6 +168,12 @@ async fn exercise(backend: Backend, url: &str) {
     reopened.delete_breaker("first").await.unwrap();
     assert!(reopened.breakers().await.unwrap().is_empty());
     assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
+    assert_eq!(
+        reopened.oidc_browser_config().await.unwrap(),
+        Some(oidc_browser)
+    );
+    reopened.delete_oidc_browser().await.unwrap();
+    assert_eq!(reopened.oidc_browser_config().await.unwrap(), None);
     reopened.delete_oidc().await.unwrap();
     assert_eq!(reopened.oidc_config().await.unwrap(), None);
     reopened.close().await.unwrap();
