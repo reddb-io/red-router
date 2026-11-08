@@ -98,6 +98,11 @@ async fn exercise(backend: Backend, url: &str) {
         model_id_format: "flat".into(),
         tenant_id: "acme".into(),
         created_by: "test-admin".into(),
+        max_tokens_per_minute: 100_000,
+        max_tokens_per_day: 1_000_000,
+        max_monthly_microusd: 25_000_000,
+        reservation_tokens: 10_000,
+        reservation_microusd: 500_000,
         revision: 5,
     };
     db.upsert_client_key(&client_key).await.unwrap();
@@ -312,6 +317,11 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
         model_id_format: "flat".into(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),
+        max_tokens_per_minute: 0,
+        max_tokens_per_day: 0,
+        max_monthly_microusd: 0,
+        reservation_tokens: 0,
+        reservation_microusd: 0,
         revision: 1,
     })
     .await
@@ -360,6 +370,11 @@ async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
         model_id_format: "prefixed".into(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),
+        max_tokens_per_minute: 0,
+        max_tokens_per_day: 0,
+        max_monthly_microusd: 0,
+        reservation_tokens: 0,
+        reservation_microusd: 0,
         revision: 1,
     })
     .await

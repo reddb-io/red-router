@@ -8,6 +8,7 @@ pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
+mod native_usage;
 mod oidc;
 mod policy;
 pub mod product;
@@ -194,6 +195,23 @@ pub(crate) struct LiveProvider {
 struct ProductFallback {
     connection: product::ProductConnection,
     provider_key: HeaderValue,
+}
+
+enum UsageAttempt {
+    Product {
+        connection: product::ProductConnection,
+        model: String,
+        prices: Option<accounting::TokenPrices>,
+        event_id: String,
+    },
+    Native {
+        control: control_plane::ControlPlane,
+        identity: policy::ClientIdentity,
+        provider: String,
+        model: String,
+        prices: Option<accounting::TokenPrices>,
+        event_id: String,
+    },
 }
 
 pub(crate) struct ProviderLoadGuard {
@@ -2691,11 +2709,16 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
-    let usage_accounting = state
+    let product_usage_accounting = state
         .product_connection
         .as_ref()
         .is_some_and(|c| c.usage_accounting_enabled());
-    if usage_accounting && !state.product_client_keys {
+    let native_usage_identity = policy
+        .identity()
+        .filter(|identity| identity.usage_quota.is_some())
+        .cloned();
+    let usage_accounting = product_usage_accounting || native_usage_identity.is_some();
+    if product_usage_accounting && !state.product_client_keys {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Usage accounting requires product client keys",
@@ -3019,7 +3042,7 @@ async fn proxy_request(
         } else {
             None
         };
-        let accounting_attempt = if usage_accounting {
+        let accounting_attempt = if product_usage_accounting {
             let connection = if let Some(target) = target {
                 target.product_connection.as_ref()
             } else if product_index > 0 {
@@ -3081,12 +3104,59 @@ async fn proxy_request(
                     )
                 }
             };
-            Some((
-                connection.clone(),
-                target_model.to_owned(),
+            Some(UsageAttempt::Product {
+                connection: connection.clone(),
+                model: target_model.to_owned(),
                 prices,
                 event_id,
-            ))
+            })
+        } else if let Some(identity) = native_usage_identity.as_ref() {
+            let Some(control) = state.control_plane.as_ref() else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Native usage accounting unavailable",
+                );
+            };
+            let provider = target
+                .and_then(|target| target.provider_name.as_deref())
+                .or_else(|| {
+                    live_provider
+                        .as_ref()
+                        .and_then(|provider| provider.provider_name.as_deref())
+                });
+            let Some(provider) = provider else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Native usage provider unavailable",
+                );
+            };
+            let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
+            let (event_id, prices) = match control
+                .begin_native_usage(identity, provider, target_model)
+                .await
+            {
+                Ok(attempt) => attempt,
+                Err("native usage quota exceeded") => {
+                    return error(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Client token or spend quota exceeded",
+                    )
+                }
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Native usage reservation unavailable",
+                    )
+                }
+            };
+            Some(UsageAttempt::Native {
+                control: control.clone(),
+                identity: identity.clone(),
+                provider: provider.to_owned(),
+                model: target_model.to_owned(),
+                prices,
+                event_id,
+            })
         } else {
             None
         };
@@ -3533,13 +3603,7 @@ async fn proxy_request(
         };
     }
     if response.status().is_success() {
-        if let Some((connection, model, prices, event_id)) = final_accounting {
-            let Some(access) = &product_access else {
-                return error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Usage accounting unavailable",
-                );
-            };
+        if let Some(accounting_attempt) = final_accounting {
             let status = response.status();
             let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
             let Some(response) = response.into_streaming() else {
@@ -3560,16 +3624,47 @@ async fn proxy_request(
                         "Invalid provider stream content type",
                     );
                 }
-                let body = usage_stream::forward(
-                    response,
-                    usage_stream::UsageContext {
+                let usage_context = match accounting_attempt {
+                    UsageAttempt::Product {
                         connection,
-                        event_id,
-                        key: access.key_id.clone(),
                         model,
                         prices,
-                        usage_attributes: access.usage_attributes.clone(),
+                        event_id,
+                    } => {
+                        let Some(access) = &product_access else {
+                            return error(
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                "Usage accounting unavailable",
+                            );
+                        };
+                        usage_stream::UsageContext::Product {
+                            connection,
+                            event_id,
+                            key: access.key_id.clone(),
+                            model,
+                            prices,
+                            usage_attributes: access.usage_attributes.clone(),
+                        }
+                    }
+                    UsageAttempt::Native {
+                        control,
+                        identity,
+                        provider,
+                        model,
+                        prices,
+                        event_id,
+                    } => usage_stream::UsageContext::Native {
+                        control,
+                        identity,
+                        provider,
+                        model,
+                        prices,
+                        event_id,
                     },
+                };
+                let body = usage_stream::forward(
+                    response,
+                    usage_context,
                     (permit, client_permit),
                     provider_load_guard,
                 );
@@ -3625,18 +3720,51 @@ async fn proxy_request(
                     "Provider response is missing valid token usage",
                 );
             };
-            if connection
-                .record_usage(
-                    &event_id,
-                    &access.key_id,
-                    &model,
-                    &usage,
-                    prices.as_ref(),
-                    &access.usage_attributes,
-                )
-                .await
-                .is_err()
-            {
+            let recorded = match accounting_attempt {
+                UsageAttempt::Product {
+                    connection,
+                    model,
+                    prices,
+                    event_id,
+                } => {
+                    let Some(access) = &product_access else {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        );
+                    };
+                    connection
+                        .record_usage(
+                            &event_id,
+                            &access.key_id,
+                            &model,
+                            &usage,
+                            prices.as_ref(),
+                            &access.usage_attributes,
+                        )
+                        .await
+                }
+                UsageAttempt::Native {
+                    control,
+                    identity,
+                    provider,
+                    model,
+                    prices,
+                    event_id,
+                } => {
+                    control
+                        .record_native_usage(
+                            &event_id,
+                            &identity,
+                            &provider,
+                            &model,
+                            &usage,
+                            prices.as_ref(),
+                        )
+                        .await
+                }
+            };
+            if recorded.is_err() {
                 return error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Usage accounting unavailable",

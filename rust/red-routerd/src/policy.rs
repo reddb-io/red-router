@@ -32,8 +32,10 @@ pub(crate) struct ClientPolicy {
 pub(crate) struct ClientIdentity {
     pub id: Arc<str>,
     pub name: Arc<str>,
+    pub tenant_id: Arc<str>,
     pub role: &'static str,
     pub id_format: Arc<str>,
+    pub usage_quota: Option<crate::native_usage::NativeQuota>,
 }
 
 enum ClientCredential {
@@ -44,6 +46,7 @@ enum ClientCredential {
 pub(crate) struct StoredPolicy {
     pub id: String,
     pub name: String,
+    pub tenant_id: String,
     pub model_id_format: String,
     pub key_hash: [u8; 32],
     pub enabled: bool,
@@ -56,6 +59,7 @@ pub(crate) struct StoredPolicy {
     pub max_concurrent_requests: Option<usize>,
     pub max_requests_per_minute: Option<usize>,
     pub max_requests_per_day: Option<usize>,
+    pub usage_quota: Option<crate::native_usage::NativeQuota>,
 }
 
 struct RateLimit {
@@ -149,6 +153,7 @@ impl ClientPolicies {
                         identity: Some(ClientIdentity {
                             id: Arc::from(policy.id),
                             name: Arc::from(policy.name),
+                            tenant_id: Arc::from(policy.tenant_id),
                             role: if policy
                                 .scopes
                                 .iter()
@@ -159,6 +164,7 @@ impl ClientPolicies {
                                 "standard"
                             },
                             id_format: Arc::from(policy.model_id_format),
+                            usage_quota: policy.usage_quota,
                         }),
                         enabled: policy.enabled,
                         expires_at_unix: policy.expires_at_unix,

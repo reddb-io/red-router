@@ -53,6 +53,7 @@ struct Inner {
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
     catalog_source: reqwest::Url,
+    native_usage: RwLock<Option<crate::native_usage::NativeUsage>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -144,6 +145,11 @@ pub struct ClientKeyInput {
     pub max_concurrent_requests: Option<u64>,
     pub max_requests_per_minute: Option<u64>,
     pub max_requests_per_day: Option<u64>,
+    pub max_tokens_per_minute: Option<u64>,
+    pub max_tokens_per_day: Option<u64>,
+    pub max_spend_per_month_usd: Option<f64>,
+    pub reservation_tokens: Option<u64>,
+    pub reservation_spend_usd: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +174,11 @@ pub struct ClientKeyIssueInput {
     pub max_concurrent_requests: Option<u64>,
     pub max_requests_per_minute: Option<u64>,
     pub max_requests_per_day: Option<u64>,
+    pub max_tokens_per_minute: Option<u64>,
+    pub max_tokens_per_day: Option<u64>,
+    pub max_spend_per_month_usd: Option<f64>,
+    pub reservation_tokens: Option<u64>,
+    pub reservation_spend_usd: Option<f64>,
 }
 
 impl ClientKeyIssueInput {
@@ -187,6 +198,11 @@ impl ClientKeyIssueInput {
             max_concurrent_requests: self.max_concurrent_requests,
             max_requests_per_minute: self.max_requests_per_minute,
             max_requests_per_day: self.max_requests_per_day,
+            max_tokens_per_minute: self.max_tokens_per_minute,
+            max_tokens_per_day: self.max_tokens_per_day,
+            max_spend_per_month_usd: self.max_spend_per_month_usd,
+            reservation_tokens: self.reservation_tokens,
+            reservation_spend_usd: self.reservation_spend_usd,
         }
     }
 }
@@ -208,6 +224,11 @@ pub struct ClientKeyView {
     pub max_concurrent_requests: Option<u64>,
     pub max_requests_per_minute: Option<u64>,
     pub max_requests_per_day: Option<u64>,
+    pub max_tokens_per_minute: Option<u64>,
+    pub max_tokens_per_day: Option<u64>,
+    pub max_spend_per_month_usd: Option<f64>,
+    pub reservation_tokens: Option<u64>,
+    pub reservation_spend_usd: Option<f64>,
     pub revision: String,
 }
 
@@ -658,6 +679,11 @@ impl ControlPlane {
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
             .map_err(|_| "cannot initialize models.dev client")?;
+        let native_usage = if database.is_sqlite().await {
+            Some(crate::native_usage::NativeUsage::new(database.clone())?)
+        } else {
+            None
+        };
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
@@ -678,6 +704,7 @@ impl ControlPlane {
             catalog_refresh: tokio::sync::Mutex::new(()),
             catalog_client,
             catalog_source,
+            native_usage: RwLock::new(native_usage),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -689,6 +716,17 @@ impl ControlPlane {
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
         Ok(plane)
+    }
+
+    /// Enable Rust-owned token and spend accounting. The SQL storage selected
+    /// by the caller must be SQLite; other backends remain fail-closed until
+    /// they gain an equivalent atomic reservation implementation.
+    pub async fn enable_sqlite_usage(&self) -> Result<(), &'static str> {
+        let usage = crate::native_usage::NativeUsage::new(self.0.database.clone())?;
+        *self.0.native_usage.write().await = Some(usage);
+        // Existing quota-bearing keys must become visible only after their
+        // enforcement store is ready.
+        self.refresh_clients().await
     }
 
     fn spawn_client_policy_sync(&self, cadence: Duration) {
@@ -888,6 +926,100 @@ impl ControlPlane {
             ClientSnapshot::Current(policies) => Ok(Some(policies.clone())),
             ClientSnapshot::Unavailable => Err("client key storage unavailable"),
         }
+    }
+
+    pub(crate) async fn begin_native_usage(
+        &self,
+        identity: &crate::policy::ClientIdentity,
+        provider: &str,
+        model: &str,
+    ) -> Result<(String, Option<crate::accounting::TokenPrices>), &'static str> {
+        let quota = identity
+            .usage_quota
+            .ok_or("native usage quota is unavailable")?;
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        let prices = self.native_usage_prices(provider, model).await?;
+        if quota.max_monthly_microusd > 0 && prices.is_none() {
+            return Err("native spend quota requires catalog pricing");
+        }
+        let event_id = format!("usage_{}", random_token(16)?);
+        let allowed = usage
+            .reserve(&crate::native_usage::Reservation {
+                event_id: &event_id,
+                key_id: &identity.id,
+                tenant_id: &identity.tenant_id,
+                provider,
+                model,
+                quota,
+                now_ms: unix_time_ms()?,
+            })
+            .await?;
+        if !allowed {
+            return Err("native usage quota exceeded");
+        }
+        Ok((event_id, prices))
+    }
+
+    pub(crate) async fn record_native_usage(
+        &self,
+        event_id: &str,
+        identity: &crate::policy::ClientIdentity,
+        provider: &str,
+        model: &str,
+        usage_event: &crate::accounting::ChatUsage,
+        prices: Option<&crate::accounting::TokenPrices>,
+    ) -> Result<(), &'static str> {
+        let store = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        store
+            .settle(&crate::native_usage::UsageEvent {
+                event_id,
+                key_id: &identity.id,
+                tenant_id: &identity.tenant_id,
+                provider,
+                model,
+                usage: usage_event,
+                prices,
+                now_ms: unix_time_ms()?,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn native_usage_prices(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Result<Option<crate::accounting::TokenPrices>, &'static str> {
+        let catalog = self.0.catalog.read().await.catalog.clone();
+        let Some(metadata) = catalog.model(provider, model)? else {
+            return Ok(None);
+        };
+        let Some(cost) = metadata.cost else {
+            return Ok(None);
+        };
+        let (Some(input), Some(output)) = (cost.input, cost.output) else {
+            return Ok(None);
+        };
+        crate::accounting::TokenPrices::from_record(&serde_json::json!({
+            "input": input,
+            "output": output,
+            "cached": cost.cache_read,
+            "cache_creation": cost.cache_write,
+            "reasoning": cost.reasoning,
+        }))
+        .map(Some)
     }
 
     pub(crate) async fn routes(
@@ -1493,6 +1625,20 @@ impl ControlPlane {
             .transpose()
             .map_err(|_| "client key expiry is out of range")?
             .unwrap_or(0);
+        let native_quota = crate::native_usage::NativeQuota {
+            max_tokens_per_minute: optional_limit(
+                input.max_tokens_per_minute,
+                9_007_199_254_740_991,
+            )?,
+            max_tokens_per_day: optional_limit(input.max_tokens_per_day, 9_007_199_254_740_991)?,
+            max_monthly_microusd: optional_usd_micros(input.max_spend_per_month_usd)?,
+            reservation_tokens: optional_limit(input.reservation_tokens, 9_007_199_254_740_991)?,
+            reservation_microusd: optional_usd_micros(input.reservation_spend_usd)?,
+        }
+        .validate()?;
+        if native_quota.enabled() && self.0.native_usage.read().await.is_none() {
+            return Err("native usage quotas require SQLite storage");
+        }
         let record = StoredClientKey {
             id: id.to_owned(),
             label: input.label,
@@ -1520,6 +1666,11 @@ impl ControlPlane {
                 .as_ref()
                 .map(|row| row.created_by.clone())
                 .unwrap_or_else(|| actor.to_owned()),
+            max_tokens_per_minute: native_quota.max_tokens_per_minute,
+            max_tokens_per_day: native_quota.max_tokens_per_day,
+            max_monthly_microusd: native_quota.max_monthly_microusd,
+            reservation_tokens: native_quota.reservation_tokens,
+            reservation_microusd: native_quota.reservation_microusd,
             revision: revision()?,
         };
         self.0.database.upsert_client_key(&record).await?;
@@ -1689,6 +1840,11 @@ impl ControlPlane {
                 .filter(|record| enabled_tenants.contains(&record.tenant_id))
                 .map(stored_policy)
                 .collect::<Result<Vec<_>, _>>()?;
+            if policies.iter().any(|policy| policy.usage_quota.is_some())
+                && self.0.native_usage.read().await.is_none()
+            {
+                return Err("native usage quotas require SQLite storage");
+            }
             ClientSnapshot::Current(Arc::new(ClientPolicies::from_stored(policies)))
         };
         *self.0.clients.write().await = snapshot;
@@ -2310,6 +2466,11 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
         max_requests_per_minute: positive_u64(record.max_rpm)?,
         max_requests_per_day: positive_u64(record.max_rpd)?,
+        max_tokens_per_minute: positive_u64(record.max_tokens_per_minute)?,
+        max_tokens_per_day: positive_u64(record.max_tokens_per_day)?,
+        max_spend_per_month_usd: positive_micros_usd(record.max_monthly_microusd)?,
+        reservation_tokens: positive_u64(record.reservation_tokens)?,
+        reservation_spend_usd: positive_micros_usd(record.reservation_microusd)?,
         revision: record.revision.to_string(),
     })
 }
@@ -2445,6 +2606,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
     Ok(StoredPolicy {
         id: record.id.clone(),
         name: record.label.clone(),
+        tenant_id: record.tenant_id.clone(),
         model_id_format: view.model_id_format,
         key_hash,
         enabled: record.enabled,
@@ -2457,6 +2619,17 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         max_concurrent_requests: optional_usize(record.max_concurrent, 65_535)?,
         max_requests_per_minute: optional_usize(record.max_rpm, 10_000)?,
         max_requests_per_day: optional_usize(record.max_rpd, 10_000_000)?,
+        usage_quota: {
+            let quota = crate::native_usage::NativeQuota {
+                max_tokens_per_minute: record.max_tokens_per_minute,
+                max_tokens_per_day: record.max_tokens_per_day,
+                max_monthly_microusd: record.max_monthly_microusd,
+                reservation_tokens: record.reservation_tokens,
+                reservation_microusd: record.reservation_microusd,
+            }
+            .validate()?;
+            quota.enabled().then_some(quota)
+        },
     })
 }
 
@@ -2724,6 +2897,19 @@ fn optional_limit(value: Option<u64>, maximum: u64) -> Result<i64, &'static str>
         .map(|value| value.unwrap_or(0))
 }
 
+fn optional_usd_micros(value: Option<f64>) -> Result<i64, &'static str> {
+    value
+        .map(|value| {
+            let micros = value * 1_000_000.0;
+            if !micros.is_finite() || value <= 0.0 || value > 1_000_000.0 {
+                return Err("invalid client spend limit");
+            }
+            Ok(micros.ceil() as i64)
+        })
+        .transpose()
+        .map(|value| value.unwrap_or(0))
+}
+
 fn optional_usize(value: i64, maximum: usize) -> Result<Option<usize>, &'static str> {
     if value == 0 {
         return Ok(None);
@@ -2740,6 +2926,14 @@ fn positive_u64(value: i64) -> Result<Option<u64>, &'static str> {
         0 => Ok(None),
         value if value > 0 => Ok(Some(value as u64)),
         _ => Err("invalid client key limit"),
+    }
+}
+
+fn positive_micros_usd(value: i64) -> Result<Option<f64>, &'static str> {
+    match value {
+        0 => Ok(None),
+        value if value > 0 => Ok(Some(value as f64 / 1_000_000.0)),
+        _ => Err("invalid client spend limit"),
     }
 }
 

@@ -31,6 +31,12 @@ const UPSERT_IDENTITY_BINDING: &str = "INSERT INTO redrouter_control_identity_bi
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
+const CREATE_CLIENT_KEY_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_quotas (key_id TEXT PRIMARY KEY, max_tokens_per_minute BIGINT NOT NULL, max_tokens_per_day BIGINT NOT NULL, max_monthly_microusd BIGINT NOT NULL, reservation_tokens BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_CLIENT_KEY_QUOTAS: &str = "SELECT key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision FROM redrouter_control_client_key_quotas ORDER BY key_id ASC";
+const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_quotas (key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO UPDATE SET max_tokens_per_minute = $2, max_tokens_per_day = $3, max_monthly_microusd = $4, reservation_tokens = $5, reservation_microusd = $6, revision = $7";
+const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL)";
+const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL)";
+const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
@@ -101,6 +107,11 @@ pub struct StoredClientKey {
     pub model_id_format: String,
     pub tenant_id: String,
     pub created_by: String,
+    pub max_tokens_per_minute: i64,
+    pub max_tokens_per_day: i64,
+    pub max_monthly_microusd: i64,
+    pub reservation_tokens: i64,
+    pub reservation_microusd: i64,
     pub revision: i64,
 }
 
@@ -116,6 +127,17 @@ struct StoredClientKeyOwnership {
     key_id: String,
     tenant_id: String,
     created_by: String,
+    revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredClientKeyQuota {
+    key_id: String,
+    max_tokens_per_minute: i64,
+    max_tokens_per_day: i64,
+    max_monthly_microusd: i64,
+    reservation_tokens: i64,
+    reservation_microusd: i64,
     revision: i64,
 }
 
@@ -313,6 +335,10 @@ impl Database {
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_CLIENT_KEY_OWNERSHIP,
+                        CREATE_CLIENT_KEY_QUOTAS,
+                        CREATE_USAGE_RESERVATIONS,
+                        CREATE_USAGE_LEDGER,
+                        CREATE_USAGE_COUNTERS,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
@@ -412,6 +438,10 @@ impl Database {
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
+                db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
+                db.remote_schema_query(CREATE_USAGE_RESERVATIONS).await?;
+                db.remote_schema_query(CREATE_USAGE_LEDGER).await?;
+                db.remote_schema_query(CREATE_USAGE_COUNTERS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
@@ -452,6 +482,10 @@ impl Database {
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_CLIENT_KEY_OWNERSHIP,
+                    CREATE_CLIENT_KEY_QUOTAS,
+                    CREATE_USAGE_RESERVATIONS,
+                    CREATE_USAGE_LEDGER,
+                    CREATE_USAGE_COUNTERS,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
@@ -794,12 +828,28 @@ impl Database {
             key.tenant_id = ownership.tenant_id;
             key.created_by = ownership.created_by;
         }
+        for quota in self.client_key_quotas().await? {
+            let Some(key) = keys.iter_mut().find(|key| key.id == quota.key_id) else {
+                // Quotas are committed first so a failed new-key insert can
+                // only leave an inert orphan.
+                continue;
+            };
+            if key.revision != quota.revision {
+                return Err("client key quota revision mismatch");
+            }
+            key.max_tokens_per_minute = quota.max_tokens_per_minute;
+            key.max_tokens_per_day = quota.max_tokens_per_day;
+            key.max_monthly_microusd = quota.max_monthly_microusd;
+            key.reservation_tokens = quota.reservation_tokens;
+            key.reservation_microusd = quota.reservation_microusd;
+        }
         Ok(keys)
     }
 
     pub async fn upsert_client_key(&self, key: &StoredClientKey) -> Result<(), &'static str> {
         self.upsert_client_key_preference(key).await?;
         self.upsert_client_key_ownership(key).await?;
+        self.upsert_client_key_quota(key).await?;
         let enabled = if key.enabled { 1_i64 } else { 0_i64 };
         match self {
             Self::Sql(pool) => {
@@ -971,6 +1021,80 @@ impl Database {
             }
         }
         Ok(())
+    }
+
+    async fn client_key_quotas(&self) -> Result<Vec<StoredClientKeyQuota>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEY_QUOTAS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read client key quotas")?
+                .iter()
+                .map(read_sql_client_key_quota)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_CLIENT_KEY_QUOTAS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_quota)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_CLIENT_KEY_QUOTAS)
+                .await
+                .map_err(|_| "cannot read client key quotas")?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_quota)
+                .collect(),
+        }
+    }
+
+    async fn upsert_client_key_quota(&self, key: &StoredClientKey) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_CLIENT_KEY_QUOTA)
+                    .bind(&key.id)
+                    .bind(key.max_tokens_per_minute)
+                    .bind(key.max_tokens_per_day)
+                    .bind(key.max_monthly_microusd)
+                    .bind(key.reservation_tokens)
+                    .bind(key.reservation_microusd)
+                    .bind(key.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write client key quotas")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_CLIENT_KEY_QUOTA, &client_key_quota_params(key))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_CLIENT_KEY_QUOTA, client_key_quota_params(key))
+                    .await
+                    .map_err(|_| "cannot write client key quotas")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn sql_pool(&self) -> Option<&AnyPool> {
+        match self {
+            Self::Sql(pool) => Some(pool),
+            _ => None,
+        }
+    }
+
+    pub(crate) async fn is_sqlite(&self) -> bool {
+        match self {
+            Self::Sql(pool) => sqlx::query_scalar::<_, String>("SELECT sqlite_version()")
+                .fetch_one(pool)
+                .await
+                .is_ok(),
+            _ => false,
+        }
     }
 
     pub async fn combos(&self) -> Result<Vec<StoredCombo>, &'static str> {
@@ -1973,6 +2097,11 @@ fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'sta
         model_id_format: "prefixed".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
+        max_tokens_per_minute: 0,
+        max_tokens_per_day: 0,
+        max_monthly_microusd: 0,
+        reservation_tokens: 0,
+        reservation_microusd: 0,
         revision: integer("revision")?,
     })
 }
@@ -2009,6 +2138,11 @@ fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'s
         model_id_format: "prefixed".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
+        max_tokens_per_minute: 0,
+        max_tokens_per_day: 0,
+        max_monthly_microusd: 0,
+        reservation_tokens: 0,
+        reservation_microusd: 0,
         revision: integer("revision")?,
     })
 }
@@ -2129,6 +2263,63 @@ fn client_key_ownership_params(key: &StoredClientKey) -> Vec<reddb_client::Value
         reddb_client::Value::Text(key.id.clone()),
         reddb_client::Value::Text(key.tenant_id.clone()),
         reddb_client::Value::Text(key.created_by.clone()),
+        reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_client_key_quota(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredClientKeyQuota, &'static str> {
+    let integer = |name| row.try_get(name).map_err(|_| "invalid client key quota");
+    Ok(StoredClientKeyQuota {
+        key_id: row
+            .try_get("key_id")
+            .map_err(|_| "invalid client key quota")?,
+        max_tokens_per_minute: integer("max_tokens_per_minute")?,
+        max_tokens_per_day: integer("max_tokens_per_day")?,
+        max_monthly_microusd: integer("max_monthly_microusd")?,
+        reservation_tokens: integer("reservation_tokens")?,
+        reservation_microusd: integer("reservation_microusd")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_client_key_quota(
+    row: &reddb_client::Row,
+) -> Result<StoredClientKeyQuota, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid client key quota"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid client key quota"),
+    };
+    Ok(StoredClientKeyQuota {
+        key_id: text("key_id")?,
+        max_tokens_per_minute: integer("max_tokens_per_minute")?,
+        max_tokens_per_day: integer("max_tokens_per_day")?,
+        max_monthly_microusd: integer("max_monthly_microusd")?,
+        reservation_tokens: integer("reservation_tokens")?,
+        reservation_microusd: integer("reservation_microusd")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn client_key_quota_params(key: &StoredClientKey) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(key.id.clone()),
+        reddb_client::Value::Int(key.max_tokens_per_minute),
+        reddb_client::Value::Int(key.max_tokens_per_day),
+        reddb_client::Value::Int(key.max_monthly_microusd),
+        reddb_client::Value::Int(key.reservation_tokens),
+        reddb_client::Value::Int(key.reservation_microusd),
         reddb_client::Value::Int(key.revision),
     ]
 }

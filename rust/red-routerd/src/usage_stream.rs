@@ -11,13 +11,68 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
 const MAX_FRAME: usize = 1_048_576;
 
-pub(crate) struct UsageContext {
-    pub(crate) connection: ProductConnection,
-    pub(crate) event_id: String,
-    pub(crate) key: String,
-    pub(crate) model: String,
-    pub(crate) prices: Option<TokenPrices>,
-    pub(crate) usage_attributes: crate::accounting::UsageAttributes,
+pub(crate) enum UsageContext {
+    Product {
+        connection: ProductConnection,
+        event_id: String,
+        key: String,
+        model: String,
+        prices: Option<TokenPrices>,
+        usage_attributes: crate::accounting::UsageAttributes,
+    },
+    Native {
+        control: crate::control_plane::ControlPlane,
+        identity: crate::policy::ClientIdentity,
+        provider: String,
+        model: String,
+        prices: Option<TokenPrices>,
+        event_id: String,
+    },
+}
+
+impl UsageContext {
+    async fn record(self, usage: &ChatUsage) -> Result<(), &'static str> {
+        match self {
+            Self::Product {
+                connection,
+                event_id,
+                key,
+                model,
+                prices,
+                usage_attributes,
+            } => {
+                connection
+                    .record_usage(
+                        &event_id,
+                        &key,
+                        &model,
+                        usage,
+                        prices.as_ref(),
+                        &usage_attributes,
+                    )
+                    .await
+            }
+            Self::Native {
+                control,
+                identity,
+                provider,
+                model,
+                prices,
+                event_id,
+            } => {
+                control
+                    .record_native_usage(
+                        &event_id,
+                        &identity,
+                        &provider,
+                        &model,
+                        usage,
+                        prices.as_ref(),
+                    )
+                    .await
+            }
+        }
+    }
 }
 
 enum Event {
@@ -82,14 +137,7 @@ pub(crate) fn forward(
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
-        let UsageContext {
-            connection,
-            event_id,
-            key,
-            model,
-            prices,
-            usage_attributes,
-        } = usage;
+        let mut usage_context = Some(usage);
         let _permits = permits;
         let _provider_load = provider_load;
         let mut source = response.bytes_stream();
@@ -118,15 +166,10 @@ pub(crate) fn forward(
                     Ok(Event::Done) => {
                         done_seen = true;
                         if let Some(usage) = usage.take() {
-                            if connection
-                                .record_usage(
-                                    &event_id,
-                                    &key,
-                                    &model,
-                                    &usage,
-                                    prices.as_ref(),
-                                    &usage_attributes,
-                                )
+                            if usage_context
+                                .take()
+                                .expect("usage context is consumed once")
+                                .record(&usage)
                                 .await
                                 .is_ok()
                             {
