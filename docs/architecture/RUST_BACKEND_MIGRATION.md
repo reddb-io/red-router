@@ -162,6 +162,11 @@ provider index and manifest; `GET /api/admin/model-catalog/{provider}` materiali
 metadata for only that exact models.dev provider, including models, capabilities, modalities,
 limits, prices, dates and status. This keeps the dashboard catalog on the Rust backend without
 eagerly retaining all provider model maps in proxy memory.
+The client-facing `GET /v1/models` and `GET /api/v1/models` endpoints expose only configured
+routes that the authenticated key can actually use. Models.dev enriches those rows but never
+grants access. The response includes RedRouter's stable 16-hex catalog-version header, computed
+without the volatile `created` timestamp, so RedCode can invalidate its cache when the key's
+visible routes or metadata change without refreshing on every catalog read.
 Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
 migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin

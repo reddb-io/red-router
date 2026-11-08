@@ -7,6 +7,9 @@ implements OpenAI-compatible chat and embeddings, Cohere-compatible rerank, Open
 and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
+Its authenticated `/v1/models` and `/api/v1/models` discovery endpoints list only routes
+permitted for that client key, enrich configured targets from the bundled models.dev snapshot,
+and emit the stable `X-RedRouter-Catalog-Version` cache-invalidation contract.
 It binds only to loopback. The operator can configure supported protocol HTTPS
 endpoints or literal-loopback HTTP mocks. It does not provide a public listener.
 `RED_ROUTER_MAX_IN_FLIGHT` configures the process-wide simultaneous-request

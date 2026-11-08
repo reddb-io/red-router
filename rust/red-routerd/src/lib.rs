@@ -29,6 +29,7 @@ use axum::{
     Json, Router,
 };
 use futures_util::{stream, stream::BoxStream, StreamExt};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     net::IpAddr,
@@ -1665,6 +1666,7 @@ fn error(status: StatusCode, message: &'static str) -> Response {
 }
 
 fn model_list_response(data: Vec<ListedModel>) -> Response {
+    let catalog_version = model_catalog_version(&data);
     let mut response = Json(ModelListResponse {
         object: "list",
         data,
@@ -1677,7 +1679,22 @@ fn model_list_response(data: Vec<ListedModel>) -> Response {
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("authorization"));
+    if let Some(version) = catalog_version {
+        response.headers_mut().insert(
+            axum::http::HeaderName::from_static("x-redrouter-catalog-version"),
+            version,
+        );
+    }
     response
+}
+
+fn model_catalog_version(data: &[ListedModel]) -> Option<HeaderValue> {
+    let mut stable = serde_json::to_value(data).ok()?;
+    for entry in stable.as_array_mut()? {
+        entry.as_object_mut()?.remove("created");
+    }
+    let digest = Sha256::digest(serde_json::to_vec(&stable).ok()?);
+    HeaderValue::from_str(&hex::encode(digest)[..16]).ok()
 }
 
 fn route_category(protocol: ProviderProtocol) -> &'static str {

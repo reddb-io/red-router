@@ -12,6 +12,7 @@ use red_routerd::{
     storage::{Backend, Database, StoredResilience},
     ProxyState,
 };
+use sha2::{Digest, Sha256};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -665,6 +666,15 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
                 .unwrap(),
             "private, no-store"
         );
+        let version = response
+            .headers()
+            .get("x-redrouter-catalog-version")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(version.len(), 16);
+        assert!(version.bytes().all(|byte| byte.is_ascii_hexdigit()));
         let body: serde_json::Value =
             serde_json::from_str(&response.text().await.unwrap()).unwrap();
         assert_eq!(body["object"], "list");
@@ -679,6 +689,14 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         assert!(model["context_length"].as_u64().is_some());
         assert!(model["max_input_tokens"].as_u64().is_some());
         assert!(model["capabilities"]["tool_calling"].is_boolean());
+        let mut versioned_entries = entries.clone();
+        for entry in &mut versioned_entries {
+            entry.as_object_mut().unwrap().remove("created");
+        }
+        let expected = hex::encode(Sha256::digest(
+            serde_json::to_vec(&versioned_entries).unwrap(),
+        ));
+        assert_eq!(version, expected[..16]);
     }
 
     gateway_task.abort();
