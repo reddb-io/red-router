@@ -61,6 +61,13 @@ jobs:
       REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
       OMNIROUTE_PLAYWRIGHT_SKIP_BUILD: "1"
     steps:
+      - name: Require an unpublished branch qualification
+        if: inputs.runner_qualification == true
+        env:
+          QUALIFICATION_TAG: ${{ inputs.tag }}
+        run: |
+          test -z "$QUALIFICATION_TAG"
+          test "$GITHUB_REF_TYPE" = branch
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -122,7 +129,7 @@ jobs:
 
   release:
     name: Publish npm and GitHub Release
-    if: github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    if: inputs.runner_qualification != true && github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
