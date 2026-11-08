@@ -257,14 +257,18 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         client
             .put(format!("{base}/api/admin/oidc"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "enabled":true,
-                "issuer":"https://issuer.example",
-                "audience":"red-router-admin",
-                "jwks_uri":jwks_uri,
-                "required_claims":{"org_role":["owner","operator"]},
-                "allowed_subjects":["operator@example.com"]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "enabled":true,
+                    "issuer":"https://issuer.example",
+                    "audience":"red-router-admin",
+                    "jwks_uri":jwks_uri,
+                    "required_claims":{"org_role":["owner","operator"]},
+                    "allowed_subjects":["operator@example.com"]
+                })
+                .to_string(),
+            )
             .send()
             .await
             .unwrap()
