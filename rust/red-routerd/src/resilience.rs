@@ -37,6 +37,27 @@ pub(crate) enum FailureScope {
     Model,
 }
 
+/// A bare 401 is strong credential evidence only on direct API-key surfaces.
+/// Multiplexing and generic OpenAI-compatible gateways sometimes use 401 for
+/// model entitlement or format errors; those need bounded body classification
+/// before the entire connection may be parked.
+pub(crate) fn authentication_failure_is_terminal(provider: Option<&str>) -> bool {
+    matches!(
+        provider.unwrap_or_default().to_ascii_lowercase().as_str(),
+        "openai"
+            | "anthropic"
+            | "cohere"
+            | "groq"
+            | "deepseek"
+            | "together"
+            | "perplexity"
+            | "fireworks"
+            | "cerebras"
+            | "sambanova"
+            | "xai"
+    )
+}
+
 /// Keep the automatic 429/402 policy deliberately small and auditable. These
 /// provider families multiplex independently limited models behind one
 /// credential in the current RedRouter/OmniRoute catalog. Operators can
@@ -151,5 +172,10 @@ mod tests {
             ),
             FailureScope::Model
         );
+        assert!(authentication_failure_is_terminal(Some("OpenAI")));
+        assert!(!authentication_failure_is_terminal(Some("openrouter")));
+        assert!(!authentication_failure_is_terminal(Some(
+            "openai-compatible"
+        )));
     }
 }

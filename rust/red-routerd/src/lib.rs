@@ -2423,7 +2423,9 @@ async fn proxy_request(
                 response.status(),
                 response.headers(),
             );
-            let recorded = if response.status() == StatusCode::UNAUTHORIZED {
+            let recorded = if response.status() == StatusCode::UNAUTHORIZED
+                && resilience::authentication_failure_is_terminal(provider_name)
+            {
                 availability
                     .record_terminal_failure(permit, availability::TerminalStatus::Expired)
                     .await

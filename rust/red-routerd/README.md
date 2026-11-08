@@ -136,8 +136,10 @@ survives restart and operator reset; the request path reads the existing live ci
 and does not perform a configuration database lookup.
 
 Connection and model availability are persisted separately from the provider-wide
-breaker. An API-key `401` parks that connection as `expired` until an authenticated
-operator resets its health. HTTP `402` parks a connection as `credits_exhausted`, or
+breaker. A bare API-key `401` from a known direct provider parks that connection as
+`expired` until an authenticated operator resets its health. Generic and multiplexing
+providers retain a bounded cooldown until their error body can be classified safely.
+HTTP `402` parks a connection as `credits_exhausted`, or
 only the affected model when the provider's effective `rate_limit_scope` is `model`.
 The automatic scope keeps known multiplexing gateways model-local; an explicit scope
 overrides it. `404` remains model-local and `429` follows the same configured scope.

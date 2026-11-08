@@ -2586,7 +2586,7 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
                 .header(header::CONTENT_TYPE.as_str(), "application/json")
                 .body(
                     serde_json::json!({
-                        "provider":"openai-compatible",
+                        "provider": if id == "limited" { "openai" } else { "openai-compatible" },
                         "upstream_url":upstream_url,
                         "api_key":api_key
                     })
