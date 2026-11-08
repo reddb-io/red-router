@@ -1,3 +1,9 @@
+---
+title: "FastLLM as a Red Router data plane: isolated evaluation"
+status: experimental
+lastUpdated: 2026-11-08
+---
+
 # FastLLM as a Red Router data plane: isolated evaluation
 
 This is an evaluation, not a switch of the product proxy. The existing Red
