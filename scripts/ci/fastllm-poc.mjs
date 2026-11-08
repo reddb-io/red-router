@@ -619,36 +619,6 @@ try {
   guardedFast.kill("SIGTERM");
   await new Promise((resolve) => guardedFast.once("exit", resolve));
   process.stderr.write("CI: no retry after uncertain pooled dispatch\n");
-  const accountingEnginePort = await unusedPort();
-  const accountingEngine = childProcess(
-    fastBinary,
-    [
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(accountingEnginePort),
-      "--role",
-      "proxy",
-      "--control-url",
-      `http://127.0.0.1:${controlPort}/snapshot`,
-      "--proxy-token",
-      controlToken,
-      "--redrouter-memory-only",
-      "--max-retries",
-      "0",
-      "--config-poll",
-      "0",
-      "--rate-limit-reconcile-interval",
-      "0",
-      "--shutdown-delay",
-      "0",
-      "--log",
-      "warn",
-    ],
-    { RED_ROUTER_DISABLE_UPSTREAM_RETRY: "1" }
-  );
-  await waitReady(`http://127.0.0.1:${accountingEnginePort}/health`, accountingEngine);
-  const accountingEngineUrl = `http://127.0.0.1:${accountingEnginePort}/v1/chat/completions`;
   // Managed mode creates separate random tokens, starts the in-memory source
   // and waits for the expected snapshot before exposing the dashboard proxy.
   const supervisedPort = await unusedPort();
@@ -1269,7 +1239,40 @@ try {
   assert.deepEqual(modelAttempts, ["vendor/model-a", "vendor/model-b"]);
   failModelA = false;
   // Exercise the existing accounting adapter through a retry-guarded engine.
+  // Start this engine immediately before use. Keeping an idle no-retry engine
+  // alive across the supervisor lifecycle makes its pooled socket race Node's
+  // short fixture keep-alive timeout and can create an unrelated 502.
   // Strict quotas stay disabled; this tests observability before enabling them.
+  const accountingEnginePort = await unusedPort();
+  const accountingEngine = childProcess(
+    fastBinary,
+    [
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(accountingEnginePort),
+      "--role",
+      "proxy",
+      "--control-url",
+      `http://127.0.0.1:${controlPort}/snapshot`,
+      "--proxy-token",
+      controlToken,
+      "--redrouter-memory-only",
+      "--max-retries",
+      "0",
+      "--config-poll",
+      "0",
+      "--rate-limit-reconcile-interval",
+      "0",
+      "--shutdown-delay",
+      "0",
+      "--log",
+      "warn",
+    ],
+    { RED_ROUTER_DISABLE_UPSTREAM_RETRY: "1" }
+  );
+  await waitReady(`http://127.0.0.1:${accountingEnginePort}/health`, accountingEngine);
+  const accountingEngineUrl = `http://127.0.0.1:${accountingEnginePort}/v1/chat/completions`;
   const accountedPort = await unusedPort();
   const accounted = childProcess(redBinary, [], {
     RED_ROUTER_LISTEN: `127.0.0.1:${accountedPort}`,
