@@ -245,21 +245,31 @@ async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::J
 
 async fn counted_status_provider(
     expected_key: &'static str,
-    status: StatusCode,
+    initial_status: StatusCode,
     retry_after: Option<&'static str>,
-) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+) -> (
+    String,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
     let requests = Arc::new(AtomicUsize::new(0));
+    let status = Arc::new(AtomicUsize::new(initial_status.as_u16() as usize));
     let observed = requests.clone();
+    let current_status = status.clone();
     let app = Router::new().route(
         "/v1/chat/completions",
         post(move |headers: HeaderMap| {
             let observed = observed.clone();
+            let current_status = current_status.clone();
             async move {
                 assert_eq!(
                     headers["authorization"].to_str().unwrap(),
                     format!("Bearer {expected_key}")
                 );
                 observed.fetch_add(1, Ordering::SeqCst);
+                let status =
+                    StatusCode::from_u16(current_status.load(Ordering::SeqCst) as u16).unwrap();
                 let mut response = axum::http::Response::builder().status(status);
                 if let Some(retry_after) = retry_after {
                     response = response.header(header::RETRY_AFTER, retry_after);
@@ -274,6 +284,7 @@ async fn counted_status_provider(
     (
         format!("http://{address}/v1/chat/completions"),
         requests,
+        status,
         task,
     )
 }
@@ -2558,7 +2569,7 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
         .await
         .unwrap();
-    let (limited_url, limited_requests, limited_task) =
+    let (limited_url, limited_requests, limited_status, limited_task) =
         counted_status_provider("limited-secret", StatusCode::TOO_MANY_REQUESTS, Some("60")).await;
     let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
     let (base, gateway_task) = gateway(control).await;
@@ -2715,7 +2726,75 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     );
     assert_eq!(limited_requests.load(Ordering::SeqCst), 2);
 
+    limited_status.store(StatusCode::UNAUTHORIZED.as_u16() as usize, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .delete(format!(
+                "{restarted_base}/api/admin/provider-health/limited"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            chat_model(
+                &client,
+                &restarted_base,
+                RUST_CLIENT_KEY,
+                "availability-combo"
+            )
+            .await
+            .text()
+            .await
+            .unwrap(),
+            "healthy"
+        );
+    }
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 3);
+    let health = client
+        .get(format!("{restarted_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let limited = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "limited")
+        .unwrap();
+    assert_eq!(limited["terminal_status"], "expired");
+    assert_eq!(limited["connection_last_status"], 401);
+
     restarted_task.abort();
+    let terminal_restart = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (terminal_base, terminal_task) = gateway(terminal_restart).await;
+    assert_eq!(
+        chat_model(
+            &client,
+            &terminal_base,
+            RUST_CLIENT_KEY,
+            "availability-combo"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "healthy"
+    );
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 3);
+
+    terminal_task.abort();
     limited_task.abort();
     healthy_task.abort();
     database.close().await.unwrap();
@@ -2947,6 +3026,56 @@ async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
         .unwrap();
     assert_eq!(scoped["rate_limit_scope"], "model");
 
+    missing_status.store(402, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/provider-health/scoped"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "missing-combo")
+                .await
+                .text()
+                .await
+                .unwrap(),
+            "fallback-ok"
+        );
+    }
+    assert_eq!(missing_requests.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "working-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "model-ok"
+    );
+    let health = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let scoped = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "scoped")
+        .unwrap();
+    assert_eq!(scoped["terminal_status"], serde_json::Value::Null);
+    assert_eq!(scoped["connection_last_status"], serde_json::Value::Null);
+    assert_eq!(scoped["model_lockouts"][0]["status"], 402);
+
     gateway_task.abort();
     let restarted = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
         .await
@@ -2960,7 +3089,7 @@ async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
             .unwrap(),
         "fallback-ok"
     );
-    assert_eq!(missing_requests.load(Ordering::SeqCst), 3);
+    assert_eq!(missing_requests.load(Ordering::SeqCst), 4);
 
     restarted_task.abort();
     scoped_task.abort();

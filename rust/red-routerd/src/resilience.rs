@@ -37,16 +37,20 @@ pub(crate) enum FailureScope {
     Model,
 }
 
-/// Keep the automatic policy deliberately small and auditable. These provider
-/// families multiplex independently limited models behind one credential in
-/// the current RedRouter/OmniRoute catalog. Operators can override either way.
-pub(crate) fn rate_limit_failure_scope(
+/// Keep the automatic 429/402 policy deliberately small and auditable. These
+/// provider families multiplex independently limited models behind one
+/// credential in the current RedRouter/OmniRoute catalog. Operators can
+/// override either way.
+pub(crate) fn quota_failure_scope(
     configured: RateLimitScope,
     provider: Option<&str>,
     status: StatusCode,
     headers: &HeaderMap,
 ) -> FailureScope {
-    if status != StatusCode::TOO_MANY_REQUESTS {
+    if !matches!(
+        status,
+        StatusCode::PAYMENT_REQUIRED | StatusCode::TOO_MANY_REQUESTS
+    ) {
         return FailureScope::Connection;
     }
     match configured {
@@ -103,7 +107,7 @@ mod tests {
             HeaderValue::from_static("haiku=0,sonnet=42"),
         );
         assert_eq!(
-            rate_limit_failure_scope(
+            quota_failure_scope(
                 RateLimitScope::Auto,
                 Some("minimax"),
                 StatusCode::TOO_MANY_REQUESTS,
@@ -112,7 +116,7 @@ mod tests {
             FailureScope::Model
         );
         assert_eq!(
-            rate_limit_failure_scope(
+            quota_failure_scope(
                 RateLimitScope::Auto,
                 Some("openai"),
                 StatusCode::TOO_MANY_REQUESTS,
@@ -121,7 +125,7 @@ mod tests {
             FailureScope::Connection
         );
         assert_eq!(
-            rate_limit_failure_scope(
+            quota_failure_scope(
                 RateLimitScope::Connection,
                 Some("openrouter"),
                 StatusCode::TOO_MANY_REQUESTS,
@@ -130,10 +134,19 @@ mod tests {
             FailureScope::Connection
         );
         assert_eq!(
-            rate_limit_failure_scope(
+            quota_failure_scope(
                 RateLimitScope::Model,
                 Some("custom"),
                 StatusCode::TOO_MANY_REQUESTS,
+                &headers,
+            ),
+            FailureScope::Model
+        );
+        assert_eq!(
+            quota_failure_scope(
+                RateLimitScope::Auto,
+                Some("openrouter"),
+                StatusCode::PAYMENT_REQUIRED,
                 &headers,
             ),
             FailureScope::Model

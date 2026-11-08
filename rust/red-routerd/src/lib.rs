@@ -1542,7 +1542,17 @@ fn circuit_open_error(retry_after_ms: u64) -> Response {
     response
 }
 
-fn availability_blocked_error(retry_after_ms: u64, model_scope: bool) -> Response {
+fn availability_blocked_error(
+    retry_after_ms: u64,
+    model_scope: bool,
+    terminal_status: bool,
+) -> Response {
+    if terminal_status {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "All permitted provider connections require operator action",
+        );
+    }
     let message = if model_scope {
         "All permitted provider models are temporarily unavailable"
     } else {
@@ -1992,6 +2002,7 @@ async fn proxy_request(
     let mut saw_availability_block = false;
     let mut closest_availability_retry_ms: Option<u64> = None;
     let mut availability_model_scope = true;
+    let mut saw_terminal_availability = false;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2072,6 +2083,7 @@ async fn proxy_request(
                 Ok(availability::AvailabilityDecision::Blocked {
                     retry_after_ms,
                     model_scope,
+                    terminal_status,
                 }) => {
                     if let Some(target) = target {
                         record_route_outcome(
@@ -2086,6 +2098,7 @@ async fn proxy_request(
                     }
                     saw_availability_block = true;
                     availability_model_scope &= model_scope;
+                    saw_terminal_availability |= terminal_status.is_some();
                     closest_availability_retry_ms = Some(
                         closest_availability_retry_ms
                             .map_or(retry_after_ms, |current| current.min(retry_after_ms)),
@@ -2404,14 +2417,26 @@ async fn proxy_request(
                         .as_ref()
                         .and_then(|provider| provider.provider_name.as_deref())
                 });
-            let rate_limit_scope = resilience::rate_limit_failure_scope(
+            let quota_scope = resilience::quota_failure_scope(
                 rate_limit_scope,
                 provider_name,
                 response.status(),
                 response.headers(),
             );
-            let recorded = if response.status() == StatusCode::TOO_MANY_REQUESTS
-                && rate_limit_scope == resilience::FailureScope::Model
+            let recorded = if response.status() == StatusCode::UNAUTHORIZED {
+                availability
+                    .record_terminal_failure(permit, availability::TerminalStatus::Expired)
+                    .await
+            } else if response.status() == StatusCode::PAYMENT_REQUIRED
+                && quota_scope == resilience::FailureScope::Connection
+            {
+                availability
+                    .record_terminal_failure(permit, availability::TerminalStatus::CreditsExhausted)
+                    .await
+            } else if matches!(
+                response.status(),
+                StatusCode::PAYMENT_REQUIRED | StatusCode::TOO_MANY_REQUESTS
+            ) && quota_scope == resilience::FailureScope::Model
             {
                 availability
                     .record_model_failure(
@@ -2494,6 +2519,7 @@ async fn proxy_request(
             return availability_blocked_error(
                 closest_availability_retry_ms.unwrap_or(1_000),
                 availability_model_scope,
+                saw_terminal_availability,
             );
         }
         if saw_open_circuit {

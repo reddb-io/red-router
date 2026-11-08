@@ -43,7 +43,7 @@ provider; subsequent provider changes do not require those environment secrets.
 
 - `GET /api/admin/providers` lists redacted provider metadata.
 - `PUT /api/admin/providers/{id}` accepts `provider`, `upstream_url`, `api_key`
-  and optional `enabled`.
+  and optional `enabled` and `rate_limit_scope` (`auto`, `connection` or `model`).
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
@@ -134,6 +134,17 @@ skipped before dispatch, and only one half-open probe is admitted after cooldown
 The authenticated health API can override those defaults per provider. Configuration
 survives restart and operator reset; the request path reads the existing live circuit
 and does not perform a configuration database lookup.
+
+Connection and model availability are persisted separately from the provider-wide
+breaker. An API-key `401` parks that connection as `expired` until an authenticated
+operator resets its health. HTTP `402` parks a connection as `credits_exhausted`, or
+only the affected model when the provider's effective `rate_limit_scope` is `model`.
+The automatic scope keeps known multiplexing gateways model-local; an explicit scope
+overrides it. `404` remains model-local and `429` follows the same configured scope.
+These states survive restart, are visible in `GET /api/admin/provider-health`, and are
+cleared with `DELETE /api/admin/provider-health/{id}`. A generic `403` is still a
+bounded connection cooldown rather than an automatic permanent ban because many
+providers use it for request-, entitlement- or region-specific refusals.
 
 The `lkgp` strategy starts in dashboard order, learns the first successful target and
 stores only `{combo_id, provider_id, model, revision}` in `redrouter_route_pins`. Later

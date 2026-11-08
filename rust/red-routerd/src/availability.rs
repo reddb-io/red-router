@@ -22,12 +22,41 @@ const MODEL_BASE_MS: u64 = 30_000;
 const MODEL_MAX_MS: u64 = 10 * 60 * 1_000;
 const MAX_BACKOFF_LEVEL: u32 = 16;
 const MAX_MODEL_LOCKOUTS: usize = 1_024;
+const TERMINAL_UNTIL_UNIX_MS: u64 = i64::MAX as u64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TerminalStatus {
+    Banned,
+    Expired,
+    CreditsExhausted,
+}
+
+impl TerminalStatus {
+    const fn http_status(self) -> StatusCode {
+        match self {
+            Self::Banned => StatusCode::FORBIDDEN,
+            Self::Expired => StatusCode::UNAUTHORIZED,
+            Self::CreditsExhausted => StatusCode::PAYMENT_REQUIRED,
+        }
+    }
+
+    fn from_http_status(status: u16) -> Option<Self> {
+        match status {
+            401 => Some(Self::Expired),
+            402 => Some(Self::CreditsExhausted),
+            403 => Some(Self::Banned),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Inner {
     cooldown_until_unix_ms: u64,
     backoff_level: u32,
     last_status: Option<u16>,
+    terminal_status: Option<TerminalStatus>,
     connection_generation: u64,
     model_lockouts: HashMap<String, ModelLockout>,
 }
@@ -71,6 +100,7 @@ pub(crate) enum AvailabilityDecision {
     Blocked {
         retry_after_ms: u64,
         model_scope: bool,
+        terminal_status: Option<TerminalStatus>,
     },
 }
 
@@ -80,6 +110,7 @@ pub(crate) struct AvailabilityStatus {
     pub connection_retry_after_ms: u64,
     pub connection_backoff_level: u32,
     pub connection_last_status: Option<u16>,
+    pub terminal_status: Option<TerminalStatus>,
     pub model_lockouts: Vec<ModelLockoutStatus>,
 }
 
@@ -101,6 +132,7 @@ impl ProviderAvailability {
                 cooldown_until_unix_ms: 0,
                 backoff_level: 0,
                 last_status: None,
+                terminal_status: None,
                 connection_generation: 0,
                 model_lockouts: HashMap::new(),
             },
@@ -122,13 +154,20 @@ impl ProviderAvailability {
             value => Some(
                 u16::try_from(value)
                     .ok()
-                    .filter(|status| matches!(*status, 401 | 403 | 429))
+                    .filter(|status| matches!(*status, 401 | 402 | 403 | 429))
                     .ok_or("invalid provider availability record")?,
             ),
+        };
+        let terminal_status = if cooldown_until_unix_ms == TERMINAL_UNTIL_UNIX_MS {
+            last_status.and_then(TerminalStatus::from_http_status)
+        } else {
+            None
         };
         if (cooldown_until_unix_ms == 0) != last_status.is_none()
             || (last_status.is_some() && backoff_level == 0)
             || (last_status.is_none() && backoff_level != 0)
+            || (cooldown_until_unix_ms == TERMINAL_UNTIL_UNIX_MS && terminal_status.is_none())
+            || (cooldown_until_unix_ms != TERMINAL_UNTIL_UNIX_MS && last_status == Some(402))
         {
             return Err("invalid provider availability record");
         }
@@ -143,7 +182,7 @@ impl ProviderAvailability {
         for lockout in stored {
             validate_model(&lockout.model)?;
             if !seen_models.insert(lockout.model.clone())
-                || !matches!(lockout.status, 404 | 429)
+                || !matches!(lockout.status, 402 | 404 | 429)
                 || !(1..=MAX_BACKOFF_LEVEL).contains(&lockout.backoff_level)
             {
                 return Err("invalid provider availability record");
@@ -167,6 +206,7 @@ impl ProviderAvailability {
                 cooldown_until_unix_ms,
                 backoff_level,
                 last_status,
+                terminal_status,
                 connection_generation: 0,
                 model_lockouts,
             },
@@ -175,7 +215,9 @@ impl ProviderAvailability {
 
     fn from_inner(provider_id: &str, database: Arc<Database>, inner: Inner) -> Self {
         let has_model_lockouts = !inner.model_lockouts.is_empty();
-        let needs_recovery = inner.cooldown_until_unix_ms > 0 || has_model_lockouts;
+        let needs_recovery = inner.cooldown_until_unix_ms > 0
+            || inner.terminal_status.is_some()
+            || has_model_lockouts;
         Self {
             provider_id: Arc::from(provider_id),
             database,
@@ -204,9 +246,13 @@ impl ProviderAvailability {
             let generation = self.connection_generation.load(Ordering::Acquire);
             let cooldown_until = self.cooldown_until_unix_ms.load(Ordering::Acquire);
             if cooldown_until > now {
+                if cooldown_until == TERMINAL_UNTIL_UNIX_MS {
+                    break;
+                }
                 return Ok(AvailabilityDecision::Blocked {
                     retry_after_ms: cooldown_until.saturating_sub(now),
                     model_scope: false,
+                    terminal_status: None,
                 });
             }
             if self.has_model_lockouts.load(Ordering::Acquire) {
@@ -226,6 +272,7 @@ impl ProviderAvailability {
             return Ok(AvailabilityDecision::Blocked {
                 retry_after_ms: inner.cooldown_until_unix_ms.saturating_sub(now),
                 model_scope: false,
+                terminal_status: inner.terminal_status,
             });
         }
         if let Some(lockout) = inner
@@ -236,6 +283,7 @@ impl ProviderAvailability {
             return Ok(AvailabilityDecision::Blocked {
                 retry_after_ms: lockout.until_unix_ms.saturating_sub(now),
                 model_scope: true,
+                terminal_status: None,
             });
         }
         Ok(AvailabilityDecision::Permit(AvailabilityPermit {
@@ -278,6 +326,30 @@ impl ProviderAvailability {
             .saturating_add(1)
             .min(MAX_BACKOFF_LEVEL);
         candidate.last_status = Some(status.as_u16());
+        candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
+    pub(crate) async fn record_terminal_failure(
+        &self,
+        permit: AvailabilityPermit,
+        terminal_status: TerminalStatus,
+    ) -> Result<(), &'static str> {
+        let now = unix_ms()?;
+        let mut inner = self.inner.lock().await;
+        if permit.connection_generation != inner.connection_generation
+            || inner.terminal_status.is_some()
+        {
+            return Ok(());
+        }
+        let mut candidate = inner.clone();
+        candidate.cooldown_until_unix_ms = TERMINAL_UNTIL_UNIX_MS;
+        candidate.backoff_level = candidate.backoff_level.max(1);
+        candidate.last_status = Some(terminal_status.http_status().as_u16());
+        candidate.terminal_status = Some(terminal_status);
         candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
         self.persist(&candidate, now).await?;
         *inner = candidate;
@@ -390,6 +462,7 @@ impl ProviderAvailability {
             connection_retry_after_ms: inner.cooldown_until_unix_ms.saturating_sub(now),
             connection_backoff_level: inner.backoff_level,
             connection_last_status: inner.last_status,
+            terminal_status: inner.terminal_status,
             model_lockouts,
         })
     }
@@ -408,6 +481,7 @@ impl ProviderAvailability {
         inner.cooldown_until_unix_ms = 0;
         inner.backoff_level = 0;
         inner.last_status = None;
+        inner.terminal_status = None;
         inner.connection_generation = inner.connection_generation.wrapping_add(1);
         inner.model_lockouts.clear();
         self.persistence_ok.store(true, Ordering::Release);
@@ -457,6 +531,7 @@ impl ProviderAvailability {
             .store(!inner.model_lockouts.is_empty(), Ordering::Release);
         self.needs_recovery.store(
             inner.cooldown_until_unix_ms > 0
+                || inner.terminal_status.is_some()
                 || inner.backoff_level > 0
                 || !inner.model_lockouts.is_empty(),
             Ordering::Release,
@@ -469,7 +544,7 @@ pub(crate) fn connection_failure_status(status: StatusCode) -> bool {
 }
 
 pub(crate) fn model_failure_status(status: StatusCode) -> bool {
-    matches!(status.as_u16(), 404 | 429)
+    matches!(status.as_u16(), 402 | 404 | 429)
 }
 
 fn validate_provider_id(value: &str) -> Result<(), &'static str> {
@@ -543,6 +618,54 @@ mod tests {
                 model_scope: false,
                 ..
             }
+        ));
+        database.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_failure_is_durable_until_operator_reset() {
+        let directory = TempDir::new().unwrap();
+        let file =
+            Url::from_file_path(directory.path().join("terminal-availability.sqlite")).unwrap();
+        let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let availability = ProviderAvailability::new("provider", database.clone());
+        let AvailabilityDecision::Permit(permit) = availability.try_acquire("model").await.unwrap()
+        else {
+            panic!("fresh availability state must permit a request");
+        };
+        availability
+            .record_terminal_failure(permit, TerminalStatus::CreditsExhausted)
+            .await
+            .unwrap();
+        let status = availability.status().await.unwrap();
+        assert_eq!(
+            status.terminal_status,
+            Some(TerminalStatus::CreditsExhausted)
+        );
+        assert_eq!(status.connection_last_status, Some(402));
+        assert!(matches!(
+            availability.try_acquire("model").await.unwrap(),
+            AvailabilityDecision::Blocked {
+                terminal_status: Some(TerminalStatus::CreditsExhausted),
+                model_scope: false,
+                ..
+            }
+        ));
+
+        let records = database.provider_availability().await.unwrap();
+        let restored = ProviderAvailability::from_stored(&records[0], database.clone()).unwrap();
+        assert!(matches!(
+            restored.try_acquire("model").await.unwrap(),
+            AvailabilityDecision::Blocked {
+                terminal_status: Some(TerminalStatus::CreditsExhausted),
+                ..
+            }
+        ));
+        restored.reset().await.unwrap();
+        assert!(matches!(
+            restored.try_acquire("model").await.unwrap(),
+            AvailabilityDecision::Permit(_)
         ));
         database.close().await.unwrap();
     }
