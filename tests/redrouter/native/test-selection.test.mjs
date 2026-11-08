@@ -96,10 +96,12 @@ test("company worker suites keep heavyweight builds and publishers hosted", () =
   const quality = YAML.parse(readFileSync(join(root, ".github/workflows/quality.yml"), "utf8"));
   const publish = YAML.parse(readFileSync(join(root, ".github/workflows/red-publish.yml"), "utf8"));
   assert.ok(quality.on.workflow_dispatch.inputs.suite.options.includes("workers"));
-  for (const name of ["checks", "test-unit", "test-vitest"]) {
+  for (const name of ["test-unit", "test-vitest"]) {
     assert.match(quality.jobs[name]["runs-on"], /reddb-public-linux-x64/);
     assert.match(quality.jobs[name].if, /inputs\.suite == 'workers'/);
   }
+  assert.equal(quality.jobs.checks["runs-on"], "ubuntu-latest");
+  assert.doesNotMatch(quality.jobs.checks.if, /inputs\.suite == 'workers'/);
   assert.equal(publish.jobs.build["runs-on"], "ubuntu-latest");
   assert.equal(publish.jobs.release["runs-on"], "ubuntu-latest");
   assert.equal(quality.jobs.browser["runs-on"], "ubuntu-24.04");
