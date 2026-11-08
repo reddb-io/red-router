@@ -71,6 +71,12 @@ pub(crate) fn authentication_failure_is_terminal(provider: Option<&str>) -> bool
             | "cerebras"
             | "sambanova"
             | "xai"
+            | "nvidia"
+            | "ai21"
+            | "moonshot"
+            | "kimi"
+            | "siliconflow"
+            | "novita"
     )
 }
 

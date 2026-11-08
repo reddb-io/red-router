@@ -263,6 +263,19 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
             "fireworks",
             "https://api.fireworks.ai/inference/v1/chat/completions",
         ),
+        ("xai", "https://api.x.ai/v1/chat/completions"),
+        (
+            "nvidia",
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+        ),
+        ("ai21", "https://api.ai21.com/studio/v1/chat/completions"),
+        ("moonshot", "https://api.moonshot.ai/v1/chat/completions"),
+        ("kimi", "https://api.moonshot.ai/v1/chat/completions"),
+        (
+            "siliconflow",
+            "https://api.siliconflow.com/v1/chat/completions",
+        ),
+        ("novita", "https://api.novita.ai/openai/v1/chat/completions"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at) VALUES (?,?,'apikey',1,'fixture-provider-key','a')")
             .bind(provider).bind(provider).execute(&mut db).await.unwrap();
@@ -276,7 +289,7 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
         assert!(connection.with_auto_selection_guard().unchanged().await);
     }
     sqlx::query("INSERT INTO combos (name,data) VALUES ('providers',?)")
-        .bind(r#"{"name":"providers","strategy":"priority","models":["groq/llama","mistral/large","deepseek/chat"]}"#)
+        .bind(r#"{"name":"providers","strategy":"priority","models":["groq/llama","mistral/large","deepseek/chat","xai/grok","nvidia/meta/llama","ai21/jamba","moonshot/kimi-k2","siliconflow/Qwen/model"]}"#)
         .execute(&mut db).await.unwrap();
     let combo = ProductCombo::load(&dir.path().join("storage.sqlite"), "providers")
         .await
@@ -287,7 +300,16 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
             .iter()
             .map(|target| target.provider.as_str())
             .collect::<Vec<_>>(),
-        vec!["groq", "mistral", "deepseek"]
+        vec![
+            "groq",
+            "mistral",
+            "deepseek",
+            "xai",
+            "nvidia",
+            "ai21",
+            "moonshot",
+            "siliconflow"
+        ]
     );
     assert!(red_routerd::product_provider::chat_url("untrusted-provider").is_none());
     assert!(red_routerd::product_provider::supports_model(

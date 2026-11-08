@@ -12,6 +12,12 @@ pub fn chat_url(provider: &str) -> Option<&'static str> {
         "together" => Some("https://api.together.xyz/v1/chat/completions"),
         "perplexity" => Some("https://api.perplexity.ai/chat/completions"),
         "fireworks" => Some("https://api.fireworks.ai/inference/v1/chat/completions"),
+        "xai" => Some("https://api.x.ai/v1/chat/completions"),
+        "nvidia" => Some("https://integrate.api.nvidia.com/v1/chat/completions"),
+        "ai21" => Some("https://api.ai21.com/studio/v1/chat/completions"),
+        "moonshot" | "kimi" => Some("https://api.moonshot.ai/v1/chat/completions"),
+        "siliconflow" => Some("https://api.siliconflow.com/v1/chat/completions"),
+        "novita" => Some("https://api.novita.ai/openai/v1/chat/completions"),
         _ => None,
     }
 }
