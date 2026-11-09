@@ -1,5 +1,6 @@
 use axum::{
     body::{Body, Bytes},
+    extract::Path,
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -565,6 +566,64 @@ async fn responses_provider(expected_key: &'static str) -> (String, tokio::task:
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (format!("http://{address}/v1/responses"), task)
+}
+
+async fn anthropic_usage_provider(
+    expected_key: &'static str,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(headers["x-api-key"].to_str().unwrap(), expected_key);
+            Json(serde_json::json!({
+                "id":"msg_fixture",
+                "type":"message",
+                "role":"assistant",
+                "model":"claude-sonnet-4-5",
+                "content":[{"type":"text","text":"ok"}],
+                "stop_reason":"end_turn",
+                "usage":{
+                    "input_tokens":3,
+                    "output_tokens":2,
+                    "cache_read_input_tokens":1,
+                    "cache_creation_input_tokens":1
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/messages"), task)
+}
+
+async fn gemini_usage_provider(
+    expected_key: &'static str,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1beta/models/{model_action}",
+        post(
+            move |Path(model_action): Path<String>, headers: HeaderMap| async move {
+                assert_eq!(headers["x-goog-api-key"].to_str().unwrap(), expected_key);
+                assert_eq!(model_action, "gemini-2.5-flash:generateContent");
+                Json(serde_json::json!({
+                    "candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}],
+                    "usageMetadata":{
+                        "promptTokenCount":2,
+                        "candidatesTokenCount":2,
+                        "thoughtsTokenCount":1,
+                        "cachedContentTokenCount":1,
+                        "totalTokenCount":5
+                    },
+                    "modelVersion":"gemini-2.5-flash"
+                }))
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1beta/models"), task)
 }
 
 async fn gateway(control: ControlPlane) -> (String, tokio::task::JoinHandle<()>) {
@@ -2713,6 +2772,8 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
         .unwrap();
     let (provider_url, provider_task) = embeddings_provider("embedding-secret").await;
     let (responses_url, responses_task) = responses_provider("responses-secret").await;
+    let (anthropic_url, anthropic_task) = anthropic_usage_provider("anthropic-usage-secret").await;
+    let (gemini_url, gemini_task) = gemini_usage_provider("gemini-usage-secret").await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
@@ -2735,6 +2796,40 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
             .status(),
         200
     );
+    for (id, provider, upstream_url, api_key) in [
+        (
+            "anthropic-provider",
+            "anthropic",
+            anthropic_url,
+            "anthropic-usage-secret",
+        ),
+        (
+            "gemini-provider",
+            "google",
+            gemini_url,
+            "gemini-usage-secret",
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":provider,
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string()
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
     assert_eq!(
         client
             .put(format!("{base}/api/admin/providers/responses-provider"))
@@ -2765,9 +2860,9 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
                     "api_key":RUST_CLIENT_KEY,
                     "scopes":["inference:embeddings","inference:chat"],
                     "allowed_endpoints":["embeddings","chat"],
-                    "allowed_models":["embedding-combo","text-embedding-3-small","responses-combo","gpt-4.1"],
-                    "allowed_provider_ids":["embedding-provider","responses-provider"],
-                    "max_tokens_per_minute":30,
+                    "allowed_models":["embedding-combo","text-embedding-3-small","responses-combo","gpt-4.1","anthropic-combo","claude-sonnet-4-5","gemini-combo","gemini-2.5-flash"],
+                    "allowed_provider_ids":["embedding-provider","responses-provider","anthropic-provider","gemini-provider"],
+                    "max_tokens_per_minute":80,
                     "max_tokens_per_day":100,
                     "reservation_tokens":10
                 })
@@ -2801,6 +2896,40 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
             .status(),
         200
     );
+    for (id, protocol, provider_id, model) in [
+        (
+            "anthropic-combo",
+            "anthropic",
+            "anthropic-provider",
+            "claude-sonnet-4-5",
+        ),
+        (
+            "gemini-combo",
+            "gemini",
+            "gemini-provider",
+            "gemini-2.5-flash",
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/combos/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "protocol":protocol,
+                        "strategy":"priority",
+                        "targets":[{"provider_id":provider_id,"model":model}]
+                    })
+                    .to_string()
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
     assert_eq!(
         client
             .put(format!("{base}/api/admin/combos/embedding-combo"))
@@ -2871,6 +3000,70 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
         response["usage"]["output_tokens_details"]["reasoning_tokens"],
         1
     );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/messages"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "model":"anthropic-combo",
+                    "messages":[],
+                    "max_tokens":16,
+                    "stream":true
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let anthropic = client
+        .post(format!("{base}/v1/messages"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"anthropic-combo",
+                "messages":[],
+                "max_tokens":16
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anthropic.status(), StatusCode::OK);
+    let anthropic: serde_json::Value =
+        serde_json::from_str(&anthropic.text().await.unwrap()).unwrap();
+    assert_eq!(anthropic["usage"]["cache_read_input_tokens"], 1);
+    assert_eq!(
+        client
+            .post(format!(
+                "{base}/v1beta/models/gemini-combo:streamGenerateContent"
+            ))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"contents":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let gemini = client
+        .post(format!("{base}/v1beta/models/gemini-combo:generateContent"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"contents":[]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(gemini.status(), StatusCode::OK);
+    let gemini: serde_json::Value = serde_json::from_str(&gemini.text().await.unwrap()).unwrap();
+    assert_eq!(gemini["usageMetadata"]["thoughtsTokenCount"], 1);
     let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
     let ledger: (i64, i64, i64, i64) = sqlx::query_as(
         "SELECT COUNT(*), SUM(tokens_input), SUM(tokens_output), SUM(tokens_reasoning) FROM redrouter_usage_ledger WHERE key_id='embedding-client'",
@@ -2878,7 +3071,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     .fetch_one(&audit)
     .await
     .unwrap();
-    assert_eq!(ledger, (2, 7, 2, 1));
+    assert_eq!(ledger, (4, 14, 7, 2));
     audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
@@ -2890,6 +3083,8 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     gateway_task.abort();
     provider_task.abort();
     responses_task.abort();
+    anthropic_task.abort();
+    gemini_task.abort();
 }
 
 #[tokio::test]

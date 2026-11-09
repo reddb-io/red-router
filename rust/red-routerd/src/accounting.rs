@@ -226,6 +226,88 @@ impl ChatUsage {
         Ok(result)
     }
 
+    /// Normalize a completed native Anthropic Messages response. Anthropic
+    /// reports ordinary input and both cache dimensions separately, so the
+    /// stored input total must include all three before differentiated pricing.
+    pub fn from_anthropic_response(response: &Value) -> Result<Self, &'static str> {
+        let usage = response
+            .get("usage")
+            .and_then(Value::as_object)
+            .ok_or("usage is missing")?;
+        let required = |field: &str| {
+            usage
+                .get(field)
+                .and_then(Value::as_u64)
+                .ok_or("invalid Anthropic token usage")
+        };
+        let optional = |field: &str| match usage.get(field) {
+            None | Some(Value::Null) => Ok(0),
+            Some(value) => value.as_u64().ok_or("invalid Anthropic token usage"),
+        };
+        let ordinary_input = required("input_tokens")?;
+        let output = required("output_tokens")?;
+        let cache_read = optional("cache_read_input_tokens")?;
+        let cache_creation = optional("cache_creation_input_tokens")?;
+        let input = ordinary_input
+            .checked_add(cache_read)
+            .and_then(|tokens| tokens.checked_add(cache_creation))
+            .ok_or("token usage overflow")?;
+        let result = Self {
+            input,
+            output,
+            reasoning: 0,
+            cache_read,
+            cache_creation,
+        };
+        result.billable_tokens()?;
+        Ok(result)
+    }
+
+    /// Normalize a completed native Gemini response. Gemini's thought count is
+    /// a separately reported part of generated output; include it in the output
+    /// total while retaining the detail for reasoning-specific prices.
+    pub fn from_gemini_response(response: &Value) -> Result<Self, &'static str> {
+        let usage = response
+            .get("usageMetadata")
+            .and_then(Value::as_object)
+            .ok_or("usage metadata is missing")?;
+        let required = |field: &str| {
+            usage
+                .get(field)
+                .and_then(Value::as_u64)
+                .ok_or("invalid Gemini token usage")
+        };
+        let optional = |field: &str| match usage.get(field) {
+            None | Some(Value::Null) => Ok(0),
+            Some(value) => value.as_u64().ok_or("invalid Gemini token usage"),
+        };
+        let input = required("promptTokenCount")?;
+        let candidates = required("candidatesTokenCount")?;
+        let reasoning = optional("thoughtsTokenCount")?;
+        let cache_read = optional("cachedContentTokenCount")?;
+        let output = candidates
+            .checked_add(reasoning)
+            .ok_or("token usage overflow")?;
+        if cache_read > input {
+            return Err("inconsistent Gemini token usage");
+        }
+        if let Some(total) = usage.get("totalTokenCount") {
+            let total = total.as_u64().ok_or("invalid Gemini token usage")?;
+            if input.checked_add(output) != Some(total) {
+                return Err("inconsistent Gemini token usage");
+            }
+        }
+        let result = Self {
+            input,
+            output,
+            reasoning,
+            cache_read,
+            cache_creation: 0,
+        };
+        result.billable_tokens()?;
+        Ok(result)
+    }
+
     /// Matches the product's quota counter (input + output + reasoning).
     pub fn billable_tokens(&self) -> Result<u64, &'static str> {
         self.input
@@ -888,6 +970,57 @@ mod tests {
             json!({"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":[]}}),
         ] {
             assert!(ChatUsage::from_responses_response(&invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn normalizes_native_anthropic_and_gemini_usage() {
+        let anthropic = ChatUsage::from_anthropic_response(&json!({"usage":{
+            "input_tokens":7,
+            "output_tokens":4,
+            "cache_read_input_tokens":3,
+            "cache_creation_input_tokens":2
+        }}))
+        .unwrap();
+        assert_eq!(
+            anthropic,
+            ChatUsage {
+                input: 12,
+                output: 4,
+                reasoning: 0,
+                cache_read: 3,
+                cache_creation: 2,
+            }
+        );
+        let gemini = ChatUsage::from_gemini_response(&json!({"usageMetadata":{
+            "promptTokenCount":10,
+            "candidatesTokenCount":4,
+            "thoughtsTokenCount":2,
+            "cachedContentTokenCount":3,
+            "totalTokenCount":16
+        }}))
+        .unwrap();
+        assert_eq!(
+            gemini,
+            ChatUsage {
+                input: 10,
+                output: 6,
+                reasoning: 2,
+                cache_read: 3,
+                cache_creation: 0,
+            }
+        );
+        for invalid in [
+            json!({"usage":{"input_tokens":1}}),
+            json!({"usage":{"input_tokens":u64::MAX,"output_tokens":1,"cache_read_input_tokens":1}}),
+        ] {
+            assert!(ChatUsage::from_anthropic_response(&invalid).is_err());
+        }
+        for invalid in [
+            json!({"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4,"cachedContentTokenCount":11}}),
+            json!({"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4,"thoughtsTokenCount":2,"totalTokenCount":15}}),
+        ] {
+            assert!(ChatUsage::from_gemini_response(&invalid).is_err());
         }
     }
 

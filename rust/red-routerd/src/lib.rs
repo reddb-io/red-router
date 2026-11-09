@@ -2740,6 +2740,8 @@ async fn proxy_request(
             ProviderProtocol::OpenAi
                 | ProviderProtocol::OpenAiResponses
                 | ProviderProtocol::OpenAiEmbeddings
+                | ProviderProtocol::Anthropic
+                | ProviderProtocol::Gemini
         ) || (protocol == ProviderProtocol::OpenAi
             && (!matches!(
                 parsed.get("stream"),
@@ -2755,13 +2757,20 @@ async fn proxy_request(
                     None | Some(serde_json::Value::Bool(false))
                 ))
             || (protocol == ProviderProtocol::OpenAiEmbeddings && parsed.get("stream").is_some())
+            || (protocol == ProviderProtocol::Anthropic
+                && !matches!(
+                    parsed.get("stream"),
+                    None | Some(serde_json::Value::Bool(false))
+                ))
+            || (protocol == ProviderProtocol::Gemini
+                && gemini.as_ref().is_some_and(|(_, stream)| *stream))
             || parsed
                 .get("service_tier")
                 .is_some_and(|v| !v.is_null() && v.as_str() != Some("default")))
     {
         return error(
             StatusCode::BAD_REQUEST,
-            "Usage accounting requires non-streaming OpenAI Responses/embeddings or OpenAI chat with include_usage for streaming, all on the default tier",
+            "Usage accounting requires a supported non-streaming protocol or OpenAI chat with include_usage for streaming, all on the default tier",
         );
     }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
@@ -3736,6 +3745,12 @@ async fn proxy_request(
                         }
                         ProviderProtocol::OpenAiResponses => {
                             accounting::ChatUsage::from_responses_response(&v).ok()
+                        }
+                        ProviderProtocol::Anthropic => {
+                            accounting::ChatUsage::from_anthropic_response(&v).ok()
+                        }
+                        ProviderProtocol::Gemini => {
+                            accounting::ChatUsage::from_gemini_response(&v).ok()
                         }
                         _ => accounting::ChatUsage::from_response(&v).ok(),
                     }
