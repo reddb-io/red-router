@@ -4752,8 +4752,9 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         StatusCode::OK
     );
 
+    let second_database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
     let second = ControlPlane::new_with_oauth_refresh_endpoints(
-        database.clone(),
+        second_database,
         ADMIN_KEY,
         STORAGE_KEY,
         false,

@@ -108,24 +108,20 @@ struct OAuthRefreshRuntime {
 }
 
 struct SqliteChangeWatcher {
-    connection: sqlx::pool::PoolConnection<sqlx::Any>,
+    pool: sqlx::AnyPool,
     version: i64,
     control_marker: [u8; 32],
 }
 
 impl SqliteChangeWatcher {
     async fn new(pool: &sqlx::AnyPool) -> Result<Self, &'static str> {
-        let mut connection = pool
-            .acquire()
-            .await
-            .map_err(|_| "cannot initialize control snapshot watcher")?;
         let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
-            .fetch_one(&mut *connection)
+            .fetch_one(pool)
             .await
             .map_err(|_| "cannot initialize control snapshot watcher")?;
-        let control_marker = sqlite_control_marker(&mut connection).await?;
+        let control_marker = sqlite_control_marker(pool).await?;
         Ok(Self {
-            connection,
+            pool: pool.clone(),
             version,
             control_marker,
         })
@@ -133,25 +129,23 @@ impl SqliteChangeWatcher {
 
     async fn changed(&mut self) -> Result<bool, &'static str> {
         let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
-            .fetch_one(&mut *self.connection)
+            .fetch_one(&self.pool)
             .await
             .map_err(|_| "control snapshot watcher unavailable")?;
         if version == self.version {
             return Ok(false);
         }
         self.version = version;
-        let control_marker = sqlite_control_marker(&mut self.connection).await?;
+        let control_marker = sqlite_control_marker(&self.pool).await?;
         let changed = control_marker != self.control_marker;
         self.control_marker = control_marker;
         Ok(changed)
     }
 }
 
-async fn sqlite_control_marker(
-    connection: &mut sqlx::pool::PoolConnection<sqlx::Any>,
-) -> Result<[u8; 32], &'static str> {
+async fn sqlite_control_marker(pool: &sqlx::AnyPool) -> Result<[u8; 32], &'static str> {
     let rows = sqlx::query(SQLITE_CONTROL_MARKER)
-        .fetch_all(&mut **connection)
+        .fetch_all(pool)
         .await
         .map_err(|_| "control snapshot watcher unavailable")?;
     let mut digest = Sha256::new();
