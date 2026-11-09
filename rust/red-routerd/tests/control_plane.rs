@@ -4594,16 +4594,20 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         client
             .put(format!("{first_base}/api/admin/providers/claude-refresh"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "provider":"claude",
-                "upstream_url":&upstream,
-                "api_key":"initial-refresh-access-token",
-                "auth_scheme":"bearer",
-                "expires_at_unix":expiry,
-                "credential_type":"oauth",
-                "oauth_provider":"claude",
-                "refresh_token":"initial-refresh-token"
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"claude",
+                    "upstream_url":&upstream,
+                    "api_key":"initial-refresh-access-token",
+                    "auth_scheme":"bearer",
+                    "expires_at_unix":expiry,
+                    "credential_type":"oauth",
+                    "oauth_provider":"claude",
+                    "refresh_token":"initial-refresh-token"
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -4616,11 +4620,15 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
                 "{first_base}/api/admin/combos/claude-refresh-model"
             ))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "protocol":"anthropic",
-                "strategy":"priority",
-                "targets":[{"provider_id":"claude-refresh","model":"claude-refresh-model"}]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"anthropic",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"claude-refresh","model":"claude-refresh-model"}]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -4652,8 +4660,10 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         .bearer_auth(ADMIN_KEY)
         .send();
     let (first_refresh, second_refresh) = tokio::join!(first_refresh, second_refresh);
-    let first_refresh: serde_json::Value = first_refresh.unwrap().json().await.unwrap();
-    let second_refresh: serde_json::Value = second_refresh.unwrap().json().await.unwrap();
+    let first_refresh: serde_json::Value =
+        serde_json::from_str(&first_refresh.unwrap().text().await.unwrap()).unwrap();
+    let second_refresh: serde_json::Value =
+        serde_json::from_str(&second_refresh.unwrap().text().await.unwrap()).unwrap();
     let categories = [
         first_refresh["refresh"]["category"].as_str().unwrap(),
         second_refresh["refresh"]["category"].as_str().unwrap(),
@@ -4676,11 +4686,15 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         client
             .post(format!("{refreshed_base}/v1/messages"))
             .bearer_auth(CLIENT_KEY)
-            .json(&serde_json::json!({
-                "model":"claude-refresh-model",
-                "messages":[],
-                "max_tokens":8
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "model":"claude-refresh-model",
+                    "messages":[],
+                    "max_tokens":8
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -4698,57 +4712,57 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         client
             .put(format!("{first_base}/api/admin/providers/claude-refresh"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "provider":"claude",
-                "upstream_url":&upstream,
-                "api_key":"replacement-access-token",
-                "auth_scheme":"bearer",
-                "expires_at_unix":expiry,
-                "credential_type":"oauth",
-                "oauth_provider":"claude",
-                "refresh_token":"revoked-refresh-token"
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"claude",
+                    "upstream_url":&upstream,
+                    "api_key":"replacement-access-token",
+                    "auth_scheme":"bearer",
+                    "expires_at_unix":expiry,
+                    "credential_type":"oauth",
+                    "oauth_provider":"claude",
+                    "refresh_token":"revoked-refresh-token"
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
             .status(),
         StatusCode::OK
     );
-    let terminal: serde_json::Value = client
+    let terminal = client
         .post(format!(
             "{first_base}/api/admin/providers/claude-refresh/oauth/refresh"
         ))
         .bearer_auth(ADMIN_KEY)
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    let terminal: serde_json::Value =
+        serde_json::from_str(&terminal.text().await.unwrap()).unwrap();
     assert_eq!(terminal["refresh"]["category"], "reauth_required");
     assert_eq!(token_requests.load(Ordering::SeqCst), 2);
-    let repeated: serde_json::Value = client
+    let repeated = client
         .post(format!(
             "{first_base}/api/admin/providers/claude-refresh/oauth/refresh"
         ))
         .bearer_auth(ADMIN_KEY)
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    let repeated: serde_json::Value =
+        serde_json::from_str(&repeated.text().await.unwrap()).unwrap();
     assert_eq!(repeated["refresh"]["category"], "reauth_required");
     assert_eq!(token_requests.load(Ordering::SeqCst), 2);
-    let listed: serde_json::Value = client
+    let listed = client
         .get(format!("{first_base}/api/admin/providers"))
         .bearer_auth(ADMIN_KEY)
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    let listed: serde_json::Value = serde_json::from_str(&listed.text().await.unwrap()).unwrap();
     assert_eq!(listed["providers"][0]["reauth_required"], true);
     assert_eq!(listed["providers"][0]["oauth_error_code"], "invalid_grant");
     assert!(!listed.to_string().contains("revoked-refresh-token"));
