@@ -1,8 +1,8 @@
-//! Forward OpenAI SSE while draining the provider after client disconnect.
+//! Forward accounted SSE while draining the provider after client disconnect.
 use crate::{
     accounting::{ChatUsage, TokenPrices},
     product::ProductConnection,
-    ProviderLoadGuard,
+    ProviderLoadGuard, ProviderProtocol,
 };
 use axum::body::{Body, Bytes};
 use futures_util::{stream, StreamExt};
@@ -78,10 +78,11 @@ impl UsageContext {
 enum Event {
     Ordinary,
     Usage(ChatUsage),
+    Complete(ChatUsage),
     Done,
 }
 
-fn classify(frame: &[u8]) -> Result<Event, ()> {
+fn classify(frame: &[u8], protocol: ProviderProtocol) -> Result<Event, ()> {
     let text = std::str::from_utf8(frame).map_err(|_| ())?;
     let mut data = String::new();
     for line in text.lines() {
@@ -100,18 +101,39 @@ fn classify(frame: &[u8]) -> Result<Event, ()> {
         return Ok(Event::Ordinary);
     }
     let value: serde_json::Value = serde_json::from_str(&data).map_err(|_| ())?;
-    if value
-        .get("service_tier")
-        .is_some_and(|tier| !tier.is_null() && tier.as_str() != Some("default"))
-    {
-        return Err(());
-    }
-    if value.get("usage").is_some_and(|v| !v.is_null()) {
-        Ok(Event::Usage(
-            ChatUsage::from_response(&value).map_err(|_| ())?,
-        ))
-    } else {
-        Ok(Event::Ordinary)
+    match protocol {
+        ProviderProtocol::OpenAi => {
+            if value
+                .get("service_tier")
+                .is_some_and(|tier| !tier.is_null() && tier.as_str() != Some("default"))
+            {
+                return Err(());
+            }
+            if value.get("usage").is_some_and(|v| !v.is_null()) {
+                Ok(Event::Usage(
+                    ChatUsage::from_response(&value).map_err(|_| ())?,
+                ))
+            } else {
+                Ok(Event::Ordinary)
+            }
+        }
+        ProviderProtocol::OpenAiResponses => match value.get("type").and_then(|v| v.as_str()) {
+            Some("response.completed") => {
+                let response = value.get("response").ok_or(())?;
+                if response
+                    .get("service_tier")
+                    .is_some_and(|tier| !tier.is_null() && tier.as_str() != Some("default"))
+                {
+                    return Err(());
+                }
+                Ok(Event::Complete(
+                    ChatUsage::from_responses_response(response).map_err(|_| ())?,
+                ))
+            }
+            Some("response.failed" | "response.incomplete" | "error") => Err(()),
+            _ => Ok(Event::Ordinary),
+        },
+        _ => Err(()),
     }
 }
 
@@ -128,9 +150,10 @@ fn frame_end(bytes: &[u8]) -> Option<usize> {
 }
 
 /// The spawned task owns the upstream even if the client drops its body. It
-/// forwards [DONE] only after successfully recording usage in SQLite.
+/// forwards the protocol's terminal success event only after recording usage.
 pub(crate) fn forward(
     response: reqwest::Response,
+    protocol: ProviderProtocol,
     usage: UsageContext,
     permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
     provider_load: Option<ProviderLoadGuard>,
@@ -155,13 +178,26 @@ pub(crate) fn forward(
                     break;
                 }
                 let frame: Vec<u8> = pending.drain(..end).collect();
-                match classify(&frame) {
+                match classify(&frame, protocol) {
                     Ok(Event::Usage(found)) => {
                         if usage.as_ref().is_some_and(|existing| existing != &found) {
                             pending.resize(MAX_FRAME + 1, 0);
                             break;
                         }
                         usage = Some(found);
+                    }
+                    Ok(Event::Complete(found)) => {
+                        done_seen = true;
+                        let Some(context) = usage_context.take() else {
+                            break;
+                        };
+                        if context.record(&found).await.is_ok() {
+                            complete = true;
+                            if connected {
+                                let _ = sender.send(Ok(Bytes::from(frame))).await;
+                            }
+                        }
+                        break;
                     }
                     Ok(Event::Done) => {
                         done_seen = true;
@@ -211,11 +247,29 @@ mod tests {
     #[test]
     fn parses_fragmented_boundaries_and_usage() {
         assert_eq!(frame_end(b"data: {}\r\n\r\ndata: x\n\n"), Some(12));
-        assert!(matches!(classify(b"data: [DONE]\n\n"), Ok(Event::Done)));
         assert!(matches!(
-            classify(b"data: {\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3}}\n\n"),
+            classify(b"data: [DONE]\n\n", ProviderProtocol::OpenAi),
+            Ok(Event::Done)
+        ));
+        assert!(matches!(
+            classify(
+                b"data: {\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3}}\n\n",
+                ProviderProtocol::OpenAi
+            ),
             Ok(Event::Usage(_))
         ));
-        assert!(classify(b"data: {\"usage\":{}}\n\n").is_err());
+        assert!(classify(b"data: {\"usage\":{}}\n\n", ProviderProtocol::OpenAi).is_err());
+        assert!(matches!(
+            classify(
+                b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5}}}\n\n",
+                ProviderProtocol::OpenAiResponses
+            ),
+            Ok(Event::Complete(_))
+        ));
+        assert!(classify(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":null}}\n\n",
+            ProviderProtocol::OpenAiResponses
+        )
+        .is_err());
     }
 }

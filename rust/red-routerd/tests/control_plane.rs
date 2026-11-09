@@ -542,12 +542,12 @@ async fn embeddings_provider(expected_key: &'static str) -> (String, tokio::task
 async fn responses_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/v1/responses",
-        post(move |headers: HeaderMap| async move {
+        post(move |headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
             assert_eq!(
                 headers["authorization"].to_str().unwrap(),
                 format!("Bearer {expected_key}")
             );
-            Json(serde_json::json!({
+            let completed = serde_json::json!({
                 "id":"resp_fixture",
                 "object":"response",
                 "model":"gpt-4.1",
@@ -559,7 +559,29 @@ async fn responses_provider(expected_key: &'static str) -> (String, tokio::task:
                     "input_tokens_details":{"cached_tokens":1},
                     "output_tokens_details":{"reasoning_tokens":1}
                 }
-            }))
+            });
+            if body.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+                let created = serde_json::json!({
+                    "type":"response.created",
+                    "response":{"id":"resp_fixture","object":"response","status":"in_progress","usage":null},
+                    "sequence_number":0
+                });
+                let terminal = serde_json::json!({
+                    "type":"response.completed",
+                    "response":completed,
+                    "sequence_number":1
+                });
+                axum::http::Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/event-stream")
+                    .body(Body::from(format!(
+                        "event: response.created\ndata: {created}\n\nevent: response.completed\ndata: {terminal}\n\n"
+                    )))
+                    .unwrap()
+                    .into_response()
+            } else {
+                Json(completed).into_response()
+            }
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2965,25 +2987,25 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let response: serde_json::Value =
         serde_json::from_str(&response.text().await.unwrap()).unwrap();
     assert_eq!(response["usage"]["prompt_tokens"], 4);
-    assert_eq!(
-        client
-            .post(format!("{base}/v1/responses"))
-            .bearer_auth(RUST_CLIENT_KEY)
-            .header(header::CONTENT_TYPE.as_str(), "application/json")
-            .body(
-                serde_json::json!({
-                    "model":"responses-combo",
-                    "input":"hello",
-                    "stream":true
-                })
-                .to_string()
-            )
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::BAD_REQUEST
-    );
+    let streamed = client
+        .post(format!("{base}/v1/responses"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"responses-combo",
+                "input":"hello",
+                "stream":true
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(streamed.status(), StatusCode::OK);
+    let streamed = streamed.text().await.unwrap();
+    assert!(streamed.contains("event: response.created"));
+    assert!(streamed.contains("event: response.completed"));
     let response = client
         .post(format!("{base}/v1/responses"))
         .bearer_auth(RUST_CLIENT_KEY)
@@ -3071,7 +3093,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     .fetch_one(&audit)
     .await
     .unwrap();
-    assert_eq!(ledger, (4, 14, 7, 2));
+    assert_eq!(ledger, (5, 17, 9, 3));
     audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")

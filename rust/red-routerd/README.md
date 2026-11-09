@@ -101,14 +101,14 @@ provider; subsequent provider changes do not require those environment secrets.
 Native SQLite quotas are enforced entirely by Rust. Every attempt acquires a durable
 `BEGIN IMMEDIATE` reservation before dispatch; independent Rust processes sharing the
 same file therefore cannot pass the same remaining budget concurrently. Successful
-OpenAI-compatible chat, non-streaming Responses, embedding, native Anthropic, native
-Gemini and chat-streaming responses atomically append to `redrouter_usage_ledger`, update
-the weighted token window and release the reservation.
-Streaming requires `stream_options.include_usage=true`; `[DONE]` is forwarded only after
-settlement. A failed, interrupted, crashed or oversized attempt keeps its dispatched
-reservation for explicit reconciliation rather than silently making budget available.
-Responses, Anthropic and Gemini streaming remain fail-closed while their typed terminal-event
-settlement is migrated; enabling native quotas never silently forwards an unaccounted stream.
+OpenAI-compatible chat, Responses, embedding, native Anthropic and native Gemini responses
+atomically append to `redrouter_usage_ledger`, update the weighted token window and release
+the reservation. Chat streaming requires `stream_options.include_usage=true`; `[DONE]` is
+forwarded only after settlement. Responses streaming settles the typed `response.completed`
+event before forwarding it. A failed, interrupted, crashed or oversized attempt keeps its
+dispatched reservation for explicit reconciliation rather than silently making budget available.
+Anthropic and Gemini streaming remain fail-closed while their typed terminal-event settlement
+is migrated; enabling native quotas never silently forwards an unaccounted stream.
 Money is stored as integer micro-USD. Prices come from the active exact-ID models.dev
 snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on

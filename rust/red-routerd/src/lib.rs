@@ -2732,8 +2732,11 @@ async fn proxy_request(
             "Usage accounting requires product client keys",
         );
     }
-    let accounting_stream = protocol == ProviderProtocol::OpenAi
-        && parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
+    let accounting_stream = matches!(
+        protocol,
+        ProviderProtocol::OpenAi | ProviderProtocol::OpenAiResponses
+    ) && parsed.get("stream").and_then(serde_json::Value::as_bool)
+        == Some(true);
     if usage_accounting
         && (!matches!(
             protocol,
@@ -2754,7 +2757,7 @@ async fn proxy_request(
             || (protocol == ProviderProtocol::OpenAiResponses
                 && !matches!(
                     parsed.get("stream"),
-                    None | Some(serde_json::Value::Bool(false))
+                    None | Some(serde_json::Value::Bool(_))
                 ))
             || (protocol == ProviderProtocol::OpenAiEmbeddings && parsed.get("stream").is_some())
             || (protocol == ProviderProtocol::Anthropic
@@ -3696,6 +3699,7 @@ async fn proxy_request(
                 };
                 let body = usage_stream::forward(
                     response,
+                    protocol,
                     usage_context,
                     (permit, client_permit),
                     provider_load_guard,
