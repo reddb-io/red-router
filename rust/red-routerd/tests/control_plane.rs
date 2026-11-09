@@ -4301,7 +4301,7 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
-        + 5;
+        + 3_600;
 
     let response = client
         .put(format!("{base}/api/admin/providers/anthropic-oauth"))
@@ -4351,9 +4351,24 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     assert_eq!(inference.status(), StatusCode::OK);
     assert_eq!(requests.load(Ordering::SeqCst), 1);
 
-    tokio::time::sleep(Duration::from_millis(5_100)).await;
+    let mut auth = database.provider_auth().await.unwrap();
+    assert_eq!(auth.len(), 1);
+    assert_eq!(auth[0].auth_scheme, "bearer");
+    assert_eq!(auth[0].label, "Claude team account");
+    auth[0].expires_at_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 1;
+    database.upsert_provider_auth(&auth[0]).await.unwrap();
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
     let expired = client
-        .post(format!("{base}/v1/messages"))
+        .post(format!("{restarted_base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
         .header(header::CONTENT_TYPE.as_str(), "application/json")
         .body(
@@ -4371,12 +4386,7 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     assert!(expired.text().await.unwrap().contains("credential expired"));
     assert_eq!(requests.load(Ordering::SeqCst), 1);
 
-    let auth = database.provider_auth().await.unwrap();
-    assert_eq!(auth.len(), 1);
-    assert_eq!(auth[0].auth_scheme, "bearer");
-    assert_eq!(auth[0].label, "Claude team account");
-
-    gateway_task.abort();
+    restarted_task.abort();
     provider_task.abort();
 }
 
