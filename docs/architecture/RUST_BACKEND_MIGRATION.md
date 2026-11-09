@@ -50,7 +50,7 @@ features must not be implemented only there.
 | Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and streaming settlement; budgets, schedules and non-SQLite stores remain |
 | Usage and audit             | SQLite foundation      | Rust-owned chat/SSE ledger and counters; reporting APIs, retention/export and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
-| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
+| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -161,6 +161,11 @@ an explicit tenant and refuses ownership changes for an existing key. Its PUT co
 a caller-chosen stable key ID and caller-generated secret: RedDB Cloud can retry after a lost
 response while Red Router continues to persist only a hash. The caller retains the external
 database-to-key mapping; Red Router retains tenant, label and authenticated creator only.
+`tenant-admin` can use the provider, combo and client-key CRUD surfaces, but list results are
+filtered to its tenant and every create/update/delete operation enforces the same ownership.
+Omitted `tenant_id` is filled from the binding; an explicit cross-tenant value is rejected.
+The shared models.dev catalog is readable for route configuration, while tenant and identity
+binding administration remain global-only. The `issuer` role does not inherit dashboard CRUD.
 
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing

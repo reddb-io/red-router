@@ -68,7 +68,10 @@ provider; subsequent provider changes do not require those environment secrets.
 - `GET /api/admin/identity-bindings` and `PUT /api/admin/identity-bindings/{id}` map a
   verified `oidc:` subject to an enabled tenant and one of `admin`, `tenant-admin` or
   `issuer`. OIDC authentication alone grants no management authority; a durable enabled
-  binding is required. The bootstrap administrator remains the recovery identity.
+  binding is required. `admin` is global. `tenant-admin` can list and mutate providers,
+  combos and client keys only inside its bound tenant and can read the shared model catalog;
+  omitted ownership defaults to that bound tenant. `issuer` remains limited to the scoped
+  provisioning endpoint. The bootstrap administrator remains the recovery identity.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.
@@ -163,7 +166,7 @@ legacy environment keys are confined to tenant `red`.
   DNS-pinned standard issuer discovery and returns validated endpoints and scopes.
 
 All management endpoints accept `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
-After a valid enabled OIDC policy has been committed, they also accept an
+After a valid enabled OIDC policy has been committed, their authorized subset also accepts an
 asymmetrically signed OIDC JWT whose issuer, audience, expiry, required claims and
 subject or verified e-mail match that policy. Every configured claim must match;
 array claims match when at least one value is allowed. The admin key remains the
