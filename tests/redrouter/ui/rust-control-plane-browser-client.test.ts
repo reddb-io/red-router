@@ -1,10 +1,40 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  deleteRustClientKey,
+  issueRustClientKey,
+  listRustClientKeys,
+  readRustUsageSummary,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
+  replaceRustClientKey,
   rustAdminFetch,
+  type RustClientKey,
 } from "@/lib/rustControlPlane/browserClient";
+
+const clientKey: RustClientKey = {
+  id: "key_fixture",
+  label: "Agent fleet",
+  tenant_id: "red",
+  created_by: "oidc:owner@example.com",
+  model_id_format: "prefixed",
+  enabled: true,
+  expires_at_unix: null,
+  scopes: ["inference:chat"],
+  allowed_endpoints: ["chat"],
+  allowed_models: ["openai/*"],
+  blocked_models: [],
+  allowed_provider_ids: ["openai-main"],
+  max_concurrent_requests: 32,
+  max_requests_per_minute: 600,
+  max_requests_per_day: null,
+  max_tokens_per_minute: 100_000,
+  max_tokens_per_day: 1_000_000,
+  max_spend_per_month_usd: 25,
+  reservation_tokens: 8_192,
+  reservation_spend_usd: 1,
+  revision: "1700000000000000000",
+};
 
 afterEach(() => {
   document.cookie = "redrouter_admin_csrf=; Max-Age=0; Path=/";
@@ -57,5 +87,73 @@ describe("Rust control-plane browser client", () => {
       "same-origin"
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the Rust key authority for list, issue, replacement and revocation", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ client_keys: [clientKey] }))
+      .mockResolvedValueOnce(
+        Response.json(
+          { client_key: clientKey, key: "rrk_one-time-secret", warning: "Store it" },
+          { status: 201 }
+        )
+      )
+      .mockResolvedValueOnce(Response.json({ client_key: { ...clientKey, enabled: false } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustClientKeys()).resolves.toEqual([clientKey]);
+    const input = {
+      ...clientKey,
+      expires_at_unix: undefined,
+    };
+    delete (input as Partial<RustClientKey>).id;
+    delete (input as Partial<RustClientKey>).created_by;
+    delete (input as Partial<RustClientKey>).revision;
+    await expect(issueRustClientKey(input)).resolves.toMatchObject({
+      key: "rrk_one-time-secret",
+    });
+    await expect(replaceRustClientKey(clientKey.id, input)).resolves.toMatchObject({
+      enabled: false,
+    });
+    await expect(deleteRustClientKey(clientKey.id)).resolves.toBeUndefined();
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/client-keys",
+      "/api/admin/client-keys",
+      "/api/admin/client-keys/key_fixture",
+      "/api/admin/client-keys/key_fixture",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "PUT" });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("reads bounded Rust usage totals without accepting partial payloads", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const usage = {
+      request_count: 7,
+      priced_request_count: 6,
+      tokens_input: 100,
+      tokens_output: 50,
+      tokens_cache_read: 20,
+      tokens_cache_creation: 10,
+      tokens_reasoning: 5,
+      amount_microusd: 1234,
+      pending_request_count: 2,
+      pending_reserved_tokens: 4096,
+      pending_reserved_microusd: 50_000,
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ usage }))
+      .mockResolvedValueOnce(Response.json({ usage: { request_count: 1 } }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(readRustUsageSummary("key_fixture")).resolves.toEqual(usage);
+    await expect(readRustUsageSummary()).rejects.toThrow("Invalid Rust usage response");
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/usage?key_id=key_fixture&limit=1");
   });
 });

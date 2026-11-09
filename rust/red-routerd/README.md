@@ -78,9 +78,13 @@ provider; subsequent provider changes do not require those environment secrets.
   can safely repeat the same stable key ID and secret without the router retaining plaintext.
   Tenant issuers cannot take over an existing key from another tenant.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
+- The dashboard API-key page detects this Rust authority through `/api/auth/config` and
+  talks directly to these admin routes. It preserves the legacy page only when running
+  against the Next compatibility server. Rust-managed keys intentionally have no reveal or
+  regenerate endpoint: replacement means issuing a new one-time secret and revoking the old key.
 - `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
   persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:
-  no-store`. The required `label` is durable operator metadata and may describe the workload
+no-store`. The required `label` is durable operator metadata and may describe the workload
   that receives the key; it does not grant access by itself. Optional `tenant_id` binds
   the key to an enabled Rust-owned tenant and defaults to `red`. `created_by` is derived
   from the authenticated bootstrap administrator or verified OIDC subject, never from
@@ -120,6 +124,7 @@ before this schema are marked as legacy snapshots with unavailable detail rather
 silently recomputed.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on
 RedDB or PostgreSQL is rejected instead of falling back to process-local counters.
+
 - `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
   newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
   `from_unix_ms`, `to_unix_ms` and `limit` filters support dashboard drill-down without
@@ -164,6 +169,7 @@ instead of publishing ambiguous state. A combo may reference only enabled provid
 owned by the same tenant. Durable client keys discover and execute only routes owned by
 their own tenant, even when their model/provider grant lists are otherwise unrestricted;
 legacy environment keys are confined to tenant `red`.
+
 - `DELETE /api/admin/combos/{id}` disables the combo.
 - `DELETE /api/admin/combos/{id}/lkgp` clears one learned last-known-good target.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,

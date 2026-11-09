@@ -42,17 +42,17 @@ features must not be implemented only there.
 
 ## Delivery map
 
-| Slice                       | Rust authority         | Acceptance                                                                         |
-| --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
-| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness |
-| API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
-| Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/Responses JSON+SSE plus embedding/Anthropic/Gemini settlement; budgets, schedules and non-SQLite stores remain |
-| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/Anthropic/Gemini ledger, counters and cursor-paginated tenant reporting; retention and remaining streaming/rerank paths remain |
+| Slice                       | Rust authority         | Acceptance                                                                                                                                                                     |
+| --------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness                                                                           |
+| API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry                                                                                                 |
+| Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                   |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/Responses JSON+SSE plus embedding/Anthropic/Gemini settlement; budgets, schedules and non-SQLite stores remain  |
+| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/Anthropic/Gemini ledger, counters and cursor-paginated tenant reporting; retention and remaining streaming/rerank paths remain      |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
-| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
-| SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
-| Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
+| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout           |
+| SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains                                                                    |
+| Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                                                                                                             |
 
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
 
@@ -61,19 +61,23 @@ The latest functional release is 0.60.5 (2026-10-16); the only newer mainline ch
 CI scheduling metadata. These are the product changes from the preceding 30 days and
 their Rust migration state:
 
-| Next.js change | Rust state | Remaining acceptance work |
-| --- | --- | --- |
-| Frozen model-price snapshots in usage export | Product bridge and native Rust ledger persist the exact price vector used at settlement | Cover the remaining protocol-specific unit prices |
-| Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Complete the remaining protocol sinks and retention policy |
-| Durable embedding usage | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses | Add protocol-wide fixtures outside embeddings |
-| Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
-| Signed OIDC claim policies | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
-| Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
-| Bound router/cache/log stream retention | Rust SSE frames and channels are bounded | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
+| Next.js change                                             | Rust state                                                                                                     | Remaining acceptance work                                                                        |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Frozen model-price snapshots in usage export               | Product bridge and native Rust ledger persist the exact price vector used at settlement                        | Cover the remaining protocol-specific unit prices                                                |
+| Preserve unpriced chat and streaming consumption           | Implemented as explicit opt-in with `pricing_known = 0`                                                        | Complete the remaining protocol sinks and retention policy                                       |
+| Durable embedding usage                                    | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses                         | Add protocol-wide fixtures outside embeddings                                                    |
+| Operator/key reporting attributes                          | Implemented for product-SQLite chat, streaming and embeddings                                                  | Move attributes and the ledger behind the Rust-owned storage repository                          |
+| Signed OIDC claim policies                                 | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
+| Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected                                                                            | Add parity fixtures for every translating stream path before declaring complete                  |
+| Bound router/cache/log stream retention                    | Rust SSE frames and channels are bounded                                                                       | Audit admin logs, translated streams and future SPA subscriptions under sustained load           |
 
 This table is a migration queue, not a parity claim. The signed-token and browser
 session security boundaries are Rust-owned. The existing dashboard detects the Rust auth
 bootstrap, copies the CSRF cookie into admin requests and uses Rust discovery/configuration.
+Its API-key manager now selects the Rust authority at runtime and uses the Rust-owned
+hash-only issue, policy replacement, revocation and usage-report contracts. The Next key
+manager remains the compatibility view only when the public auth bootstrap does not identify
+an active Rust control plane; the Rust view never calls the legacy `/api/keys` persistence.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
 production dashboard export/packaging pipeline and provider-specific diagnostics rather
