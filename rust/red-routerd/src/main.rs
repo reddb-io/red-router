@@ -705,6 +705,9 @@ async fn run(
                             expires_at_unix: env::var("RED_ROUTER_PROVIDER_EXPIRES_AT_UNIX")
                                 .ok()
                                 .and_then(|value| value.parse().ok()),
+                            credential_type: "static".to_owned(),
+                            oauth_provider: None,
+                            refresh_token: None,
                         },
                     )
                     .await?;

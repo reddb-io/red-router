@@ -30,6 +30,9 @@ type Draft = {
   label: string;
   accountEmail: string;
   expiresAt: string;
+  credentialType: "static" | "oauth";
+  oauthProvider: "codex" | "claude";
+  refreshToken: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -43,6 +46,9 @@ const EMPTY_DRAFT: Draft = {
   label: "",
   accountEmail: "",
   expiresAt: "",
+  credentialType: "static",
+  oauthProvider: "codex",
+  refreshToken: "",
 };
 
 const inputClass =
@@ -61,6 +67,9 @@ function providerDraft(provider: RustProvider): Draft {
     label: provider.label,
     accountEmail: provider.account_email ?? "",
     expiresAt: localDateTime(provider.expires_at_unix),
+    credentialType: provider.credential_type,
+    oauthProvider: provider.oauth_provider ?? "codex",
+    refreshToken: "",
   };
 }
 
@@ -88,8 +97,8 @@ function providerInput(draft: Draft): RustProviderInput {
     throw new Error("Connection label must contain between 1 and 128 characters");
   }
   if (accountEmail.length > 320) throw new Error("Provider account email is too long");
-  if (!apiKey || new TextEncoder().encode(apiKey).length > 512) {
-    throw new Error("A provider credential between 1 and 512 bytes is required for every save");
+  if (!apiKey || new TextEncoder().encode(apiKey).length > 8192) {
+    throw new Error("A provider credential between 1 and 8192 bytes is required for every save");
   }
   if (upstreamUrl.length > 2048) throw new Error("Upstream URL is too long");
   let url: URL;
@@ -105,6 +114,20 @@ function providerInput(draft: Draft): RustProviderInput {
   if (expiresAt && !Number.isFinite(expiresAt.getTime())) {
     throw new Error("Credential expiry is invalid");
   }
+  if (draft.credentialType === "oauth") {
+    if (provider !== draft.oauthProvider) {
+      throw new Error("OAuth account type must match the provider type");
+    }
+    if (draft.authScheme !== "bearer") {
+      throw new Error("OAuth accounts must use Authorization: Bearer");
+    }
+    if (!draft.refreshToken || new TextEncoder().encode(draft.refreshToken).length > 8192) {
+      throw new Error("An OAuth refresh token between 1 and 8192 bytes is required");
+    }
+    if (!expiresAt || expiresAt.getTime() <= Date.now()) {
+      throw new Error("OAuth credential expiry must be in the future");
+    }
+  }
   return {
     provider,
     upstream_url: upstreamUrl,
@@ -115,6 +138,10 @@ function providerInput(draft: Draft): RustProviderInput {
     label,
     ...(accountEmail ? { account_email: accountEmail } : {}),
     ...(expiresAt ? { expires_at_unix: Math.floor(expiresAt.getTime() / 1_000) } : {}),
+    credential_type: draft.credentialType,
+    ...(draft.credentialType === "oauth"
+      ? { oauth_provider: draft.oauthProvider, refresh_token: draft.refreshToken }
+      : {}),
   };
 }
 
@@ -405,10 +432,55 @@ export default function RustProvidersPageClient() {
             </select>
           </label>
           <label className={labelClass}>
+            Credential type
+            <select
+              className={inputClass}
+              value={draft.credentialType}
+              onChange={(event) => {
+                const credentialType = event.target.value as Draft["credentialType"];
+                setDraft((current) => ({
+                  ...current,
+                  credentialType,
+                  ...(credentialType === "oauth"
+                    ? {
+                        provider: current.oauthProvider,
+                        authScheme: "bearer" as RustProviderAuthScheme,
+                      }
+                    : {}),
+                }));
+              }}
+            >
+              <option value="static">API key or static token</option>
+              <option value="oauth">Imported CLI OAuth session</option>
+            </select>
+          </label>
+          {draft.credentialType === "oauth" && (
+            <label className={labelClass}>
+              OAuth account type
+              <select
+                className={inputClass}
+                value={draft.oauthProvider}
+                onChange={(event) => {
+                  const oauthProvider = event.target.value as Draft["oauthProvider"];
+                  setDraft((current) => ({
+                    ...current,
+                    oauthProvider,
+                    provider: oauthProvider,
+                    authScheme: "bearer",
+                  }));
+                }}
+              >
+                <option value="codex">OpenAI Codex CLI</option>
+                <option value="claude">Claude Code</option>
+              </select>
+            </label>
+          )}
+          <label className={labelClass}>
             Credential authentication
             <select
               className={inputClass}
               value={draft.authScheme}
+              disabled={draft.credentialType === "oauth"}
               onChange={(event) => set("authScheme", event.target.value as RustProviderAuthScheme)}
             >
               <option value="auto">Automatic for endpoint</option>
@@ -439,7 +511,9 @@ export default function RustProvidersPageClient() {
             />
           </label>
           <label className={labelClass}>
-            API key or provider credential
+            {draft.credentialType === "oauth"
+              ? "OAuth access token"
+              : "API key or provider credential"}
             <input
               className={inputClass}
               type="password"
@@ -449,8 +523,21 @@ export default function RustProvidersPageClient() {
               onChange={(event) => set("apiKey", event.target.value)}
             />
           </label>
+          {draft.credentialType === "oauth" && (
+            <label className={labelClass}>
+              OAuth refresh token
+              <input
+                className={inputClass}
+                type="password"
+                autoComplete="new-password"
+                value={draft.refreshToken}
+                placeholder={editingId ? "Required to replace" : "Stored encrypted"}
+                onChange={(event) => set("refreshToken", event.target.value)}
+              />
+            </label>
+          )}
           <label className={labelClass}>
-            Credential expires (optional)
+            Credential expires {draft.credentialType === "oauth" ? "(required)" : "(optional)"}
             <input
               className={inputClass}
               type="datetime-local"
@@ -545,7 +632,9 @@ export default function RustProvidersPageClient() {
                     {provider.credential_expired
                       ? "Expired"
                       : provider.has_credential
-                        ? "Encrypted and present"
+                        ? provider.credential_type === "oauth"
+                          ? `${provider.oauth_provider} OAuth · generation ${provider.oauth_generation}`
+                          : "Encrypted and present"
                         : "Missing"}
                   </dd>
                 </div>

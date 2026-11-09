@@ -22,6 +22,11 @@ const LIST_PROVIDER_AUTH: &str = "SELECT provider_id, auth_scheme, label, accoun
 const UPSERT_PROVIDER_AUTH: &str = "INSERT INTO redrouter_control_provider_auth (record_id, provider_id, auth_scheme, label, account_email, expires_at_unix, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (record_id) DO UPDATE SET auth_scheme = $3, label = $4, account_email = $5, expires_at_unix = $6";
 const DELETE_PROVIDER_AUTH: &str =
     "DELETE FROM redrouter_control_provider_auth WHERE provider_id = $1";
+const CREATE_PROVIDER_OAUTH: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_oauth (provider_id TEXT PRIMARY KEY, oauth_provider TEXT NOT NULL, refresh_token_ciphertext TEXT NOT NULL, generation BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_OAUTH: &str = "SELECT provider_id, oauth_provider, refresh_token_ciphertext, generation, revision FROM redrouter_control_provider_oauth ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_OAUTH: &str = "INSERT INTO redrouter_control_provider_oauth (provider_id, oauth_provider, refresh_token_ciphertext, generation, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id) DO UPDATE SET oauth_provider = $2, refresh_token_ciphertext = $3, generation = $4, revision = $5";
+const DELETE_PROVIDER_OAUTH: &str =
+    "DELETE FROM redrouter_control_provider_oauth WHERE provider_id = $1";
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
@@ -119,6 +124,15 @@ pub struct StoredProviderAuth {
     pub label: String,
     pub account_email: String,
     pub expires_at_unix: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderOAuth {
+    pub provider_id: String,
+    pub oauth_provider: String,
+    pub refresh_token_ciphertext: String,
+    pub generation: i64,
     pub revision: i64,
 }
 
@@ -373,6 +387,7 @@ impl Database {
                         CREATE_PROVIDERS,
                         CREATE_PROVIDER_OWNERSHIP,
                         CREATE_PROVIDER_AUTH,
+                        CREATE_PROVIDER_OAUTH,
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
@@ -475,6 +490,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_PROVIDER_AUTH).await?;
+                db.remote_schema_query(CREATE_PROVIDER_OAUTH).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
@@ -520,6 +536,7 @@ impl Database {
                     CREATE_PROVIDERS,
                     CREATE_PROVIDER_OWNERSHIP,
                     CREATE_PROVIDER_AUTH,
+                    CREATE_PROVIDER_OAUTH,
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
@@ -863,6 +880,167 @@ impl Database {
             }
         }
         Ok(())
+    }
+
+    pub async fn provider_oauth(&self) -> Result<Vec<StoredProviderOAuth>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_OAUTH)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider OAuth configuration")?
+                .iter()
+                .map(read_sql_provider_oauth)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_OAUTH, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_oauth)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_OAUTH)
+                .await
+                .map_err(|_| "cannot read provider OAuth configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_oauth)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_oauth(
+        &self,
+        oauth: &StoredProviderOAuth,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_OAUTH)
+                    .bind(&oauth.provider_id)
+                    .bind(&oauth.oauth_provider)
+                    .bind(&oauth.refresh_token_ciphertext)
+                    .bind(oauth.generation)
+                    .bind(oauth.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider OAuth configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_PROVIDER_OAUTH, &provider_oauth_params(oauth))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_PROVIDER_OAUTH, provider_oauth_params(oauth))
+                    .await
+                    .map_err(|_| "cannot write provider OAuth configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_oauth(&self, provider_id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_OAUTH)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider OAuth configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER_OAUTH, &params()).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER_OAUTH, params())
+                    .await
+                    .map_err(|_| "cannot delete provider OAuth configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Atomically replace a rotating OAuth token pair if the caller still owns
+    /// the generation it read. SQLite is the current production authority for
+    /// this path; other backends fail closed until they provide equivalent CAS.
+    pub async fn rotate_provider_oauth_credentials(
+        &self,
+        provider_id: &str,
+        revision: i64,
+        expected_generation: i64,
+        access_token_ciphertext: &str,
+        refresh_token_ciphertext: &str,
+        expires_at_unix: i64,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("provider OAuth rotation requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("provider OAuth rotation requires SQLite")?;
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|_| "cannot rotate provider OAuth credential")?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot rotate provider OAuth credential")?;
+        let result = async {
+            let next_generation = expected_generation
+                .checked_add(1)
+                .ok_or("provider OAuth generation is invalid")?;
+            let oauth = sqlx::query("UPDATE redrouter_control_provider_oauth SET refresh_token_ciphertext = $1, generation = $2 WHERE provider_id = $3 AND revision = $4 AND generation = $5")
+                .bind(refresh_token_ciphertext)
+                .bind(next_generation)
+                .bind(provider_id)
+                .bind(revision)
+                .bind(expected_generation)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot rotate provider OAuth credential")?;
+            if oauth.rows_affected() == 0 {
+                return Ok(false);
+            }
+            if oauth.rows_affected() != 1 {
+                return Err("invalid provider OAuth rotation state");
+            }
+            let provider = sqlx::query("UPDATE redrouter_control_providers SET credential_ciphertext = $1 WHERE id = $2 AND revision = $3")
+                .bind(access_token_ciphertext)
+                .bind(provider_id)
+                .bind(revision)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot rotate provider OAuth credential")?;
+            let auth = sqlx::query("UPDATE redrouter_control_provider_auth SET expires_at_unix = $1 WHERE provider_id = $2 AND revision = $3")
+                .bind(expires_at_unix)
+                .bind(provider_id)
+                .bind(revision)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot rotate provider OAuth credential")?;
+            if provider.rows_affected() != 1 || auth.rows_affected() != 1 {
+                return Err("provider OAuth revision mismatch");
+            }
+            Ok(true)
+        }
+        .await;
+        match result {
+            Ok(value) => {
+                sqlx::query("COMMIT")
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(|_| "cannot rotate provider OAuth credential")?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+                Err(error)
+            }
+        }
     }
 
     pub async fn tenants(&self) -> Result<Vec<StoredTenant>, &'static str> {
@@ -2489,6 +2667,60 @@ fn provider_auth_params(auth: &StoredProviderAuth) -> Vec<reddb_client::Value> {
         reddb_client::Value::Text(auth.account_email.clone()),
         reddb_client::Value::Int(auth.expires_at_unix),
         reddb_client::Value::Int(auth.revision),
+    ]
+}
+
+fn read_sql_provider_oauth(row: &sqlx::any::AnyRow) -> Result<StoredProviderOAuth, &'static str> {
+    Ok(StoredProviderOAuth {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider OAuth record")?,
+        oauth_provider: row
+            .try_get("oauth_provider")
+            .map_err(|_| "invalid provider OAuth record")?,
+        refresh_token_ciphertext: row
+            .try_get("refresh_token_ciphertext")
+            .map_err(|_| "invalid provider OAuth record")?,
+        generation: row
+            .try_get("generation")
+            .map_err(|_| "invalid provider OAuth record")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider OAuth record")?,
+    })
+}
+
+fn read_reddb_provider_oauth(row: &reddb_client::Row) -> Result<StoredProviderOAuth, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider OAuth record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider OAuth record"),
+    };
+    Ok(StoredProviderOAuth {
+        provider_id: text("provider_id")?,
+        oauth_provider: text("oauth_provider")?,
+        refresh_token_ciphertext: text("refresh_token_ciphertext")?,
+        generation: integer("generation")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn provider_oauth_params(oauth: &StoredProviderOAuth) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(oauth.provider_id.clone()),
+        reddb_client::Value::Text(oauth.oauth_provider.clone()),
+        reddb_client::Value::Text(oauth.refresh_token_ciphertext.clone()),
+        reddb_client::Value::Int(oauth.generation),
+        reddb_client::Value::Int(oauth.revision),
     ]
 }
 

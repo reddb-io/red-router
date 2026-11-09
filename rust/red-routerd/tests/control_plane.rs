@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -656,6 +656,37 @@ async fn anthropic_bearer_provider(
                     "type":"message",
                     "role":"assistant",
                     "model":"claude-fixture",
+                    "content":[{"type":"text","text":"ok"}],
+                    "stop_reason":"end_turn",
+                    "usage":{"input_tokens":1,"output_tokens":1}
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/messages"), requests, task)
+}
+
+async fn recording_anthropic_bearer_provider(
+) -> (String, Arc<Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = requests.clone();
+    let app = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap| {
+            let observed = observed.clone();
+            async move {
+                observed
+                    .lock()
+                    .unwrap()
+                    .push(headers[header::AUTHORIZATION].to_str().unwrap().to_owned());
+                Json(serde_json::json!({
+                    "id":"msg_oauth_rotation_fixture",
+                    "type":"message",
+                    "role":"assistant",
+                    "model":"claude-oauth-fixture",
                     "content":[{"type":"text","text":"ok"}],
                     "stop_reason":"end_turn",
                     "usage":{"input_tokens":1,"output_tokens":1}
@@ -4283,6 +4314,179 @@ async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
     gateway_task.abort();
     red_task.abort();
     acme_task.abort();
+}
+
+#[tokio::test]
+async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("provider-oauth.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (upstream, requests, provider_task) = recording_anthropic_bearer_provider().await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+
+    let configured = client
+        .put(format!("{base}/api/admin/providers/claude-oauth"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"claude",
+                "upstream_url":upstream,
+                "api_key":"initial-oauth-access-token",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"claude",
+                "refresh_token":"initial-oauth-refresh-token"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value =
+        serde_json::from_str(&configured.text().await.unwrap()).unwrap();
+    assert_eq!(configured["provider"]["credential_type"], "oauth");
+    assert_eq!(configured["provider"]["oauth_provider"], "claude");
+    assert_eq!(configured["provider"]["oauth_generation"], "0");
+    assert_eq!(configured["provider"]["refreshable"], true);
+    assert!(!configured.to_string().contains("initial-oauth"));
+
+    let oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(oauth.len(), 1);
+    assert_eq!(oauth[0].generation, 0);
+    assert!(oauth[0].refresh_token_ciphertext.starts_with("rr:v1:"));
+    assert!(!oauth[0]
+        .refresh_token_ciphertext
+        .contains("initial-oauth-refresh-token"));
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/claude-oauth-fixture"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"anthropic",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"claude-oauth","model":"claude-oauth-fixture"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/messages"))
+            .bearer_auth(CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "model":"claude-oauth-fixture",
+                    "messages":[],
+                    "max_tokens":8
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    let rotated = client
+        .post(format!(
+            "{base}/api/admin/providers/claude-oauth/oauth/rotate"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "expected_generation":"0",
+                "access_token":"rotated-oauth-access-token",
+                "refresh_token":"rotated-oauth-refresh-token",
+                "expires_at_unix":expiry + 3_600
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rotated.status(), StatusCode::OK);
+    let rotated: serde_json::Value = serde_json::from_str(&rotated.text().await.unwrap()).unwrap();
+    assert_eq!(rotated["provider"]["oauth_generation"], "1");
+    assert!(!rotated.to_string().contains("rotated-oauth"));
+
+    let stale = client
+        .post(format!(
+            "{base}/api/admin/providers/claude-oauth/oauth/rotate"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "expected_generation":"0",
+                "access_token":"stale-access-token",
+                "refresh_token":"stale-refresh-token",
+                "expires_at_unix":expiry + 7_200
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/messages"))
+            .bearer_auth(CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "model":"claude-oauth-fixture",
+                    "messages":[],
+                    "max_tokens":8
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        requests.lock().unwrap().as_slice(),
+        [
+            "Bearer initial-oauth-access-token",
+            "Bearer rotated-oauth-access-token"
+        ]
+    );
+    let oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(oauth[0].generation, 1);
+    assert!(!oauth[0]
+        .refresh_token_ciphertext
+        .contains("rotated-oauth-refresh-token"));
+
+    gateway_task.abort();
+    provider_task.abort();
 }
 
 #[tokio::test]

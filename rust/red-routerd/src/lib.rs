@@ -1023,8 +1023,8 @@ impl ProxyState {
         {
             return Err("upstream resolved to a forbidden address");
         }
-        if !(16..=512).contains(&client_key.len()) || !(1..=512).contains(&provider_key.len()) {
-            return Err("client key must be 16-512 bytes and provider key 1-512 bytes");
+        if !(16..=512).contains(&client_key.len()) || !(1..=8192).contains(&provider_key.len()) {
+            return Err("client key must be 16-512 bytes and provider credential 1-8192 bytes");
         }
         let auth_scheme = auth_scheme.resolve(protocol)?;
         let provider_credential = match auth_scheme {
@@ -1225,7 +1225,7 @@ impl ProxyState {
         let mut result = Vec::with_capacity(fallbacks.len());
         for (connection, key) in fallbacks {
             let key = zeroize::Zeroizing::new(key);
-            if !connection.same_provider_database(primary) || !(1..=512).contains(&key.len()) {
+            if !connection.same_provider_database(primary) || !(1..=8192).contains(&key.len()) {
                 return Err("invalid product fallback");
             }
             let mut provider_key = HeaderValue::from_str(&format!("Bearer {}", key.as_str()))
@@ -1683,6 +1683,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/providers/{id}/test",
             post(control_plane::diagnose_provider),
+        )
+        .route(
+            "/api/admin/providers/{id}/oauth/rotate",
+            post(control_plane::rotate_provider_oauth),
         )
         .route(
             "/api/admin/client-keys",

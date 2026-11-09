@@ -7,7 +7,7 @@ use crate::{
     storage::{
         StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
         StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
-        StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
+        StoredProviderOAuth, StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -124,6 +124,10 @@ pub struct ProviderInput {
     pub label: Option<String>,
     pub account_email: Option<String>,
     pub expires_at_unix: Option<u64>,
+    #[serde(default = "static_credential_type")]
+    pub credential_type: String,
+    pub oauth_provider: Option<String>,
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -143,6 +147,21 @@ pub struct ProviderView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at_unix: Option<u64>,
     pub credential_expired: bool,
+    pub credential_type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_generation: Option<String>,
+    pub refreshable: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderOAuthRotationInput {
+    pub expected_generation: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at_unix: u64,
 }
 
 #[derive(Deserialize)]
@@ -557,6 +576,10 @@ fn auto_rate_limit_scope() -> String {
 
 fn auto_auth_scheme() -> String {
     "auto".to_owned()
+}
+
+fn static_credential_type() -> String {
+    "static".to_owned()
 }
 
 fn priority_strategy() -> String {
@@ -1128,6 +1151,7 @@ impl ControlPlane {
             && availability_ready
             && self.0.database.provider_resilience().await.is_ok()
             && self.0.database.provider_auth().await.is_ok()
+            && self.0.database.provider_oauth().await.is_ok()
             && self
                 .0
                 .database
@@ -1153,8 +1177,8 @@ impl ControlPlane {
     ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
         validate_provider(&input.provider)?;
-        if !(1..=512).contains(&input.api_key.len()) {
-            return Err("provider API key must be 1-512 bytes");
+        if !(1..=8192).contains(&input.api_key.len()) {
+            return Err("provider credential must be 1-8192 bytes");
         }
         if input.upstream_url.len() > 2048 {
             return Err("provider upstream URL is too long");
@@ -1170,6 +1194,41 @@ impl ControlPlane {
             .map(|value| i64::try_from(value).map_err(|_| "provider credential expiry is invalid"))
             .transpose()?
             .unwrap_or(0);
+        let oauth_provider = match input.credential_type.as_str() {
+            "static" => {
+                if input.oauth_provider.is_some() || input.refresh_token.is_some() {
+                    return Err("static provider credential cannot include OAuth fields");
+                }
+                None
+            }
+            "oauth" => {
+                let oauth_provider = input
+                    .oauth_provider
+                    .as_deref()
+                    .ok_or("OAuth provider is required")?;
+                if !matches!(oauth_provider, "codex" | "claude") {
+                    return Err("unsupported OAuth provider");
+                }
+                if input.provider != oauth_provider {
+                    return Err("OAuth provider must match provider type");
+                }
+                if auth_scheme != ProviderAuthScheme::Bearer {
+                    return Err("OAuth provider authentication must use bearer");
+                }
+                let refresh_token = input
+                    .refresh_token
+                    .as_deref()
+                    .ok_or("OAuth refresh token is required")?;
+                if !(1..=8192).contains(&refresh_token.len()) {
+                    return Err("OAuth refresh token must be 1-8192 bytes");
+                }
+                if expires_at_unix <= 0 {
+                    return Err("OAuth credential expiry is required");
+                }
+                Some(oauth_provider.to_owned())
+            }
+            _ => return Err("unsupported provider credential type"),
+        };
         if input.enabled
             && expires_at_unix > 0
             && expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX)
@@ -1252,6 +1311,32 @@ impl ControlPlane {
             .await?;
         self.0.database.upsert_provider_auth(&provider_auth).await?;
         self.0.database.upsert_provider(&stored).await?;
+        let provider_oauth = if let Some(oauth_provider) = oauth_provider {
+            let refresh_token = Zeroizing::new(
+                input
+                    .refresh_token
+                    .as_deref()
+                    .ok_or("OAuth refresh token is required")?
+                    .to_owned(),
+            );
+            let aad = format!("{id}:oauth-refresh");
+            let oauth = StoredProviderOAuth {
+                provider_id: id.to_owned(),
+                oauth_provider,
+                refresh_token_ciphertext: encrypt(
+                    refresh_token.as_str(),
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?,
+                generation: 0,
+                revision,
+            };
+            self.0.database.upsert_provider_oauth(&oauth).await?;
+            Some(oauth)
+        } else {
+            self.0.database.delete_provider_oauth(id).await?;
+            None
+        };
         // Refresh from the durable authority so concurrent writers converge on
         // the same latest enabled record rather than on local write order.
         if let Err(error) = self.refresh().await {
@@ -1265,7 +1350,12 @@ impl ControlPlane {
         self.availability_for(id).await.reset().await?;
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
-        view(&stored, rate_limit_scope, Some(&provider_auth))
+        view(
+            &stored,
+            rate_limit_scope,
+            Some(&provider_auth),
+            provider_oauth.as_ref(),
+        )
     }
 
     async fn diagnose_provider_as(
@@ -1318,6 +1408,85 @@ impl ControlPlane {
         )
         .await?;
         probe_provider(&live, provider.id, input.model).await
+    }
+
+    async fn rotate_provider_oauth_as(
+        &self,
+        id: &str,
+        input: ProviderOAuthRotationInput,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderView, &'static str> {
+        validate_id(id)?;
+        if !(1..=8192).contains(&input.access_token.len())
+            || !(1..=8192).contains(&input.refresh_token.len())
+        {
+            return Err("OAuth tokens must be 1-8192 bytes");
+        }
+        let expected_generation = input
+            .expected_generation
+            .parse::<i64>()
+            .ok()
+            .filter(|value| *value >= 0)
+            .ok_or("provider OAuth generation is invalid")?;
+        let expires_at_unix = i64::try_from(input.expires_at_unix)
+            .map_err(|_| "provider credential expiry is invalid")?;
+        if expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX) {
+            return Err("provider credential is already expired");
+        }
+        let access_token = Zeroizing::new(input.access_token);
+        let refresh_token = Zeroizing::new(input.refresh_token);
+        let _mutation = self.0.mutation.lock().await;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
+        let oauth = self
+            .oauth_settings()
+            .await?
+            .remove(&(provider.id.clone(), provider.updated_at))
+            .ok_or("provider OAuth configuration not found")?;
+        if oauth.generation != expected_generation {
+            return Err("provider OAuth generation conflict");
+        }
+        let access_ciphertext = encrypt(access_token.as_str(), id, self.0.encryption_key.as_str())?;
+        let aad = format!("{id}:oauth-refresh");
+        let refresh_ciphertext =
+            encrypt(refresh_token.as_str(), &aad, self.0.encryption_key.as_str())?;
+        let rotated = self
+            .0
+            .database
+            .rotate_provider_oauth_credentials(
+                id,
+                provider.updated_at,
+                expected_generation,
+                &access_ciphertext,
+                &refresh_ciphertext,
+                expires_at_unix,
+            )
+            .await?;
+        if !rotated {
+            return Err("provider OAuth generation conflict");
+        }
+        if let Err(error) = self.refresh().await {
+            *self.0.current.write().await = None;
+            return Err(error);
+        }
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        self.views(enforced_tenant)
+            .await?
+            .into_iter()
+            .find(|view| view.id == id)
+            .ok_or("provider configuration not found")
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
@@ -1630,6 +1799,10 @@ impl ControlPlane {
             .await?
             .remove(&(provider.id.clone(), provider.updated_at))
             .unwrap_or_else(|| default_provider_auth(&provider));
+        let oauth = self
+            .oauth_settings()
+            .await?
+            .remove(&(provider.id.clone(), provider.updated_at));
         let revision = revision()?;
         self.0
             .database
@@ -1643,6 +1816,12 @@ impl ControlPlane {
             .database
             .upsert_provider_auth(&StoredProviderAuth { revision, ..auth })
             .await?;
+        if let Some(oauth) = oauth {
+            self.0
+                .database
+                .upsert_provider_oauth(&StoredProviderOAuth { revision, ..oauth })
+                .await?;
+        }
         self.0.database.disable_provider(id, revision).await?;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
@@ -2439,6 +2618,7 @@ impl ControlPlane {
     async fn views(&self, tenant_id: Option<&str>) -> Result<Vec<ProviderView>, &'static str> {
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
+        let oauth = self.oauth_settings().await?;
         self.0.database.providers().await.and_then(|rows| {
             rows.iter()
                 .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
@@ -2450,6 +2630,7 @@ impl ControlPlane {
                             .copied()
                             .unwrap_or_default(),
                         auth.get(&(record.id.clone(), record.updated_at)),
+                        oauth.get(&(record.id.clone(), record.updated_at)),
                     )
                 })
                 .collect()
@@ -2470,6 +2651,26 @@ impl ControlPlane {
                 validate_provider_account_email(&record.account_email)?;
                 if record.expires_at_unix < 0 {
                     return Err("provider credential expiry is invalid");
+                }
+                Ok(((record.provider_id.clone(), record.revision), record))
+            })
+            .collect()
+    }
+
+    async fn oauth_settings(
+        &self,
+    ) -> Result<HashMap<(String, i64), StoredProviderOAuth>, &'static str> {
+        self.0
+            .database
+            .provider_oauth()
+            .await?
+            .into_iter()
+            .map(|record| {
+                if !matches!(record.oauth_provider.as_str(), "codex" | "claude")
+                    || record.generation < 0
+                    || record.refresh_token_ciphertext.is_empty()
+                {
+                    return Err("invalid provider OAuth configuration");
                 }
                 Ok(((record.provider_id.clone(), record.revision), record))
             })
@@ -3069,6 +3270,7 @@ fn view(
     record: &StoredProvider,
     rate_limit_scope: RateLimitScope,
     auth: Option<&StoredProviderAuth>,
+    oauth: Option<&StoredProviderOAuth>,
 ) -> Result<ProviderView, &'static str> {
     let fallback;
     let auth = match auth {
@@ -3098,6 +3300,10 @@ fn view(
         expires_at_unix,
         credential_expired: expires_at_unix
             .is_some_and(|expiry| unix_time_seconds().map_or(true, |now| expiry <= now)),
+        credential_type: if oauth.is_some() { "oauth" } else { "static" },
+        oauth_provider: oauth.map(|value| value.oauth_provider.clone()),
+        oauth_generation: oauth.map(|value| value.generation.to_string()),
+        refreshable: oauth.is_some(),
     })
 }
 
@@ -3778,7 +3984,7 @@ fn encrypt(value: &str, id: &str, secret: &str) -> Result<String, &'static str> 
 
 fn decrypt(stored: &str, id: &str, secret: &str) -> Result<Zeroizing<String>, &'static str> {
     let parts: Vec<_> = stored.split(':').collect();
-    if parts.len() != 5 || parts[0] != "rr" || parts[1] != "v1" || stored.len() > 8192 {
+    if parts.len() != 5 || parts[0] != "rr" || parts[1] != "v1" || stored.len() > 20_000 {
         return Err("unsupported Rust provider credential");
     }
     let salt =
@@ -4432,6 +4638,35 @@ pub async fn diagnose_provider(
     }
 }
 
+pub async fn rotate_provider_oauth(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderOAuthRotationInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .rotate_provider_oauth_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
+        Err("provider OAuth generation conflict") => api_error(
+            StatusCode::CONFLICT,
+            "Provider OAuth credential changed; reload before retrying",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider OAuth storage or runtime unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider OAuth rotation"),
+    }
+}
+
 fn is_runtime_error(error: &str) -> bool {
     error.contains("database")
         || error.contains("provider configuration")
@@ -4449,6 +4684,9 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("combo provider unavailable")
         || error.contains("cannot generate client key")
         || error.contains("OIDC")
+        || error.contains("OAuth rotation requires SQLite")
+        || error.contains("OAuth revision mismatch")
+        || error.contains("OAuth rotation state")
 }
 
 pub async fn put_provider_quota(

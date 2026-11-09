@@ -64,9 +64,16 @@ those environment secrets.
   expired credentials are rejected before network I/O and combo routing skips them.
   New records default to tenant `red`; ownership is immutable after creation and is
   returned as redacted provider metadata. Existing rows without authentication
-  metadata keep protocol-derived defaults. A previously issued OAuth access token can
-  be stored as a Bearer credential, but provider-specific authorization and refresh-token
-  rotation remain deliberately outside this generic API.
+  metadata keep protocol-derived defaults. `credential_type: "oauth"` imports a Codex or
+  Claude CLI token pair when `oauth_provider`, `refresh_token`, a future expiry and Bearer
+  authentication are supplied. Both tokens are write-only and encrypted independently;
+  only the OAuth provider and string-encoded rotation generation are returned.
+- `POST /api/admin/providers/{id}/oauth/rotate` replaces an imported access/refresh-token
+  pair and expiry. The caller supplies the last observed `expected_generation`; SQLite uses
+  `BEGIN IMMEDIATE` plus a generation CAS to update both ciphertexts and expiry atomically,
+  so a delayed writer cannot restore an already-consumed refresh token. A stale generation
+  returns `409` and no token is changed. Provider-side refresh and browser authorization are
+  the next layer; this endpoint is the durable handoff used by a trusted refresher or CLI importer.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `POST /api/admin/providers/{id}/test` accepts an exact native `model` ID and
@@ -103,8 +110,9 @@ those environment secrets.
   `/api/admin/providers`. Provider credentials are write-only in the browser and the Rust
   response is rejected if it contains plaintext or ciphertext credential fields. Labels,
   account identity, authentication scheme and expiry are edited alongside the connection
-  and revision-coupled to the encrypted credential. The full Next provider catalogue remains
-  available only in the compatibility runtime.
+  and revision-coupled to the encrypted credential. The page can also import Codex and Claude
+  access/refresh-token pairs into the Rust store; it never reads either token back. The full
+  Next provider catalogue remains available only in the compatibility runtime.
 - The Rust provider page also reads the validated `anomalyco/models.dev` snapshot through
   `/api/admin/model-catalog`, offers its provider namespace while configuring a connection,
   and loads one provider's model metadata only on demand. Global administrators may trigger

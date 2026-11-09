@@ -74,6 +74,10 @@ export interface RustProvider {
   account_email?: string;
   expires_at_unix?: number;
   credential_expired: boolean;
+  credential_type: "static" | "oauth";
+  oauth_provider?: "codex" | "claude";
+  oauth_generation?: string;
+  refreshable: boolean;
 }
 
 export interface RustProviderInput {
@@ -87,6 +91,16 @@ export interface RustProviderInput {
   label: string;
   account_email?: string;
   expires_at_unix?: number;
+  credential_type?: "static" | "oauth";
+  oauth_provider?: "codex" | "claude";
+  refresh_token?: string;
+}
+
+export interface RustProviderOAuthRotationInput {
+  expected_generation: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at_unix: number;
 }
 
 export type RustProviderDiagnosticCategory =
@@ -294,6 +308,12 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.account_email === undefined || typeof provider.account_email === "string") &&
     (provider.expires_at_unix === undefined || isOptionalNumber(provider.expires_at_unix)) &&
     typeof provider.credential_expired === "boolean" &&
+    (provider.credential_type === "static" || provider.credential_type === "oauth") &&
+    (provider.oauth_provider === undefined ||
+      provider.oauth_provider === "codex" ||
+      provider.oauth_provider === "claude") &&
+    (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
+    typeof provider.refreshable === "boolean" &&
     (provider.auth_scheme === "auto" ||
       provider.auth_scheme === "bearer" ||
       provider.auth_scheme === "x-api-key" ||
@@ -504,6 +524,20 @@ export async function disableRustProvider(id: string): Promise<void> {
     const value: unknown = await response.json().catch(() => null);
     throw new Error(rustAdminError(value, response.status));
   }
+}
+
+export async function rotateRustProviderOAuth(
+  id: string,
+  input: RustProviderOAuthRotationInput
+): Promise<RustProvider> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/oauth/rotate`,
+    jsonRequest("POST", input)
+  );
+  const provider =
+    value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
+  if (!isRustProvider(provider)) throw new Error("Invalid Rust provider response");
+  return provider;
 }
 
 export async function testRustProvider(id: string, model: string): Promise<RustProviderDiagnostic> {

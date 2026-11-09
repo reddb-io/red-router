@@ -14,6 +14,7 @@ import {
   replaceRustClientKey,
   replaceRustProvider,
   refreshRustModelCatalog,
+  rotateRustProviderOAuth,
   rustAdminFetch,
   testRustProvider,
   type RustClientKey,
@@ -58,6 +59,8 @@ const provider: RustProvider = {
   account_email: "agents@example.com",
   expires_at_unix: 1_900_000_000,
   credential_expired: false,
+  credential_type: "static",
+  refreshable: false,
 };
 
 const catalogManifest = {
@@ -232,6 +235,38 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("rotates OAuth credentials with a generation and keeps both tokens write-only", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const oauthProvider: RustProvider = {
+      ...provider,
+      id: "claude-team",
+      provider: "claude",
+      credential_type: "oauth",
+      oauth_provider: "claude",
+      oauth_generation: "4",
+      refreshable: true,
+    };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ provider: oauthProvider }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      rotateRustProviderOAuth(oauthProvider.id, {
+        expected_generation: "3",
+        access_token: "new-access-token",
+        refresh_token: "new-refresh-token",
+        expires_at_unix: 1_900_000_000,
+      })
+    ).resolves.toEqual(oauthProvider);
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/providers/claude-team/oauth/rotate");
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      expected_generation: "3",
+      access_token: "new-access-token",
+      refresh_token: "new-refresh-token",
+      expires_at_unix: 1_900_000_000,
+    });
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {
