@@ -1640,18 +1640,29 @@ impl ControlPlane {
         provider_id: &str,
         input: ProviderQuotaInput,
     ) -> Result<ProviderQuotaView, &'static str> {
+        self.configure_provider_quota_as(provider_id, input, None)
+            .await
+    }
+
+    async fn configure_provider_quota_as(
+        &self,
+        provider_id: &str,
+        input: ProviderQuotaInput,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderQuotaView, &'static str> {
         validate_id(provider_id)?;
         validate_quota_input(&input)?;
         let _mutation = self.0.mutation.lock().await;
-        if !self
+        let provider = self
             .0
             .database
             .providers()
             .await?
-            .iter()
-            .any(|provider| provider.id == provider_id)
-        {
-            return Err("provider does not exist");
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+            .ok_or("provider does not exist")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
         }
         let observed_at_unix_ms = unix_time_ms()?;
         let ttl_ms = i64::try_from(input.ttl_seconds)
@@ -1677,8 +1688,27 @@ impl ControlPlane {
     }
 
     pub async fn clear_provider_quota(&self, provider_id: &str) -> Result<(), &'static str> {
+        self.clear_provider_quota_as(provider_id, None).await
+    }
+
+    async fn clear_provider_quota_as(
+        &self,
+        provider_id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(provider_id)?;
         let _mutation = self.0.mutation.lock().await;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+            .ok_or("provider does not exist")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
         self.0.database.delete_provider_quota(provider_id).await?;
         if let Some(state) = self.0.quotas.read().await.get(provider_id).cloned() {
             state.clear();
@@ -2203,9 +2233,24 @@ impl ControlPlane {
         Ok(())
     }
 
-    async fn clear_route_pin(&self, combo_id: &str) -> Result<(), &'static str> {
+    async fn clear_route_pin(
+        &self,
+        combo_id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(combo_id)?;
         let _mutation = self.0.mutation.lock().await;
+        let combo = self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == combo_id)
+            .ok_or("combo configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != combo.tenant_id) {
+            return Err("combo tenant is unavailable");
+        }
         if let RouteSnapshot::Current(routes) = &*self.0.routes.read().await {
             if let Some(route) = routes.get(combo_id) {
                 route.clear_last_good_any();
@@ -2310,12 +2355,25 @@ impl ControlPlane {
             .collect()
     }
 
-    async fn quota_views(&self) -> Result<Vec<ProviderQuotaView>, &'static str> {
+    async fn quota_views(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<ProviderQuotaView>, &'static str> {
+        let providers: HashSet<_> = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .filter(|provider| tenant_id.is_none_or(|tenant| tenant == provider.tenant_id))
+            .map(|provider| provider.id)
+            .collect();
         self.0
             .database
             .provider_quotas()
             .await?
             .iter()
+            .filter(|quota| providers.contains(&quota.provider_id))
             .map(quota_view)
             .collect()
     }
@@ -2331,10 +2389,16 @@ impl ControlPlane {
             .clone()
     }
 
-    async fn breaker_views(&self) -> Result<Vec<ProviderHealthView>, &'static str> {
+    async fn breaker_views(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<ProviderHealthView>, &'static str> {
         let providers = self.0.database.providers().await?;
         let mut statuses = Vec::with_capacity(providers.len());
-        for provider in providers {
+        for provider in providers
+            .into_iter()
+            .filter(|provider| tenant_id.is_none_or(|tenant| tenant == provider.tenant_id))
+        {
             statuses.push(ProviderHealthView {
                 breaker: self
                     .circuit_for(&provider.id, &provider.upstream_url)
@@ -2348,7 +2412,11 @@ impl ControlPlane {
         Ok(statuses)
     }
 
-    async fn reset_breaker(&self, id: &str) -> Result<(), &'static str> {
+    async fn reset_breaker_as(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
@@ -2359,6 +2427,9 @@ impl ControlPlane {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or("provider does not exist")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
         self.availability_for(&provider.id).await.reset().await?;
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
@@ -2366,10 +2437,11 @@ impl ControlPlane {
             .await
     }
 
-    async fn configure_breaker(
+    async fn configure_breaker_as(
         &self,
         id: &str,
         input: ProviderHealthInput,
+        enforced_tenant: Option<&str>,
     ) -> Result<BreakerStatus, &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
@@ -2381,6 +2453,9 @@ impl ControlPlane {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or("provider does not exist")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
             .configure(
@@ -3740,10 +3815,10 @@ pub async fn list_provider_health(State(state): State<ProxyState>, headers: Head
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.breaker_views().await {
+    };
+    match control.breaker_views(scope.tenant_id.as_deref()).await {
         Ok(breakers) => Json(serde_json::json!({"provider_health":breakers})).into_response(),
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3756,10 +3831,10 @@ pub async fn list_provider_quotas(State(state): State<ProxyState>, headers: Head
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.quota_views().await {
+    };
+    match control.quota_views(scope.tenant_id.as_deref()).await {
         Ok(quotas) => Json(serde_json::json!({"provider_quotas":quotas})).into_response(),
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3776,10 +3851,13 @@ pub async fn delete_provider_health(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.reset_breaker(&id).await {
+    };
+    match control
+        .reset_breaker_as(&id, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3798,10 +3876,13 @@ pub async fn put_provider_health(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_breaker(&id, input).await {
+    };
+    match control
+        .configure_breaker_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(health) => Json(serde_json::json!({"provider_health":health})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3867,10 +3948,13 @@ pub async fn put_provider_quota(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_provider_quota(&id, input).await {
+    };
+    match control
+        .configure_provider_quota_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(quota) => Json(serde_json::json!({"provider_quota":quota})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3888,10 +3972,13 @@ pub async fn delete_provider_quota(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.clear_provider_quota(&id).await {
+    };
+    match control
+        .clear_provider_quota_as(&id, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3978,10 +4065,13 @@ pub async fn delete_combo_route_pin(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.clear_route_pin(&id).await {
+    };
+    match control
+        .clear_route_pin(&id, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,

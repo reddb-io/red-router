@@ -69,9 +69,10 @@ provider; subsequent provider changes do not require those environment secrets.
   verified `oidc:` subject to an enabled tenant and one of `admin`, `tenant-admin` or
   `issuer`. OIDC authentication alone grants no management authority; a durable enabled
   binding is required. `admin` is global. `tenant-admin` can list and mutate providers,
-  combos and client keys only inside its bound tenant and can read the shared model catalog;
-  omitted ownership defaults to that bound tenant. `issuer` remains limited to the scoped
-  provisioning endpoint. The bootstrap administrator remains the recovery identity.
+  combos, client keys, provider health/quota observations and LKGP state only inside its
+  bound tenant and can read the shared model catalog; omitted ownership defaults to that
+  bound tenant. `issuer` remains limited to the scoped provisioning endpoint. The bootstrap
+  administrator remains the recovery identity.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

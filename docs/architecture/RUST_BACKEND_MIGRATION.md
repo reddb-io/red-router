@@ -161,11 +161,12 @@ an explicit tenant and refuses ownership changes for an existing key. Its PUT co
 a caller-chosen stable key ID and caller-generated secret: RedDB Cloud can retry after a lost
 response while Red Router continues to persist only a hash. The caller retains the external
 database-to-key mapping; Red Router retains tenant, label and authenticated creator only.
-`tenant-admin` can use the provider, combo and client-key CRUD surfaces, but list results are
-filtered to its tenant and every create/update/delete operation enforces the same ownership.
-Omitted `tenant_id` is filled from the binding; an explicit cross-tenant value is rejected.
-The shared models.dev catalog is readable for route configuration, while tenant and identity
-binding administration remain global-only. The `issuer` role does not inherit dashboard CRUD.
+`tenant-admin` can use the provider, combo and client-key CRUD surfaces plus provider health,
+quota-observation and LKGP operations, but list results are filtered to its tenant and every
+create/update/delete operation enforces the same ownership. Omitted `tenant_id` is filled from
+the binding; an explicit cross-tenant value is rejected. The shared models.dev catalog is
+readable for route configuration, while tenant and identity binding administration remain
+global-only. The `issuer` role does not inherit dashboard CRUD.
 
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing

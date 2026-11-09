@@ -1867,11 +1867,34 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     assert_eq!(scoped_providers["providers"][0]["tenant_id"], "acme");
     assert_eq!(
         client
+            .put(format!("{base}/api/admin/combos/red-managed-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "tenant_id":"red",
+                    "strategy":"lkgp",
+                    "targets":[{
+                        "provider_id":"oidc-red-provider",
+                        "model":"gpt-4o"
+                    }]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
             .put(format!("{base}/api/admin/combos/acme-managed-combo"))
             .bearer_auth(&manager)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
             .body(
                 serde_json::json!({
+                    "strategy":"lkgp",
                     "targets":[{
                         "provider_id":"oidc-acme-provider",
                         "model":"gpt-4o"
@@ -1923,6 +1946,127 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         serde_json::from_str(&scoped_combos.text().await.unwrap()).unwrap();
     assert_eq!(scoped_combos["combos"].as_array().unwrap().len(), 1);
     assert_eq!(scoped_combos["combos"][0]["tenant_id"], "acme");
+    let health = client
+        .put(format!(
+            "{base}/api/admin/provider-health/oidc-acme-provider"
+        ))
+        .bearer_auth(&manager)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "failure_threshold":5,
+                "degradation_threshold":2,
+                "reset_timeout_ms":45_000
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/admin/provider-health/oidc-red-provider"
+            ))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "failure_threshold":5,
+                    "degradation_threshold":2,
+                    "reset_timeout_ms":45_000
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let scoped_health = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_health.status(), StatusCode::OK);
+    let scoped_health: serde_json::Value =
+        serde_json::from_str(&scoped_health.text().await.unwrap()).unwrap();
+    assert_eq!(
+        scoped_health["provider_health"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        scoped_health["provider_health"][0]["provider_id"],
+        "oidc-acme-provider"
+    );
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/admin/provider-quotas/oidc-acme-provider"
+            ))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"session":{"remaining_percent":50.0},"ttl_seconds":600}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/admin/provider-quotas/oidc-red-provider"
+            ))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"session":{"remaining_percent":50.0},"ttl_seconds":600}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let scoped_quotas = client
+        .get(format!("{base}/api/admin/provider-quotas"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_quotas.status(), StatusCode::OK);
+    let scoped_quotas: serde_json::Value =
+        serde_json::from_str(&scoped_quotas.text().await.unwrap()).unwrap();
+    assert_eq!(
+        scoped_quotas["provider_quotas"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        scoped_quotas["provider_quotas"][0]["provider_id"],
+        "oidc-acme-provider"
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/combos/acme-managed-combo/lkgp"))
+            .bearer_auth(&manager)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/combos/red-managed-combo/lkgp"))
+            .bearer_auth(&manager)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     let scoped_keys = client
         .get(format!("{base}/api/admin/client-keys"))
         .bearer_auth(&manager)
