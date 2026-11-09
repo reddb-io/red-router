@@ -87,6 +87,11 @@ provider; subsequent provider changes do not require those environment secrets.
   `/api/admin/providers`. Provider credentials are write-only in the browser and the Rust
   response is rejected if it contains plaintext or ciphertext credential fields. The full
   Next provider catalogue remains available only in the compatibility runtime.
+- The Rust provider page also reads the validated `anomalyco/models.dev` snapshot through
+  `/api/admin/model-catalog`, offers its provider namespace while configuring a connection,
+  and loads one provider's model metadata only on demand. Global administrators may trigger
+  the server-side refresh; browsers never fetch or trust the upstream catalog directly, and
+  a refresh failure leaves the last validated bundled or persisted snapshot active.
 - `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
   persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:
 no-store`. The required `label` is durable operator metadata and may describe the workload

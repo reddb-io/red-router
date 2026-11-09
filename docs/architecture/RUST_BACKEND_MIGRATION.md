@@ -81,9 +81,12 @@ an active Rust control plane; the Rust view never calls the legacy `/api/keys` p
 The provider manager now follows the same boundary and calls only Rust-owned provider CRUD
 when that control plane is active. Its form preserves the stable connection ID used by keys,
 policies and combos, treats replacement credentials as write-only and exposes the Rust
-connection/model rate-limit scope. The broad Next provider catalogue, OAuth/CLI onboarding
-and provider-specific diagnostics remain compatibility features to migrate as separate
-vertical slices; they are not silently backed by the Next database in Rust mode.
+connection/model rate-limit scope. It consumes the Rust-owned `anomalyco/models.dev` index,
+shows the active validated snapshot and revision, offers its provider namespace and lazily
+inspects provider model metadata without downloading upstream data in the browser. The broad
+OAuth/CLI onboarding and provider-specific diagnostics remain compatibility features to
+migrate as separate vertical slices; they are not silently backed by the Next database in
+Rust mode.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
 production dashboard export/packaging pipeline and provider-specific diagnostics rather

@@ -5,7 +5,12 @@ import { Button, Card } from "@/shared/components";
 import {
   disableRustProvider,
   listRustProviders,
+  readRustCatalogProvider,
+  readRustModelCatalog,
+  refreshRustModelCatalog,
   replaceRustProvider,
+  type RustCatalogProvider,
+  type RustModelCatalogIndex,
   type RustProvider,
   type RustProviderInput,
   type RustRateLimitScope,
@@ -81,30 +86,58 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Rust control-plane request failed";
 }
 
+function catalogDate(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+}
+
 export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
+  const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
+  const [catalogProvider, setCatalogProvider] = useState<RustCatalogProvider | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setProviders(await listRustProviders());
+  const reload = useCallback(async () => {
+    const [providerResult, catalogResult] = await Promise.allSettled([
+      listRustProviders(),
+      readRustModelCatalog(),
+    ]);
+    if (catalogResult.status === "fulfilled") {
+      setCatalog(catalogResult.value);
+      setCatalogError(null);
+    } else {
+      setCatalogError(errorMessage(catalogResult.reason));
+    }
+    if (providerResult.status === "rejected") throw providerResult.reason;
+    setProviders(providerResult.value);
   }, []);
 
   useEffect(() => {
     void (async () => {
       await Promise.resolve();
-      await refresh();
+      await reload();
     })()
       .catch((cause) => setError(errorMessage(cause)))
       .finally(() => setLoading(false));
-  }, [refresh]);
+  }, [reload]);
 
   const enabledCount = useMemo(
     () => providers.filter((provider) => provider.enabled).length,
     [providers]
+  );
+  const catalogNames = useMemo(
+    () => new Map(catalog?.providers.map((provider) => [provider.id, provider.name]) ?? []),
+    [catalog]
+  );
+  const selectedCatalogProvider = useMemo(
+    () => catalog?.providers.find((provider) => provider.id === draft.provider.trim()) ?? null,
+    [catalog, draft.provider]
   );
 
   const reset = () => {
@@ -119,7 +152,7 @@ export default function RustProvidersPageClient() {
       const input = providerInput(draft);
       await replaceRustProvider(draft.id.trim(), input);
       reset();
-      await refresh();
+      await reload();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -134,11 +167,39 @@ export default function RustProvidersPageClient() {
     try {
       await disableRustProvider(provider.id);
       if (editingId === provider.id) reset();
-      await refresh();
+      await reload();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const refreshCatalog = async () => {
+    setCatalogBusy(true);
+    setCatalogError(null);
+    try {
+      await refreshRustModelCatalog();
+      setCatalog(await readRustModelCatalog());
+      setCatalogProvider(null);
+    } catch (cause) {
+      setCatalogError(errorMessage(cause));
+    } finally {
+      setCatalogBusy(false);
+    }
+  };
+
+  const inspectCatalogProvider = async () => {
+    const id = draft.provider.trim();
+    if (!id) return;
+    setCatalogBusy(true);
+    setCatalogError(null);
+    try {
+      setCatalogProvider(await readRustCatalogProvider(id));
+    } catch (cause) {
+      setCatalogError(errorMessage(cause));
+    } finally {
+      setCatalogBusy(false);
     }
   };
 
@@ -170,6 +231,49 @@ export default function RustProvidersPageClient() {
       )}
 
       <Card
+        title="models.dev catalog"
+        subtitle="Validated and cached by red-routerd; the browser never downloads upstream catalog data directly."
+        action={
+          <Button variant="secondary" loading={catalogBusy} onClick={() => void refreshCatalog()}>
+            Refresh catalog
+          </Button>
+        }
+      >
+        {catalog ? (
+          <dl className="grid gap-3 text-xs text-text-muted sm:grid-cols-2 xl:grid-cols-5">
+            <div>
+              <dt className="font-medium">Active source</dt>
+              <dd>{catalog.snapshot.source}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Providers</dt>
+              <dd>{catalog.manifest.providers.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Provider models</dt>
+              <dd>{catalog.manifest.providerModels.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Fetched</dt>
+              <dd>{catalogDate(catalog.manifest.fetchedAt)}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Revision</dt>
+              <dd className="truncate font-mono">{catalog.snapshot.revision ?? "bundled"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-sm text-text-muted">Catalog metadata is unavailable.</p>
+        )}
+        {(catalogError || catalog?.snapshot.last_error) && (
+          <p className="mt-3 text-xs text-feedback-warning-foreground" role="status">
+            {catalogError ?? catalog?.snapshot.last_error}. Manual refresh requires a global
+            administrator; the last validated snapshot remains active.
+          </p>
+        )}
+      </Card>
+
+      <Card
         title={editingId ? `Replace ${editingId}` : "Add provider connection"}
         subtitle={
           editingId
@@ -188,15 +292,39 @@ export default function RustProvidersPageClient() {
               onChange={(event) => set("id", event.target.value)}
             />
           </label>
-          <label className={labelClass}>
-            Provider type
+          <div className={labelClass}>
+            <span>Provider type</span>
             <input
               className={inputClass}
+              list="rust-model-catalog-providers"
               value={draft.provider}
               placeholder="openai-compatible"
-              onChange={(event) => set("provider", event.target.value)}
+              onChange={(event) => {
+                set("provider", event.target.value);
+                setCatalogProvider(null);
+              }}
             />
-          </label>
+            <datalist id="rust-model-catalog-providers">
+              {catalog?.providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name ?? provider.id}
+                </option>
+              ))}
+            </datalist>
+            <div className="flex min-h-5 items-center justify-between gap-2 font-normal">
+              <span>{selectedCatalogProvider?.name ?? "Custom OpenAI-compatible provider"}</span>
+              {selectedCatalogProvider && (
+                <button
+                  type="button"
+                  className="text-primary hover:underline disabled:opacity-50"
+                  disabled={catalogBusy}
+                  onClick={() => void inspectCatalogProvider()}
+                >
+                  Inspect models
+                </button>
+              )}
+            </div>
+          </div>
           <label className={labelClass}>
             Rate-limit scope
             <select
@@ -239,6 +367,30 @@ export default function RustProvidersPageClient() {
             Enabled after save
           </label>
         </div>
+        {catalogProvider?.id === draft.provider.trim() && (
+          <div className="mt-4 rounded-lg border border-black/10 p-3 text-xs dark:border-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-text">
+                {catalogProvider.name ?? catalogProvider.id}: {catalogProvider.models.length} models
+              </strong>
+              <span className="text-text-muted">First 12 shown</span>
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {catalogProvider.models.slice(0, 12).map((model) => (
+                <div key={model.id} className="rounded bg-black/[0.03] p-2 dark:bg-white/[0.03]">
+                  <div className="truncate font-mono text-text">{model.id}</div>
+                  <div className="mt-1 flex flex-wrap gap-1 text-text-muted">
+                    {model.limit?.context && (
+                      <span>{model.limit.context.toLocaleString()} context</span>
+                    )}
+                    {model.reasoning && <span>· reasoning</span>}
+                    {model.tool_call && <span>· tools</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button loading={saving} onClick={() => void save()}>
             {editingId ? "Replace connection" : "Add connection"}
@@ -265,7 +417,7 @@ export default function RustProvidersPageClient() {
             <Card
               key={provider.id}
               title={provider.id}
-              subtitle={`${provider.provider} · tenant ${provider.tenant_id}`}
+              subtitle={`${catalogNames.get(provider.provider) ?? provider.provider} · ${provider.provider} · tenant ${provider.tenant_id}`}
               action={
                 <span
                   className={`rounded-full px-2 py-1 text-xs ${

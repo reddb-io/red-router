@@ -6,11 +6,14 @@ import {
   issueRustClientKey,
   listRustClientKeys,
   listRustProviders,
+  readRustCatalogProvider,
+  readRustModelCatalog,
   readRustUsageSummary,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   replaceRustClientKey,
   replaceRustProvider,
+  refreshRustModelCatalog,
   rustAdminFetch,
   type RustClientKey,
   type RustProvider,
@@ -49,6 +52,28 @@ const provider: RustProvider = {
   revision: "1700000000000000001",
   has_credential: true,
   rate_limit_scope: "model",
+};
+
+const catalogManifest = {
+  schemaVersion: 1,
+  transformVersion: 3,
+  source: "https://models.dev/catalog.json?type=all",
+  upstreamRepository: "https://github.com/anomalyco/models.dev",
+  upstreamSchemaRef: "https://models.dev/schema.json",
+  fetchedAt: "2026-11-09T00:00:00.000Z",
+  etag: '"fixture"',
+  sourceSha256: "a".repeat(64),
+  contentSha256: "b".repeat(64),
+  license: "MIT",
+  providers: 1,
+  providerModels: 1,
+  canonicalModels: 1,
+};
+
+const catalogIndex = {
+  manifest: catalogManifest,
+  providers: [{ id: "openai", name: "OpenAI" }],
+  snapshot: { source: "persisted", revision: "1700000000000000002" },
 };
 
 afterEach(() => {
@@ -179,6 +204,51 @@ describe("Rust control-plane browser client", () => {
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("reads and refreshes the validated models.dev catalog through Rust", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const catalogProvider = {
+      id: "openai",
+      name: "OpenAI",
+      models: [
+        {
+          id: "gpt-5",
+          name: "GPT-5",
+          reasoning: true,
+          tool_call: true,
+          limit: { context: 400_000, output: 128_000 },
+        },
+      ],
+    };
+    const refresh = {
+      changed: true,
+      source: "persisted",
+      revision: "1700000000000000003",
+      manifest: catalogManifest,
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(catalogIndex))
+      .mockResolvedValueOnce(Response.json({ provider: catalogProvider }))
+      .mockResolvedValueOnce(Response.json({ snapshot: refresh }))
+      .mockResolvedValueOnce(
+        Response.json({ ...catalogIndex, manifest: { ...catalogManifest, providers: -1 } })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(readRustModelCatalog()).resolves.toEqual(catalogIndex);
+    await expect(readRustCatalogProvider("openai")).resolves.toEqual(catalogProvider);
+    await expect(refreshRustModelCatalog()).resolves.toEqual(refresh);
+    await expect(readRustModelCatalog()).rejects.toThrow("Invalid Rust model catalog response");
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/model-catalog",
+      "/api/admin/model-catalog/openai",
+      "/api/admin/model-catalog/refresh",
+      "/api/admin/model-catalog",
+    ]);
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
   });
 
   it("reads bounded Rust usage totals without accepting partial payloads", async () => {

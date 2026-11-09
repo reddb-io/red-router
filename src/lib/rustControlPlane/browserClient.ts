@@ -79,6 +79,67 @@ export interface RustProviderInput {
   rate_limit_scope: RustRateLimitScope;
 }
 
+export interface RustCatalogManifest {
+  schemaVersion: number;
+  transformVersion: number;
+  source: string;
+  upstreamRepository: string;
+  upstreamSchemaRef: string;
+  fetchedAt: string;
+  etag: string | null;
+  sourceSha256: string;
+  contentSha256: string;
+  license: string;
+  providers: number;
+  providerModels: number;
+  canonicalModels: number;
+}
+
+export interface RustCatalogProviderSummary {
+  id: string;
+  name: string | null;
+}
+
+export interface RustCatalogSnapshot {
+  source: string;
+  revision: string | null;
+  last_error?: string;
+}
+
+export interface RustModelCatalogIndex {
+  manifest: RustCatalogManifest;
+  providers: RustCatalogProviderSummary[];
+  snapshot: RustCatalogSnapshot;
+}
+
+export interface RustCatalogModel {
+  id: string;
+  name?: string;
+  type?: string;
+  canonical_model_id?: string;
+  family?: string;
+  release_date?: string;
+  last_updated?: string;
+  status?: string;
+  reasoning?: boolean;
+  tool_call?: boolean;
+  structured_output?: boolean;
+  limit?: { context?: number; input?: number; output?: number };
+}
+
+export interface RustCatalogProvider {
+  id: string;
+  name: string | null;
+  models: RustCatalogModel[];
+}
+
+export interface RustCatalogRefresh {
+  changed: boolean;
+  source: string;
+  revision: string | null;
+  manifest: RustCatalogManifest;
+}
+
 const CSRF_COOKIE = "redrouter_admin_csrf";
 const CSRF_HEADER = "x-red-router-csrf";
 
@@ -137,6 +198,23 @@ function isOptionalNumber(value: unknown): value is number | null {
   return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
+function isOptionalString(value: unknown): value is string | null | undefined {
+  return value === null || value === undefined || typeof value === "string";
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isRustCatalogLimit(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const limit = value as Record<string, unknown>;
+  return [limit.context, limit.input, limit.output].every(
+    (entry) => entry === undefined || isNonNegativeInteger(entry)
+  );
+}
+
 function isRustClientKey(value: unknown): value is RustClientKey {
   if (!value || typeof value !== "object") return false;
   const key = value as Record<string, unknown>;
@@ -182,6 +260,61 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.rate_limit_scope === "auto" ||
       provider.rate_limit_scope === "connection" ||
       provider.rate_limit_scope === "model")
+  );
+}
+
+function isRustCatalogManifest(value: unknown): value is RustCatalogManifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Record<string, unknown>;
+  return (
+    isNonNegativeInteger(manifest.schemaVersion) &&
+    isNonNegativeInteger(manifest.transformVersion) &&
+    typeof manifest.source === "string" &&
+    typeof manifest.upstreamRepository === "string" &&
+    typeof manifest.upstreamSchemaRef === "string" &&
+    typeof manifest.fetchedAt === "string" &&
+    isOptionalString(manifest.etag) &&
+    typeof manifest.sourceSha256 === "string" &&
+    typeof manifest.contentSha256 === "string" &&
+    typeof manifest.license === "string" &&
+    isNonNegativeInteger(manifest.providers) &&
+    isNonNegativeInteger(manifest.providerModels) &&
+    isNonNegativeInteger(manifest.canonicalModels)
+  );
+}
+
+function isRustCatalogProviderSummary(value: unknown): value is RustCatalogProviderSummary {
+  if (!value || typeof value !== "object") return false;
+  const provider = value as Record<string, unknown>;
+  return typeof provider.id === "string" && isOptionalString(provider.name);
+}
+
+function isRustCatalogSnapshot(value: unknown): value is RustCatalogSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Record<string, unknown>;
+  return (
+    typeof snapshot.source === "string" &&
+    isOptionalString(snapshot.revision) &&
+    isOptionalString(snapshot.last_error)
+  );
+}
+
+function isRustCatalogModel(value: unknown): value is RustCatalogModel {
+  if (!value || typeof value !== "object") return false;
+  const model = value as Record<string, unknown>;
+  return (
+    typeof model.id === "string" &&
+    isOptionalString(model.name) &&
+    isOptionalString(model.type) &&
+    isOptionalString(model.canonical_model_id) &&
+    isOptionalString(model.family) &&
+    isOptionalString(model.release_date) &&
+    isOptionalString(model.last_updated) &&
+    isOptionalString(model.status) &&
+    (model.reasoning === undefined || typeof model.reasoning === "boolean") &&
+    (model.tool_call === undefined || typeof model.tool_call === "boolean") &&
+    (model.structured_output === undefined || typeof model.structured_output === "boolean") &&
+    isRustCatalogLimit(model.limit)
   );
 }
 
@@ -299,6 +432,59 @@ export async function disableRustProvider(id: string): Promise<void> {
     const value: unknown = await response.json().catch(() => null);
     throw new Error(rustAdminError(value, response.status));
   }
+}
+
+export async function readRustModelCatalog(): Promise<RustModelCatalogIndex> {
+  const value = await rustAdminJson("/api/admin/model-catalog");
+  if (!value || typeof value !== "object") throw new Error("Invalid Rust model catalog response");
+  const catalog = value as Record<string, unknown>;
+  if (
+    !isRustCatalogManifest(catalog.manifest) ||
+    !Array.isArray(catalog.providers) ||
+    !catalog.providers.every(isRustCatalogProviderSummary) ||
+    !isRustCatalogSnapshot(catalog.snapshot)
+  ) {
+    throw new Error("Invalid Rust model catalog response");
+  }
+  return value as RustModelCatalogIndex;
+}
+
+export async function readRustCatalogProvider(id: string): Promise<RustCatalogProvider> {
+  const value = await rustAdminJson(`/api/admin/model-catalog/${encodeURIComponent(id)}`);
+  const provider =
+    value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
+  if (!provider || typeof provider !== "object") {
+    throw new Error("Invalid Rust catalog provider response");
+  }
+  const record = provider as Record<string, unknown>;
+  if (
+    typeof record.id !== "string" ||
+    !isOptionalString(record.name) ||
+    !Array.isArray(record.models) ||
+    !record.models.every(isRustCatalogModel)
+  ) {
+    throw new Error("Invalid Rust catalog provider response");
+  }
+  return provider as RustCatalogProvider;
+}
+
+export async function refreshRustModelCatalog(): Promise<RustCatalogRefresh> {
+  const value = await rustAdminJson("/api/admin/model-catalog/refresh", { method: "POST" });
+  const snapshot =
+    value && typeof value === "object" ? (value as { snapshot?: unknown }).snapshot : undefined;
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error("Invalid Rust catalog refresh response");
+  }
+  const refresh = snapshot as Record<string, unknown>;
+  if (
+    typeof refresh.changed !== "boolean" ||
+    typeof refresh.source !== "string" ||
+    !isOptionalString(refresh.revision) ||
+    !isRustCatalogManifest(refresh.manifest)
+  ) {
+    throw new Error("Invalid Rust catalog refresh response");
+  }
+  return snapshot as RustCatalogRefresh;
 }
 
 export async function readRustUsageSummary(keyId?: string): Promise<RustUsageSummary> {
