@@ -177,6 +177,7 @@ pub struct ProxyState {
     product_fallbacks: Arc<Vec<ProductFallback>>,
     product_combo: Option<product_combo::ProductCombo>,
     control_plane: Option<control_plane::ControlPlane>,
+    native_usage_reporting: bool,
 }
 
 #[derive(Clone)]
@@ -1059,6 +1060,7 @@ impl ProxyState {
             product_fallbacks: Arc::new(Vec::new()),
             product_combo: None,
             control_plane: None,
+            native_usage_reporting: false,
         })
     }
 
@@ -1133,6 +1135,11 @@ impl ProxyState {
 
     pub fn with_control_plane(mut self, control_plane: control_plane::ControlPlane) -> Self {
         self.control_plane = Some(control_plane);
+        self
+    }
+
+    pub fn with_native_usage_reporting(mut self, enabled: bool) -> Self {
+        self.native_usage_reporting = enabled;
         self
     }
 
@@ -2792,7 +2799,7 @@ async fn proxy_request(
         .is_some_and(|c| c.usage_accounting_enabled());
     let native_usage_identity = policy
         .identity()
-        .filter(|identity| identity.usage_quota.is_some())
+        .filter(|identity| identity.usage_quota.is_some() || state.native_usage_reporting)
         .cloned();
     let usage_accounting = product_usage_accounting || native_usage_identity.is_some();
     if product_usage_accounting && !state.product_client_keys {

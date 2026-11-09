@@ -671,7 +671,10 @@ async fn run(
         println!("Upstream configuration saved; restart the proxy to apply it");
         return Ok(());
     }
-    red_routerd::audit_export::spawn_from_env(&db)?;
+    let usage_export_enabled = red_routerd::audit_export::spawn_from_env(&db).await?;
+    if usage_export_enabled && admin_key.is_none() {
+        return Err("BigQuery usage export requires the Rust control plane".into());
+    }
     if let Some(admin_key) = admin_key {
         let admin_key = zeroize::Zeroizing::new(admin_key);
         let encryption_key = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);
@@ -723,7 +726,8 @@ async fn run(
             true,
         )
         .await?
-        .with_control_plane(control);
+        .with_control_plane(control)
+        .with_native_usage_reporting(usage_export_enabled);
         if let Some(limit) = max_in_flight {
             state = state.with_max_in_flight(limit)?;
         }

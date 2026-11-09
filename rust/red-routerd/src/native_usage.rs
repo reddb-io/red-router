@@ -79,18 +79,21 @@ pub(crate) struct Reservation<'a> {
 pub(crate) struct UsageEvent<'a> {
     pub(crate) event_id: &'a str,
     pub(crate) key_id: &'a str,
+    pub(crate) key_name: &'a str,
     pub(crate) tenant_id: &'a str,
     pub(crate) provider: &'a str,
     pub(crate) model: &'a str,
     pub(crate) usage: &'a ChatUsage,
     pub(crate) prices: Option<&'a TokenPrices>,
     pub(crate) now_ms: i64,
+    pub(crate) reserved: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct UsageLedgerEntry {
     pub(crate) event_id: String,
     pub(crate) key_id: String,
+    pub(crate) key_name: String,
     pub(crate) tenant_id: String,
     pub(crate) provider: String,
     pub(crate) model: String,
@@ -190,7 +193,7 @@ impl NativeUsage {
             .fetch_one(pool)
             .await
             .map_err(|_| "usage reservations unavailable")?;
-        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
         rows.push_bind(from_unix_ms)
             .push(" AND created_at_unix_ms < ")
             .push_bind(to_unix_ms);
@@ -241,6 +244,7 @@ impl NativeUsage {
                 Ok(UsageLedgerEntry {
                     event_id: text(row, "event_id")?,
                     key_id: text(row, "key_id")?,
+                    key_name: text(row, "key_name")?,
                     tenant_id: text(row, "tenant_id")?,
                     provider: text(row, "provider")?,
                     model: text(row, "model")?,
@@ -421,6 +425,9 @@ impl NativeUsage {
 
     pub(crate) async fn settle(&self, event: &UsageEvent<'_>) -> Result<bool, &'static str> {
         validate_identity(event.event_id, event.key_id, event.tenant_id)?;
+        if event.key_name.is_empty() || event.key_name.len() > 256 {
+            return Err("invalid usage event");
+        }
         validate_route(event.provider, event.model)?;
         if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&event.now_ms) {
             return Err("invalid usage event");
@@ -465,12 +472,7 @@ impl NativeUsage {
         amount_microusd: i64,
         pricing_snapshot: Option<&str>,
     ) -> Result<bool, &'static str> {
-        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
-            .bind(event.event_id)
-            .fetch_optional(&mut **connection)
-            .await
-            .map_err(|_| "usage reservation unavailable")?;
-        let Some(reservation) = reservation else {
+        if !event.reserved {
             let exists: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM redrouter_usage_ledger WHERE event_id = $1",
             )
@@ -478,39 +480,57 @@ impl NativeUsage {
             .fetch_one(&mut **connection)
             .await
             .map_err(|_| "usage ledger unavailable")?;
-            return if exists == 1 {
-                Ok(false)
-            } else {
-                Err("usage reservation unavailable")
-            };
-        };
-        let text = |name| reservation.try_get::<String, _>(name).ok();
-        let reserved_tokens = reservation
-            .try_get::<i64, _>("reserved_tokens")
-            .map_err(|_| "invalid usage reservation")?;
-        let reserved_microusd = reservation
-            .try_get::<i64, _>("reserved_microusd")
-            .map_err(|_| "invalid usage reservation")?;
-        if text("key_id").as_deref() != Some(event.key_id)
-            || text("tenant_id").as_deref() != Some(event.tenant_id)
-            || text("provider").as_deref() != Some(event.provider)
-            || text("model").as_deref() != Some(event.model)
-            || text("state").as_deref() != Some("dispatched")
-            || reserved_tokens < 0
-            || reserved_microusd < 0
-        {
-            return Err("invalid usage reservation");
-        }
-        if tokens > reserved_tokens
-            || (reserved_microusd > 0 && amount_microusd > reserved_microusd)
-        {
-            sqlx::query("UPDATE redrouter_usage_reservations SET reserved_tokens = $2, reserved_microusd = $2 WHERE event_id = $1")
+            if exists == 1 {
+                return Ok(false);
+            }
+        } else {
+            let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
                 .bind(event.event_id)
-                .bind(MAX_SAFE_INTEGER)
-                .execute(&mut **connection)
+                .fetch_optional(&mut **connection)
                 .await
                 .map_err(|_| "usage reservation unavailable")?;
-            return Err("usage exceeds reservation; reconciliation required");
+            let Some(reservation) = reservation else {
+                let exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM redrouter_usage_ledger WHERE event_id = $1",
+                )
+                .bind(event.event_id)
+                .fetch_one(&mut **connection)
+                .await
+                .map_err(|_| "usage ledger unavailable")?;
+                return if exists == 1 {
+                    Ok(false)
+                } else {
+                    Err("usage reservation unavailable")
+                };
+            };
+            let text = |name| reservation.try_get::<String, _>(name).ok();
+            let reserved_tokens = reservation
+                .try_get::<i64, _>("reserved_tokens")
+                .map_err(|_| "invalid usage reservation")?;
+            let reserved_microusd = reservation
+                .try_get::<i64, _>("reserved_microusd")
+                .map_err(|_| "invalid usage reservation")?;
+            if text("key_id").as_deref() != Some(event.key_id)
+                || text("tenant_id").as_deref() != Some(event.tenant_id)
+                || text("provider").as_deref() != Some(event.provider)
+                || text("model").as_deref() != Some(event.model)
+                || text("state").as_deref() != Some("dispatched")
+                || reserved_tokens < 0
+                || reserved_microusd < 0
+            {
+                return Err("invalid usage reservation");
+            }
+            if tokens > reserved_tokens
+                || (reserved_microusd > 0 && amount_microusd > reserved_microusd)
+            {
+                sqlx::query("UPDATE redrouter_usage_reservations SET reserved_tokens = $2, reserved_microusd = $2 WHERE event_id = $1")
+                    .bind(event.event_id)
+                    .bind(MAX_SAFE_INTEGER)
+                    .execute(&mut **connection)
+                    .await
+                    .map_err(|_| "usage reservation unavailable")?;
+                return Err("usage exceeds reservation; reconciliation required");
+            }
         }
         let input = i64::try_from(event.usage.input).map_err(|_| "invalid token usage")?;
         let output = i64::try_from(event.usage.output).map_err(|_| "invalid token usage")?;
@@ -519,9 +539,10 @@ impl NativeUsage {
         let cache_creation =
             i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
             .bind(event.event_id)
             .bind(event.key_id)
+            .bind(event.key_name)
             .bind(event.tenant_id)
             .bind(event.provider)
             .bind(event.model)
@@ -547,11 +568,13 @@ impl NativeUsage {
                 .await
                 .map_err(|_| "cannot update usage counter")?;
         }
-        sqlx::query("DELETE FROM redrouter_usage_reservations WHERE event_id = $1")
-            .bind(event.event_id)
-            .execute(&mut **connection)
-            .await
-            .map_err(|_| "cannot settle usage reservation")?;
+        if event.reserved {
+            sqlx::query("DELETE FROM redrouter_usage_reservations WHERE event_id = $1")
+                .bind(event.event_id)
+                .execute(&mut **connection)
+                .await
+                .map_err(|_| "cannot settle usage reservation")?;
+        }
         Ok(true)
     }
 }
@@ -783,12 +806,14 @@ mod tests {
             .settle(&UsageEvent {
                 event_id: "event-one",
                 key_id: "key",
+                key_name: "Agent fleet",
                 tenant_id: "tenant",
                 provider: "openai",
                 model: "gpt-4.1",
                 usage: &tokens,
                 prices: Some(&prices),
                 now_ms: 1_700_000_000_100,
+                reserved: true,
             })
             .await
             .unwrap());
@@ -840,6 +865,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unreserved_reporting_records_key_name_without_admission_state() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let tokens = ChatUsage {
+            input: 11,
+            output: 7,
+            reasoning: 2,
+            cache_read: 3,
+            cache_creation: 0,
+        };
+        assert!(usage
+            .settle(&UsageEvent {
+                event_id: "reported-only",
+                key_id: "agent-key",
+                key_name: "Agent fleet",
+                tenant_id: "tenant",
+                provider: "openrouter",
+                model: "openai/gpt-5",
+                usage: &tokens,
+                prices: None,
+                now_ms: 1_700_000_000_100,
+                reserved: false,
+            })
+            .await
+            .unwrap());
+        let row: (String, i64, i64) = sqlx::query_as(
+            "SELECT key_name,tokens_input,tokens_output FROM redrouter_usage_ledger WHERE event_id='reported-only'",
+        )
+        .fetch_one(database.sql_pool().unwrap())
+        .await
+        .unwrap();
+        assert_eq!(row, ("Agent fleet".to_owned(), 11, 7));
+        let reservations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_reservations")
+                .fetch_one(database.sql_pool().unwrap())
+                .await
+                .unwrap();
+        assert_eq!(reservations, 0);
+    }
+
+    #[tokio::test]
     async fn token_only_quota_records_known_spend_without_enforcing_a_zero_spend_cap() {
         let folder = TempDir::new().unwrap();
         let database = Arc::new(
@@ -885,12 +956,14 @@ mod tests {
             .settle(&UsageEvent {
                 event_id: "token-only",
                 key_id: "key",
+                key_name: "Embedding client",
                 tenant_id: "tenant",
                 provider: "openai",
                 model: "text-embedding-3-small",
                 usage: &tokens,
                 prices: Some(&prices),
                 now_ms: 1_700_000_000_100,
+                reserved: true,
             })
             .await
             .unwrap());

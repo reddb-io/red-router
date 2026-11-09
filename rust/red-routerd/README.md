@@ -131,6 +131,18 @@ those environment secrets.
   dashboard-managed encrypted destination credentials remain follow-up work. The relay currently
   requires SQLite or PostgreSQL because its cross-replica lease must be transactional; configuring
   it with a RedDB backend fails startup instead of silently risking duplicate consumers.
+- A second, independent relay exports the Rust usage ledger to BigQuery. Enable it with
+  `RED_ROUTER_USAGE_BIGQUERY_PROJECT_ID`, `RED_ROUTER_USAGE_BIGQUERY_DATASET_ID`,
+  `RED_ROUTER_USAGE_BIGQUERY_TABLE_ID` and
+  `RED_ROUTER_USAGE_BIGQUERY_SERVICE_ACCOUNT_JSON`; the optional `SINK_ID`, `BATCH_SIZE` and
+  `INTERVAL_SECONDS` suffixes mirror the audit settings. Enabling it records verified terminal
+  usage for every native dashboard key, while quota-enabled keys retain strict reservation and
+  admission. Rows contain `event_id`, `created_at_unix_ms`, `tenant_id`, `api_key_id`,
+  `api_key_name`, `provider`, `model`, `tokens_input`, `tokens_output`, `tokens_cache_read`,
+  `tokens_cache_creation`, `tokens_reasoning`, `tokens_total`, `amount_microusd`, `amount_usd`,
+  `pricing_known` and `pricing_snapshot_json`. `api_key_name` is a historical label snapshot;
+  plaintext API-key secrets are never persisted or exported. This usage relay currently requires
+  SQLite because the Rust-native usage ledger is SQLite-owned.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

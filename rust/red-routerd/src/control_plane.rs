@@ -1901,9 +1901,6 @@ impl ControlPlane {
         provider: &str,
         model: &str,
     ) -> Result<(String, Option<crate::accounting::TokenPrices>), &'static str> {
-        let quota = identity
-            .usage_quota
-            .ok_or("native usage quota is unavailable")?;
         let usage = self
             .0
             .native_usage
@@ -1912,23 +1909,29 @@ impl ControlPlane {
             .clone()
             .ok_or("native usage storage unavailable")?;
         let prices = self.native_usage_prices(provider, model).await?;
-        if quota.max_monthly_microusd > 0 && prices.is_none() {
+        if identity
+            .usage_quota
+            .is_some_and(|quota| quota.max_monthly_microusd > 0)
+            && prices.is_none()
+        {
             return Err("native spend quota requires catalog pricing");
         }
         let event_id = format!("usage_{}", random_token(16)?);
-        let allowed = usage
-            .reserve(&crate::native_usage::Reservation {
-                event_id: &event_id,
-                key_id: &identity.id,
-                tenant_id: &identity.tenant_id,
-                provider,
-                model,
-                quota,
-                now_ms: unix_time_ms()?,
-            })
-            .await?;
-        if !allowed {
-            return Err("native usage quota exceeded");
+        if let Some(quota) = identity.usage_quota {
+            let allowed = usage
+                .reserve(&crate::native_usage::Reservation {
+                    event_id: &event_id,
+                    key_id: &identity.id,
+                    tenant_id: &identity.tenant_id,
+                    provider,
+                    model,
+                    quota,
+                    now_ms: unix_time_ms()?,
+                })
+                .await?;
+            if !allowed {
+                return Err("native usage quota exceeded");
+            }
         }
         Ok((event_id, prices))
     }
@@ -1953,12 +1956,14 @@ impl ControlPlane {
             .settle(&crate::native_usage::UsageEvent {
                 event_id,
                 key_id: &identity.id,
+                key_name: &identity.name,
                 tenant_id: &identity.tenant_id,
                 provider,
                 model,
                 usage: usage_event,
                 prices,
                 now_ms: unix_time_ms()?,
+                reserved: identity.usage_quota.is_some(),
             })
             .await?;
         Ok(())

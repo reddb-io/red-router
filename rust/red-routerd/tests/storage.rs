@@ -404,8 +404,8 @@ async fn sqlite_usage_schema_backfills_legacy_price_snapshots() {
 
     let options = SqliteConnectOptions::new().filename(&path);
     let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT event_id, pricing_snapshot FROM redrouter_usage_ledger ORDER BY event_id",
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT event_id, key_name, pricing_snapshot FROM redrouter_usage_ledger ORDER BY event_id",
     )
     .fetch_all(&mut raw)
     .await
@@ -415,12 +415,55 @@ async fn sqlite_usage_schema_backfills_legacy_price_snapshots() {
         vec![
             (
                 "priced".into(),
+                "key".into(),
                 Some(r#"{"source":"legacy","available":false}"#.into()),
             ),
-            ("unpriced".into(), None),
+            ("unpriced".into(), "key".into(), None),
         ]
     );
     raw.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_usage_export_preserves_key_and_model_attribution() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("usage-export.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind("usage-one")
+        .bind("agent-key")
+        .bind("Agent fleet")
+        .bind("red")
+        .bind("openrouter")
+        .bind("openai/gpt-5")
+        .bind(100_i64)
+        .bind(40_i64)
+        .bind(20_i64)
+        .bind(5_i64)
+        .bind(10_i64)
+        .bind(1234_i64)
+        .bind(1_i64)
+        .bind(r#"{"source":"models.dev"}"#)
+        .bind(1_700_000_000_000_i64)
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    raw.close().await.unwrap();
+
+    let events = db.usage_export_events(0, "", 10).await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].key_id, "agent-key");
+    assert_eq!(events[0].key_name, "Agent fleet");
+    assert_eq!(events[0].provider, "openrouter");
+    assert_eq!(events[0].model, "openai/gpt-5");
+    assert_eq!(events[0].tokens_input, 100);
+    assert_eq!(events[0].tokens_output, 40);
+    assert_eq!(events[0].amount_microusd, 1234);
+    db.close().await.unwrap();
 }
 
 #[tokio::test]

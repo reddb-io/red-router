@@ -38,6 +38,11 @@ rejected batch leaves the cursor unchanged. Business-mutation/outbox atomicity, 
 transactions, automatic BigQuery schema provisioning and dashboard-owned encrypted sink
 configuration remain migration work. Until those land, the journal closes the audit-to-export
 gap but not the earlier mutation-to-audit gap.
+The append-only Rust usage ledger is also a durable BigQuery source. Its independent leased cursor
+exports exact token categories, model/provider attribution, tenant, cost and the immutable client
+key ID plus a label snapshot; it never exports the client secret. Activating that relay enables
+verified terminal-usage capture for native keys without requiring a quota, while quota-enabled
+keys retain reservation-based admission. The usage writer and relay are SQLite-only for now.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.
