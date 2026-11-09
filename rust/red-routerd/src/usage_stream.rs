@@ -79,10 +79,44 @@ enum Event {
     Ordinary,
     Usage(ChatUsage),
     Complete(ChatUsage),
+    /// Gemini has no separate terminal SSE marker. Hold the usage-bearing
+    /// response until the provider closes the stream, then settle before the
+    /// client observes that final response.
+    HoldComplete(ChatUsage),
     Done,
 }
 
-fn classify(frame: &[u8], protocol: ProviderProtocol) -> Result<Event, ()> {
+#[derive(Default)]
+struct AnthropicUsageState {
+    input: Option<u64>,
+    output: Option<u64>,
+    cache_read: u64,
+    cache_creation: u64,
+    saw_delta: bool,
+    complete: bool,
+}
+
+struct UsageParser {
+    protocol: ProviderProtocol,
+    anthropic: AnthropicUsageState,
+    gemini_complete: bool,
+}
+
+impl UsageParser {
+    fn new(protocol: ProviderProtocol) -> Self {
+        Self {
+            protocol,
+            anthropic: AnthropicUsageState::default(),
+            gemini_complete: false,
+        }
+    }
+
+    fn classify(&mut self, frame: &[u8]) -> Result<Event, ()> {
+        classify(frame, self)
+    }
+}
+
+fn classify(frame: &[u8], parser: &mut UsageParser) -> Result<Event, ()> {
     let text = std::str::from_utf8(frame).map_err(|_| ())?;
     let mut data = String::new();
     for line in text.lines() {
@@ -101,7 +135,7 @@ fn classify(frame: &[u8], protocol: ProviderProtocol) -> Result<Event, ()> {
         return Ok(Event::Ordinary);
     }
     let value: serde_json::Value = serde_json::from_str(&data).map_err(|_| ())?;
-    match protocol {
+    match parser.protocol {
         ProviderProtocol::OpenAi => {
             if value
                 .get("service_tier")
@@ -133,8 +167,114 @@ fn classify(frame: &[u8], protocol: ProviderProtocol) -> Result<Event, ()> {
             Some("response.failed" | "response.incomplete" | "error") => Err(()),
             _ => Ok(Event::Ordinary),
         },
+        ProviderProtocol::Anthropic => anthropic_event(&value, &mut parser.anthropic),
+        ProviderProtocol::Gemini => gemini_event(&value, &mut parser.gemini_complete),
         _ => Err(()),
     }
+}
+
+fn required_u64(value: &serde_json::Value, pointer: &str) -> Result<u64, ()> {
+    value
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(())
+}
+
+fn optional_u64(value: &serde_json::Value, pointer: &str) -> Result<u64, ()> {
+    match value.pointer(pointer) {
+        None | Some(serde_json::Value::Null) => Ok(0),
+        Some(value) => value.as_u64().ok_or(()),
+    }
+}
+
+fn anthropic_event(
+    value: &serde_json::Value,
+    state: &mut AnthropicUsageState,
+) -> Result<Event, ()> {
+    let kind = value
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(())?;
+    if state.complete || kind == "error" {
+        return Err(());
+    }
+    match kind {
+        "message_start" if state.input.is_none() && !state.saw_delta => {
+            let ordinary = required_u64(value, "/message/usage/input_tokens")?;
+            state.cache_read = optional_u64(value, "/message/usage/cache_read_input_tokens")?;
+            state.cache_creation =
+                optional_u64(value, "/message/usage/cache_creation_input_tokens")?;
+            state.input = Some(
+                ordinary
+                    .checked_add(state.cache_read)
+                    .and_then(|tokens| tokens.checked_add(state.cache_creation))
+                    .ok_or(())?,
+            );
+            Ok(Event::Ordinary)
+        }
+        "message_delta" if state.input.is_some() && !state.saw_delta => {
+            if value
+                .pointer("/delta/stop_reason")
+                .and_then(serde_json::Value::as_str)
+                .is_none()
+            {
+                return Err(());
+            }
+            state.output = Some(required_u64(value, "/usage/output_tokens")?);
+            state.saw_delta = true;
+            Ok(Event::Ordinary)
+        }
+        "message_stop" if state.input.is_some() && state.saw_delta => {
+            let usage = ChatUsage {
+                input: state.input.ok_or(())?,
+                output: state.output.ok_or(())?,
+                reasoning: 0,
+                cache_read: state.cache_read,
+                cache_creation: state.cache_creation,
+            };
+            usage.billable_tokens().map_err(|_| ())?;
+            state.complete = true;
+            Ok(Event::Complete(usage))
+        }
+        "ping" => Ok(Event::Ordinary),
+        "content_block_start" | "content_block_delta" | "content_block_stop"
+            if state.input.is_some() && !state.complete =>
+        {
+            Ok(Event::Ordinary)
+        }
+        _ => Err(()),
+    }
+}
+
+fn gemini_event(value: &serde_json::Value, complete: &mut bool) -> Result<Event, ()> {
+    if *complete || value.get("error").is_some() {
+        return Err(());
+    }
+    if value.get("usageMetadata").is_none() {
+        return Ok(Event::Ordinary);
+    }
+    let candidates_complete = value
+        .get("candidates")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|candidates| {
+            !candidates.is_empty()
+                && candidates.iter().all(|candidate| {
+                    candidate
+                        .get("finishReason")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|reason| !reason.is_empty())
+                })
+        });
+    let prompt_blocked = value
+        .pointer("/promptFeedback/blockReason")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|reason| !reason.is_empty());
+    if !candidates_complete && !prompt_blocked {
+        return Err(());
+    }
+    let usage = ChatUsage::from_gemini_response(value).map_err(|_| ())?;
+    *complete = true;
+    Ok(Event::HoldComplete(usage))
 }
 
 fn frame_end(bytes: &[u8]) -> Option<usize> {
@@ -166,19 +306,29 @@ pub(crate) fn forward(
         let mut source = response.bytes_stream();
         let mut pending = Vec::<u8>::new();
         let mut usage = None;
+        let mut held_complete = None;
         let mut connected = true;
         let mut complete = false;
         let mut done_seen = false;
-        while let Ok(Some(next)) = tokio::time::timeout(crate::HEADER_TIMEOUT, source.next()).await
-        {
-            let Ok(chunk) = next else { break };
+        let mut clean_eof = false;
+        let mut parser = UsageParser::new(protocol);
+        loop {
+            let chunk = match tokio::time::timeout(crate::HEADER_TIMEOUT, source.next()).await {
+                Ok(Some(Ok(chunk))) => chunk,
+                Ok(None) => {
+                    clean_eof = true;
+                    break;
+                }
+                _ => break,
+            };
             pending.extend_from_slice(&chunk);
             while let Some(end) = frame_end(&pending) {
                 if end > MAX_FRAME {
                     break;
                 }
                 let frame: Vec<u8> = pending.drain(..end).collect();
-                match classify(&frame, protocol) {
+                let mut forward = true;
+                match parser.classify(&frame) {
                     Ok(Event::Usage(found)) => {
                         if usage.as_ref().is_some_and(|existing| existing != &found) {
                             pending.resize(MAX_FRAME + 1, 0);
@@ -198,6 +348,14 @@ pub(crate) fn forward(
                             }
                         }
                         break;
+                    }
+                    Ok(Event::HoldComplete(found)) => {
+                        if held_complete.is_some() {
+                            pending.resize(MAX_FRAME + 1, 0);
+                            break;
+                        }
+                        held_complete = Some((frame.clone(), found));
+                        forward = false;
                     }
                     Ok(Event::Done) => {
                         done_seen = true;
@@ -220,12 +378,24 @@ pub(crate) fn forward(
                         break;
                     }
                 }
-                if connected && sender.send(Ok(Bytes::from(frame))).await.is_err() {
+                if forward && connected && sender.send(Ok(Bytes::from(frame))).await.is_err() {
                     connected = false;
                 }
             }
             if done_seen || pending.len() > MAX_FRAME {
                 break;
+            }
+        }
+        if !complete && clean_eof && pending.is_empty() {
+            if let Some((frame, found)) = held_complete.take() {
+                if let Some(context) = usage_context.take() {
+                    if context.record(&found).await.is_ok() {
+                        complete = true;
+                        if connected {
+                            let _ = sender.send(Ok(Bytes::from(frame))).await;
+                        }
+                    }
+                }
             }
         }
         if !complete && connected {
@@ -247,29 +417,83 @@ mod tests {
     #[test]
     fn parses_fragmented_boundaries_and_usage() {
         assert_eq!(frame_end(b"data: {}\r\n\r\ndata: x\n\n"), Some(12));
+        let mut openai = UsageParser::new(ProviderProtocol::OpenAi);
         assert!(matches!(
-            classify(b"data: [DONE]\n\n", ProviderProtocol::OpenAi),
+            openai.classify(b"data: [DONE]\n\n"),
             Ok(Event::Done)
         ));
+        let mut openai = UsageParser::new(ProviderProtocol::OpenAi);
         assert!(matches!(
-            classify(
-                b"data: {\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3}}\n\n",
-                ProviderProtocol::OpenAi
-            ),
+            openai.classify(b"data: {\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3}}\n\n"),
             Ok(Event::Usage(_))
         ));
-        assert!(classify(b"data: {\"usage\":{}}\n\n", ProviderProtocol::OpenAi).is_err());
+        let mut openai = UsageParser::new(ProviderProtocol::OpenAi);
+        assert!(openai.classify(b"data: {\"usage\":{}}\n\n").is_err());
+        let mut responses = UsageParser::new(ProviderProtocol::OpenAiResponses);
         assert!(matches!(
-            classify(
-                b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5}}}\n\n",
-                ProviderProtocol::OpenAiResponses
+            responses.classify(
+                b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5}}}\n\n"
             ),
             Ok(Event::Complete(_))
         ));
-        assert!(classify(
-            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":null}}\n\n",
-            ProviderProtocol::OpenAiResponses
-        )
-        .is_err());
+        let mut responses = UsageParser::new(ProviderProtocol::OpenAiResponses);
+        assert!(responses
+            .classify(
+                b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":null}}\n\n"
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn assembles_anthropic_usage_only_at_message_stop() {
+        let mut parser = UsageParser::new(ProviderProtocol::Anthropic);
+        assert!(matches!(
+            parser.classify(b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":1,\"cache_creation_input_tokens\":2}}}\n\n"),
+            Ok(Event::Ordinary)
+        ));
+        assert!(matches!(
+            parser.classify(b"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\n"),
+            Ok(Event::Ordinary)
+        ));
+        match parser.classify(b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n") {
+            Ok(Event::Complete(usage)) => assert_eq!(
+                usage,
+                ChatUsage {
+                    input: 6,
+                    output: 4,
+                    reasoning: 0,
+                    cache_read: 1,
+                    cache_creation: 2,
+                }
+            ),
+            _ => panic!("expected completed Anthropic usage"),
+        }
+        assert!(parser
+            .classify(b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+            .is_err());
+    }
+
+    #[test]
+    fn holds_terminal_gemini_usage_until_eof() {
+        let mut parser = UsageParser::new(ProviderProtocol::Gemini);
+        assert!(matches!(
+            parser.classify(
+                b"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]}}]}\n\n"
+            ),
+            Ok(Event::Ordinary)
+        ));
+        match parser.classify(b"data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":3,\"thoughtsTokenCount\":1,\"totalTokenCount\":6}}\n\n") {
+            Ok(Event::HoldComplete(usage)) => assert_eq!(
+                usage,
+                ChatUsage {
+                    input: 2,
+                    output: 4,
+                    reasoning: 1,
+                    cache_read: 0,
+                    cache_creation: 0,
+                }
+            ),
+            _ => panic!("expected held Gemini usage"),
+        }
     }
 }

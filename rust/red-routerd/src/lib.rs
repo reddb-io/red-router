@@ -2732,11 +2732,15 @@ async fn proxy_request(
             "Usage accounting requires product client keys",
         );
     }
-    let accounting_stream = matches!(
-        protocol,
-        ProviderProtocol::OpenAi | ProviderProtocol::OpenAiResponses
-    ) && parsed.get("stream").and_then(serde_json::Value::as_bool)
-        == Some(true);
+    let accounting_stream = match protocol {
+        ProviderProtocol::OpenAi
+        | ProviderProtocol::OpenAiResponses
+        | ProviderProtocol::Anthropic => {
+            parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true)
+        }
+        ProviderProtocol::Gemini => gemini.as_ref().is_some_and(|(_, stream)| *stream),
+        _ => false,
+    };
     if usage_accounting
         && (!matches!(
             protocol,
@@ -2763,17 +2767,15 @@ async fn proxy_request(
             || (protocol == ProviderProtocol::Anthropic
                 && !matches!(
                     parsed.get("stream"),
-                    None | Some(serde_json::Value::Bool(false))
+                    None | Some(serde_json::Value::Bool(_))
                 ))
-            || (protocol == ProviderProtocol::Gemini
-                && gemini.as_ref().is_some_and(|(_, stream)| *stream))
             || parsed
                 .get("service_tier")
                 .is_some_and(|v| !v.is_null() && v.as_str() != Some("default")))
     {
         return error(
             StatusCode::BAD_REQUEST,
-            "Usage accounting requires a supported non-streaming protocol or OpenAI chat with include_usage for streaming, all on the default tier",
+            "Usage accounting requires a supported protocol with verifiable terminal usage, all on the default tier",
         );
     }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {

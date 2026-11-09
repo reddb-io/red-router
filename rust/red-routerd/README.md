@@ -105,10 +105,12 @@ OpenAI-compatible chat, Responses, embedding, native Anthropic and native Gemini
 atomically append to `redrouter_usage_ledger`, update the weighted token window and release
 the reservation. Chat streaming requires `stream_options.include_usage=true`; `[DONE]` is
 forwarded only after settlement. Responses streaming settles the typed `response.completed`
-event before forwarding it. A failed, interrupted, crashed or oversized attempt keeps its
-dispatched reservation for explicit reconciliation rather than silently making budget available.
-Anthropic and Gemini streaming remain fail-closed while their typed terminal-event settlement
-is migrated; enabling native quotas never silently forwards an unaccounted stream.
+event before forwarding it. Native Anthropic streaming combines the usage reported by
+`message_start` and `message_delta`, then settles before forwarding `message_stop`. Native
+Gemini streaming holds its final usage-bearing response until a clean upstream EOF, settles,
+and only then forwards that response. A failed, interrupted, crashed or oversized attempt keeps
+its dispatched reservation for explicit reconciliation rather than silently making budget
+available; enabling native quotas never silently forwards an unaccounted terminal event.
 Money is stored as integer micro-USD. Prices come from the active exact-ID models.dev
 snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on

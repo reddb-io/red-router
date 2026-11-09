@@ -595,8 +595,23 @@ async fn anthropic_usage_provider(
 ) -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/v1/messages",
-        post(move |headers: HeaderMap| async move {
+        post(move |headers: HeaderMap, body: String| async move {
             assert_eq!(headers["x-api-key"].to_str().unwrap(), expected_key);
+            let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            if body.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+                return (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    concat!(
+                        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fixture\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0,\"cache_read_input_tokens\":1,\"cache_creation_input_tokens\":1}}}\n\n",
+                        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+                        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+                        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":2}}\n\n",
+                        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+                    ),
+                )
+                    .into_response();
+            }
             Json(serde_json::json!({
                 "id":"msg_fixture",
                 "type":"message",
@@ -611,6 +626,7 @@ async fn anthropic_usage_provider(
                     "cache_creation_input_tokens":1
                 }
             }))
+            .into_response()
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -627,8 +643,7 @@ async fn gemini_usage_provider(
         post(
             move |Path(model_action): Path<String>, headers: HeaderMap| async move {
                 assert_eq!(headers["x-goog-api-key"].to_str().unwrap(), expected_key);
-                assert_eq!(model_action, "gemini-2.5-flash:generateContent");
-                Json(serde_json::json!({
+                let response = serde_json::json!({
                     "candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}],
                     "usageMetadata":{
                         "promptTokenCount":2,
@@ -638,7 +653,24 @@ async fn gemini_usage_provider(
                         "totalTokenCount":5
                     },
                     "modelVersion":"gemini-2.5-flash"
-                }))
+                });
+                match model_action.as_str() {
+                    "gemini-2.5-flash:generateContent" => Json(response).into_response(),
+                    "gemini-2.5-flash:streamGenerateContent" => {
+                        let first = serde_json::json!({
+                            "candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}],
+                            "modelVersion":"gemini-2.5-flash"
+                        });
+                        let mut terminal = response;
+                        terminal["candidates"][0]["finishReason"] = serde_json::json!("STOP");
+                        (
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            format!("data: {first}\n\ndata: {terminal}\n\n"),
+                        )
+                            .into_response()
+                    }
+                    _ => panic!("unexpected Gemini action"),
+                }
             },
         ),
     );
@@ -3022,26 +3054,26 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
         response["usage"]["output_tokens_details"]["reasoning_tokens"],
         1
     );
-    assert_eq!(
-        client
-            .post(format!("{base}/v1/messages"))
-            .bearer_auth(RUST_CLIENT_KEY)
-            .header(header::CONTENT_TYPE.as_str(), "application/json")
-            .body(
-                serde_json::json!({
-                    "model":"anthropic-combo",
-                    "messages":[],
-                    "max_tokens":16,
-                    "stream":true
-                })
-                .to_string()
-            )
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::BAD_REQUEST
-    );
+    let anthropic_stream = client
+        .post(format!("{base}/v1/messages"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"anthropic-combo",
+                "messages":[],
+                "max_tokens":16,
+                "stream":true
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anthropic_stream.status(), StatusCode::OK);
+    let anthropic_stream = anthropic_stream.text().await.unwrap();
+    assert!(anthropic_stream.contains("event: message_start"));
+    assert!(anthropic_stream.contains("event: message_stop"));
     let anthropic = client
         .post(format!("{base}/v1/messages"))
         .bearer_auth(RUST_CLIENT_KEY)
@@ -3061,20 +3093,20 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let anthropic: serde_json::Value =
         serde_json::from_str(&anthropic.text().await.unwrap()).unwrap();
     assert_eq!(anthropic["usage"]["cache_read_input_tokens"], 1);
-    assert_eq!(
-        client
-            .post(format!(
-                "{base}/v1beta/models/gemini-combo:streamGenerateContent"
-            ))
-            .bearer_auth(RUST_CLIENT_KEY)
-            .header(header::CONTENT_TYPE.as_str(), "application/json")
-            .body(r#"{"contents":[]}"#)
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::BAD_REQUEST
-    );
+    let gemini_stream = client
+        .post(format!(
+            "{base}/v1beta/models/gemini-combo:streamGenerateContent"
+        ))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"contents":[]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(gemini_stream.status(), StatusCode::OK);
+    let gemini_stream = gemini_stream.text().await.unwrap();
+    assert!(gemini_stream.contains("\"finishReason\":\"STOP\""));
+    assert!(gemini_stream.contains("\"usageMetadata\""));
     let gemini = client
         .post(format!("{base}/v1beta/models/gemini-combo:generateContent"))
         .bearer_auth(RUST_CLIENT_KEY)
@@ -3093,7 +3125,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     .fetch_one(&audit)
     .await
     .unwrap();
-    assert_eq!(ledger, (5, 17, 9, 3));
+    assert_eq!(ledger, (7, 24, 14, 4));
     audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
