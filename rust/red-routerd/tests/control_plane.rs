@@ -4306,15 +4306,19 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     let response = client
         .put(format!("{base}/api/admin/providers/anthropic-oauth"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "provider":"anthropic",
-            "upstream_url":upstream,
-            "api_key":"oauth-access-token",
-            "auth_scheme":"bearer",
-            "label":"Claude team account",
-            "account_email":"agents@example.com",
-            "expires_at_unix":expiry
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"anthropic",
+                "upstream_url":upstream,
+                "api_key":"oauth-access-token",
+                "auth_scheme":"bearer",
+                "label":"Claude team account",
+                "account_email":"agents@example.com",
+                "expires_at_unix":expiry
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -4330,11 +4334,15 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     let inference = client
         .post(format!("{base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
-        .json(&serde_json::json!({
-            "model":"claude-fixture",
-            "messages":[],
-            "max_tokens":8
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"claude-fixture",
+                "messages":[],
+                "max_tokens":8
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -4345,11 +4353,15 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     let expired = client
         .post(format!("{base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
-        .json(&serde_json::json!({
-            "model":"claude-fixture",
-            "messages":[],
-            "max_tokens":8
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"claude-fixture",
+                "messages":[],
+                "max_tokens":8
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
