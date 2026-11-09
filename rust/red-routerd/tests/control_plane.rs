@@ -4323,7 +4323,8 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let response: serde_json::Value = response.json().await.unwrap();
+    let response: serde_json::Value =
+        serde_json::from_str(&response.text().await.unwrap()).unwrap();
     assert_eq!(response["auth_scheme"], "bearer");
     assert_eq!(response["label"], "Claude team account");
     assert_eq!(response["account_email"], "agents@example.com");
