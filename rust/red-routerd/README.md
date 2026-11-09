@@ -101,7 +101,7 @@ provider; subsequent provider changes do not require those environment secrets.
 Native SQLite quotas are enforced entirely by Rust. Every attempt acquires a durable
 `BEGIN IMMEDIATE` reservation before dispatch; independent Rust processes sharing the
 same file therefore cannot pass the same remaining budget concurrently. Successful
-OpenAI-compatible chat and streaming responses atomically append to
+OpenAI-compatible chat, embedding and streaming responses atomically append to
 `redrouter_usage_ledger`, update the weighted token window and release the reservation.
 Streaming requires `stream_options.include_usage=true`; `[DONE]` is forwarded only after
 settlement. A failed, interrupted, crashed or oversized attempt keeps its dispatched
@@ -113,9 +113,12 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
 - `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
   newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
   `from_unix_ms`, `to_unix_ms` and `limit` filters support dashboard drill-down without
-  exposing credentials. A `tenant-admin` is always constrained to its bound tenant;
-  global administrators may inspect all tenants or select one explicitly. Responses are
-  non-cacheable and retain integer micro-USD values for exact accounting.
+  exposing credentials. A returned `next_cursor` continues a stable descending export
+  while keeping each page bounded. A `tenant-admin` is always constrained to its bound
+  tenant; global administrators may inspect all tenants or select one explicitly.
+  Responses are non-cacheable and retain integer micro-USD values for exact accounting.
+  SQLite indexes cover tenant/key chronological reports and quota/reservation lookups so
+  ledger growth does not force an unindexed scan on the inference path.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `GET /api/admin/model-catalog` lists the active models.dev manifest, provider index and
   whether the generation is bundled or persisted. `GET /api/admin/model-catalog/{provider}`

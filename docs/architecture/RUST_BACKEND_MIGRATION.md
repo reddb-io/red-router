@@ -47,8 +47,8 @@ features must not be implemented only there.
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and streaming settlement; budgets, schedules and non-SQLite stores remain |
-| Usage and audit             | Rust-owned SQLite      | Chat/SSE ledger, counters and tenant-scoped reporting API; retention/export and remaining protocols remain |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/embedding/streaming settlement; budgets, schedules and non-SQLite stores remain |
+| Usage and audit             | Rust-owned SQLite      | Chat/SSE/embedding ledger, counters and cursor-paginated tenant-scoped reporting; retention and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
@@ -64,8 +64,8 @@ their Rust migration state:
 | Next.js change | Rust state | Remaining acceptance work |
 | --- | --- | --- |
 | Frozen model-price snapshots in usage export | Product bridge preserves snapshots; native Rust ledger uses the active exact-ID models.dev price | Persist the full native price breakdown and cover every protocol |
-| Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
-| Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses; native Rust ledger currently covers chat/SSE | Add native embedding settlement and protocol-wide fixtures |
+| Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Complete the remaining protocol sinks and retention policy |
+| Durable embedding usage | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses | Add protocol-wide fixtures outside embeddings |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
 | Signed OIDC claim policies | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
@@ -153,8 +153,10 @@ Uncertain attempts remain reserved. Other storage engines keep the portable quot
 configuration record but fail closed if a key tries to activate it until an equivalent
 atomic ledger implementation exists. The authenticated Rust management API exposes a
 bounded, non-cacheable usage report with exact token/micro-USD totals, pending reservations
-and recent ledger entries. Global admins can filter by tenant and key; `tenant-admin`
-callers are unconditionally restricted to their bound tenant.
+and recent ledger entries. Stable composite cursors page the immutable descending ledger
+without loading an unbounded export into memory while totals continue to cover the complete
+selected window. Global admins can filter by tenant and key; `tenant-admin` callers are
+unconditionally restricted to their bound tenant.
 
 Verified OIDC identity is deliberately separate from authorization. Durable identity
 bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`

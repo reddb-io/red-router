@@ -5,7 +5,8 @@
 //! than oversubscribing it in separate read/write transactions.
 
 use crate::accounting::{ChatUsage, TokenPrices};
-use sqlx::{pool::PoolConnection, Any, Row};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use sqlx::{pool::PoolConnection, Any, QueryBuilder, Row};
 use std::sync::Arc;
 use time::OffsetDateTime;
 
@@ -119,6 +120,7 @@ pub(crate) struct UsageReport {
     pub(crate) pending_request_count: i64,
     pub(crate) pending_reserved_tokens: i64,
     pub(crate) pending_reserved_microusd: i64,
+    pub(crate) next_cursor: Option<String>,
     pub(crate) entries: Vec<UsageLedgerEntry>,
 }
 
@@ -137,6 +139,7 @@ impl NativeUsage {
         from_unix_ms: i64,
         to_unix_ms: i64,
         limit: i64,
+        cursor: Option<&str>,
     ) -> Result<UsageReport, &'static str> {
         if tenant_id.is_some_and(|value| value.is_empty() || value.len() > 128)
             || key_id.is_some_and(|value| value.is_empty() || value.len() > 128)
@@ -147,37 +150,66 @@ impl NativeUsage {
         {
             return Err("invalid usage report query");
         }
+        let cursor = decode_cursor(cursor)?;
+        if cursor
+            .as_ref()
+            .is_some_and(|(timestamp, _)| *timestamp < from_unix_ms || *timestamp >= to_unix_ms)
+        {
+            return Err("invalid usage report query");
+        }
         let pool = self
             .database
             .sql_pool()
             .ok_or("native usage requires SQLite storage")?;
-        let tenant = tenant_id.unwrap_or("");
-        let key = key_id.unwrap_or("");
-        let totals = sqlx::query("SELECT COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4")
-            .bind(tenant)
-            .bind(key)
-            .bind(from_unix_ms)
-            .bind(to_unix_ms)
+        let cursor_unix_ms = cursor
+            .as_ref()
+            .map_or(to_unix_ms, |(timestamp, _)| *timestamp);
+        let cursor_event_id = cursor
+            .as_ref()
+            .map_or("", |(_, event_id)| event_id.as_str());
+        let mut totals = QueryBuilder::<Any>::new("SELECT COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        totals
+            .push_bind(from_unix_ms)
+            .push(" AND created_at_unix_ms < ")
+            .push_bind(to_unix_ms);
+        push_usage_filters(&mut totals, tenant_id, key_id);
+        let totals = totals
+            .build()
             .fetch_one(pool)
             .await
             .map_err(|_| "usage ledger unavailable")?;
-        let pending = sqlx::query("SELECT COUNT(*) AS request_count, COALESCE(SUM(reserved_tokens),0) AS reserved_tokens, COALESCE(SUM(reserved_microusd),0) AS reserved_microusd FROM redrouter_usage_reservations WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4")
-            .bind(tenant)
-            .bind(key)
-            .bind(from_unix_ms)
-            .bind(to_unix_ms)
+        let mut pending = QueryBuilder::<Any>::new("SELECT COUNT(*) AS request_count, COALESCE(SUM(reserved_tokens),0) AS reserved_tokens, COALESCE(SUM(reserved_microusd),0) AS reserved_microusd FROM redrouter_usage_reservations WHERE created_at_unix_ms >= ");
+        pending
+            .push_bind(from_unix_ms)
+            .push(" AND created_at_unix_ms < ")
+            .push_bind(to_unix_ms);
+        push_usage_filters(&mut pending, tenant_id, key_id);
+        let pending = pending
+            .build()
             .fetch_one(pool)
             .await
             .map_err(|_| "usage reservations unavailable")?;
-        let rows = sqlx::query("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms FROM redrouter_usage_ledger WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4 ORDER BY created_at_unix_ms DESC, event_id DESC LIMIT $5")
-            .bind(tenant)
-            .bind(key)
-            .bind(from_unix_ms)
-            .bind(to_unix_ms)
-            .bind(limit)
+        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        rows.push_bind(from_unix_ms)
+            .push(" AND created_at_unix_ms < ")
+            .push_bind(to_unix_ms);
+        push_usage_filters(&mut rows, tenant_id, key_id);
+        rows.push(" AND (created_at_unix_ms < ")
+            .push_bind(cursor_unix_ms)
+            .push(" OR (created_at_unix_ms = ")
+            .push_bind(cursor_unix_ms)
+            .push(" AND event_id < ")
+            .push_bind(cursor_event_id)
+            .push(")) ORDER BY created_at_unix_ms DESC, event_id DESC LIMIT ")
+            .push_bind(limit + 1);
+        let mut rows = rows
+            .build()
             .fetch_all(pool)
             .await
             .map_err(|_| "usage ledger unavailable")?;
+        let page_size = usize::try_from(limit).map_err(|_| "invalid usage report query")?;
+        let has_more = rows.len() > page_size;
+        rows.truncate(page_size);
         let integer = |row: &sqlx::any::AnyRow, name| {
             row.try_get::<i64, _>(name)
                 .map_err(|_| "invalid usage ledger")
@@ -206,6 +238,11 @@ impl NativeUsage {
                 })
             })
             .collect::<Result<Vec<_>, &'static str>>()?;
+        let next_cursor = if has_more {
+            entries.last().map(encode_cursor).transpose()?
+        } else {
+            None
+        };
         Ok(UsageReport {
             from_unix_ms,
             to_unix_ms,
@@ -221,6 +258,7 @@ impl NativeUsage {
             pending_request_count: integer(&pending, "request_count")?,
             pending_reserved_tokens: integer(&pending, "reserved_tokens")?,
             pending_reserved_microusd: integer(&pending, "reserved_microusd")?,
+            next_cursor,
             entries,
         })
     }
@@ -487,6 +525,51 @@ impl NativeUsage {
             .map_err(|_| "cannot settle usage reservation")?;
         Ok(true)
     }
+}
+
+fn push_usage_filters<'a>(
+    query: &mut QueryBuilder<'a, Any>,
+    tenant_id: Option<&'a str>,
+    key_id: Option<&'a str>,
+) {
+    if let Some(tenant_id) = tenant_id {
+        query.push(" AND tenant_id = ").push_bind(tenant_id);
+    }
+    if let Some(key_id) = key_id {
+        query.push(" AND key_id = ").push_bind(key_id);
+    }
+}
+
+fn encode_cursor(entry: &UsageLedgerEntry) -> Result<String, &'static str> {
+    if entry.event_id.is_empty() || entry.event_id.len() > 128 {
+        return Err("invalid usage ledger");
+    }
+    Ok(format!(
+        "{}.{}",
+        entry.created_at_unix_ms,
+        URL_SAFE_NO_PAD.encode(entry.event_id.as_bytes())
+    ))
+}
+
+fn decode_cursor(value: Option<&str>) -> Result<Option<(i64, String)>, &'static str> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_empty() || value.len() > 256 {
+        return Err("invalid usage report query");
+    }
+    let (timestamp, event_id) = value.split_once('.').ok_or("invalid usage report query")?;
+    let timestamp = timestamp
+        .parse::<i64>()
+        .map_err(|_| "invalid usage report query")?;
+    let event_id = URL_SAFE_NO_PAD
+        .decode(event_id)
+        .map_err(|_| "invalid usage report query")?;
+    let event_id = String::from_utf8(event_id).map_err(|_| "invalid usage report query")?;
+    if event_id.is_empty() || event_id.len() > 128 {
+        return Err("invalid usage report query");
+    }
+    Ok(Some((timestamp, event_id)))
 }
 
 fn validate_identity(event_id: &str, key_id: &str, tenant_id: &str) -> Result<(), &'static str> {

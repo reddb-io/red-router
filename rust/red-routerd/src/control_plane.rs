@@ -196,6 +196,7 @@ pub struct UsageReportQuery {
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
     pub limit: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 impl ClientKeyIssueInput {
@@ -1661,6 +1662,7 @@ impl ControlPlane {
         from_unix_ms: i64,
         to_unix_ms: i64,
         limit: i64,
+        cursor: Option<&str>,
     ) -> Result<crate::native_usage::UsageReport, &'static str> {
         let usage = self
             .0
@@ -1670,7 +1672,7 @@ impl ControlPlane {
             .clone()
             .ok_or("native usage storage unavailable")?;
         usage
-            .report(tenant_id, key_id, from_unix_ms, to_unix_ms, limit)
+            .report(tenant_id, key_id, from_unix_ms, to_unix_ms, limit, cursor)
             .await
     }
 
@@ -3727,6 +3729,7 @@ pub async fn get_usage_report(
             from_unix_ms,
             to_unix_ms,
             query.limit.unwrap_or(50),
+            query.cursor.as_deref(),
         )
         .await
     {

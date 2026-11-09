@@ -297,6 +297,40 @@ async fn sqlite_configuration_survives_restart() {
 }
 
 #[tokio::test]
+async fn sqlite_usage_paths_have_bounded_report_and_quota_indexes() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("usage-indexes.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    let indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'redrouter_usage_%_time' ORDER BY name",
+    )
+    .fetch_all(&mut raw)
+    .await
+    .unwrap();
+    assert_eq!(
+        indexes,
+        vec![
+            "redrouter_usage_ledger_key_time",
+            "redrouter_usage_ledger_tenant_key_time",
+            "redrouter_usage_ledger_tenant_time",
+            "redrouter_usage_reservations_key_time",
+            "redrouter_usage_reservations_tenant_time",
+        ]
+    );
+    raw.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn sqlite_client_preference_revision_mismatch_fails_closed() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("preference-revision.sqlite");

@@ -524,7 +524,12 @@ async fn embeddings_provider(expected_key: &'static str) -> (String, tokio::task
                 headers["authorization"].to_str().unwrap(),
                 format!("Bearer {expected_key}")
             );
-            "embedding-ok"
+            Json(serde_json::json!({
+                "object":"list",
+                "data":[{"object":"embedding","embedding":[0.1,0.2],"index":0}],
+                "model":"text-embedding-3-small",
+                "usage":{"prompt_tokens":4,"total_tokens":4}
+            }))
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1248,6 +1253,36 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
     assert_eq!(report["usage"]["amount_microusd"], 10);
     assert_eq!(report["usage"]["pending_request_count"], 0);
     assert_eq!(report["usage"]["entries"].as_array().unwrap().len(), 2);
+    let first_page = client
+        .get(format!("{base}/api/admin/usage?limit=1"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_page: serde_json::Value =
+        serde_json::from_str(&first_page.text().await.unwrap()).unwrap();
+    assert_eq!(first_page["usage"]["request_count"], 2);
+    assert_eq!(first_page["usage"]["entries"].as_array().unwrap().len(), 1);
+    let first_event = first_page["usage"]["entries"][0]["event_id"]
+        .as_str()
+        .unwrap();
+    let cursor = first_page["usage"]["next_cursor"].as_str().unwrap();
+    let second_page = client
+        .get(format!("{base}/api/admin/usage?limit=1&cursor={cursor}"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second_page.status(), StatusCode::OK);
+    let second_page: serde_json::Value =
+        serde_json::from_str(&second_page.text().await.unwrap()).unwrap();
+    assert_eq!(second_page["usage"]["request_count"], 2);
+    assert_ne!(
+        second_page["usage"]["entries"][0]["event_id"].as_str(),
+        Some(first_event)
+    );
+    assert!(second_page["usage"]["next_cursor"].is_null());
     let filtered = client
         .get(format!(
             "{base}/api/admin/usage?key_id=native-stream&limit=1"
@@ -1264,6 +1299,16 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
     assert_eq!(
         client
             .get(format!("{base}/api/admin/usage?limit=201"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/usage?cursor=invalid"))
             .bearer_auth(ADMIN_KEY)
             .send()
             .await
@@ -2035,6 +2080,28 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         serde_json::from_str(&global_usage.text().await.unwrap()).unwrap();
     assert_eq!(global_usage["usage"]["request_count"], 2);
     assert_eq!(global_usage["usage"]["amount_microusd"], 40);
+    let tied_page = client
+        .get(format!("{base}/api/admin/usage?limit=1"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    let tied_page: serde_json::Value =
+        serde_json::from_str(&tied_page.text().await.unwrap()).unwrap();
+    assert_eq!(tied_page["usage"]["entries"][0]["event_id"], "usage-red");
+    let tied_cursor = tied_page["usage"]["next_cursor"].as_str().unwrap();
+    let tied_page = client
+        .get(format!(
+            "{base}/api/admin/usage?limit=1&cursor={tied_cursor}"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    let tied_page: serde_json::Value =
+        serde_json::from_str(&tied_page.text().await.unwrap()).unwrap();
+    assert_eq!(tied_page["usage"]["entries"][0]["event_id"], "usage-acme");
+    assert!(tied_page["usage"]["next_cursor"].is_null());
     assert_eq!(
         client
             .post(format!("{base}/api/admin/client-keys"))
@@ -2650,7 +2717,10 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
                     "scopes":["inference:embeddings","inference:chat"],
                     "allowed_endpoints":["embeddings","chat"],
                     "allowed_models":["embedding-combo","text-embedding-3-small"],
-                    "allowed_provider_ids":["embedding-provider"]
+                    "allowed_provider_ids":["embedding-provider"],
+                    "max_tokens_per_minute":10,
+                    "max_tokens_per_day":100,
+                    "reservation_tokens":10
                 })
                 .to_string()
             )
@@ -2692,7 +2762,18 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(response.text().await.unwrap(), "embedding-ok");
+    let response: serde_json::Value =
+        serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(response["usage"]["prompt_tokens"], 4);
+    let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
+    let ledger: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), SUM(tokens_input), SUM(tokens_output) FROM redrouter_usage_ledger WHERE key_id='embedding-client'",
+    )
+    .fetch_one(&audit)
+    .await
+    .unwrap();
+    assert_eq!(ledger, (1, 4, 0));
+    audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
             .await

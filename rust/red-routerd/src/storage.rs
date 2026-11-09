@@ -39,6 +39,11 @@ const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_
 const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL)";
 const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL)";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
+const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
+const CREATE_USAGE_RESERVATIONS_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_tenant_time ON redrouter_usage_reservations (tenant_id, created_at_unix_ms DESC)";
+const CREATE_USAGE_LEDGER_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_key_time ON redrouter_usage_ledger (key_id, created_at_unix_ms DESC, event_id DESC)";
+const CREATE_USAGE_LEDGER_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_tenant_time ON redrouter_usage_ledger (tenant_id, created_at_unix_ms DESC, event_id DESC)";
+const CREATE_USAGE_LEDGER_TENANT_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_tenant_key_time ON redrouter_usage_ledger (tenant_id, key_id, created_at_unix_ms DESC, event_id DESC)";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
@@ -524,6 +529,11 @@ impl Database {
                         CREATE_USAGE_RESERVATIONS,
                         CREATE_USAGE_LEDGER,
                         CREATE_USAGE_COUNTERS,
+                        CREATE_USAGE_RESERVATIONS_KEY_INDEX,
+                        CREATE_USAGE_RESERVATIONS_TENANT_INDEX,
+                        CREATE_USAGE_LEDGER_KEY_INDEX,
+                        CREATE_USAGE_LEDGER_TENANT_INDEX,
+                        CREATE_USAGE_LEDGER_TENANT_KEY_INDEX,
                     ] {
                         sqlx::query(statement)
                             .execute(&pool)
