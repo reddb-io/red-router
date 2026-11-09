@@ -2348,6 +2348,35 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     assert_eq!(scoped_providers["providers"].as_array().unwrap().len(), 1);
     assert_eq!(scoped_providers["providers"][0]["id"], "oidc-acme-provider");
     assert_eq!(scoped_providers["providers"][0]["tenant_id"], "acme");
+    let scoped_provider_audit = client
+        .get(format!(
+            "{base}/api/compliance/audit-log?action=provider.create"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_provider_audit.status(), StatusCode::OK);
+    assert_eq!(
+        scoped_provider_audit
+            .headers()
+            .get("x-total-count")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "1"
+    );
+    let scoped_provider_audit: serde_json::Value =
+        serde_json::from_str(&scoped_provider_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_provider_audit[0]["tenantId"], "acme");
+    assert_eq!(scoped_provider_audit[0]["target"], "oidc-acme-provider");
+    assert_eq!(
+        scoped_provider_audit[0]["actor"],
+        "oidc:manager@acme.example"
+    );
+    let provider_audit_details = scoped_provider_audit[0]["details"].to_string();
+    assert!(!provider_audit_details.contains("oidc-acme-provider-secret"));
+    assert!(!provider_audit_details.contains("credential_ciphertext"));
     assert_eq!(
         client
             .put(format!("{base}/api/admin/combos/red-managed-combo"))
@@ -2391,6 +2420,29 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .status(),
         StatusCode::OK
     );
+    let scoped_combo_audit = client
+        .get(format!(
+            "{base}/api/compliance/audit-log?action=combo.create"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_combo_audit.status(), StatusCode::OK);
+    assert_eq!(
+        scoped_combo_audit
+            .headers()
+            .get("x-total-count")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "1"
+    );
+    let scoped_combo_audit: serde_json::Value =
+        serde_json::from_str(&scoped_combo_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_combo_audit[0]["tenantId"], "acme");
+    assert_eq!(scoped_combo_audit[0]["target"], "acme-managed-combo");
+    assert_eq!(scoped_combo_audit[0]["resourceType"], "combo");
     let issued = client
         .post(format!("{base}/api/admin/client-keys"))
         .bearer_auth(&manager)
@@ -2677,6 +2729,28 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .status(),
         StatusCode::BAD_REQUEST
     );
+    let scoped_pin_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=combo.route_pin.clear"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_pin_audit.status(), StatusCode::OK);
+    assert_eq!(
+        scoped_pin_audit
+            .headers()
+            .get("x-total-count")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "1"
+    );
+    let scoped_pin_audit: serde_json::Value =
+        serde_json::from_str(&scoped_pin_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_pin_audit[0]["target"], "acme-managed-combo");
+    assert_eq!(scoped_pin_audit[0]["resourceType"], "route_pin");
     let scoped_keys = client
         .get(format!("{base}/api/admin/client-keys"))
         .bearer_auth(&manager)
@@ -5554,6 +5628,26 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
             .status(),
         204
     );
+    let provider_disable_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider.disable&target=second"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(provider_disable_audit.status(), StatusCode::OK);
+    let provider_disable_audit: serde_json::Value =
+        serde_json::from_str(&provider_disable_audit.text().await.unwrap()).unwrap();
+    assert_eq!(provider_disable_audit.as_array().unwrap().len(), 1);
+    assert_eq!(provider_disable_audit[0]["actor"], "bootstrap-admin");
+    assert_eq!(
+        provider_disable_audit[0]["details"]["after"]["enabled"],
+        false
+    );
+    let provider_disable_details = provider_disable_audit[0]["details"].to_string();
+    assert!(!provider_disable_details.contains("second-provider-secret"));
+    assert!(!provider_disable_details.contains("upstream_url"));
     assert_eq!(chat(&client, &base, RUST_CLIENT_KEY).await.status(), 403);
     assert_eq!(
         client

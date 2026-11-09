@@ -2014,16 +2014,19 @@ impl ControlPlane {
         id: &str,
         input: ProviderInput,
     ) -> Result<ProviderView, &'static str> {
-        self.configure_provider_as(id, input, None).await
+        self.configure_provider_as(id, input, "bootstrap-admin", None)
+            .await
     }
 
     async fn configure_provider_as(
         &self,
         id: &str,
         input: ProviderInput,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         validate_provider(&input.provider)?;
         if !(1..=8192).contains(&input.api_key.len()) {
             return Err("provider credential must be 1-8192 bytes");
@@ -2186,6 +2189,24 @@ impl ControlPlane {
             None
         };
         self.0.database.delete_provider_oauth_status(id).await?;
+        let before = existing.as_ref().map(provider_audit_snapshot);
+        let after = provider_audit_snapshot(&stored);
+        self.record_audit_event(
+            AuditContext {
+                action: if before.is_some() {
+                    "provider.update"
+                } else {
+                    "provider.create"
+                },
+                actor,
+                tenant_id: &stored.tenant_id,
+                target: id,
+                resource_type: "provider",
+            },
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
         // Refresh from the durable authority so concurrent writers converge on
         // the same latest enabled record rather than on local write order.
         if let Err(error) = self.refresh().await {
@@ -2624,15 +2645,17 @@ impl ControlPlane {
     }
 
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
-        self.disable_as(id, None).await
+        self.disable_as(id, "bootstrap-admin", None).await
     }
 
     async fn disable_as(
         &self,
         id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
             .0
@@ -2680,6 +2703,23 @@ impl ControlPlane {
                 .await?;
         }
         self.0.database.disable_provider(id, revision).await?;
+        let before = provider_audit_snapshot(&provider);
+        let mut disabled = provider.clone();
+        disabled.enabled = false;
+        disabled.updated_at = revision;
+        let after = provider_audit_snapshot(&disabled);
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.disable",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
             return Err(error);
@@ -2697,16 +2737,19 @@ impl ControlPlane {
         id: &str,
         input: ComboInput,
     ) -> Result<ComboView, &'static str> {
-        self.configure_combo_as(id, input, None).await
+        self.configure_combo_as(id, input, "bootstrap-admin", None)
+            .await
     }
 
     async fn configure_combo_as(
         &self,
         id: &str,
         mut input: ComboInput,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ComboView, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let providers = self.0.database.providers().await?;
         let existing = self
@@ -2774,23 +2817,43 @@ impl ControlPlane {
             revision: revision()?,
         };
         self.0.database.upsert_combo(&record).await?;
+        let before = existing.as_ref().map(combo_view).transpose()?;
+        let after_view = combo_view(&record)?;
+        self.record_audit_event(
+            AuditContext {
+                action: if before.is_some() {
+                    "combo.update"
+                } else {
+                    "combo.create"
+                },
+                actor,
+                tenant_id: &record.tenant_id,
+                target: id,
+                resource_type: "combo",
+            },
+            before.as_ref(),
+            Some(&after_view),
+        )
+        .await;
         if let Err(error) = self.refresh_routes().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
-        combo_view(&record)
+        Ok(after_view)
     }
 
     pub async fn disable_combo(&self, id: &str) -> Result<(), &'static str> {
-        self.disable_combo_as(id, None).await
+        self.disable_combo_as(id, "bootstrap-admin", None).await
     }
 
     async fn disable_combo_as(
         &self,
         id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let combo = self
             .0
@@ -2803,7 +2866,25 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != combo.tenant_id) {
             return Err("combo tenant is unavailable");
         }
-        self.0.database.disable_combo(id, revision()?).await?;
+        let before = combo_view(&combo)?;
+        let disabled_revision = revision()?;
+        self.0.database.disable_combo(id, disabled_revision).await?;
+        let mut disabled = combo.clone();
+        disabled.enabled = false;
+        disabled.revision = disabled_revision;
+        let after = combo_view(&disabled)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "combo.disable",
+                actor,
+                tenant_id: &combo.tenant_id,
+                target: id,
+                resource_type: "combo",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
         if let Err(error) = self.refresh_routes().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
@@ -3760,9 +3841,11 @@ impl ControlPlane {
     async fn clear_route_pin(
         &self,
         combo_id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(combo_id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let combo = self
             .0
@@ -3780,7 +3863,28 @@ impl ControlPlane {
                 route.clear_last_good_any();
             }
         }
-        self.0.database.delete_route_pin(combo_id).await
+        let before = self
+            .0
+            .database
+            .route_pins()
+            .await?
+            .into_iter()
+            .find(|pin| pin.combo_id == combo_id)
+            .map(route_pin_view);
+        self.0.database.delete_route_pin(combo_id).await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "combo.route_pin.clear",
+                actor,
+                tenant_id: &combo.tenant_id,
+                target: combo_id,
+                resource_type: "route_pin",
+            },
+            before.as_ref(),
+            Option::<&RoutePinView>::None,
+        )
+        .await;
+        Ok(())
     }
 
     async fn views(&self, tenant_id: Option<&str>) -> Result<Vec<ProviderView>, &'static str> {
@@ -4716,6 +4820,25 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         revision: record.revision.to_string(),
         last_known_good: None,
     })
+}
+
+fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "tenant_id": record.tenant_id,
+        "provider": record.provider,
+        "enabled": record.enabled,
+        "revision": record.updated_at.to_string(),
+        "has_credential": true
+    })
+}
+
+fn route_pin_view(record: StoredRoutePin) -> RoutePinView {
+    RoutePinView {
+        provider_id: record.provider_id,
+        model: record.model,
+        revision: record.revision.to_string(),
+    }
 }
 
 fn validate_quota_input(input: &ProviderQuotaInput) -> Result<(), &'static str> {
@@ -6080,7 +6203,7 @@ pub async fn put_provider(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_provider_as(&id, input, scope.tenant_id.as_deref())
+        .configure_provider_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
@@ -6254,7 +6377,10 @@ pub async fn delete_provider(
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
-    match control.disable_as(&id, scope.tenant_id.as_deref()).await {
+    match control
+        .disable_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) || error == "cannot disable provider" => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -6277,7 +6403,7 @@ pub async fn put_combo(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_combo_as(&id, input, scope.tenant_id.as_deref())
+        .configure_combo_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(combo) => Json(serde_json::json!({"combo":combo})).into_response(),
@@ -6301,7 +6427,7 @@ pub async fn delete_combo(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .disable_combo_as(&id, scope.tenant_id.as_deref())
+        .disable_combo_as(&id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -6324,7 +6450,7 @@ pub async fn delete_combo_route_pin(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .clear_route_pin(&id, scope.tenant_id.as_deref())
+        .clear_route_pin(&id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
