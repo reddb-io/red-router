@@ -82,6 +82,11 @@ provider; subsequent provider changes do not require those environment secrets.
   talks directly to these admin routes. It preserves the legacy page only when running
   against the Next compatibility server. Rust-managed keys intentionally have no reveal or
   regenerate endpoint: replacement means issuing a new one-time secret and revoking the old key.
+- The dashboard provider page uses the same runtime boundary: an active Rust control plane
+  lists, creates, atomically replaces and disables provider connections through
+  `/api/admin/providers`. Provider credentials are write-only in the browser and the Rust
+  response is rejected if it contains plaintext or ciphertext credential fields. The full
+  Next provider catalogue remains available only in the compatibility runtime.
 - `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
   persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:
 no-store`. The required `label` is durable operator metadata and may describe the workload

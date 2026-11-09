@@ -2,14 +2,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deleteRustClientKey,
+  disableRustProvider,
   issueRustClientKey,
   listRustClientKeys,
+  listRustProviders,
   readRustUsageSummary,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   replaceRustClientKey,
+  replaceRustProvider,
   rustAdminFetch,
   type RustClientKey,
+  type RustProvider,
 } from "@/lib/rustControlPlane/browserClient";
 
 const clientKey: RustClientKey = {
@@ -34,6 +38,17 @@ const clientKey: RustClientKey = {
   reservation_tokens: 8_192,
   reservation_spend_usd: 1,
   revision: "1700000000000000000",
+};
+
+const provider: RustProvider = {
+  id: "openrouter-main",
+  tenant_id: "red",
+  provider: "openai-compatible",
+  upstream_url: "https://openrouter.ai/api/v1",
+  enabled: true,
+  revision: "1700000000000000001",
+  has_credential: true,
+  rate_limit_scope: "model",
 };
 
 afterEach(() => {
@@ -129,6 +144,41 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("uses the Rust provider authority without accepting returned credentials", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ providers: [provider] }))
+      .mockResolvedValueOnce(Response.json({ provider }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        Response.json({ providers: [{ ...provider, api_key: "must-not-leak" }] })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustProviders()).resolves.toEqual([provider]);
+    await expect(
+      replaceRustProvider(provider.id, {
+        provider: provider.provider,
+        upstream_url: provider.upstream_url,
+        api_key: "write-only-secret",
+        enabled: true,
+        rate_limit_scope: "model",
+      })
+    ).resolves.toEqual(provider);
+    await expect(disableRustProvider(provider.id)).resolves.toBeUndefined();
+    await expect(listRustProviders()).rejects.toThrow("Invalid Rust provider response");
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/providers",
+      "/api/admin/providers/openrouter-main",
+      "/api/admin/providers/openrouter-main",
+      "/api/admin/providers",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
   });
 
   it("reads bounded Rust usage totals without accepting partial payloads", async () => {

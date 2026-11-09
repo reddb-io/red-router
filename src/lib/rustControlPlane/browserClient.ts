@@ -57,6 +57,28 @@ export interface RustUsageSummary {
   pending_reserved_microusd: number;
 }
 
+export type RustRateLimitScope = "auto" | "connection" | "model";
+
+export interface RustProvider {
+  id: string;
+  tenant_id: string;
+  provider: string;
+  upstream_url: string;
+  enabled: boolean;
+  revision: string;
+  has_credential: boolean;
+  rate_limit_scope: RustRateLimitScope;
+}
+
+export interface RustProviderInput {
+  tenant_id?: string;
+  provider: string;
+  upstream_url: string;
+  api_key: string;
+  enabled: boolean;
+  rate_limit_scope: RustRateLimitScope;
+}
+
 const CSRF_COOKIE = "redrouter_admin_csrf";
 const CSRF_HEADER = "x-red-router-csrf";
 
@@ -143,6 +165,26 @@ function isRustClientKey(value: unknown): value is RustClientKey {
   );
 }
 
+function isRustProvider(value: unknown): value is RustProvider {
+  if (!value || typeof value !== "object") return false;
+  const provider = value as Record<string, unknown>;
+  return (
+    !("api_key" in provider) &&
+    !("credential" in provider) &&
+    !("credential_ciphertext" in provider) &&
+    typeof provider.id === "string" &&
+    typeof provider.tenant_id === "string" &&
+    typeof provider.provider === "string" &&
+    typeof provider.upstream_url === "string" &&
+    typeof provider.enabled === "boolean" &&
+    typeof provider.revision === "string" &&
+    typeof provider.has_credential === "boolean" &&
+    (provider.rate_limit_scope === "auto" ||
+      provider.rate_limit_scope === "connection" ||
+      provider.rate_limit_scope === "model")
+  );
+}
+
 async function rustAdminJson(path: string, init?: RequestInit): Promise<unknown> {
   const response = await rustAdminFetch(path, init);
   const value: unknown = await response.json().catch(() => null);
@@ -217,6 +259,40 @@ export async function replaceRustClientKey(
 
 export async function deleteRustClientKey(id: string): Promise<void> {
   const response = await rustAdminFetch(`/api/admin/client-keys/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    throw new Error(rustAdminError(value, response.status));
+  }
+}
+
+export async function listRustProviders(): Promise<RustProvider[]> {
+  const value = await rustAdminJson("/api/admin/providers");
+  const providers =
+    value && typeof value === "object" ? (value as { providers?: unknown }).providers : undefined;
+  if (!Array.isArray(providers) || !providers.every(isRustProvider)) {
+    throw new Error("Invalid Rust provider response");
+  }
+  return providers;
+}
+
+export async function replaceRustProvider(
+  id: string,
+  input: RustProviderInput
+): Promise<RustProvider> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const provider =
+    value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
+  if (!isRustProvider(provider)) throw new Error("Invalid Rust provider response");
+  return provider;
+}
+
+export async function disableRustProvider(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/providers/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
