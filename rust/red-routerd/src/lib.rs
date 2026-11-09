@@ -1712,6 +1712,14 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_identity_binding).delete(control_plane::delete_identity_binding),
         )
         .route(
+            "/api/admin/audit-log",
+            get(control_plane::list_audit_events),
+        )
+        .route(
+            "/api/compliance/audit-log",
+            get(control_plane::list_audit_events),
+        )
+        .route(
             "/api/provision/client-keys/{id}",
             put(control_plane::provision_client_key),
         )

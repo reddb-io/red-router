@@ -5,10 +5,10 @@ use crate::{
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
-        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
-        StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota, StoredResilience,
-        StoredRoutePin, StoredTenant,
+        StoredAuditEvent, StoredClientKey, StoredCombo, StoredIdentityBinding,
+        StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
+        StoredProviderAuth, StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota,
+        StoredResilience, StoredRoutePin, StoredTenant,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -497,6 +497,39 @@ pub struct IdentityBindingView {
     pub role: String,
     pub enabled: bool,
     pub revision: String,
+}
+
+#[derive(Default, Deserialize)]
+pub struct AuditQuery {
+    pub action: Option<String>,
+    pub actor: Option<String>,
+    pub target: Option<String>,
+    #[serde(alias = "resourceType")]
+    pub resource_type: Option<String>,
+    pub status: Option<String>,
+    #[serde(alias = "requestId")]
+    pub request_id: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEventView {
+    pub id: String,
+    pub timestamp: String,
+    pub created_at: String,
+    pub action: String,
+    pub actor: String,
+    pub tenant_id: String,
+    pub target: String,
+    pub resource_type: String,
+    pub status: String,
+    pub request_id: String,
+    pub details: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub ip: Option<String>,
+    pub ip_address: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2900,6 +2933,7 @@ impl ControlPlane {
             .await?
             .into_iter()
             .find(|row| row.id == id);
+        let before = existing.as_ref().map(client_view).transpose()?;
         let tenant_id = input
             .tenant_id
             .as_deref()
@@ -2991,11 +3025,26 @@ impl ControlPlane {
             revision: revision()?,
         };
         self.0.database.upsert_client_key(&record).await?;
+        let after = client_view(&record)?;
+        self.record_audit_event(
+            if before.is_some() {
+                "client_key.update"
+            } else {
+                "client_key.create"
+            },
+            actor,
+            &record.tenant_id,
+            id,
+            "client_key",
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
         if self.refresh_clients().await.is_err() {
             *self.0.clients.write().await = ClientSnapshot::Unavailable;
             return Err("cannot reload client key configuration");
         }
-        client_view(&record)
+        Ok(after)
     }
 
     pub async fn issue_client_key(
@@ -3032,7 +3081,17 @@ impl ControlPlane {
         id: &str,
         input: TenantInput,
     ) -> Result<TenantView, &'static str> {
+        self.configure_tenant_as(id, input, "bootstrap-admin").await
+    }
+
+    async fn configure_tenant_as(
+        &self,
+        id: &str,
+        input: TenantInput,
+        actor: &str,
+    ) -> Result<TenantView, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         validate_tenant_slug(&input.slug)?;
         validate_tenant_name(&input.name)?;
         if id == "red" && !input.enabled {
@@ -3040,6 +3099,10 @@ impl ControlPlane {
         }
         let _mutation = self.0.mutation.lock().await;
         let tenants = self.0.database.tenants().await?;
+        let before = tenants
+            .iter()
+            .find(|tenant| tenant.id == id)
+            .map(tenant_view);
         if tenants
             .iter()
             .any(|tenant| tenant.id != id && tenant.slug == input.slug)
@@ -3054,11 +3117,26 @@ impl ControlPlane {
             revision: revision()?,
         };
         self.0.database.upsert_tenant(&record).await?;
+        let after = tenant_view(&record);
+        self.record_audit_event(
+            if before.is_some() {
+                "tenant.update"
+            } else {
+                "tenant.create"
+            },
+            actor,
+            &record.id,
+            id,
+            "tenant",
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
         if self.refresh_clients().await.is_err() {
             *self.0.clients.write().await = ClientSnapshot::Unavailable;
             return Err("cannot reload client key configuration");
         }
-        Ok(tenant_view(&record))
+        Ok(after)
     }
 
     pub async fn configure_identity_binding(
@@ -3066,7 +3144,18 @@ impl ControlPlane {
         id: &str,
         input: IdentityBindingInput,
     ) -> Result<IdentityBindingView, &'static str> {
+        self.configure_identity_binding_as(id, input, "bootstrap-admin")
+            .await
+    }
+
+    async fn configure_identity_binding_as(
+        &self,
+        id: &str,
+        input: IdentityBindingInput,
+        actor: &str,
+    ) -> Result<IdentityBindingView, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let subject = match (
             input.subject.as_deref(),
             input.oidc_issuer.as_deref(),
@@ -3095,6 +3184,10 @@ impl ControlPlane {
             return Err("identity tenant is unavailable");
         }
         let bindings = self.0.database.identity_bindings().await?;
+        let before = bindings
+            .iter()
+            .find(|binding| binding.id == id)
+            .map(identity_binding_view);
         if bindings
             .iter()
             .any(|binding| binding.id != id && binding.subject == subject)
@@ -3110,35 +3203,67 @@ impl ControlPlane {
             revision: revision()?,
         };
         self.0.database.upsert_identity_binding(&record).await?;
-        Ok(identity_binding_view(&record))
+        let after = identity_binding_view(&record);
+        self.record_audit_event(
+            if before.is_some() {
+                "identity_binding.update"
+            } else {
+                "identity_binding.create"
+            },
+            actor,
+            &record.tenant_id,
+            id,
+            "identity_binding",
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
+        Ok(after)
     }
 
     pub async fn delete_identity_binding(&self, id: &str) -> Result<(), &'static str> {
+        self.delete_identity_binding_as(id, "bootstrap-admin").await
+    }
+
+    async fn delete_identity_binding_as(&self, id: &str, actor: &str) -> Result<(), &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
-        if !self
+        let binding = self
             .0
             .database
             .identity_bindings()
             .await?
-            .iter()
-            .any(|binding| binding.id == id)
-        {
-            return Err("identity binding configuration not found");
-        }
-        self.0.database.delete_identity_binding(id).await
+            .into_iter()
+            .find(|binding| binding.id == id)
+            .ok_or("identity binding configuration not found")?;
+        let before = identity_binding_view(&binding);
+        self.0.database.delete_identity_binding(id).await?;
+        self.record_audit_event(
+            "identity_binding.delete",
+            actor,
+            &binding.tenant_id,
+            id,
+            "identity_binding",
+            Some(&before),
+            Option::<&IdentityBindingView>::None,
+        )
+        .await;
+        Ok(())
     }
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
-        self.revoke_client_key_as(id, None).await
+        self.revoke_client_key_as(id, "bootstrap-admin", None).await
     }
 
     async fn revoke_client_key_as(
         &self,
         id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let key = self
             .0
@@ -3151,12 +3276,86 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != key.tenant_id) {
             return Err("client key tenant is unavailable");
         }
-        self.0.database.revoke_client_key(id, revision()?).await?;
+        let before = client_view(&key)?;
+        let revoked_revision = revision()?;
+        self.0
+            .database
+            .revoke_client_key(id, revoked_revision)
+            .await?;
+        let mut revoked = key;
+        revoked.enabled = false;
+        revoked.revision = revoked_revision;
+        let after = client_view(&revoked)?;
+        self.record_audit_event(
+            "client_key.revoke",
+            actor,
+            &revoked.tenant_id,
+            id,
+            "client_key",
+            Some(&before),
+            Some(&after),
+        )
+        .await;
         if self.refresh_clients().await.is_err() {
             *self.0.clients.write().await = ClientSnapshot::Unavailable;
             return Err("cannot reload client key configuration");
         }
         Ok(())
+    }
+
+    async fn record_audit_event<T: Serialize>(
+        &self,
+        action: &str,
+        actor: &str,
+        tenant_id: &str,
+        target: &str,
+        resource_type: &str,
+        before: Option<&T>,
+        after: Option<&T>,
+    ) {
+        let request_id = match random_token(16) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("Rust audit event generation failed: {error}");
+                return;
+            }
+        };
+        let details_json = match serde_json::to_string(&serde_json::json!({
+            "before": before,
+            "after": after
+        })) {
+            Ok(value) => value,
+            Err(_) => {
+                eprintln!("Rust audit event serialization failed");
+                return;
+            }
+        };
+        if details_json.len() > 256 * 1024 {
+            eprintln!("Rust audit event exceeds the bounded snapshot size");
+            return;
+        }
+        let created_at_unix_ms = match unix_time_ms() {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("Rust audit event clock failed: {error}");
+                return;
+            }
+        };
+        let event = StoredAuditEvent {
+            id: format!("audit-{request_id}"),
+            created_at_unix_ms,
+            action: action.to_owned(),
+            actor: actor.to_owned(),
+            tenant_id: tenant_id.to_owned(),
+            target: target.to_owned(),
+            resource_type: resource_type.to_owned(),
+            status: "success".to_owned(),
+            request_id,
+            details_json,
+        };
+        if let Err(error) = self.0.database.insert_audit_event(&event).await {
+            eprintln!("Rust audit event persistence failed: {error}");
+        }
     }
 
     async fn provider_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
@@ -3725,6 +3924,71 @@ impl ControlPlane {
             .iter()
             .map(identity_binding_view)
             .collect())
+    }
+
+    async fn audit_event_views(
+        &self,
+        tenant_id: Option<&str>,
+        query: &AuditQuery,
+    ) -> Result<(Vec<AuditEventView>, usize), &'static str> {
+        for value in [
+            query.action.as_deref(),
+            query.actor.as_deref(),
+            query.target.as_deref(),
+            query.resource_type.as_deref(),
+            query.status.as_deref(),
+            query.request_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+                return Err("invalid audit filter");
+            }
+        }
+        let limit = query.limit.unwrap_or(50).clamp(1, 500);
+        let offset = query.offset.unwrap_or(0).min(10_000);
+        let filtered = self
+            .0
+            .database
+            .audit_events(tenant_id)
+            .await?
+            .into_iter()
+            .filter(|event| {
+                query
+                    .action
+                    .as_deref()
+                    .is_none_or(|value| event.action == value)
+                    && query
+                        .actor
+                        .as_deref()
+                        .is_none_or(|value| event.actor == value)
+                    && query
+                        .target
+                        .as_deref()
+                        .is_none_or(|value| event.target == value)
+                    && query
+                        .resource_type
+                        .as_deref()
+                        .is_none_or(|value| event.resource_type == value)
+                    && query
+                        .status
+                        .as_deref()
+                        .is_none_or(|value| event.status == value)
+                    && query
+                        .request_id
+                        .as_deref()
+                        .is_none_or(|value| event.request_id == value)
+            })
+            .collect::<Vec<_>>();
+        let total = filtered.len();
+        let events = filtered
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(audit_event_view)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((events, total))
     }
 
     async fn combo_views(&self, tenant_id: Option<&str>) -> Result<Vec<ComboView>, &'static str> {
@@ -4378,6 +4642,38 @@ fn identity_binding_view(record: &StoredIdentityBinding) -> IdentityBindingView 
         enabled: record.enabled,
         revision: record.revision.to_string(),
     }
+}
+
+fn audit_event_view(record: StoredAuditEvent) -> Result<AuditEventView, &'static str> {
+    if record.details_json.len() > 256 * 1024 {
+        return Err("invalid audit event details");
+    }
+    let details: serde_json::Value =
+        serde_json::from_str(&record.details_json).map_err(|_| "invalid audit event details")?;
+    let timestamp = ::time::OffsetDateTime::from_unix_timestamp_nanos(
+        i128::from(record.created_at_unix_ms)
+            .checked_mul(1_000_000)
+            .ok_or("invalid audit event timestamp")?,
+    )
+    .map_err(|_| "invalid audit event timestamp")?
+    .format(&::time::format_description::well_known::Rfc3339)
+    .map_err(|_| "invalid audit event timestamp")?;
+    Ok(AuditEventView {
+        id: record.id,
+        timestamp: timestamp.clone(),
+        created_at: timestamp,
+        action: record.action,
+        actor: record.actor,
+        tenant_id: record.tenant_id,
+        target: record.target,
+        resource_type: record.resource_type,
+        status: record.status,
+        request_id: record.request_id,
+        metadata: details.clone(),
+        details,
+        ip: None,
+        ip_address: None,
+    })
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -5526,6 +5822,35 @@ pub async fn list_identity_bindings(
     }
 }
 
+pub async fn list_audit_events(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<AuditQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .audit_event_views(scope.tenant_id.as_deref(), &query)
+        .await
+    {
+        Ok((events, total)) => {
+            let mut response = Json(events).into_response();
+            if let Ok(value) = HeaderValue::from_str(&total.to_string()) {
+                response.headers_mut().insert("x-total-count", value);
+            }
+            response
+        }
+        Err(error) if is_runtime_error(error) => {
+            api_error(StatusCode::SERVICE_UNAVAILABLE, "Audit storage unavailable")
+        }
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid audit query"),
+    }
+}
+
 pub async fn issue_client_key(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -6031,10 +6356,10 @@ pub async fn put_tenant(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_tenant(&id, input).await {
+    };
+    match control.configure_tenant_as(&id, input, &actor).await {
         Ok(tenant) => Json(serde_json::json!({"tenant":tenant})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -6053,10 +6378,13 @@ pub async fn put_identity_binding(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_identity_binding(&id, input).await {
+    };
+    match control
+        .configure_identity_binding_as(&id, input, &actor)
+        .await
+    {
         Ok(binding) => Json(serde_json::json!({"identity_binding":binding})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -6077,10 +6405,10 @@ pub async fn delete_identity_binding(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.delete_identity_binding(&id).await {
+    };
+    match control.delete_identity_binding_as(&id, &actor).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -6139,7 +6467,7 @@ pub async fn delete_client_key(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .revoke_client_key_as(&id, scope.tenant_id.as_deref())
+        .revoke_client_key_as(&id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

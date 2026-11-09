@@ -2407,6 +2407,44 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         "oidc:manager@acme.example"
     );
     let acme_key_id = issued["client_key"]["id"].as_str().unwrap();
+    let scoped_audit = client
+        .get(format!(
+            "{base}/api/compliance/audit-log?action=client_key.create"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_audit.status(), StatusCode::OK);
+    assert_eq!(
+        scoped_audit
+            .headers()
+            .get("x-total-count")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "1"
+    );
+    let scoped_audit: serde_json::Value =
+        serde_json::from_str(&scoped_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_audit[0]["tenantId"], "acme");
+    assert_eq!(scoped_audit[0]["target"], acme_key_id);
+    assert_eq!(scoped_audit[0]["actor"], "oidc:manager@acme.example");
+    assert_eq!(scoped_audit[0]["resourceType"], "client_key");
+    assert!(!scoped_audit[0]["details"].to_string().contains("rrk_"));
+    let global_identity_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=identity_binding.delete"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(global_identity_audit.status(), StatusCode::OK);
+    let global_identity_audit: serde_json::Value =
+        serde_json::from_str(&global_identity_audit.text().await.unwrap()).unwrap();
+    assert_eq!(global_identity_audit[0]["target"], "stable-oidc-admin");
+    assert_eq!(global_identity_audit[0]["actor"], "bootstrap-admin");
     let usage_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

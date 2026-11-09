@@ -23,6 +23,10 @@ so ordinary inference/accounting writes do not trigger full configuration table 
 OIDC authorization resolves a canonical opaque identity from the normalized issuer and signed
 `sub` claim. Verified e-mail remains only a legacy binding alias; changing or reassigning an
 e-mail cannot change a canonical binding's tenant or role.
+Rust persists tenant-scoped administrative audit events for tenant, identity-binding and
+client-key mutations and serves them through both the native admin route and the legacy
+compliance route. Audit snapshots are built from secret-free public views. Provider, combo,
+MCP and A2A writers plus an atomic outbox tying each mutation to its event remain migration work.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

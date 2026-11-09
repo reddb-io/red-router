@@ -1,7 +1,8 @@
 use red_routerd::storage::{
-    Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
-    StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig,
-    StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
+    Backend, Database, StoredAuditEvent, StoredAvailability, StoredBreaker, StoredClientKey,
+    StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
+    StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin,
+    StoredTenant,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -43,6 +44,22 @@ async fn exercise(backend: Backend, url: &str) {
     );
     db.delete_identity_binding(&identity.id).await.unwrap();
     assert!(db.identity_bindings().await.unwrap().is_empty());
+    let audit = StoredAuditEvent {
+        id: "audit-one".into(),
+        created_at_unix_ms: 1_700_000_000_000,
+        action: "identity_binding.delete".into(),
+        actor: "bootstrap-admin".into(),
+        tenant_id: "acme".into(),
+        target: identity.id,
+        resource_type: "identity_binding".into(),
+        status: "success".into(),
+        request_id: "request-one".into(),
+        details_json: r#"{"before":{"enabled":true},"after":null}"#.into(),
+    };
+    db.insert_audit_event(&audit).await.unwrap();
+    assert_eq!(db.audit_events(None).await.unwrap(), vec![audit.clone()]);
+    assert_eq!(db.audit_events(Some("acme")).await.unwrap(), vec![audit]);
+    assert!(db.audit_events(Some("red")).await.unwrap().is_empty());
     assert_eq!(db.upstream().await.unwrap(), None);
     db.seed("https://first.example/v1/chat/completions")
         .await

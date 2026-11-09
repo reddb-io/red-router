@@ -3368,7 +3368,7 @@
             "friday": "no"
           },
           "head": "equivalent",
-          "headEvidence": "src/lib/compliance/index.ts; src/app/api/compliance/audit-log; src/app/api/mcp/audit; mcp_tool_audit table",
+          "headEvidence": "TypeScript retains compliance plus MCP/A2A audit. Rust now persists tenant-scoped, secret-free before/after events for tenant, identity-binding and client-key mutations and serves /api/admin/audit-log plus the legacy compliance route; provider/combo/MCP/A2A writers and an atomic outbox remain: rust/red-routerd/src/{storage,control_plane}.rs",
           "ownUnique": false,
           "value": "M",
           "effort": "S",

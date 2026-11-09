@@ -48,6 +48,12 @@ const LIST_IDENTITY_BINDINGS: &str = "SELECT id, subject, tenant_id, binding_rol
 const UPSERT_IDENTITY_BINDING: &str = "INSERT INTO redrouter_control_identity_bindings (id, subject, tenant_id, binding_role, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET subject = $2, tenant_id = $3, binding_role = $4, enabled = $5, revision = $6";
 const DELETE_IDENTITY_BINDING: &str =
     "DELETE FROM redrouter_control_identity_bindings WHERE id = $1";
+const CREATE_AUDIT_EVENTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_audit_events (id TEXT PRIMARY KEY, created_at_unix_ms BIGINT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, tenant_id TEXT NOT NULL, target TEXT NOT NULL, resource_type TEXT NOT NULL, status TEXT NOT NULL, request_id TEXT NOT NULL, details_json TEXT NOT NULL)";
+const CREATE_AUDIT_TIME_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_audit_time ON redrouter_control_audit_events (created_at_unix_ms, id)";
+const CREATE_AUDIT_TENANT_TIME_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_audit_tenant_time ON redrouter_control_audit_events (tenant_id, created_at_unix_ms, id)";
+const LIST_AUDIT_EVENTS: &str = "SELECT id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json FROM redrouter_control_audit_events ORDER BY created_at_unix_ms DESC, id DESC LIMIT 2000";
+const LIST_TENANT_AUDIT_EVENTS: &str = "SELECT id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json FROM redrouter_control_audit_events WHERE tenant_id = $1 ORDER BY created_at_unix_ms DESC, id DESC LIMIT 2000";
+const INSERT_AUDIT_EVENT: &str = "INSERT INTO redrouter_control_audit_events (id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
@@ -223,6 +229,20 @@ pub struct StoredIdentityBinding {
     pub role: String,
     pub enabled: bool,
     pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredAuditEvent {
+    pub id: String,
+    pub created_at_unix_ms: i64,
+    pub action: String,
+    pub actor: String,
+    pub tenant_id: String,
+    pub target: String,
+    pub resource_type: String,
+    pub status: String,
+    pub request_id: String,
+    pub details_json: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -412,6 +432,9 @@ impl Database {
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
+                        CREATE_AUDIT_EVENTS,
+                        CREATE_AUDIT_TIME_INDEX,
+                        CREATE_AUDIT_TENANT_TIME_INDEX,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
                         CREATE_COMBOS,
@@ -518,6 +541,10 @@ impl Database {
                     .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
+                db.remote_schema_query(CREATE_AUDIT_EVENTS).await?;
+                db.remote_schema_query(CREATE_AUDIT_TIME_INDEX).await?;
+                db.remote_schema_query(CREATE_AUDIT_TENANT_TIME_INDEX)
+                    .await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
@@ -565,6 +592,9 @@ impl Database {
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
+                    CREATE_AUDIT_EVENTS,
+                    CREATE_AUDIT_TIME_INDEX,
+                    CREATE_AUDIT_TENANT_TIME_INDEX,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
                     CREATE_COMBOS,
@@ -1373,6 +1403,85 @@ impl Database {
                 db.query_with(DELETE_IDENTITY_BINDING, params())
                     .await
                     .map_err(|_| "cannot delete identity binding configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn audit_events(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<StoredAuditEvent>, &'static str> {
+        let sql = if tenant_id.is_some() {
+            LIST_TENANT_AUDIT_EVENTS
+        } else {
+            LIST_AUDIT_EVENTS
+        };
+        let params = tenant_id
+            .map(|tenant| vec![reddb_client::Value::Text(tenant.to_owned())])
+            .unwrap_or_default();
+        match self {
+            Self::Sql(pool) => {
+                let query = sqlx::query(sql);
+                let query = if let Some(tenant) = tenant_id {
+                    query.bind(tenant)
+                } else {
+                    query
+                };
+                query
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|_| "cannot read audit events")?
+                    .iter()
+                    .map(read_sql_audit_event)
+                    .collect()
+            }
+            Self::Remote(_) => self
+                .remote_query(sql, &params)
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_audit_event)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query_with(sql, params)
+                .await
+                .map_err(|_| "cannot read audit events")?
+                .rows
+                .iter()
+                .map(read_reddb_audit_event)
+                .collect(),
+        }
+    }
+
+    pub async fn insert_audit_event(&self, event: &StoredAuditEvent) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(INSERT_AUDIT_EVENT)
+                    .bind(&event.id)
+                    .bind(event.created_at_unix_ms)
+                    .bind(&event.action)
+                    .bind(&event.actor)
+                    .bind(&event.tenant_id)
+                    .bind(&event.target)
+                    .bind(&event.resource_type)
+                    .bind(&event.status)
+                    .bind(&event.request_id)
+                    .bind(&event.details_json)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write audit event")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(INSERT_AUDIT_EVENT, &audit_event_params(event))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(INSERT_AUDIT_EVENT, audit_event_params(event))
+                    .await
+                    .map_err(|_| "cannot write audit event")?;
             }
         }
         Ok(())
@@ -3382,6 +3491,68 @@ fn identity_binding_params(
         reddb_client::Value::Text(binding.role.clone()),
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(binding.revision),
+    ]
+}
+
+fn read_sql_audit_event(row: &sqlx::any::AnyRow) -> Result<StoredAuditEvent, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid audit event record");
+    Ok(StoredAuditEvent {
+        id: text("id")?,
+        created_at_unix_ms: row
+            .try_get("created_at_unix_ms")
+            .map_err(|_| "invalid audit event record")?,
+        action: text("action")?,
+        actor: text("actor")?,
+        tenant_id: text("tenant_id")?,
+        target: text("target")?,
+        resource_type: text("resource_type")?,
+        status: text("status")?,
+        request_id: text("request_id")?,
+        details_json: text("details_json")?,
+    })
+}
+
+fn read_reddb_audit_event(row: &reddb_client::Row) -> Result<StoredAuditEvent, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid audit event record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid audit event record"),
+    };
+    Ok(StoredAuditEvent {
+        id: text("id")?,
+        created_at_unix_ms: integer("created_at_unix_ms")?,
+        action: text("action")?,
+        actor: text("actor")?,
+        tenant_id: text("tenant_id")?,
+        target: text("target")?,
+        resource_type: text("resource_type")?,
+        status: text("status")?,
+        request_id: text("request_id")?,
+        details_json: text("details_json")?,
+    })
+}
+
+fn audit_event_params(event: &StoredAuditEvent) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(event.id.clone()),
+        reddb_client::Value::Int(event.created_at_unix_ms),
+        reddb_client::Value::Text(event.action.clone()),
+        reddb_client::Value::Text(event.actor.clone()),
+        reddb_client::Value::Text(event.tenant_id.clone()),
+        reddb_client::Value::Text(event.target.clone()),
+        reddb_client::Value::Text(event.resource_type.clone()),
+        reddb_client::Value::Text(event.status.clone()),
+        reddb_client::Value::Text(event.request_id.clone()),
+        reddb_client::Value::Text(event.details_json.clone()),
     ]
 }
 
