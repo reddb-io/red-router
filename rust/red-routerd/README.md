@@ -112,7 +112,12 @@ those environment secrets.
   quota create/update/clear, combo create/update/disable and explicit last-known-good pin clearing.
   Provider and OAuth snapshots deliberately omit the upstream URL and all credential/token
   material; background OAuth refresh does not emit an administrative event. MCP, A2A and
-  automatic route-learning writers plus a transactional audit outbox remain follow-up work.
+  automatic route-learning writers remain follow-up work. Every SQL-backed audit insert also
+  appends a versioned `redrouter.audit.v1` envelope to `redrouter_control_audit_outbox` in the
+  same transaction. The ordered `(created_at_unix_ms, event_id)` cursor is sink-independent, so
+  BigQuery, SQS or other exporters can advance independently. Coupling each business mutation
+  itself to that transaction, implementing equivalent RedDB atomicity and porting the existing
+  TypeScript BigQuery exporter remain the next delivery stages.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

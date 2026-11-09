@@ -54,6 +54,9 @@ const CREATE_AUDIT_TENANT_TIME_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrout
 const LIST_AUDIT_EVENTS: &str = "SELECT id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json FROM redrouter_control_audit_events ORDER BY created_at_unix_ms DESC, id DESC LIMIT 2000";
 const LIST_TENANT_AUDIT_EVENTS: &str = "SELECT id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json FROM redrouter_control_audit_events WHERE tenant_id = $1 ORDER BY created_at_unix_ms DESC, id DESC LIMIT 2000";
 const INSERT_AUDIT_EVENT: &str = "INSERT INTO redrouter_control_audit_events (id, created_at_unix_ms, action, actor, tenant_id, target, resource_type, status, request_id, details_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
+const CREATE_AUDIT_OUTBOX: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_audit_outbox (event_id TEXT PRIMARY KEY, created_at_unix_ms BIGINT NOT NULL, tenant_id TEXT NOT NULL, topic TEXT NOT NULL, schema_version BIGINT NOT NULL, payload_json TEXT NOT NULL)";
+const CREATE_AUDIT_OUTBOX_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_audit_outbox_order ON redrouter_control_audit_outbox (created_at_unix_ms, event_id)";
+const INSERT_AUDIT_OUTBOX: &str = "INSERT INTO redrouter_control_audit_outbox (event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json) VALUES ($1,$2,$3,$4,$5,$6)";
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
@@ -231,7 +234,7 @@ pub struct StoredIdentityBinding {
     pub revision: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StoredAuditEvent {
     pub id: String,
     pub created_at_unix_ms: i64,
@@ -243,6 +246,16 @@ pub struct StoredAuditEvent {
     pub status: String,
     pub request_id: String,
     pub details_json: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredAuditOutboxEvent {
+    pub event_id: String,
+    pub created_at_unix_ms: i64,
+    pub tenant_id: String,
+    pub topic: String,
+    pub schema_version: i64,
+    pub payload_json: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -435,6 +448,8 @@ impl Database {
                         CREATE_AUDIT_EVENTS,
                         CREATE_AUDIT_TIME_INDEX,
                         CREATE_AUDIT_TENANT_TIME_INDEX,
+                        CREATE_AUDIT_OUTBOX,
+                        CREATE_AUDIT_OUTBOX_ORDER_INDEX,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
                         CREATE_COMBOS,
@@ -545,6 +560,9 @@ impl Database {
                 db.remote_schema_query(CREATE_AUDIT_TIME_INDEX).await?;
                 db.remote_schema_query(CREATE_AUDIT_TENANT_TIME_INDEX)
                     .await?;
+                db.remote_schema_query(CREATE_AUDIT_OUTBOX).await?;
+                db.remote_schema_query(CREATE_AUDIT_OUTBOX_ORDER_INDEX)
+                    .await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
@@ -595,6 +613,8 @@ impl Database {
                     CREATE_AUDIT_EVENTS,
                     CREATE_AUDIT_TIME_INDEX,
                     CREATE_AUDIT_TENANT_TIME_INDEX,
+                    CREATE_AUDIT_OUTBOX,
+                    CREATE_AUDIT_OUTBOX_ORDER_INDEX,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
                     CREATE_COMBOS,
@@ -1456,8 +1476,18 @@ impl Database {
     }
 
     pub async fn insert_audit_event(&self, event: &StoredAuditEvent) -> Result<(), &'static str> {
+        let outbox_payload = serde_json::to_string(&serde_json::json!({
+            "schemaVersion": 1,
+            "topic": "redrouter.audit.v1",
+            "event": event
+        }))
+        .map_err(|_| "cannot encode audit outbox event")?;
         match self {
             Self::Sql(pool) => {
+                let mut transaction = pool
+                    .begin()
+                    .await
+                    .map_err(|_| "cannot begin audit outbox transaction")?;
                 sqlx::query(INSERT_AUDIT_EVENT)
                     .bind(&event.id)
                     .bind(event.created_at_unix_ms)
@@ -1469,22 +1499,90 @@ impl Database {
                     .bind(&event.status)
                     .bind(&event.request_id)
                     .bind(&event.details_json)
-                    .execute(pool)
+                    .execute(&mut *transaction)
                     .await
                     .map_err(|_| "cannot write audit event")?;
+                sqlx::query(INSERT_AUDIT_OUTBOX)
+                    .bind(&event.id)
+                    .bind(event.created_at_unix_ms)
+                    .bind(&event.tenant_id)
+                    .bind("redrouter.audit.v1")
+                    .bind(1_i64)
+                    .bind(&outbox_payload)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write audit outbox event")?;
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| "cannot commit audit outbox transaction")?;
             }
             Self::Remote(_) => {
                 self.remote_query(INSERT_AUDIT_EVENT, &audit_event_params(event))
                     .await?;
+                self.remote_query(
+                    INSERT_AUDIT_OUTBOX,
+                    &audit_outbox_params(event, &outbox_payload),
+                )
+                .await?;
             }
             #[cfg(feature = "reddb-embedded")]
             Self::Embedded { db, .. } => {
                 db.query_with(INSERT_AUDIT_EVENT, audit_event_params(event))
                     .await
                     .map_err(|_| "cannot write audit event")?;
+                db.query_with(
+                    INSERT_AUDIT_OUTBOX,
+                    audit_outbox_params(event, &outbox_payload),
+                )
+                .await
+                .map_err(|_| "cannot write audit outbox event")?;
             }
         }
         Ok(())
+    }
+
+    pub async fn audit_outbox_events(
+        &self,
+        after_created_at_unix_ms: i64,
+        after_event_id: &str,
+        limit: usize,
+    ) -> Result<Vec<StoredAuditOutboxEvent>, &'static str> {
+        let limit = limit.clamp(1, 1_000);
+        let sql = format!(
+            "SELECT event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json FROM redrouter_control_audit_outbox WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC, event_id ASC LIMIT {limit}"
+        );
+        let params = vec![
+            reddb_client::Value::Int(after_created_at_unix_ms),
+            reddb_client::Value::Text(after_event_id.to_owned()),
+        ];
+        match self {
+            Self::Sql(pool) => sqlx::query(&sql)
+                .bind(after_created_at_unix_ms)
+                .bind(after_event_id)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read audit outbox events")?
+                .iter()
+                .map(read_sql_audit_outbox_event)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(&sql, &params)
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_audit_outbox_event)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query_with(&sql, params)
+                .await
+                .map_err(|_| "cannot read audit outbox events")?
+                .rows
+                .iter()
+                .map(read_reddb_audit_outbox_event)
+                .collect(),
+        }
     }
 
     pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
@@ -3554,6 +3652,62 @@ fn audit_event_params(event: &StoredAuditEvent) -> Vec<reddb_client::Value> {
         reddb_client::Value::Text(event.request_id.clone()),
         reddb_client::Value::Text(event.details_json.clone()),
     ]
+}
+
+fn audit_outbox_params(event: &StoredAuditEvent, payload_json: &str) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(event.id.clone()),
+        reddb_client::Value::Int(event.created_at_unix_ms),
+        reddb_client::Value::Text(event.tenant_id.clone()),
+        reddb_client::Value::Text("redrouter.audit.v1".to_owned()),
+        reddb_client::Value::Int(1),
+        reddb_client::Value::Text(payload_json.to_owned()),
+    ]
+}
+
+fn read_sql_audit_outbox_event(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredAuditOutboxEvent, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid audit outbox record");
+    Ok(StoredAuditOutboxEvent {
+        event_id: text("event_id")?,
+        created_at_unix_ms: row
+            .try_get("created_at_unix_ms")
+            .map_err(|_| "invalid audit outbox record")?,
+        tenant_id: text("tenant_id")?,
+        topic: text("topic")?,
+        schema_version: row
+            .try_get("schema_version")
+            .map_err(|_| "invalid audit outbox record")?,
+        payload_json: text("payload_json")?,
+    })
+}
+
+fn read_reddb_audit_outbox_event(
+    row: &reddb_client::Row,
+) -> Result<StoredAuditOutboxEvent, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid audit outbox record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid audit outbox record"),
+    };
+    Ok(StoredAuditOutboxEvent {
+        event_id: text("event_id")?,
+        created_at_unix_ms: integer("created_at_unix_ms")?,
+        tenant_id: text("tenant_id")?,
+        topic: text("topic")?,
+        schema_version: integer("schema_version")?,
+        payload_json: text("payload_json")?,
+    })
 }
 
 fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> {

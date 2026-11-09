@@ -29,7 +29,12 @@ last-known-good pin clearing, and serves them through both the native admin rout
 compliance route. Audit snapshots are built from secret-free public views; provider and OAuth
 events omit the upstream URL and every credential/token field. Background OAuth refresh remains
 an operational event rather than an administrative writer. MCP, A2A and automatic route-learning
-writers plus an atomic outbox tying each mutation to its event remain migration work.
+writers remain migration work. SQL-backed audit publication now atomically appends both the query
+view and a versioned `redrouter.audit.v1` envelope to an ordered outbox journal. Independent sink
+cursors allow the same journal to feed BigQuery, SQS or another exporter without coupling the
+write path to an external service. Business-mutation/outbox atomicity, equivalent RedDB
+transactions and the Rust sink relay are still migration work; until those land, the journal
+closes the audit-to-export gap but not the earlier mutation-to-audit gap.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

@@ -1,8 +1,8 @@
 use red_routerd::storage::{
-    Backend, Database, StoredAuditEvent, StoredAvailability, StoredBreaker, StoredClientKey,
-    StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
-    StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin,
-    StoredTenant,
+    Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
+    StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
+    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
+    StoredResilience, StoredRoutePin, StoredTenant,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -57,6 +57,29 @@ async fn exercise(backend: Backend, url: &str) {
         details_json: r#"{"before":{"enabled":true},"after":null}"#.into(),
     };
     db.insert_audit_event(&audit).await.unwrap();
+    let outbox = db.audit_outbox_events(0, "", 100).await.unwrap();
+    assert_eq!(outbox.len(), 1);
+    assert_eq!(
+        outbox[0],
+        StoredAuditOutboxEvent {
+            event_id: audit.id.clone(),
+            created_at_unix_ms: audit.created_at_unix_ms,
+            tenant_id: audit.tenant_id.clone(),
+            topic: "redrouter.audit.v1".into(),
+            schema_version: 1,
+            payload_json: outbox[0].payload_json.clone(),
+        }
+    );
+    let payload: serde_json::Value = serde_json::from_str(&outbox[0].payload_json).unwrap();
+    assert_eq!(payload["schemaVersion"], 1);
+    assert_eq!(payload["topic"], "redrouter.audit.v1");
+    assert_eq!(payload["event"]["id"], audit.id);
+    assert_eq!(payload["event"]["tenant_id"], "acme");
+    assert!(db
+        .audit_outbox_events(outbox[0].created_at_unix_ms, &outbox[0].event_id, 100)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(db.audit_events(None).await.unwrap(), vec![audit.clone()]);
     assert_eq!(db.audit_events(Some("acme")).await.unwrap(), vec![audit]);
     assert!(db.audit_events(Some("red")).await.unwrap().is_empty());
@@ -504,6 +527,45 @@ async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
         "client key ownership revision mismatch"
     );
     reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_rolls_back_audit_when_the_outbox_append_fails() {
+    let temp = TempDir::new().unwrap();
+    let file = Url::from_file_path(temp.path().join("audit-outbox.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let mut raw = SqliteConnection::connect(&url).await.unwrap();
+    sqlx::query("INSERT INTO redrouter_control_audit_outbox (event_id,created_at_unix_ms,tenant_id,topic,schema_version,payload_json) VALUES (?,?,?,?,?,?)")
+        .bind("audit-collision")
+        .bind(1_700_000_000_000_i64)
+        .bind("red")
+        .bind("redrouter.audit.v1")
+        .bind(1_i64)
+        .bind(r#"{"fixture":true}"#)
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    raw.close().await.unwrap();
+    let audit = StoredAuditEvent {
+        id: "audit-collision".into(),
+        created_at_unix_ms: 1_700_000_000_000,
+        action: "tenant.update".into(),
+        actor: "bootstrap-admin".into(),
+        tenant_id: "red".into(),
+        target: "red".into(),
+        resource_type: "tenant".into(),
+        status: "success".into(),
+        request_id: "request-collision".into(),
+        details_json: r#"{"before":null,"after":{"enabled":true}}"#.into(),
+    };
+    assert_eq!(
+        db.insert_audit_event(&audit).await.unwrap_err(),
+        "cannot write audit outbox event"
+    );
+    assert!(db.audit_events(None).await.unwrap().is_empty());
+    assert_eq!(db.audit_outbox_events(0, "", 100).await.unwrap().len(), 1);
+    db.close().await.unwrap();
 }
 
 #[cfg(feature = "reddb-embedded")]
