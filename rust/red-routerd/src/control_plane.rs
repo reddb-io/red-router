@@ -96,6 +96,11 @@ enum RouteSnapshot {
     Unavailable,
 }
 
+struct ManagementScope {
+    actor: String,
+    tenant_id: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct ControlPlane(Arc<Inner>);
 
@@ -1088,6 +1093,15 @@ impl ControlPlane {
         id: &str,
         input: ProviderInput,
     ) -> Result<ProviderView, &'static str> {
+        self.configure_provider_as(id, input, None).await
+    }
+
+    async fn configure_provider_as(
+        &self,
+        id: &str,
+        input: ProviderInput,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
         validate_provider(&input.provider)?;
         if !(1..=512).contains(&input.api_key.len()) {
@@ -1118,11 +1132,13 @@ impl ControlPlane {
                     .as_ref()
                     .map(|provider| provider.tenant_id.as_str())
             })
+            .or(enforced_tenant)
             .unwrap_or("red");
         validate_id(tenant_id)?;
         if existing
             .as_ref()
             .is_some_and(|provider| provider.tenant_id != tenant_id)
+            || enforced_tenant.is_some_and(|required| required != tenant_id)
         {
             return Err("provider tenant cannot be changed");
         }
@@ -1451,6 +1467,14 @@ impl ControlPlane {
     }
 
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
+        self.disable_as(id, None).await
+    }
+
+    async fn disable_as(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
@@ -1461,6 +1485,9 @@ impl ControlPlane {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or("provider configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
         let scope = self
             .resilience_settings()
             .await?
@@ -1492,7 +1519,16 @@ impl ControlPlane {
     pub async fn configure_combo(
         &self,
         id: &str,
+        input: ComboInput,
+    ) -> Result<ComboView, &'static str> {
+        self.configure_combo_as(id, input, None).await
+    }
+
+    async fn configure_combo_as(
+        &self,
+        id: &str,
         mut input: ComboInput,
+        enforced_tenant: Option<&str>,
     ) -> Result<ComboView, &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
@@ -1508,12 +1544,14 @@ impl ControlPlane {
             .tenant_id
             .as_deref()
             .or_else(|| existing.as_ref().map(|combo| combo.tenant_id.as_str()))
+            .or(enforced_tenant)
             .unwrap_or("red")
             .to_owned();
         validate_id(&tenant_id)?;
         if existing
             .as_ref()
             .is_some_and(|combo| combo.tenant_id != tenant_id)
+            || enforced_tenant.is_some_and(|required| required != tenant_id)
         {
             return Err("combo tenant cannot be changed");
         }
@@ -1568,8 +1606,27 @@ impl ControlPlane {
     }
 
     pub async fn disable_combo(&self, id: &str) -> Result<(), &'static str> {
+        self.disable_combo_as(id, None).await
+    }
+
+    async fn disable_combo_as(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
+        let combo = self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == id)
+            .ok_or("combo configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != combo.tenant_id) {
+            return Err("combo tenant is unavailable");
+        }
         self.0.database.disable_combo(id, revision()?).await?;
         if let Err(error) = self.refresh_routes().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
@@ -1758,20 +1815,27 @@ impl ControlPlane {
         &self,
         input: ClientKeyIssueInput,
     ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
-        self.issue_client_key_as(input, "bootstrap-admin").await
+        self.issue_client_key_as(input, "bootstrap-admin", None)
+            .await
     }
 
     async fn issue_client_key_as(
         &self,
         input: ClientKeyIssueInput,
         actor: &str,
+        enforced_tenant: Option<&str>,
     ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
         let mut id_bytes = Zeroizing::new([0_u8; 16]);
         getrandom::fill(id_bytes.as_mut()).map_err(|_| "cannot generate client key identifier")?;
         let id = format!("key_{}", hex::encode(id_bytes.as_ref()));
         let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
         let view = self
-            .configure_client_key_as(&id, input.with_secret(secret.to_string()), actor, None)
+            .configure_client_key_as(
+                &id,
+                input.with_secret(secret.to_string()),
+                actor,
+                enforced_tenant,
+            )
             .await?;
         Ok((view, secret))
     }
@@ -1850,8 +1914,27 @@ impl ControlPlane {
     }
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
+        self.revoke_client_key_as(id, None).await
+    }
+
+    async fn revoke_client_key_as(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
+        let key = self
+            .0
+            .database
+            .client_keys()
+            .await?
+            .into_iter()
+            .find(|key| key.id == id)
+            .ok_or("client key configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != key.tenant_id) {
+            return Err("client key tenant is unavailable");
+        }
         self.0.database.revoke_client_key(id, revision()?).await?;
         if self.refresh_clients().await.is_err() {
             *self.0.clients.write().await = ClientSnapshot::Unavailable;
@@ -2130,10 +2213,11 @@ impl ControlPlane {
         self.0.database.delete_route_pin(combo_id).await
     }
 
-    async fn views(&self) -> Result<Vec<ProviderView>, &'static str> {
+    async fn views(&self, tenant_id: Option<&str>) -> Result<Vec<ProviderView>, &'static str> {
         let resilience = self.resilience_settings().await?;
         self.0.database.providers().await.map(|rows| {
             rows.iter()
+                .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
                 .map(|record| {
                     view(
                         record,
@@ -2162,12 +2246,16 @@ impl ControlPlane {
             .collect()
     }
 
-    async fn client_views(&self) -> Result<Vec<ClientKeyView>, &'static str> {
+    async fn client_views(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<ClientKeyView>, &'static str> {
         self.0
             .database
             .client_keys()
             .await?
             .iter()
+            .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
             .map(client_view)
             .collect()
     }
@@ -2194,7 +2282,7 @@ impl ControlPlane {
             .collect())
     }
 
-    async fn combo_views(&self) -> Result<Vec<ComboView>, &'static str> {
+    async fn combo_views(&self, tenant_id: Option<&str>) -> Result<Vec<ComboView>, &'static str> {
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -2208,6 +2296,7 @@ impl ControlPlane {
             .combos()
             .await?
             .iter()
+            .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
             .map(|record| {
                 let mut view = combo_view(record)?;
                 view.last_known_good = pins.get(&record.id).map(|pin| RoutePinView {
@@ -2328,13 +2417,23 @@ impl ControlPlane {
     }
 
     async fn authorized_admin_actor(&self, headers: &HeaderMap) -> Option<String> {
+        let scope = self.management_scope(headers).await?;
+        scope.tenant_id.is_none().then_some(scope.actor)
+    }
+
+    async fn management_scope(&self, headers: &HeaderMap) -> Option<ManagementScope> {
         let actor = self.authorized_actor(headers).await?;
         if actor == "bootstrap-admin" {
-            return Some(actor);
+            return Some(ManagementScope {
+                actor,
+                tenant_id: None,
+            });
         }
         let bindings = self.0.database.identity_bindings().await.ok()?;
         let binding = bindings.iter().find(|binding| {
-            binding.enabled && binding.subject == actor && binding.role == "admin"
+            binding.enabled
+                && binding.subject == actor
+                && matches!(binding.role.as_str(), "admin" | "tenant-admin")
         })?;
         if self
             .0
@@ -2345,7 +2444,10 @@ impl ControlPlane {
             .iter()
             .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
         {
-            Some(actor)
+            Some(ManagementScope {
+                actor,
+                tenant_id: (binding.role == "tenant-admin").then(|| binding.tenant_id.clone()),
+            })
         } else {
             None
         }
@@ -3452,10 +3554,10 @@ pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Respon
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.views().await {
+    };
+    match control.views(scope.tenant_id.as_deref()).await {
         Ok(providers) => Json(serde_json::json!({"providers":providers})).into_response(),
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3468,10 +3570,10 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.client_views().await {
+    };
+    match control.client_views(scope.tenant_id.as_deref()).await {
         Ok(keys) => Json(serde_json::json!({"client_keys":keys})).into_response(),
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3523,10 +3625,13 @@ pub async fn issue_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
-    match control.issue_client_key_as(input, &actor).await {
+    match control
+        .issue_client_key_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
         Ok((client_key, secret)) => {
             let mut response = (
                 StatusCode::CREATED,
@@ -3554,10 +3659,10 @@ pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) ->
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.combo_views().await {
+    };
+    match control.combo_views(scope.tenant_id.as_deref()).await {
         Ok(combos) => Json(serde_json::json!({"combos":combos})).into_response(),
         Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Combo storage unavailable"),
     }
@@ -3567,7 +3672,7 @@ pub async fn list_model_catalog(State(state): State<ProxyState>, headers: Header
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    if control.management_scope(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     let (catalog, runtime) = control.model_catalog_snapshot().await;
@@ -3592,7 +3697,7 @@ pub async fn get_model_catalog_provider(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    if control.management_scope(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     let catalog = control.model_catalog().await;
@@ -3717,10 +3822,13 @@ pub async fn put_provider(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_provider(&id, input).await {
+    };
+    match control
+        .configure_provider_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3800,10 +3908,10 @@ pub async fn delete_provider(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.disable(&id).await {
+    };
+    match control.disable_as(&id, scope.tenant_id.as_deref()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) || error == "cannot disable provider" => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3822,10 +3930,13 @@ pub async fn put_combo(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_combo(&id, input).await {
+    };
+    match control
+        .configure_combo_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(combo) => Json(serde_json::json!({"combo":combo})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3843,10 +3954,13 @@ pub async fn delete_combo(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.disable_combo(&id).await {
+    };
+    match control
+        .disable_combo_as(&id, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) || error == "cannot disable combo" => {
             api_error(StatusCode::SERVICE_UNAVAILABLE, "Combo storage unavailable")
@@ -3885,11 +3999,11 @@ pub async fn put_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_client_key_as(&id, input, &actor, None)
+        .configure_client_key_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(key) => Json(serde_json::json!({"client_key":key})).into_response(),
@@ -3987,10 +4101,13 @@ pub async fn delete_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.revoke_client_key(&id).await {
+    };
+    match control
+        .revoke_client_key_as(&id, scope.tenant_id.as_deref())
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) if is_runtime_error(error) || error == "cannot revoke client key" => api_error(
             StatusCode::SERVICE_UNAVAILABLE,

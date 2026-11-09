@@ -1643,6 +1643,10 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
         .await
         .unwrap();
+    let (red_provider_url, red_provider_task) =
+        provider("oidc-red-provider-secret", "oidc-red").await;
+    let (acme_provider_url, acme_provider_task) =
+        provider("oidc-acme-provider-secret", "oidc-acme").await;
     let (jwks_uri, jwks_requests, jwks_task) = oidc_jwks().await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -1659,7 +1663,11 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
                     "audience":"red-router-admin",
                     "jwks_uri":jwks_uri,
                     "required_claims":{"org_role":["owner","operator"]},
-                    "allowed_subjects":["operator@example.com","cloud@acme.example"]
+                    "allowed_subjects":[
+                        "operator@example.com",
+                        "cloud@acme.example",
+                        "manager@acme.example"
+                    ]
                 })
                 .to_string(),
             )
@@ -1744,6 +1752,25 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .status(),
         StatusCode::OK
     );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/identity-bindings/acme-manager"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:manager@acme.example",
+                    "tenant_id":"acme",
+                    "role":"tenant-admin"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
     let cloud = oidc_token_for(
         "ec01",
         "red-router-admin",
@@ -1755,6 +1782,150 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         client
             .get(format!("{base}/api/admin/providers"))
             .bearer_auth(&cloud)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let manager = oidc_token_for(
+        "ec01",
+        "red-router-admin",
+        "operator",
+        "acme-manager",
+        "manager@acme.example",
+    );
+    for (id, tenant_id, upstream_url, api_key, bearer) in [
+        (
+            "oidc-red-provider",
+            Some("red"),
+            red_provider_url.clone(),
+            "oidc-red-provider-secret",
+            ADMIN_KEY,
+        ),
+        (
+            "oidc-acme-provider",
+            None,
+            acme_provider_url.clone(),
+            "oidc-acme-provider-secret",
+            manager.as_str(),
+        ),
+    ] {
+        let mut body = serde_json::json!({
+            "provider":"openai",
+            "upstream_url":upstream_url,
+            "api_key":api_key
+        });
+        if let Some(tenant_id) = tenant_id {
+            body["tenant_id"] = serde_json::Value::String(tenant_id.to_owned());
+        }
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(bearer)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/manager-cannot-own-red"))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "tenant_id":"red",
+                    "provider":"openai",
+                    "upstream_url":acme_provider_url,
+                    "api_key":"never-stored-provider-secret"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let scoped_providers = client
+        .get(format!("{base}/api/admin/providers"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_providers.status(), StatusCode::OK);
+    let scoped_providers: serde_json::Value =
+        serde_json::from_str(&scoped_providers.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_providers["providers"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped_providers["providers"][0]["id"], "oidc-acme-provider");
+    assert_eq!(scoped_providers["providers"][0]["tenant_id"], "acme");
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/acme-managed-combo"))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "targets":[{
+                        "provider_id":"oidc-acme-provider",
+                        "model":"gpt-4o"
+                    }]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let issued = client
+        .post(format!("{base}/api/admin/client-keys"))
+        .bearer_auth(&manager)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"label":"Acme managed key"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(issued.status(), StatusCode::CREATED);
+    let issued: serde_json::Value = serde_json::from_str(&issued.text().await.unwrap()).unwrap();
+    assert_eq!(issued["client_key"]["tenant_id"], "acme");
+    assert_eq!(
+        issued["client_key"]["created_by"],
+        "oidc:manager@acme.example"
+    );
+    let scoped_combos = client
+        .get(format!("{base}/api/admin/combos"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_combos.status(), StatusCode::OK);
+    let scoped_combos: serde_json::Value =
+        serde_json::from_str(&scoped_combos.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_combos["combos"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped_combos["combos"][0]["tenant_id"], "acme");
+    let scoped_keys = client
+        .get(format!("{base}/api/admin/client-keys"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_keys.status(), StatusCode::OK);
+    let scoped_keys: serde_json::Value =
+        serde_json::from_str(&scoped_keys.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_keys["client_keys"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped_keys["client_keys"][0]["tenant_id"], "acme");
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/tenants"))
+            .bearer_auth(&manager)
             .send()
             .await
             .unwrap()
@@ -1861,6 +2032,8 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
 
     restarted_task.abort();
     jwks_task.abort();
+    red_provider_task.abort();
+    acme_provider_task.abort();
 }
 
 #[tokio::test]
