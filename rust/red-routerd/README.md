@@ -50,13 +50,23 @@ fallback until the first durable client key is created; after that, only Rust-ow
 keys are accepted. If it is omitted, the empty database starts with an unobservable
 random fallback and inference remains closed until a key is created. On an empty database, `RED_ROUTER_UPSTREAM_URL`,
 `RED_ROUTER_PROVIDER_KEY` and optional `RED_ROUTER_PROVIDER_NAME` seed the first
-provider; subsequent provider changes do not require those environment secrets.
+provider; `RED_ROUTER_PROVIDER_AUTH_SCHEME`, `RED_ROUTER_PROVIDER_LABEL`,
+`RED_ROUTER_PROVIDER_ACCOUNT_EMAIL` and `RED_ROUTER_PROVIDER_EXPIRES_AT_UNIX` can
+describe that bootstrap connection. Subsequent provider changes do not require
+those environment secrets.
 
 - `GET /api/admin/providers` lists redacted provider metadata.
 - `PUT /api/admin/providers/{id}` accepts `provider`, `upstream_url`, `api_key`
   and optional `tenant_id`, `enabled` and `rate_limit_scope` (`auto`, `connection`
-  or `model`). New records default to tenant `red`; ownership is immutable after
-  creation and is returned as redacted provider metadata.
+  or `model`). It also accepts an operator-facing `label`, optional `account_email`,
+  optional `expires_at_unix`, and `auth_scheme` (`auto`, `bearer`, `x-api-key` or
+  `x-goog-api-key`). The chosen scheme controls the actual upstream request header;
+  expired credentials are rejected before network I/O and combo routing skips them.
+  New records default to tenant `red`; ownership is immutable after creation and is
+  returned as redacted provider metadata. Existing rows without authentication
+  metadata keep protocol-derived defaults. A previously issued OAuth access token can
+  be stored as a Bearer credential, but provider-specific authorization and refresh-token
+  rotation remain deliberately outside this generic API.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `GET /api/admin/tenants` lists the Rust-owned organizations. A fresh store contains
@@ -85,8 +95,10 @@ provider; subsequent provider changes do not require those environment secrets.
 - The dashboard provider page uses the same runtime boundary: an active Rust control plane
   lists, creates, atomically replaces and disables provider connections through
   `/api/admin/providers`. Provider credentials are write-only in the browser and the Rust
-  response is rejected if it contains plaintext or ciphertext credential fields. The full
-  Next provider catalogue remains available only in the compatibility runtime.
+  response is rejected if it contains plaintext or ciphertext credential fields. Labels,
+  account identity, authentication scheme and expiry are edited alongside the connection
+  and revision-coupled to the encrypted credential. The full Next provider catalogue remains
+  available only in the compatibility runtime.
 - The Rust provider page also reads the validated `anomalyco/models.dev` snapshot through
   `/api/admin/model-catalog`, offers its provider namespace while configuring a connection,
   and loads one provider's model metadata only on demand. Global administrators may trigger

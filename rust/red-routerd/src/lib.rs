@@ -187,6 +187,8 @@ pub(crate) struct LiveProvider {
     provider_name: Option<Arc<str>>,
     tenant_id: Arc<str>,
     protocol: ProviderProtocol,
+    auth_scheme: ProviderAuthScheme,
+    credential_expires_at_unix: i64,
     rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
@@ -363,13 +365,22 @@ pub(crate) enum ProviderProtocol {
     Gemini,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderAuthScheme {
+    Auto,
+    Bearer,
+    XApiKey,
+    XGoogApiKey,
+}
+
 pub(crate) struct ModelTarget {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
     model: String,
-    anthropic_bearer: bool,
     protocol: ProviderProtocol,
+    auth_scheme: ProviderAuthScheme,
+    credential_expires_at_unix: i64,
     product_connection: Option<product::ProductConnection>,
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
@@ -951,6 +962,7 @@ impl ProxyState {
             provider_key,
             allow_private,
             ProviderProtocol::OpenAi,
+            ProviderAuthScheme::Auto,
         )
         .await
     }
@@ -961,6 +973,7 @@ impl ProxyState {
         provider_key: &str,
         allow_private: bool,
         protocol: ProviderProtocol,
+        auth_scheme: ProviderAuthScheme,
     ) -> Result<Self, &'static str> {
         let upstream = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
         let loopback = match upstream.host() {
@@ -1013,16 +1026,13 @@ impl ProxyState {
         if !(16..=512).contains(&client_key.len()) || !(1..=512).contains(&provider_key.len()) {
             return Err("client key must be 16-512 bytes and provider key 1-512 bytes");
         }
-        let provider_credential = match protocol {
-            ProviderProtocol::OpenAi
-            | ProviderProtocol::OpenAiResponses
-            | ProviderProtocol::OpenAiEmbeddings
-            | ProviderProtocol::CohereRerank => {
-                format!("Bearer {provider_key}")
+        let auth_scheme = auth_scheme.resolve(protocol)?;
+        let provider_credential = match auth_scheme {
+            ProviderAuthScheme::Bearer => format!("Bearer {provider_key}"),
+            ProviderAuthScheme::XApiKey | ProviderAuthScheme::XGoogApiKey => {
+                provider_key.to_owned()
             }
-            ProviderProtocol::Anthropic
-            | ProviderProtocol::OpenAiToAnthropic
-            | ProviderProtocol::Gemini => provider_key.to_owned(),
+            ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
         };
         let mut provider_key =
             HeaderValue::from_str(&provider_credential).map_err(|_| "invalid provider key")?;
@@ -1057,6 +1067,8 @@ impl ProxyState {
         upstream: &str,
         provider_key: &str,
         allow_private: bool,
+        auth_scheme: ProviderAuthScheme,
+        credential_expires_at_unix: i64,
     ) -> Result<LiveProvider, &'static str> {
         let protocol = ProviderProtocol::from_upstream(upstream)?;
         let state = Self::new_for_protocol(
@@ -1065,6 +1077,7 @@ impl ProxyState {
             provider_key,
             allow_private,
             protocol,
+            auth_scheme,
         )
         .await?;
         Ok(LiveProvider {
@@ -1075,6 +1088,8 @@ impl ProxyState {
             provider_name: None,
             tenant_id: Arc::from("red"),
             protocol,
+            auth_scheme: auth_scheme.resolve(protocol)?,
+            credential_expires_at_unix,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
             availability: None,
@@ -1096,8 +1111,9 @@ impl ProxyState {
             upstream: provider.upstream.clone(),
             provider_key: provider.provider_key.clone(),
             model,
-            anthropic_bearer: false,
             protocol: provider.protocol,
+            auth_scheme: provider.auth_scheme,
+            credential_expires_at_unix: provider.credential_expires_at_unix,
             product_connection: None,
             product_model: None,
             provider_id: provider.provider_id.clone(),
@@ -1422,49 +1438,30 @@ impl ProxyState {
                 if strategy == RouteStrategy::ContextOptimized && context_window_tokens.is_none() {
                     return Err("context-optimized targets require context windows");
                 }
-                let anthropic_bearer = match target.get("auth") {
-                    None => false,
-                    Some(value)
-                        if matches!(
-                            target_protocol,
-                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
-                        ) && value.as_str() == Some("x-api-key") =>
-                    {
-                        false
-                    }
-                    Some(value)
-                        if matches!(
-                            target_protocol,
-                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
-                        ) && value.as_str() == Some("bearer") =>
-                    {
-                        true
-                    }
-                    _ => return Err("unsupported target authentication"),
-                };
+                let auth_scheme = target
+                    .get("auth")
+                    .and_then(|value| value.as_str())
+                    .map(ProviderAuthScheme::parse)
+                    .transpose()?
+                    .unwrap_or(ProviderAuthScheme::Auto)
+                    .resolve(target_protocol)?;
                 let proxy = Self::new_for_protocol(
                     url,
                     &self.client_key,
                     &secret,
                     allow_private,
                     target_protocol,
+                    auth_scheme,
                 )
                 .await?;
-                let provider_key = if anthropic_bearer {
-                    let mut value = HeaderValue::from_str(&format!("Bearer {secret}"))
-                        .map_err(|_| "invalid provider key")?;
-                    value.set_sensitive(true);
-                    value
-                } else {
-                    proxy.provider_key
-                };
                 targets.push(ModelTarget {
                     client: proxy.client,
                     upstream: proxy.upstream,
-                    provider_key,
+                    provider_key: proxy.provider_key,
                     model: model.to_string(),
-                    anthropic_bearer,
                     protocol: target_protocol,
+                    auth_scheme,
+                    credential_expires_at_unix: 0,
                     product_connection: None,
                     product_model: None,
                     provider_id: None,
@@ -1543,6 +1540,44 @@ impl ProviderProtocol {
             Ok(Self::Gemini)
         } else {
             Err("unsupported provider endpoint protocol")
+        }
+    }
+}
+
+impl ProviderAuthScheme {
+    pub(crate) fn parse(value: &str) -> Result<Self, &'static str> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "bearer" => Ok(Self::Bearer),
+            "x-api-key" => Ok(Self::XApiKey),
+            "x-goog-api-key" => Ok(Self::XGoogApiKey),
+            _ => Err("unsupported provider authentication scheme"),
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Bearer => "bearer",
+            Self::XApiKey => "x-api-key",
+            Self::XGoogApiKey => "x-goog-api-key",
+        }
+    }
+
+    fn resolve(self, protocol: ProviderProtocol) -> Result<Self, &'static str> {
+        match (self, protocol) {
+            (Self::Auto, ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic) => {
+                Ok(Self::XApiKey)
+            }
+            (Self::Auto, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
+            (Self::Auto, _) => Ok(Self::Bearer),
+            (Self::XGoogApiKey, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
+            (Self::XGoogApiKey, _) => Err("x-goog-api-key requires a Gemini endpoint"),
+            (Self::Bearer, _) => Ok(Self::Bearer),
+            (Self::XApiKey, ProviderProtocol::Gemini) => {
+                Err("Gemini endpoints require bearer or x-goog-api-key authentication")
+            }
+            (Self::XApiKey, _) => Ok(Self::XApiKey),
         }
     }
 }
@@ -2967,6 +3002,7 @@ async fn proxy_request(
     let mut closest_availability_retry_ms: Option<u64> = None;
     let mut availability_model_scope = true;
     let mut saw_terminal_availability = false;
+    let mut saw_expired_credential = false;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3032,6 +3068,24 @@ async fn proxy_request(
             {
                 continue;
             }
+        }
+        let credential_expires_at_unix = target
+            .map(|target| target.credential_expires_at_unix)
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .map(|provider| provider.credential_expires_at_unix)
+            })
+            .unwrap_or(0);
+        if credential_expires_at_unix > 0 && unix_time_ms() / 1_000 >= credential_expires_at_unix {
+            saw_expired_credential = true;
+            if target.is_some() {
+                continue;
+            }
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Provider credential expired",
+            );
         }
         let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
         let availability = target
@@ -3268,30 +3322,35 @@ async fn proxy_request(
             .post(target_url)
             .header(header::CONTENT_TYPE, "application/json")
             .body(payload);
+        let auth_scheme = target
+            .map(|target| target.auth_scheme)
+            .or_else(|| live_provider.as_ref().map(|provider| provider.auth_scheme))
+            .unwrap_or_else(|| {
+                ProviderAuthScheme::Auto
+                    .resolve(protocol)
+                    .expect("built-in authentication must resolve")
+            });
+        upstream = match auth_scheme {
+            ProviderAuthScheme::Bearer => {
+                upstream.header(header::AUTHORIZATION, provider_key.clone())
+            }
+            ProviderAuthScheme::XApiKey => upstream.header("x-api-key", provider_key.clone()),
+            ProviderAuthScheme::XGoogApiKey => {
+                upstream.header("x-goog-api-key", provider_key.clone())
+            }
+            ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
+        };
         match &anthropic_headers {
             Some((version, beta)) => {
-                upstream = if target.is_some_and(|target| target.anthropic_bearer) {
-                    upstream.header(header::AUTHORIZATION, provider_key.clone())
-                } else {
-                    upstream.header("x-api-key", provider_key.clone())
-                };
                 upstream = upstream.header("anthropic-version", version.clone());
                 if let Some(beta) = beta {
                     upstream = upstream.header("anthropic-beta", beta.clone());
                 }
             }
             None if translate_anthropic => {
-                upstream = if target.is_some_and(|target| target.anthropic_bearer) {
-                    upstream.header(header::AUTHORIZATION, provider_key.clone())
-                } else {
-                    upstream.header("x-api-key", provider_key.clone())
-                };
                 upstream = upstream.header("anthropic-version", "2023-06-01");
             }
-            None if protocol == ProviderProtocol::Gemini => {
-                upstream = upstream.header("x-goog-api-key", provider_key.clone())
-            }
-            None => upstream = upstream.header(header::AUTHORIZATION, provider_key.clone()),
+            None => {}
         }
         if let Some(accept) = &accept {
             upstream = upstream.header(header::ACCEPT, accept.clone());
@@ -3560,6 +3619,12 @@ async fn proxy_request(
     } else if let Some(response) = last_retry_response {
         (response, last_retry_load_guard)
     } else {
+        if saw_expired_credential {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Provider credentials expired",
+            );
+        }
         if saw_availability_block {
             return availability_blocked_error(
                 closest_availability_retry_ms.unwrap_or(1_000),

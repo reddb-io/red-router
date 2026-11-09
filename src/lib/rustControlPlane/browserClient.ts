@@ -58,6 +58,7 @@ export interface RustUsageSummary {
 }
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
+export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
 
 export interface RustProvider {
   id: string;
@@ -68,6 +69,11 @@ export interface RustProvider {
   revision: string;
   has_credential: boolean;
   rate_limit_scope: RustRateLimitScope;
+  auth_scheme: RustProviderAuthScheme;
+  label: string;
+  account_email?: string;
+  expires_at_unix?: number;
+  credential_expired: boolean;
 }
 
 export interface RustProviderInput {
@@ -77,6 +83,10 @@ export interface RustProviderInput {
   api_key: string;
   enabled: boolean;
   rate_limit_scope: RustRateLimitScope;
+  auth_scheme: RustProviderAuthScheme;
+  label: string;
+  account_email?: string;
+  expires_at_unix?: number;
 }
 
 export interface RustCatalogManifest {
@@ -257,6 +267,14 @@ function isRustProvider(value: unknown): value is RustProvider {
     typeof provider.enabled === "boolean" &&
     typeof provider.revision === "string" &&
     typeof provider.has_credential === "boolean" &&
+    typeof provider.label === "string" &&
+    (provider.account_email === undefined || typeof provider.account_email === "string") &&
+    (provider.expires_at_unix === undefined || isOptionalNumber(provider.expires_at_unix)) &&
+    typeof provider.credential_expired === "boolean" &&
+    (provider.auth_scheme === "auto" ||
+      provider.auth_scheme === "bearer" ||
+      provider.auth_scheme === "x-api-key" ||
+      provider.auth_scheme === "x-goog-api-key") &&
     (provider.rate_limit_scope === "auto" ||
       provider.rate_limit_scope === "connection" ||
       provider.rate_limit_scope === "model")

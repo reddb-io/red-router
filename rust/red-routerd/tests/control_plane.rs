@@ -635,6 +635,40 @@ async fn anthropic_usage_provider(
     (format!("http://{address}/v1/messages"), task)
 }
 
+async fn anthropic_bearer_provider(
+    expected_key: &'static str,
+) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let app = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap| {
+            let observed = observed.clone();
+            async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    format!("Bearer {expected_key}")
+                );
+                assert!(headers.get("x-api-key").is_none());
+                observed.fetch_add(1, Ordering::SeqCst);
+                Json(serde_json::json!({
+                    "id":"msg_bearer_fixture",
+                    "type":"message",
+                    "role":"assistant",
+                    "model":"claude-fixture",
+                    "content":[{"type":"text","text":"ok"}],
+                    "stop_reason":"end_turn",
+                    "usage":{"input_tokens":1,"output_tokens":1}
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/messages"), requests, task)
+}
+
 async fn gemini_usage_provider(
     expected_key: &'static str,
 ) -> (String, tokio::task::JoinHandle<()>) {
@@ -4249,6 +4283,87 @@ async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
     gateway_task.abort();
     red_task.abort();
     acme_task.abort();
+}
+
+#[tokio::test]
+async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("provider-auth.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (upstream, requests, provider_task) = anthropic_bearer_provider("oauth-access-token").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 5;
+
+    let response = client
+        .put(format!("{base}/api/admin/providers/anthropic-oauth"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "provider":"anthropic",
+            "upstream_url":upstream,
+            "api_key":"oauth-access-token",
+            "auth_scheme":"bearer",
+            "label":"Claude team account",
+            "account_email":"agents@example.com",
+            "expires_at_unix":expiry
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(response["auth_scheme"], "bearer");
+    assert_eq!(response["label"], "Claude team account");
+    assert_eq!(response["account_email"], "agents@example.com");
+    assert_eq!(response["expires_at_unix"], expiry);
+    assert_eq!(response["credential_expired"], false);
+    assert!(response.get("api_key").is_none());
+
+    let inference = client
+        .post(format!("{base}/v1/messages"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"claude-fixture",
+            "messages":[],
+            "max_tokens":8
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(inference.status(), StatusCode::OK);
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+    tokio::time::sleep(Duration::from_millis(5_100)).await;
+    let expired = client
+        .post(format!("{base}/v1/messages"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"claude-fixture",
+            "messages":[],
+            "max_tokens":8
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(expired.text().await.unwrap().contains("credential expired"));
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+    let auth = database.provider_auth().await.unwrap();
+    assert_eq!(auth.len(), 1);
+    assert_eq!(auth[0].auth_scheme, "bearer");
+    assert_eq!(auth[0].label, "Claude team account");
+
+    gateway_task.abort();
+    provider_task.abort();
 }
 
 #[tokio::test]

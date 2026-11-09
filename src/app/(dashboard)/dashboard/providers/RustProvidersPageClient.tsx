@@ -12,6 +12,7 @@ import {
   type RustCatalogProvider,
   type RustModelCatalogIndex,
   type RustProvider,
+  type RustProviderAuthScheme,
   type RustProviderInput,
   type RustRateLimitScope,
 } from "@/lib/rustControlPlane/browserClient";
@@ -23,6 +24,10 @@ type Draft = {
   apiKey: string;
   enabled: boolean;
   rateLimitScope: RustRateLimitScope;
+  authScheme: RustProviderAuthScheme;
+  label: string;
+  accountEmail: string;
+  expiresAt: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -32,6 +37,10 @@ const EMPTY_DRAFT: Draft = {
   apiKey: "",
   enabled: true,
   rateLimitScope: "auto",
+  authScheme: "auto",
+  label: "",
+  accountEmail: "",
+  expiresAt: "",
 };
 
 const inputClass =
@@ -46,7 +55,18 @@ function providerDraft(provider: RustProvider): Draft {
     apiKey: "",
     enabled: provider.enabled,
     rateLimitScope: provider.rate_limit_scope,
+    authScheme: provider.auth_scheme,
+    label: provider.label,
+    accountEmail: provider.account_email ?? "",
+    expiresAt: localDateTime(provider.expires_at_unix),
   };
+}
+
+function localDateTime(unixSeconds?: number): string {
+  if (!unixSeconds) return "";
+  const date = new Date(unixSeconds * 1_000);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
 function providerInput(draft: Draft): RustProviderInput {
@@ -54,12 +74,18 @@ function providerInput(draft: Draft): RustProviderInput {
   const provider = draft.provider.trim();
   const upstreamUrl = draft.upstreamUrl.trim();
   const apiKey = draft.apiKey;
+  const label = draft.label.trim() || id;
+  const accountEmail = draft.accountEmail.trim();
   if (!id || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) {
     throw new Error("Connection ID must contain only letters, numbers, dashes or underscores");
   }
   if (!provider || provider.length > 64 || !/^[a-z0-9-]+$/.test(provider)) {
     throw new Error("Provider type must use lowercase letters, numbers or dashes");
   }
+  if (!label || label.length > 128) {
+    throw new Error("Connection label must contain between 1 and 128 characters");
+  }
+  if (accountEmail.length > 320) throw new Error("Provider account email is too long");
   if (!apiKey || new TextEncoder().encode(apiKey).length > 512) {
     throw new Error("A provider credential between 1 and 512 bytes is required for every save");
   }
@@ -73,12 +99,20 @@ function providerInput(draft: Draft): RustProviderInput {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error("Upstream URL must use HTTP or HTTPS");
   }
+  const expiresAt = draft.expiresAt ? new Date(draft.expiresAt) : null;
+  if (expiresAt && !Number.isFinite(expiresAt.getTime())) {
+    throw new Error("Credential expiry is invalid");
+  }
   return {
     provider,
     upstream_url: upstreamUrl,
     api_key: apiKey,
     enabled: draft.enabled,
     rate_limit_scope: draft.rateLimitScope,
+    auth_scheme: draft.authScheme,
+    label,
+    ...(accountEmail ? { account_email: accountEmail } : {}),
+    ...(expiresAt ? { expires_at_unix: Math.floor(expiresAt.getTime() / 1_000) } : {}),
   };
 }
 
@@ -292,6 +326,16 @@ export default function RustProvidersPageClient() {
               onChange={(event) => set("id", event.target.value)}
             />
           </label>
+          <label className={labelClass}>
+            Connection label
+            <input
+              className={inputClass}
+              value={draft.label}
+              placeholder={draft.id.trim() || "OpenRouter production"}
+              maxLength={128}
+              onChange={(event) => set("label", event.target.value)}
+            />
+          </label>
           <div className={labelClass}>
             <span>Provider type</span>
             <input
@@ -337,6 +381,30 @@ export default function RustProvidersPageClient() {
               <option value="model">Per model</option>
             </select>
           </label>
+          <label className={labelClass}>
+            Credential authentication
+            <select
+              className={inputClass}
+              value={draft.authScheme}
+              onChange={(event) => set("authScheme", event.target.value as RustProviderAuthScheme)}
+            >
+              <option value="auto">Automatic for endpoint</option>
+              <option value="bearer">Authorization: Bearer</option>
+              <option value="x-api-key">x-api-key</option>
+              <option value="x-goog-api-key">x-goog-api-key</option>
+            </select>
+          </label>
+          <label className={labelClass}>
+            Provider account email (optional)
+            <input
+              className={inputClass}
+              type="email"
+              value={draft.accountEmail}
+              placeholder="agent@example.com"
+              maxLength={320}
+              onChange={(event) => set("accountEmail", event.target.value)}
+            />
+          </label>
           <label className={`${labelClass} md:col-span-2`}>
             Upstream URL
             <input
@@ -356,6 +424,15 @@ export default function RustProvidersPageClient() {
               value={draft.apiKey}
               placeholder={editingId ? "Required to replace" : "Stored encrypted"}
               onChange={(event) => set("apiKey", event.target.value)}
+            />
+          </label>
+          <label className={labelClass}>
+            Credential expires (optional)
+            <input
+              className={inputClass}
+              type="datetime-local"
+              value={draft.expiresAt}
+              onChange={(event) => set("expiresAt", event.target.value)}
             />
           </label>
           <label className="flex items-center gap-2 self-end rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/10">
@@ -416,8 +493,8 @@ export default function RustProvidersPageClient() {
           providers.map((provider) => (
             <Card
               key={provider.id}
-              title={provider.id}
-              subtitle={`${catalogNames.get(provider.provider) ?? provider.provider} · ${provider.provider} · tenant ${provider.tenant_id}`}
+              title={provider.label}
+              subtitle={`${provider.id} · ${catalogNames.get(provider.provider) ?? provider.provider} · tenant ${provider.tenant_id}`}
               action={
                 <span
                   className={`rounded-full px-2 py-1 text-xs ${
@@ -441,8 +518,30 @@ export default function RustProvidersPageClient() {
                 </div>
                 <div>
                   <dt className="font-medium">Credential</dt>
-                  <dd>{provider.has_credential ? "Encrypted and present" : "Missing"}</dd>
+                  <dd>
+                    {provider.credential_expired
+                      ? "Expired"
+                      : provider.has_credential
+                        ? "Encrypted and present"
+                        : "Missing"}
+                  </dd>
                 </div>
+                <div>
+                  <dt className="font-medium">Authentication</dt>
+                  <dd>{provider.auth_scheme}</dd>
+                </div>
+                {provider.account_email && (
+                  <div>
+                    <dt className="font-medium">Provider account</dt>
+                    <dd className="break-all">{provider.account_email}</dd>
+                  </div>
+                )}
+                {provider.expires_at_unix && (
+                  <div>
+                    <dt className="font-medium">Credential expiry</dt>
+                    <dd>{new Date(provider.expires_at_unix * 1_000).toLocaleString()}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="font-medium">Revision</dt>
                   <dd className="truncate font-mono">{provider.revision}</dd>

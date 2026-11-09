@@ -17,6 +17,11 @@ const DISABLE_PROVIDER: &str =
 const CREATE_PROVIDER_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_ownership (provider_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDER_OWNERSHIP: &str = "SELECT provider_id, tenant_id, revision FROM redrouter_control_provider_ownership ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_OWNERSHIP: &str = "INSERT INTO redrouter_control_provider_ownership (provider_id, tenant_id, revision) VALUES ($1,$2,$3) ON CONFLICT (provider_id) DO UPDATE SET tenant_id = $2, revision = $3";
+const CREATE_PROVIDER_AUTH: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_auth (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, auth_scheme TEXT NOT NULL, label TEXT NOT NULL, account_email TEXT NOT NULL, expires_at_unix BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_AUTH: &str = "SELECT provider_id, auth_scheme, label, account_email, expires_at_unix, revision FROM redrouter_control_provider_auth ORDER BY provider_id ASC, revision DESC";
+const UPSERT_PROVIDER_AUTH: &str = "INSERT INTO redrouter_control_provider_auth (record_id, provider_id, auth_scheme, label, account_email, expires_at_unix, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (record_id) DO UPDATE SET auth_scheme = $3, label = $4, account_email = $5, expires_at_unix = $6";
+const DELETE_PROVIDER_AUTH: &str =
+    "DELETE FROM redrouter_control_provider_auth WHERE provider_id = $1";
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
@@ -105,6 +110,16 @@ struct StoredProviderOwnership {
     provider_id: String,
     tenant_id: String,
     revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderAuth {
+    pub provider_id: String,
+    pub auth_scheme: String,
+    pub label: String,
+    pub account_email: String,
+    pub expires_at_unix: i64,
+    pub revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -357,6 +372,7 @@ impl Database {
                         CREATE,
                         CREATE_PROVIDERS,
                         CREATE_PROVIDER_OWNERSHIP,
+                        CREATE_PROVIDER_AUTH,
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
@@ -458,6 +474,7 @@ impl Database {
                 db.remote_schema_query(CREATE).await?;
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OWNERSHIP).await?;
+                db.remote_schema_query(CREATE_PROVIDER_AUTH).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
@@ -502,6 +519,7 @@ impl Database {
                     CREATE,
                     CREATE_PROVIDERS,
                     CREATE_PROVIDER_OWNERSHIP,
+                    CREATE_PROVIDER_AUTH,
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
@@ -759,6 +777,89 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot write provider ownership")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_auth(&self) -> Result<Vec<StoredProviderAuth>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_AUTH)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider authentication configuration")?
+                .iter()
+                .map(read_sql_provider_auth)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_AUTH, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_auth)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_AUTH)
+                .await
+                .map_err(|_| "cannot read provider authentication configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_auth)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_auth(
+        &self,
+        auth: &StoredProviderAuth,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_AUTH)
+                    .bind(provider_auth_record_id(auth))
+                    .bind(&auth.provider_id)
+                    .bind(&auth.auth_scheme)
+                    .bind(&auth.label)
+                    .bind(&auth.account_email)
+                    .bind(auth.expires_at_unix)
+                    .bind(auth.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider authentication configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_PROVIDER_AUTH, &provider_auth_params(auth))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_PROVIDER_AUTH, provider_auth_params(auth))
+                    .await
+                    .map_err(|_| "cannot write provider authentication configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_auth(&self, provider_id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_AUTH)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider authentication configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER_AUTH, &params()).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER_AUTH, params())
+                    .await
+                    .map_err(|_| "cannot delete provider authentication configuration")?;
             }
         }
         Ok(())
@@ -2325,6 +2426,70 @@ fn read_reddb_provider_ownership(
         tenant_id: text("tenant_id")?,
         revision,
     })
+}
+
+fn read_sql_provider_auth(row: &sqlx::any::AnyRow) -> Result<StoredProviderAuth, &'static str> {
+    Ok(StoredProviderAuth {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider authentication record")?,
+        auth_scheme: row
+            .try_get("auth_scheme")
+            .map_err(|_| "invalid provider authentication record")?,
+        label: row
+            .try_get("label")
+            .map_err(|_| "invalid provider authentication record")?,
+        account_email: row
+            .try_get("account_email")
+            .map_err(|_| "invalid provider authentication record")?,
+        expires_at_unix: row
+            .try_get("expires_at_unix")
+            .map_err(|_| "invalid provider authentication record")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider authentication record")?,
+    })
+}
+
+fn read_reddb_provider_auth(row: &reddb_client::Row) -> Result<StoredProviderAuth, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider authentication record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider authentication record"),
+    };
+    Ok(StoredProviderAuth {
+        provider_id: text("provider_id")?,
+        auth_scheme: text("auth_scheme")?,
+        label: text("label")?,
+        account_email: text("account_email")?,
+        expires_at_unix: integer("expires_at_unix")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn provider_auth_record_id(auth: &StoredProviderAuth) -> String {
+    format!("{}:{}", auth.provider_id, auth.revision)
+}
+
+fn provider_auth_params(auth: &StoredProviderAuth) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(provider_auth_record_id(auth)),
+        reddb_client::Value::Text(auth.provider_id.clone()),
+        reddb_client::Value::Text(auth.auth_scheme.clone()),
+        reddb_client::Value::Text(auth.label.clone()),
+        reddb_client::Value::Text(auth.account_email.clone()),
+        reddb_client::Value::Int(auth.expires_at_unix),
+        reddb_client::Value::Int(auth.revision),
+    ]
 }
 
 fn provider_ownership_params(provider: &StoredProvider) -> Vec<reddb_client::Value> {

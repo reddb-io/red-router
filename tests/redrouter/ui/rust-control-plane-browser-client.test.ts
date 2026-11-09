@@ -52,6 +52,11 @@ const provider: RustProvider = {
   revision: "1700000000000000001",
   has_credential: true,
   rate_limit_scope: "model",
+  auth_scheme: "bearer",
+  label: "OpenRouter production",
+  account_email: "agents@example.com",
+  expires_at_unix: 1_900_000_000,
+  credential_expired: false,
 };
 
 const catalogManifest = {
@@ -191,6 +196,10 @@ describe("Rust control-plane browser client", () => {
         api_key: "write-only-secret",
         enabled: true,
         rate_limit_scope: "model",
+        auth_scheme: "bearer",
+        label: "OpenRouter production",
+        account_email: "agents@example.com",
+        expires_at_unix: 1_900_000_000,
       })
     ).resolves.toEqual(provider);
     await expect(disableRustProvider(provider.id)).resolves.toBeUndefined();

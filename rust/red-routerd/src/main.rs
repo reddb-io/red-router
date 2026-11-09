@@ -698,6 +698,13 @@ async fn run(
                             api_key: provider_key.to_string(),
                             enabled: true,
                             rate_limit_scope,
+                            auth_scheme: env::var("RED_ROUTER_PROVIDER_AUTH_SCHEME")
+                                .unwrap_or_else(|_| "auto".into()),
+                            label: env::var("RED_ROUTER_PROVIDER_LABEL").ok(),
+                            account_email: env::var("RED_ROUTER_PROVIDER_ACCOUNT_EMAIL").ok(),
+                            expires_at_unix: env::var("RED_ROUTER_PROVIDER_EXPIRES_AT_UNIX")
+                                .ok()
+                                .and_then(|value| value.parse().ok()),
                         },
                     )
                     .await?;

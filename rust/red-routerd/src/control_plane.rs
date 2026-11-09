@@ -6,10 +6,11 @@ use crate::{
     resilience::RateLimitScope,
     storage::{
         StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
-        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-        StoredResilience, StoredRoutePin, StoredTenant,
+        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
+        StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
     },
-    LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
+    LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
+    TargetQuota,
 };
 use aes_gcm::aead::consts::U16;
 use aes_gcm::{
@@ -115,6 +116,11 @@ pub struct ProviderInput {
     pub enabled: bool,
     #[serde(default = "auto_rate_limit_scope")]
     pub rate_limit_scope: String,
+    #[serde(default = "auto_auth_scheme")]
+    pub auth_scheme: String,
+    pub label: Option<String>,
+    pub account_email: Option<String>,
+    pub expires_at_unix: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +133,13 @@ pub struct ProviderView {
     pub revision: String,
     pub has_credential: bool,
     pub rate_limit_scope: String,
+    pub auth_scheme: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_unix: Option<u64>,
+    pub credential_expired: bool,
 }
 
 #[derive(Deserialize)]
@@ -519,6 +532,10 @@ fn openai_protocol() -> String {
 }
 
 fn auto_rate_limit_scope() -> String {
+    "auto".to_owned()
+}
+
+fn auto_auth_scheme() -> String {
     "auto".to_owned()
 }
 
@@ -1090,6 +1107,7 @@ impl ControlPlane {
             && breakers_ready
             && availability_ready
             && self.0.database.provider_resilience().await.is_ok()
+            && self.0.database.provider_auth().await.is_ok()
             && self
                 .0
                 .database
@@ -1122,11 +1140,32 @@ impl ControlPlane {
             return Err("provider upstream URL is too long");
         }
         let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
+        let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
+        let label = input.label.as_deref().unwrap_or(id).trim();
+        validate_provider_label(label)?;
+        let account_email = input.account_email.as_deref().unwrap_or("").trim();
+        validate_provider_account_email(account_email)?;
+        let expires_at_unix = input
+            .expires_at_unix
+            .map(|value| i64::try_from(value).map_err(|_| "provider credential expiry is invalid"))
+            .transpose()?
+            .unwrap_or(0);
+        if input.enabled
+            && expires_at_unix > 0
+            && expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX)
+        {
+            return Err("provider credential is already expired");
+        }
         // Resolve and pin DNS before changing durable or live configuration.
         let api_key = Zeroizing::new(input.api_key);
-        let live =
-            ProxyState::live_provider(&input.upstream_url, api_key.as_str(), self.0.allow_private)
-                .await?;
+        let live = ProxyState::live_provider(
+            &input.upstream_url,
+            api_key.as_str(),
+            self.0.allow_private,
+            auth_scheme,
+            expires_at_unix,
+        )
+        .await?;
         let _mutation = self.0.mutation.lock().await;
         let existing = self
             .0
@@ -1179,10 +1218,19 @@ impl ControlPlane {
             rate_limit_scope: rate_limit_scope.as_str().to_owned(),
             revision,
         };
+        let provider_auth = StoredProviderAuth {
+            provider_id: id.to_owned(),
+            auth_scheme: auth_scheme.as_str().to_owned(),
+            label: label.to_owned(),
+            account_email: account_email.to_owned(),
+            expires_at_unix,
+            revision,
+        };
         self.0
             .database
             .upsert_provider_resilience(&resilience)
             .await?;
+        self.0.database.upsert_provider_auth(&provider_auth).await?;
         self.0.database.upsert_provider(&stored).await?;
         // Refresh from the durable authority so concurrent writers converge on
         // the same latest enabled record rather than on local write order.
@@ -1197,7 +1245,7 @@ impl ControlPlane {
         self.availability_for(id).await.reset().await?;
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
-        Ok(view(&stored, rate_limit_scope))
+        view(&stored, rate_limit_scope, Some(&provider_auth))
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
@@ -1502,9 +1550,14 @@ impl ControlPlane {
         let scope = self
             .resilience_settings()
             .await?
-            .get(&(provider.id, provider.updated_at))
+            .get(&(provider.id.clone(), provider.updated_at))
             .copied()
             .unwrap_or_default();
+        let auth = self
+            .auth_settings()
+            .await?
+            .remove(&(provider.id.clone(), provider.updated_at))
+            .unwrap_or_else(|| default_provider_auth(&provider));
         let revision = revision()?;
         self.0
             .database
@@ -1513,6 +1566,10 @@ impl ControlPlane {
                 rate_limit_scope: scope.as_str().to_owned(),
                 revision,
             })
+            .await?;
+        self.0
+            .database
+            .upsert_provider_auth(&StoredProviderAuth { revision, ..auth })
             .await?;
         self.0.database.disable_provider(id, revision).await?;
         if let Err(error) = self.refresh().await {
@@ -2008,12 +2065,18 @@ impl ControlPlane {
 
     async fn refresh(&self) -> Result<(), &'static str> {
         let resilience = self.resilience_settings().await?;
+        let auth = self.auth_settings().await?;
         let live = match self.0.database.active_provider().await? {
             Some(record) => {
                 let rate_limit_scope = resilience
                     .get(&(record.id.clone(), record.updated_at))
                     .copied()
                     .unwrap_or_default();
+                let provider_auth = auth
+                    .get(&(record.id.clone(), record.updated_at))
+                    .cloned()
+                    .unwrap_or_else(|| default_provider_auth(&record));
+                let auth_scheme = ProviderAuthScheme::parse(&provider_auth.auth_scheme)?;
                 let credential = decrypt(
                     &record.credential_ciphertext,
                     &record.id,
@@ -2023,6 +2086,8 @@ impl ControlPlane {
                     &record.upstream_url,
                     credential.as_str(),
                     self.0.allow_private,
+                    auth_scheme,
+                    provider_auth.expires_at_unix,
                 )
                 .await?;
                 let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
@@ -2079,6 +2144,7 @@ impl ControlPlane {
         }
         let providers = self.0.database.providers().await?;
         let resilience = self.resilience_settings().await?;
+        let auth = self.auth_settings().await?;
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -2103,6 +2169,11 @@ impl ControlPlane {
                     continue;
                 };
                 if !live.contains_key(&provider.id) {
+                    let provider_auth = auth
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .cloned()
+                        .unwrap_or_else(|| default_provider_auth(provider));
+                    let auth_scheme = ProviderAuthScheme::parse(&provider_auth.auth_scheme)?;
                     let credential = decrypt(
                         &provider.credential_ciphertext,
                         &provider.id,
@@ -2112,6 +2183,8 @@ impl ControlPlane {
                         &provider.upstream_url,
                         credential.as_str(),
                         self.0.allow_private,
+                        auth_scheme,
+                        provider_auth.expires_at_unix,
                     )
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
@@ -2293,7 +2366,8 @@ impl ControlPlane {
 
     async fn views(&self, tenant_id: Option<&str>) -> Result<Vec<ProviderView>, &'static str> {
         let resilience = self.resilience_settings().await?;
-        self.0.database.providers().await.map(|rows| {
+        let auth = self.auth_settings().await?;
+        self.0.database.providers().await.and_then(|rows| {
             rows.iter()
                 .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
                 .map(|record| {
@@ -2303,10 +2377,31 @@ impl ControlPlane {
                             .get(&(record.id.clone(), record.updated_at))
                             .copied()
                             .unwrap_or_default(),
+                        auth.get(&(record.id.clone(), record.updated_at)),
                     )
                 })
                 .collect()
         })
+    }
+
+    async fn auth_settings(
+        &self,
+    ) -> Result<HashMap<(String, i64), StoredProviderAuth>, &'static str> {
+        self.0
+            .database
+            .provider_auth()
+            .await?
+            .into_iter()
+            .map(|record| {
+                ProviderAuthScheme::parse(&record.auth_scheme)?;
+                validate_provider_label(&record.label)?;
+                validate_provider_account_email(&record.account_email)?;
+                if record.expires_at_unix < 0 {
+                    return Err("provider credential expiry is invalid");
+                }
+                Ok(((record.provider_id.clone(), record.revision), record))
+            })
+            .collect()
     }
 
     async fn resilience_settings(
@@ -2719,8 +2814,36 @@ fn oidc_stored_view(
     Ok(oidc_view(verifier.policy(), browser))
 }
 
-fn view(record: &StoredProvider, rate_limit_scope: RateLimitScope) -> ProviderView {
-    ProviderView {
+fn default_provider_auth(record: &StoredProvider) -> StoredProviderAuth {
+    StoredProviderAuth {
+        provider_id: record.id.clone(),
+        auth_scheme: "auto".to_owned(),
+        label: record.id.clone(),
+        account_email: String::new(),
+        expires_at_unix: 0,
+        revision: record.updated_at,
+    }
+}
+
+fn view(
+    record: &StoredProvider,
+    rate_limit_scope: RateLimitScope,
+    auth: Option<&StoredProviderAuth>,
+) -> Result<ProviderView, &'static str> {
+    let fallback;
+    let auth = match auth {
+        Some(auth) => auth,
+        None => {
+            fallback = default_provider_auth(record);
+            &fallback
+        }
+    };
+    let expires_at_unix = match auth.expires_at_unix {
+        0 => None,
+        value if value > 0 => Some(value as u64),
+        _ => return Err("provider credential expiry is invalid"),
+    };
+    Ok(ProviderView {
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -2729,7 +2852,13 @@ fn view(record: &StoredProvider, rate_limit_scope: RateLimitScope) -> ProviderVi
         revision: record.updated_at.to_string(),
         has_credential: !record.credential_ciphertext.is_empty(),
         rate_limit_scope: rate_limit_scope.as_str().to_owned(),
-    }
+        auth_scheme: auth.auth_scheme.clone(),
+        label: auth.label.clone(),
+        account_email: (!auth.account_email.is_empty()).then(|| auth.account_email.clone()),
+        expires_at_unix,
+        credential_expired: expires_at_unix
+            .is_some_and(|expiry| unix_time_seconds().map_or(true, |now| expiry <= now)),
+    })
 }
 
 fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> {
@@ -3247,6 +3376,20 @@ fn validate_provider(value: &str) -> Result<(), &'static str> {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     {
         return Err("invalid provider name");
+    }
+    Ok(())
+}
+
+fn validate_provider_label(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+        return Err("provider connection label must be 1-128 characters");
+    }
+    Ok(())
+}
+
+fn validate_provider_account_email(value: &str) -> Result<(), &'static str> {
+    if value.len() > 320 || value.chars().any(char::is_control) {
+        return Err("provider account email is invalid");
     }
     Ok(())
 }
