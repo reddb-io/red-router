@@ -4333,6 +4333,26 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     assert_eq!(provider["credential_expired"], false);
     assert!(provider.get("api_key").is_none());
 
+    let combo = client
+        .put(format!("{base}/api/admin/combos/claude-fixture"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "protocol":"anthropic",
+                "strategy":"priority",
+                "targets":[{
+                    "provider_id":"anthropic-oauth",
+                    "model":"claude-fixture"
+                }]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(combo.status(), StatusCode::OK);
+
     let inference = client
         .post(format!("{base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
