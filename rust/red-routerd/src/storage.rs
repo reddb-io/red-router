@@ -1552,10 +1552,17 @@ impl Database {
         let sql = format!(
             "SELECT event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json FROM redrouter_control_audit_outbox WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC, event_id ASC LIMIT {limit}"
         );
-        let params = vec![
+        let same_time_sql = format!(
+            "SELECT event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json FROM redrouter_control_audit_outbox WHERE created_at_unix_ms = $1 AND event_id > $2 ORDER BY created_at_unix_ms ASC, event_id ASC LIMIT {limit}"
+        );
+        let later_sql = format!(
+            "SELECT event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json FROM redrouter_control_audit_outbox WHERE created_at_unix_ms > $1 ORDER BY created_at_unix_ms ASC, event_id ASC LIMIT {limit}"
+        );
+        let same_time_params = vec![
             reddb_client::Value::Int(after_created_at_unix_ms),
             reddb_client::Value::Text(after_event_id.to_owned()),
         ];
+        let later_params = vec![reddb_client::Value::Int(after_created_at_unix_ms)];
         match self {
             Self::Sql(pool) => sqlx::query(&sql)
                 .bind(after_created_at_unix_ms)
@@ -1566,22 +1573,39 @@ impl Database {
                 .iter()
                 .map(read_sql_audit_outbox_event)
                 .collect(),
-            Self::Remote(_) => self
-                .remote_query(&sql, &params)
-                .await?
-                .rows
-                .iter()
-                .map(read_reddb_audit_outbox_event)
-                .collect(),
+            Self::Remote(_) => {
+                let same_time = self.remote_query(&same_time_sql, &same_time_params).await?;
+                let later = self.remote_query(&later_sql, &later_params).await?;
+                Ok(merge_audit_outbox_rows(
+                    same_time
+                        .rows
+                        .iter()
+                        .chain(later.rows.iter())
+                        .map(read_reddb_audit_outbox_event)
+                        .collect::<Result<Vec<_>, _>>()?,
+                    limit,
+                ))
+            }
             #[cfg(feature = "reddb-embedded")]
-            Self::Embedded { db, .. } => db
-                .query_with(&sql, params)
-                .await
-                .map_err(|_| "cannot read audit outbox events")?
-                .rows
-                .iter()
-                .map(read_reddb_audit_outbox_event)
-                .collect(),
+            Self::Embedded { db, .. } => {
+                let same_time = db
+                    .query_with(&same_time_sql, same_time_params)
+                    .await
+                    .map_err(|_| "cannot read audit outbox events")?;
+                let later = db
+                    .query_with(&later_sql, later_params)
+                    .await
+                    .map_err(|_| "cannot read audit outbox events")?;
+                Ok(merge_audit_outbox_rows(
+                    same_time
+                        .rows
+                        .iter()
+                        .chain(later.rows.iter())
+                        .map(read_reddb_audit_outbox_event)
+                        .collect::<Result<Vec<_>, _>>()?,
+                    limit,
+                ))
+            }
         }
     }
 
@@ -3708,6 +3732,18 @@ fn read_reddb_audit_outbox_event(
         schema_version: integer("schema_version")?,
         payload_json: text("payload_json")?,
     })
+}
+
+fn merge_audit_outbox_rows(
+    mut events: Vec<StoredAuditOutboxEvent>,
+    limit: usize,
+) -> Vec<StoredAuditOutboxEvent> {
+    events.sort_by(|left, right| {
+        (left.created_at_unix_ms, left.event_id.as_str())
+            .cmp(&(right.created_at_unix_ms, right.event_id.as_str()))
+    });
+    events.truncate(limit);
+    events
 }
 
 fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> {
