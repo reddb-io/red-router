@@ -102,6 +102,7 @@ pub struct ControlPlane(Arc<Inner>);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderInput {
+    pub tenant_id: Option<String>,
     pub provider: String,
     pub upstream_url: String,
     pub api_key: String,
@@ -114,6 +115,7 @@ pub struct ProviderInput {
 #[derive(Debug, Serialize)]
 pub struct ProviderView {
     pub id: String,
+    pub tenant_id: String,
     pub provider: String,
     pub upstream_url: String,
     pub enabled: bool,
@@ -288,6 +290,7 @@ pub struct ComboTarget {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComboInput {
+    pub tenant_id: Option<String>,
     #[serde(default = "openai_protocol")]
     pub protocol: String,
     #[serde(default = "priority_strategy")]
@@ -302,6 +305,7 @@ pub struct ComboInput {
 #[derive(Debug, Serialize)]
 pub struct ComboView {
     pub id: String,
+    pub tenant_id: String,
     pub protocol: String,
     pub strategy: String,
     pub fallback: bool,
@@ -1099,10 +1103,44 @@ impl ControlPlane {
             ProxyState::live_provider(&input.upstream_url, api_key.as_str(), self.0.allow_private)
                 .await?;
         let _mutation = self.0.mutation.lock().await;
+        let existing = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id);
+        let tenant_id = input
+            .tenant_id
+            .as_deref()
+            .or_else(|| {
+                existing
+                    .as_ref()
+                    .map(|provider| provider.tenant_id.as_str())
+            })
+            .unwrap_or("red");
+        validate_id(tenant_id)?;
+        if existing
+            .as_ref()
+            .is_some_and(|provider| provider.tenant_id != tenant_id)
+        {
+            return Err("provider tenant cannot be changed");
+        }
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.id == tenant_id && tenant.enabled)
+        {
+            return Err("provider tenant is unavailable");
+        }
         let revision = revision()?;
         let ciphertext = encrypt(api_key.as_str(), id, self.0.encryption_key.as_str())?;
         let stored = StoredProvider {
             id: id.to_owned(),
+            tenant_id: tenant_id.to_owned(),
             provider: input.provider,
             upstream_url: input.upstream_url,
             credential_ciphertext: ciphertext,
@@ -1459,6 +1497,35 @@ impl ControlPlane {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
         let providers = self.0.database.providers().await?;
+        let existing = self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == id);
+        let tenant_id = input
+            .tenant_id
+            .as_deref()
+            .or_else(|| existing.as_ref().map(|combo| combo.tenant_id.as_str()))
+            .unwrap_or("red");
+        validate_id(tenant_id)?;
+        if existing
+            .as_ref()
+            .is_some_and(|combo| combo.tenant_id != tenant_id)
+        {
+            return Err("combo tenant cannot be changed");
+        }
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.id == tenant_id && tenant.enabled)
+        {
+            return Err("combo tenant is unavailable");
+        }
         let catalog = self.model_catalog().await;
         enrich_combo_metadata(&mut input, &providers, &catalog)?;
         validate_combo(&input)?;
@@ -1467,7 +1534,11 @@ impl ControlPlane {
             if !input.targets.iter().all(|target| {
                 providers
                     .iter()
-                    .find(|provider| provider.id == target.provider_id && provider.enabled)
+                    .find(|provider| {
+                        provider.id == target.provider_id
+                            && provider.tenant_id == tenant_id
+                            && provider.enabled
+                    })
                     .and_then(|provider| {
                         ProviderProtocol::from_upstream(&provider.upstream_url).ok()
                     })
@@ -1478,6 +1549,7 @@ impl ControlPlane {
         }
         let record = StoredCombo {
             id: id.to_owned(),
+            tenant_id: tenant_id.to_owned(),
             protocol: input.protocol,
             strategy: input.strategy,
             fallback: input.fallback,
@@ -1812,6 +1884,7 @@ impl ControlPlane {
                 live.availability = Some(self.availability_for(&record.id).await);
                 live.provider_id = Some(Arc::from(record.id));
                 live.provider_name = Some(Arc::from(record.provider));
+                live.tenant_id = Arc::from(record.tenant_id);
                 live.rate_limit_scope = rate_limit_scope;
                 Some(live)
             }
@@ -1875,10 +1948,11 @@ impl ControlPlane {
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
-                let Some(provider) = providers
-                    .iter()
-                    .find(|provider| provider.id == target.provider_id && provider.enabled)
-                else {
+                let Some(provider) = providers.iter().find(|provider| {
+                    provider.id == target.provider_id
+                        && provider.tenant_id == record.tenant_id
+                        && provider.enabled
+                }) else {
                     continue;
                 };
                 if !live.contains_key(&provider.id) {
@@ -1895,6 +1969,7 @@ impl ControlPlane {
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                    runtime.tenant_id = Arc::from(provider.tenant_id.clone());
                     runtime.rate_limit_scope = resilience
                         .get(&(provider.id.clone(), provider.updated_at))
                         .copied()
@@ -1959,6 +2034,7 @@ impl ControlPlane {
             routes.insert(
                 record.id.clone(),
                 Arc::new(ModelRoute {
+                    tenant_id: Arc::from(record.tenant_id.clone()),
                     targets,
                     protocol,
                     strategy,
@@ -2435,6 +2511,7 @@ fn oidc_stored_view(
 fn view(record: &StoredProvider, rate_limit_scope: RateLimitScope) -> ProviderView {
     ProviderView {
         id: record.id.clone(),
+        tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
         upstream_url: record.upstream_url.clone(),
         enabled: record.enabled,
@@ -2503,6 +2580,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         return Err("invalid combo targets");
     };
     let input = ComboInput {
+        tenant_id: Some(record.tenant_id.clone()),
         protocol: record.protocol.clone(),
         strategy: record.strategy.clone(),
         fallback: record.fallback,
@@ -2512,6 +2590,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     validate_combo(&input)?;
     Ok(ComboView {
         id: record.id.clone(),
+        tenant_id: record.tenant_id.clone(),
         protocol: record.protocol.clone(),
         strategy: record.strategy.clone(),
         fallback: record.fallback,
@@ -3928,6 +4007,7 @@ mod tests {
     fn combo_metadata_uses_models_dev_without_overriding_operator_values() {
         let providers = vec![StoredProvider {
             id: "first".to_owned(),
+            tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),
             upstream_url: "https://api.openai.com/v1/chat/completions".to_owned(),
             credential_ciphertext: "encrypted".to_owned(),
@@ -3935,6 +4015,7 @@ mod tests {
             updated_at: 1,
         }];
         let mut input = ComboInput {
+            tenant_id: None,
             protocol: "openai-chat".to_owned(),
             strategy: "cost-optimized".to_owned(),
             fallback: true,

@@ -692,6 +692,7 @@ async fn run(
                     .configure_provider(
                         "default",
                         ProviderInput {
+                            tenant_id: None,
                             provider,
                             upstream_url: upstream.to_owned(),
                             api_key: provider_key.to_string(),

@@ -3194,6 +3194,181 @@ async fn rust_control_plane_persists_and_clears_last_known_good_target() {
 }
 
 #[tokio::test]
+async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("tenant-routes.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (red_url, red_task) = provider("red-provider-secret", "red").await;
+    let (acme_url, acme_task) = provider("acme-provider-secret", "acme").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/tenants/acme"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"slug":"acme","name":"Acme"}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for (id, tenant_id, upstream_url, api_key) in [
+        ("red-provider", "red", red_url, "red-provider-secret"),
+        ("acme-provider", "acme", acme_url, "acme-provider-secret"),
+    ] {
+        let response = client
+            .put(format!("{base}/api/admin/providers/{id}"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "tenant_id":tenant_id,
+                    "provider":"openai",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let response: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(response["provider"]["tenant_id"], tenant_id);
+    }
+
+    let cross_tenant = client
+        .put(format!("{base}/api/admin/combos/cross-tenant"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "tenant_id":"acme",
+                "targets":[{"provider_id":"red-provider","model":"gpt-4o"}]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cross_tenant.status(), StatusCode::BAD_REQUEST);
+
+    for (combo, tenant_id, provider_id) in [
+        ("red-combo", "red", "red-provider"),
+        ("acme-combo", "acme", "acme-provider"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/combos/{combo}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "tenant_id":tenant_id,
+                        "targets":[{"provider_id":provider_id,"model":"gpt-4o"}]
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    for (id, label, tenant_id, key) in [
+        ("red-key", "Red key", "red", "red-tenant-key-1234567890"),
+        ("acme-key", "Acme key", "acme", "acme-tenant-key-1234567890"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/client-keys/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "label":label,
+                        "tenant_id":tenant_id,
+                        "api_key":key,
+                        "scopes":["inference:chat"]
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    for (key, own_combo, hidden_combo, expected) in [
+        (
+            "red-tenant-key-1234567890",
+            "red-combo",
+            "acme-combo",
+            "red",
+        ),
+        (
+            "acme-tenant-key-1234567890",
+            "acme-combo",
+            "red-combo",
+            "acme",
+        ),
+    ] {
+        let models = client
+            .get(format!("{base}/v1/models"))
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(models.status(), StatusCode::OK);
+        let models: serde_json::Value =
+            serde_json::from_str(&models.text().await.unwrap()).unwrap();
+        let ids = models["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|model| model["id"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![own_combo]);
+        assert_eq!(
+            chat_model(&client, &base, key, own_combo)
+                .await
+                .text()
+                .await
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            chat_model(&client, &base, key, hidden_combo).await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    let stored_providers = database.providers().await.unwrap();
+    assert_eq!(stored_providers[0].tenant_id, "acme");
+    assert_eq!(stored_providers[1].tenant_id, "red");
+    let stored_combos = database.combos().await.unwrap();
+    assert!(stored_combos
+        .iter()
+        .any(|combo| combo.id == "acme-combo" && combo.tenant_id == "acme"));
+
+    gateway_task.abort();
+    red_task.abort();
+    acme_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("control.sqlite")).unwrap();

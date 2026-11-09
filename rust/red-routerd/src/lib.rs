@@ -185,6 +185,7 @@ pub(crate) struct LiveProvider {
     provider_key: HeaderValue,
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
+    tenant_id: Arc<str>,
     protocol: ProviderProtocol,
     rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
@@ -322,6 +323,7 @@ impl TargetQuota {
 }
 
 pub(crate) struct ModelRoute {
+    tenant_id: Arc<str>,
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
     strategy: RouteStrategy,
@@ -1071,6 +1073,7 @@ impl ProxyState {
             provider_key: state.provider_key,
             provider_id: None,
             provider_name: None,
+            tenant_id: Arc::from("red"),
             protocol,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
@@ -1486,6 +1489,7 @@ impl ProxyState {
                 .insert(
                     alias.to_string(),
                     Arc::new(ModelRoute {
+                        tenant_id: Arc::from("red"),
                         targets,
                         protocol,
                         strategy,
@@ -1975,7 +1979,10 @@ fn listed_models(
 
     for id in route_ids {
         let route = &routes[id];
-        if !policy.route_allowed(id) || !policy.endpoint_allowed(route_category(route.protocol)) {
+        if !policy.tenant_allowed(&route.tenant_id)
+            || !policy.route_allowed(id)
+            || !policy.endpoint_allowed(route_category(route.protocol))
+        {
             continue;
         }
         let eligible = route
@@ -2823,7 +2830,8 @@ async fn proxy_request(
     let route = control_routes
         .as_ref()
         .and_then(|routes| routes.get(&model))
-        .or_else(|| state.routes.get(&model));
+        .or_else(|| state.routes.get(&model))
+        .filter(|route| policy.tenant_allowed(&route.tenant_id));
     if (route.is_none()
         && (control_routes_authoritative
             || !state.routes.is_empty()
@@ -2843,6 +2851,13 @@ async fn proxy_request(
     } else {
         None
     };
+    if route.is_none()
+        && live_provider
+            .as_ref()
+            .is_some_and(|provider| !policy.tenant_allowed(&provider.tenant_id))
+    {
+        return error(StatusCode::NOT_FOUND, "Unknown model route");
+    }
     if route.is_none() && !policy.provider_allowed(provider_id) {
         return error(StatusCode::FORBIDDEN, "Provider connection is not allowed");
     }

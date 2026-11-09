@@ -465,6 +465,14 @@ impl ClientPolicy {
             })
     }
 
+    pub(crate) fn tenant_allowed(&self, tenant_id: &str) -> bool {
+        self.identity
+            .as_ref()
+            .map_or(tenant_id == "red", |identity| {
+                identity.tenant_id.as_ref() == tenant_id
+            })
+    }
+
     pub(crate) fn identity(&self) -> Option<&ClientIdentity> {
         self.identity.as_ref()
     }

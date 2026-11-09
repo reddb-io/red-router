@@ -11,10 +11,12 @@ const SEED: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES
 const SET: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET upstream_url = $1";
 const CREATE_PROVIDERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_providers (id TEXT PRIMARY KEY, provider TEXT NOT NULL, upstream_url TEXT NOT NULL, credential_ciphertext TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, revision FROM redrouter_control_providers ORDER BY revision DESC, id ASC";
-const ACTIVE_PROVIDER: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, revision FROM redrouter_control_providers WHERE enabled = 1 ORDER BY revision DESC, id ASC LIMIT 1";
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
+const CREATE_PROVIDER_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_ownership (provider_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_OWNERSHIP: &str = "SELECT provider_id, tenant_id, revision FROM redrouter_control_provider_ownership ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_OWNERSHIP: &str = "INSERT INTO redrouter_control_provider_ownership (provider_id, tenant_id, revision) VALUES ($1,$2,$3) ON CONFLICT (provider_id) DO UPDATE SET tenant_id = $2, revision = $3";
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
@@ -42,6 +44,9 @@ const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabl
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
 const DISABLE_COMBO: &str =
     "UPDATE redrouter_control_combos SET enabled = 0, revision = $2 WHERE id = $1";
+const CREATE_COMBO_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combo_ownership (combo_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_COMBO_OWNERSHIP: &str = "SELECT combo_id, tenant_id, revision FROM redrouter_control_combo_ownership ORDER BY combo_id ASC";
+const UPSERT_COMBO_OWNERSHIP: &str = "INSERT INTO redrouter_control_combo_ownership (combo_id, tenant_id, revision) VALUES ($1,$2,$3) ON CONFLICT (combo_id) DO UPDATE SET tenant_id = $2, revision = $3";
 const CREATE_ROUTE_PINS: &str = "CREATE TABLE IF NOT EXISTS redrouter_route_pins (combo_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, model TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_ROUTE_PINS: &str =
     "SELECT combo_id, provider_id, model, revision FROM redrouter_route_pins ORDER BY combo_id ASC";
@@ -82,11 +87,19 @@ const UPSERT_MODEL_CATALOG: &str = "INSERT INTO redrouter_model_catalog_snapshot
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
     pub id: String,
+    pub tenant_id: String,
     pub provider: String,
     pub upstream_url: String,
     pub credential_ciphertext: String,
     pub enabled: bool,
     pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredProviderOwnership {
+    provider_id: String,
+    tenant_id: String,
+    revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,12 +176,20 @@ pub struct StoredIdentityBinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredCombo {
     pub id: String,
+    pub tenant_id: String,
     pub protocol: String,
     pub strategy: String,
     pub fallback: bool,
     pub targets_json: String,
     pub enabled: bool,
     pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredComboOwnership {
+    combo_id: String,
+    tenant_id: String,
+    revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -330,6 +351,7 @@ impl Database {
                     for statement in [
                         CREATE,
                         CREATE_PROVIDERS,
+                        CREATE_PROVIDER_OWNERSHIP,
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
@@ -337,6 +359,7 @@ impl Database {
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
                         CREATE_COMBOS,
+                        CREATE_COMBO_OWNERSHIP,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
@@ -429,6 +452,7 @@ impl Database {
                 let db = Self::Remote(tokio::sync::Mutex::new(Some(client)));
                 db.remote_schema_query(CREATE).await?;
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
+                db.remote_schema_query(CREATE_PROVIDER_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
@@ -437,6 +461,7 @@ impl Database {
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
+                db.remote_schema_query(CREATE_COMBO_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
@@ -471,6 +496,7 @@ impl Database {
                 for statement in [
                     CREATE,
                     CREATE_PROVIDERS,
+                    CREATE_PROVIDER_OWNERSHIP,
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
@@ -478,6 +504,7 @@ impl Database {
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
                     CREATE_COMBOS,
+                    CREATE_COMBO_OWNERSHIP,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
@@ -539,21 +566,21 @@ impl Database {
     }
 
     pub async fn providers(&self) -> Result<Vec<StoredProvider>, &'static str> {
-        match self {
+        let mut providers = match self {
             Self::Sql(pool) => sqlx::query(LIST_PROVIDERS)
                 .fetch_all(pool)
                 .await
                 .map_err(|_| "cannot read provider configuration")?
                 .iter()
                 .map(read_sql_provider)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             Self::Remote(_) => self
                 .remote_query(LIST_PROVIDERS, &[])
                 .await?
                 .rows
                 .iter()
                 .map(read_reddb_provider)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             #[cfg(feature = "reddb-embedded")]
             Self::Embedded { db, .. } => db
                 .query(LIST_PROVIDERS)
@@ -562,40 +589,34 @@ impl Database {
                 .rows
                 .iter()
                 .map(read_reddb_provider)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        let ownership = self.provider_ownership().await?;
+        for provider in &mut providers {
+            if let Some(owner) = ownership
+                .iter()
+                .find(|owner| owner.provider_id == provider.id)
+            {
+                if owner.revision != provider.updated_at {
+                    return Err("provider ownership revision mismatch");
+                }
+                provider.tenant_id.clone_from(&owner.tenant_id);
+            }
         }
+        Ok(providers)
     }
 
     pub async fn active_provider(&self) -> Result<Option<StoredProvider>, &'static str> {
-        match self {
-            Self::Sql(pool) => sqlx::query(ACTIVE_PROVIDER)
-                .fetch_optional(pool)
-                .await
-                .map_err(|_| "cannot read active provider")?
-                .as_ref()
-                .map(read_sql_provider)
-                .transpose(),
-            Self::Remote(_) => self
-                .remote_query(ACTIVE_PROVIDER, &[])
-                .await?
-                .rows
-                .first()
-                .map(read_reddb_provider)
-                .transpose(),
-            #[cfg(feature = "reddb-embedded")]
-            Self::Embedded { db, .. } => db
-                .query(ACTIVE_PROVIDER)
-                .await
-                .map_err(|_| "cannot read active provider")?
-                .rows
-                .first()
-                .map(read_reddb_provider)
-                .transpose(),
-        }
+        Ok(self
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.enabled))
     }
 
     pub async fn upsert_provider(&self, provider: &StoredProvider) -> Result<(), &'static str> {
         let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
+        self.upsert_provider_ownership(provider).await?;
         match self {
             Self::Sql(pool) => {
                 sqlx::query(UPSERT_PROVIDER)
@@ -624,6 +645,17 @@ impl Database {
     }
 
     pub async fn disable_provider(&self, id: &str, updated_at: i64) -> Result<(), &'static str> {
+        let provider = self
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider configuration not found")?;
+        self.upsert_provider_ownership(&StoredProvider {
+            updated_at,
+            ..provider
+        })
+        .await?;
         match self {
             Self::Sql(pool) => {
                 sqlx::query(DISABLE_PROVIDER)
@@ -654,6 +686,68 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot disable provider")?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn provider_ownership(&self) -> Result<Vec<StoredProviderOwnership>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_OWNERSHIP)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider ownership")?
+                .iter()
+                .map(read_sql_provider_ownership)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_OWNERSHIP, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_ownership)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_OWNERSHIP)
+                .await
+                .map_err(|_| "cannot read provider ownership")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_ownership)
+                .collect(),
+        }
+    }
+
+    async fn upsert_provider_ownership(
+        &self,
+        provider: &StoredProvider,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_OWNERSHIP)
+                    .bind(&provider.id)
+                    .bind(&provider.tenant_id)
+                    .bind(provider.updated_at)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider ownership")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_PROVIDER_OWNERSHIP,
+                    &provider_ownership_params(provider),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_PROVIDER_OWNERSHIP,
+                    provider_ownership_params(provider),
+                )
+                .await
+                .map_err(|_| "cannot write provider ownership")?;
             }
         }
         Ok(())
@@ -1101,21 +1195,21 @@ impl Database {
     }
 
     pub async fn combos(&self) -> Result<Vec<StoredCombo>, &'static str> {
-        match self {
+        let mut combos = match self {
             Self::Sql(pool) => sqlx::query(LIST_COMBOS)
                 .fetch_all(pool)
                 .await
                 .map_err(|_| "cannot read combo configuration")?
                 .iter()
                 .map(read_sql_combo)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             Self::Remote(_) => self
                 .remote_query(LIST_COMBOS, &[])
                 .await?
                 .rows
                 .iter()
                 .map(read_reddb_combo)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             #[cfg(feature = "reddb-embedded")]
             Self::Embedded { db, .. } => db
                 .query(LIST_COMBOS)
@@ -1124,13 +1218,24 @@ impl Database {
                 .rows
                 .iter()
                 .map(read_reddb_combo)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        let ownership = self.combo_ownership().await?;
+        for combo in &mut combos {
+            if let Some(owner) = ownership.iter().find(|owner| owner.combo_id == combo.id) {
+                if owner.revision != combo.revision {
+                    return Err("combo ownership revision mismatch");
+                }
+                combo.tenant_id.clone_from(&owner.tenant_id);
+            }
         }
+        Ok(combos)
     }
 
     pub async fn upsert_combo(&self, combo: &StoredCombo) -> Result<(), &'static str> {
         let fallback = if combo.fallback { 1_i64 } else { 0_i64 };
         let enabled = if combo.enabled { 1_i64 } else { 0_i64 };
+        self.upsert_combo_ownership(combo).await?;
         match self {
             Self::Sql(pool) => {
                 sqlx::query(UPSERT_COMBO)
@@ -1160,6 +1265,14 @@ impl Database {
     }
 
     pub async fn disable_combo(&self, id: &str, revision: i64) -> Result<(), &'static str> {
+        let combo = self
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == id)
+            .ok_or("combo configuration not found")?;
+        self.upsert_combo_ownership(&StoredCombo { revision, ..combo })
+            .await?;
         match self {
             Self::Sql(pool) => {
                 sqlx::query(DISABLE_COMBO)
@@ -1190,6 +1303,59 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot disable combo")?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn combo_ownership(&self) -> Result<Vec<StoredComboOwnership>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_COMBO_OWNERSHIP)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read combo ownership")?
+                .iter()
+                .map(read_sql_combo_ownership)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_COMBO_OWNERSHIP, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_combo_ownership)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_COMBO_OWNERSHIP)
+                .await
+                .map_err(|_| "cannot read combo ownership")?
+                .rows
+                .iter()
+                .map(read_reddb_combo_ownership)
+                .collect(),
+        }
+    }
+
+    async fn upsert_combo_ownership(&self, combo: &StoredCombo) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_COMBO_OWNERSHIP)
+                    .bind(&combo.id)
+                    .bind(&combo.tenant_id)
+                    .bind(combo.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write combo ownership")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_COMBO_OWNERSHIP, &combo_ownership_params(combo))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_COMBO_OWNERSHIP, combo_ownership_params(combo))
+                    .await
+                    .map_err(|_| "cannot write combo ownership")?;
             }
         }
         Ok(())
@@ -2022,6 +2188,7 @@ fn read_reddb_row(result: &reddb_client::QueryResult) -> Result<Option<String>, 
 fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static str> {
     Ok(StoredProvider {
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
+        tenant_id: "red".to_owned(),
         provider: row
             .try_get("provider")
             .map_err(|_| "invalid provider record")?,
@@ -2058,12 +2225,61 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
     };
     Ok(StoredProvider {
         id: text("id")?,
+        tenant_id: "red".to_owned(),
         provider: text("provider")?,
         upstream_url: text("upstream_url")?,
         credential_ciphertext: text("credential_ciphertext")?,
         enabled: integer("enabled")? == 1,
         updated_at: integer("revision")?,
     })
+}
+
+fn read_sql_provider_ownership(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredProviderOwnership, &'static str> {
+    Ok(StoredProviderOwnership {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider ownership")?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|_| "invalid provider ownership")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider ownership")?,
+    })
+}
+
+fn read_reddb_provider_ownership(
+    row: &reddb_client::Row,
+) -> Result<StoredProviderOwnership, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider ownership"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider ownership"),
+    }?;
+    Ok(StoredProviderOwnership {
+        provider_id: text("provider_id")?,
+        tenant_id: text("tenant_id")?,
+        revision,
+    })
+}
+
+fn provider_ownership_params(provider: &StoredProvider) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(provider.id.clone()),
+        reddb_client::Value::Text(provider.tenant_id.clone()),
+        reddb_client::Value::Int(provider.updated_at),
+    ]
 }
 
 fn provider_params(provider: &StoredProvider, enabled: i64) -> Vec<reddb_client::Value> {
@@ -2448,6 +2664,7 @@ fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> 
     let integer = |name| row.try_get(name).map_err(|_| "invalid combo record");
     Ok(StoredCombo {
         id: text("id")?,
+        tenant_id: "red".to_owned(),
         protocol: text("protocol")?,
         strategy: text("routing_strategy")?,
         fallback: integer("fallback_enabled")? == 1,
@@ -2474,6 +2691,7 @@ fn read_reddb_combo(row: &reddb_client::Row) -> Result<StoredCombo, &'static str
     };
     Ok(StoredCombo {
         id: text("id")?,
+        tenant_id: "red".to_owned(),
         protocol: text("protocol")?,
         strategy: text("routing_strategy")?,
         fallback: integer("fallback_enabled")? == 1,
@@ -2481,6 +2699,52 @@ fn read_reddb_combo(row: &reddb_client::Row) -> Result<StoredCombo, &'static str
         enabled: integer("enabled")? == 1,
         revision: integer("revision")?,
     })
+}
+
+fn read_sql_combo_ownership(row: &sqlx::any::AnyRow) -> Result<StoredComboOwnership, &'static str> {
+    Ok(StoredComboOwnership {
+        combo_id: row
+            .try_get("combo_id")
+            .map_err(|_| "invalid combo ownership")?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|_| "invalid combo ownership")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid combo ownership")?,
+    })
+}
+
+fn read_reddb_combo_ownership(
+    row: &reddb_client::Row,
+) -> Result<StoredComboOwnership, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid combo ownership"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid combo ownership"),
+    }?;
+    Ok(StoredComboOwnership {
+        combo_id: text("combo_id")?,
+        tenant_id: text("tenant_id")?,
+        revision,
+    })
+}
+
+fn combo_ownership_params(combo: &StoredCombo) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(combo.id.clone()),
+        reddb_client::Value::Text(combo.tenant_id.clone()),
+        reddb_client::Value::Int(combo.revision),
+    ]
 }
 
 fn combo_params(combo: &StoredCombo, fallback: i64, enabled: i64) -> Vec<reddb_client::Value> {

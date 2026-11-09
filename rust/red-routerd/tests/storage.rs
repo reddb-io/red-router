@@ -54,6 +54,7 @@ async fn exercise(backend: Backend, url: &str) {
         .unwrap();
     let first = StoredProvider {
         id: "first".into(),
+        tenant_id: "red".into(),
         provider: "openai".into(),
         upstream_url: "https://first.example/v1/chat/completions".into(),
         credential_ciphertext: "encrypted-first".into(),
@@ -62,6 +63,7 @@ async fn exercise(backend: Backend, url: &str) {
     };
     let mut second = StoredProvider {
         id: "second".into(),
+        tenant_id: "red".into(),
         provider: "openrouter".into(),
         upstream_url: "https://second.example/v1/chat/completions".into(),
         credential_ciphertext: "encrypted-second".into(),
@@ -114,6 +116,7 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(db.client_keys().await.unwrap(), vec![revoked_key.clone()]);
     let combo = StoredCombo {
         id: "agent-combo".into(),
+        tenant_id: "red".into(),
         protocol: "openai".into(),
         strategy: "priority".into(),
         fallback: true,
