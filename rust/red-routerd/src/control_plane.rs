@@ -29,6 +29,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -53,6 +54,18 @@ const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const SQLITE_CONTROL_MARKER: &str = "SELECT kind, record_id, revision, generation FROM (
+SELECT 'provider' AS kind, id AS record_id, revision, 0 AS generation FROM redrouter_control_providers
+UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_control_provider_ownership
+UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_provider_auth
+UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
+UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
+UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
+UNION ALL SELECT 'combo-ownership', combo_id, revision, 0 FROM redrouter_control_combo_ownership
+UNION ALL SELECT 'route-pin', combo_id, revision, 0 FROM redrouter_route_pins
+UNION ALL SELECT 'oidc', CAST(id AS TEXT), revision, 0 FROM redrouter_control_oidc
+UNION ALL SELECT 'oidc-browser', CAST(id AS TEXT), revision, 0 FROM redrouter_control_oidc_browser
+) marker ORDER BY kind, record_id";
 
 struct Inner {
     database: Arc<crate::storage::Database>,
@@ -64,6 +77,7 @@ struct Inner {
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
+    sqlite_changes: Option<tokio::sync::Mutex<SqliteChangeWatcher>>,
     provider_snapshot_signature: RwLock<[u8; 32]>,
     oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
@@ -91,6 +105,76 @@ struct OAuthRefreshRuntime {
     cadence: Duration,
     snapshot_cadence: Duration,
     config: OAuthRefreshConfig,
+}
+
+struct SqliteChangeWatcher {
+    connection: sqlx::pool::PoolConnection<sqlx::Any>,
+    version: i64,
+    control_marker: [u8; 32],
+}
+
+impl SqliteChangeWatcher {
+    async fn new(pool: &sqlx::AnyPool) -> Result<Self, &'static str> {
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|_| "cannot initialize control snapshot watcher")?;
+        let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|_| "cannot initialize control snapshot watcher")?;
+        let control_marker = sqlite_control_marker(&mut connection).await?;
+        Ok(Self {
+            connection,
+            version,
+            control_marker,
+        })
+    }
+
+    async fn changed(&mut self) -> Result<bool, &'static str> {
+        let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(|_| "control snapshot watcher unavailable")?;
+        if version == self.version {
+            return Ok(false);
+        }
+        self.version = version;
+        let control_marker = sqlite_control_marker(&mut self.connection).await?;
+        let changed = control_marker != self.control_marker;
+        self.control_marker = control_marker;
+        Ok(changed)
+    }
+}
+
+async fn sqlite_control_marker(
+    connection: &mut sqlx::pool::PoolConnection<sqlx::Any>,
+) -> Result<[u8; 32], &'static str> {
+    let rows = sqlx::query(SQLITE_CONTROL_MARKER)
+        .fetch_all(&mut **connection)
+        .await
+        .map_err(|_| "control snapshot watcher unavailable")?;
+    let mut digest = Sha256::new();
+    signature_text(&mut digest, "redrouter-sqlite-control-marker-v1");
+    for row in rows {
+        let kind: String = row
+            .try_get("kind")
+            .map_err(|_| "invalid control snapshot marker")?;
+        let record_id: String = row
+            .try_get("record_id")
+            .map_err(|_| "invalid control snapshot marker")?;
+        let revision: i64 = row
+            .try_get("revision")
+            .map_err(|_| "invalid control snapshot marker")?;
+        let generation: i64 = row
+            .try_get("generation")
+            .map_err(|_| "invalid control snapshot marker")?;
+        signature_text(&mut digest, &kind);
+        signature_text(&mut digest, &record_id);
+        signature_i64(&mut digest, revision);
+        signature_i64(&mut digest, generation);
+    }
+    Ok(digest.finalize().into())
 }
 
 struct OAuthTokenPair {
@@ -941,6 +1025,18 @@ impl ControlPlane {
             .build()
             .map_err(|_| "cannot initialize OAuth refresh client")?;
         let sqlite = database.is_sqlite().await;
+        let sqlite_changes = if sqlite {
+            Some(tokio::sync::Mutex::new(
+                SqliteChangeWatcher::new(
+                    database
+                        .sql_pool()
+                        .ok_or("cannot initialize control snapshot watcher")?,
+                )
+                .await?,
+            ))
+        } else {
+            None
+        };
         let native_usage = if sqlite {
             Some(crate::native_usage::NativeUsage::new(database.clone())?)
         } else {
@@ -956,6 +1052,7 @@ impl ControlPlane {
             availability: RwLock::new(availability),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
+            sqlite_changes,
             provider_snapshot_signature: RwLock::new([0; 32]),
             oidc_snapshot_signature: RwLock::new([0; 32]),
             catalog: RwLock::new(CatalogState {
@@ -1034,10 +1131,27 @@ impl ControlPlane {
                     return;
                 };
                 let plane = ControlPlane(inner);
+                match plane.control_snapshot_changed().await {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(_) => {
+                        *plane.0.current.write().await = None;
+                        *plane.0.routes.write().await = RouteSnapshot::Unavailable;
+                        plane.clear_oidc_runtime().await;
+                        continue;
+                    }
+                }
                 plane.sync_provider_snapshot().await;
                 plane.sync_oidc_snapshot().await;
             }
         });
+    }
+
+    async fn control_snapshot_changed(&self) -> Result<bool, &'static str> {
+        match &self.0.sqlite_changes {
+            Some(watcher) => watcher.lock().await.changed().await,
+            None => Ok(true),
+        }
     }
 
     async fn sync_provider_snapshot(&self) {

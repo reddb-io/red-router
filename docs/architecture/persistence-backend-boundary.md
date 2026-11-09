@@ -18,6 +18,8 @@ Provider, combo, rotated OAuth credential and OIDC policy snapshots are fingerpr
 converge across Rust replicas without continuously rebuilding upstream HTTP clients. OIDC
 storage or validation failure removes the verifier from that replica while the bootstrap
 administrator remains available for recovery.
+SQLite replicas use a dedicated `PRAGMA data_version` watcher and a compact control-row marker,
+so ordinary inference/accounting writes do not trigger full configuration table scans.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.
