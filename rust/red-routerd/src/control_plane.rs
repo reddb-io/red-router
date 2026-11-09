@@ -233,6 +233,14 @@ struct AuthenticatedActor {
     subjects: Vec<String>,
 }
 
+struct AuditContext<'a> {
+    action: &'a str,
+    actor: &'a str,
+    tenant_id: &'a str,
+    target: &'a str,
+    resource_type: &'a str,
+}
+
 impl AuthenticatedActor {
     fn bound(subject: String) -> Self {
         Self {
@@ -3027,15 +3035,17 @@ impl ControlPlane {
         self.0.database.upsert_client_key(&record).await?;
         let after = client_view(&record)?;
         self.record_audit_event(
-            if before.is_some() {
-                "client_key.update"
-            } else {
-                "client_key.create"
+            AuditContext {
+                action: if before.is_some() {
+                    "client_key.update"
+                } else {
+                    "client_key.create"
+                },
+                actor,
+                tenant_id: &record.tenant_id,
+                target: id,
+                resource_type: "client_key",
             },
-            actor,
-            &record.tenant_id,
-            id,
-            "client_key",
             before.as_ref(),
             Some(&after),
         )
@@ -3119,15 +3129,17 @@ impl ControlPlane {
         self.0.database.upsert_tenant(&record).await?;
         let after = tenant_view(&record);
         self.record_audit_event(
-            if before.is_some() {
-                "tenant.update"
-            } else {
-                "tenant.create"
+            AuditContext {
+                action: if before.is_some() {
+                    "tenant.update"
+                } else {
+                    "tenant.create"
+                },
+                actor,
+                tenant_id: &record.id,
+                target: id,
+                resource_type: "tenant",
             },
-            actor,
-            &record.id,
-            id,
-            "tenant",
             before.as_ref(),
             Some(&after),
         )
@@ -3205,15 +3217,17 @@ impl ControlPlane {
         self.0.database.upsert_identity_binding(&record).await?;
         let after = identity_binding_view(&record);
         self.record_audit_event(
-            if before.is_some() {
-                "identity_binding.update"
-            } else {
-                "identity_binding.create"
+            AuditContext {
+                action: if before.is_some() {
+                    "identity_binding.update"
+                } else {
+                    "identity_binding.create"
+                },
+                actor,
+                tenant_id: &record.tenant_id,
+                target: id,
+                resource_type: "identity_binding",
             },
-            actor,
-            &record.tenant_id,
-            id,
-            "identity_binding",
             before.as_ref(),
             Some(&after),
         )
@@ -3240,11 +3254,13 @@ impl ControlPlane {
         let before = identity_binding_view(&binding);
         self.0.database.delete_identity_binding(id).await?;
         self.record_audit_event(
-            "identity_binding.delete",
-            actor,
-            &binding.tenant_id,
-            id,
-            "identity_binding",
+            AuditContext {
+                action: "identity_binding.delete",
+                actor,
+                tenant_id: &binding.tenant_id,
+                target: id,
+                resource_type: "identity_binding",
+            },
             Some(&before),
             Option::<&IdentityBindingView>::None,
         )
@@ -3287,11 +3303,13 @@ impl ControlPlane {
         revoked.revision = revoked_revision;
         let after = client_view(&revoked)?;
         self.record_audit_event(
-            "client_key.revoke",
-            actor,
-            &revoked.tenant_id,
-            id,
-            "client_key",
+            AuditContext {
+                action: "client_key.revoke",
+                actor,
+                tenant_id: &revoked.tenant_id,
+                target: id,
+                resource_type: "client_key",
+            },
             Some(&before),
             Some(&after),
         )
@@ -3305,11 +3323,7 @@ impl ControlPlane {
 
     async fn record_audit_event<T: Serialize>(
         &self,
-        action: &str,
-        actor: &str,
-        tenant_id: &str,
-        target: &str,
-        resource_type: &str,
+        context: AuditContext<'_>,
         before: Option<&T>,
         after: Option<&T>,
     ) {
@@ -3344,11 +3358,11 @@ impl ControlPlane {
         let event = StoredAuditEvent {
             id: format!("audit-{request_id}"),
             created_at_unix_ms,
-            action: action.to_owned(),
-            actor: actor.to_owned(),
-            tenant_id: tenant_id.to_owned(),
-            target: target.to_owned(),
-            resource_type: resource_type.to_owned(),
+            action: context.action.to_owned(),
+            actor: context.actor.to_owned(),
+            tenant_id: context.tenant_id.to_owned(),
+            target: context.target.to_owned(),
+            resource_type: context.resource_type.to_owned(),
             status: "success".to_owned(),
             request_id,
             details_json,
