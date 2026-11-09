@@ -4325,12 +4325,13 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
     assert_eq!(response.status(), StatusCode::OK);
     let response: serde_json::Value =
         serde_json::from_str(&response.text().await.unwrap()).unwrap();
-    assert_eq!(response["auth_scheme"], "bearer");
-    assert_eq!(response["label"], "Claude team account");
-    assert_eq!(response["account_email"], "agents@example.com");
-    assert_eq!(response["expires_at_unix"], expiry);
-    assert_eq!(response["credential_expired"], false);
-    assert!(response.get("api_key").is_none());
+    let provider = &response["provider"];
+    assert_eq!(provider["auth_scheme"], "bearer");
+    assert_eq!(provider["label"], "Claude team account");
+    assert_eq!(provider["account_email"], "agents@example.com");
+    assert_eq!(provider["expires_at_unix"], expiry);
+    assert_eq!(provider["credential_expired"], false);
+    assert!(provider.get("api_key").is_none());
 
     let inference = client
         .post(format!("{base}/v1/messages"))
