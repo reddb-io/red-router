@@ -54,7 +54,9 @@ provider; subsequent provider changes do not require those environment secrets.
 
 - `GET /api/admin/providers` lists redacted provider metadata.
 - `PUT /api/admin/providers/{id}` accepts `provider`, `upstream_url`, `api_key`
-  and optional `enabled` and `rate_limit_scope` (`auto`, `connection` or `model`).
+  and optional `tenant_id`, `enabled` and `rate_limit_scope` (`auto`, `connection`
+  or `model`). New records default to tenant `red`; ownership is immutable after
+  creation and is returned as redacted provider metadata.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `GET /api/admin/tenants` lists the Rust-owned organizations. A fresh store contains
@@ -113,7 +115,8 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   persists then publishes one last-good snapshot. A 304 or failed refresh never replaces it;
   other Rust replicas observe the lightweight durable revision and publish the same validated
   generation without putting the catalog row on the inference path.
-- `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
+- `PUT /api/admin/combos/{id}` creates or replaces a combo with optional immutable
+  `tenant_id` (default `red`) and `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
   `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized`,
@@ -131,6 +134,13 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   largest context window first. These optional target fields are stored in the
   combo JSON and returned by the admin API, so strategy changes and restarts do
   not lose their metadata.
+
+Provider and combo ownership is revision-coupled in the selected Rust database. A
+partially committed ownership update makes the control-plane snapshot unavailable
+instead of publishing ambiguous state. A combo may reference only enabled providers
+owned by the same tenant. Durable client keys discover and execute only routes owned by
+their own tenant, even when their model/provider grant lists are otherwise unrestricted;
+legacy environment keys are confined to tenant `red`.
 - `DELETE /api/admin/combos/{id}` disables the combo.
 - `DELETE /api/admin/combos/{id}/lkgp` clears one learned last-known-good target.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,

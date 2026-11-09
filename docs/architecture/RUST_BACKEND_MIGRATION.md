@@ -44,9 +44,9 @@ features must not be implemented only there.
 
 | Slice                       | Rust authority         | Acceptance                                                                         |
 | --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
-| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
+| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
-| Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
+| Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and streaming settlement; budgets, schedules and non-SQLite stores remain |
 | Usage and audit             | SQLite foundation      | Rust-owned chat/SSE ledger and counters; reporting APIs, retention/export and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
@@ -88,6 +88,13 @@ the durable authority before swapping the runtime target. Concurrent admin write
 converge on the enabled record with the greatest revision; disabling it selects the next
 most recent enabled record. If no provider remains, `/readyz` and inference fail closed
 while `/healthz` and the authenticated admin API remain available for repair.
+
+Provider ownership is stored in a revision-coupled sidecar so existing records remain
+compatible as tenant `red` while new providers can belong to any enabled Rust-owned
+tenant. Combo ownership uses the same fail-closed contract. A combo cannot reference a
+provider from another tenant, and an authenticated client key can neither discover nor
+execute a route outside its own tenant. Provider/combo IDs remain globally unique; no
+external RedDB database identifier is stored or inferred.
 
 This slice deliberately does not claim complete backend parity. Its purpose is to
 establish the production ownership boundary that subsequent domains extend.
