@@ -1,6 +1,7 @@
 //! RedRouter's Rust proxy and production-backend migration target.
 pub mod accounting;
 mod anthropic_stream;
+pub mod audit_export;
 mod availability;
 pub mod catalog;
 mod circuit;

@@ -57,6 +57,11 @@ const INSERT_AUDIT_EVENT: &str = "INSERT INTO redrouter_control_audit_events (id
 const CREATE_AUDIT_OUTBOX: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_audit_outbox (event_id TEXT PRIMARY KEY, created_at_unix_ms BIGINT NOT NULL, tenant_id TEXT NOT NULL, topic TEXT NOT NULL, schema_version BIGINT NOT NULL, payload_json TEXT NOT NULL)";
 const CREATE_AUDIT_OUTBOX_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_audit_outbox_order ON redrouter_control_audit_outbox (created_at_unix_ms, event_id)";
 const INSERT_AUDIT_OUTBOX: &str = "INSERT INTO redrouter_control_audit_outbox (event_id, created_at_unix_ms, tenant_id, topic, schema_version, payload_json) VALUES ($1,$2,$3,$4,$5,$6)";
+const CREATE_AUDIT_SINK_CURSORS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_audit_sink_cursors (sink_id TEXT PRIMARY KEY, cursor_created_at_unix_ms BIGINT NOT NULL, cursor_event_id TEXT NOT NULL, lease_owner TEXT NOT NULL, lease_until_unix_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const READ_AUDIT_SINK_CURSOR: &str = "SELECT sink_id, cursor_created_at_unix_ms, cursor_event_id, lease_owner, lease_until_unix_ms, revision FROM redrouter_control_audit_sink_cursors WHERE sink_id = $1";
+const ACQUIRE_AUDIT_SINK_LEASE: &str = "INSERT INTO redrouter_control_audit_sink_cursors (sink_id, cursor_created_at_unix_ms, cursor_event_id, lease_owner, lease_until_unix_ms, revision) VALUES ($1,0,'',$2,$3,$4) ON CONFLICT (sink_id) DO UPDATE SET lease_owner = $2, lease_until_unix_ms = $3, revision = $4 WHERE redrouter_control_audit_sink_cursors.lease_until_unix_ms <= $4 OR redrouter_control_audit_sink_cursors.lease_owner = $2";
+const ADVANCE_AUDIT_SINK_CURSOR: &str = "UPDATE redrouter_control_audit_sink_cursors SET cursor_created_at_unix_ms = $3, cursor_event_id = $4, revision = $5 WHERE sink_id = $1 AND lease_owner = $2 AND lease_until_unix_ms > $5 AND (cursor_created_at_unix_ms < $3 OR (cursor_created_at_unix_ms = $3 AND cursor_event_id < $4))";
+const RELEASE_AUDIT_SINK_LEASE: &str = "UPDATE redrouter_control_audit_sink_cursors SET lease_owner = '', lease_until_unix_ms = 0, revision = $3 WHERE sink_id = $1 AND lease_owner = $2";
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
@@ -259,6 +264,16 @@ pub struct StoredAuditOutboxEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredAuditSinkCursor {
+    pub sink_id: String,
+    pub cursor_created_at_unix_ms: i64,
+    pub cursor_event_id: String,
+    pub lease_owner: String,
+    pub lease_until_unix_ms: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredCombo {
     pub id: String,
     pub tenant_id: String,
@@ -390,6 +405,10 @@ pub enum Database {
 }
 
 impl Database {
+    pub fn supports_audit_sink_leases(&self) -> bool {
+        matches!(self, Self::Sql(_))
+    }
+
     /// URL is kept private: errors never include driver messages or credentials.
     pub async fn connect(backend: Backend, url: &str) -> Result<Self, &'static str> {
         match backend {
@@ -450,6 +469,7 @@ impl Database {
                         CREATE_AUDIT_TENANT_TIME_INDEX,
                         CREATE_AUDIT_OUTBOX,
                         CREATE_AUDIT_OUTBOX_ORDER_INDEX,
+                        CREATE_AUDIT_SINK_CURSORS,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
                         CREATE_COMBOS,
@@ -563,6 +583,7 @@ impl Database {
                 db.remote_schema_query(CREATE_AUDIT_OUTBOX).await?;
                 db.remote_schema_query(CREATE_AUDIT_OUTBOX_ORDER_INDEX)
                     .await?;
+                db.remote_schema_query(CREATE_AUDIT_SINK_CURSORS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
@@ -615,6 +636,7 @@ impl Database {
                     CREATE_AUDIT_TENANT_TIME_INDEX,
                     CREATE_AUDIT_OUTBOX,
                     CREATE_AUDIT_OUTBOX_ORDER_INDEX,
+                    CREATE_AUDIT_SINK_CURSORS,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
                     CREATE_COMBOS,
@@ -1607,6 +1629,104 @@ impl Database {
                 ))
             }
         }
+    }
+
+    pub async fn audit_sink_cursor(
+        &self,
+        sink_id: &str,
+    ) -> Result<Option<StoredAuditSinkCursor>, &'static str> {
+        let params = vec![reddb_client::Value::Text(sink_id.to_owned())];
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_AUDIT_SINK_CURSOR)
+                .bind(sink_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read audit sink cursor")?
+                .as_ref()
+                .map(read_sql_audit_sink_cursor)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_AUDIT_SINK_CURSOR, &params)
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_audit_sink_cursor)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query_with(READ_AUDIT_SINK_CURSOR, params)
+                .await
+                .map_err(|_| "cannot read audit sink cursor")?
+                .rows
+                .first()
+                .map(read_reddb_audit_sink_cursor)
+                .transpose(),
+        }
+    }
+
+    pub async fn acquire_audit_sink_lease(
+        &self,
+        sink_id: &str,
+        owner: &str,
+        now_unix_ms: i64,
+        lease_until_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        let Self::Sql(pool) = self else {
+            return Err("audit sink leases require SQLite or PostgreSQL");
+        };
+        let result = sqlx::query(ACQUIRE_AUDIT_SINK_LEASE)
+            .bind(sink_id)
+            .bind(owner)
+            .bind(lease_until_unix_ms)
+            .bind(now_unix_ms)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot acquire audit sink lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn advance_audit_sink_cursor(
+        &self,
+        sink_id: &str,
+        owner: &str,
+        event: &StoredAuditOutboxEvent,
+        now_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let Self::Sql(pool) = self else {
+            return Err("audit sink cursors require SQLite or PostgreSQL");
+        };
+        let result = sqlx::query(ADVANCE_AUDIT_SINK_CURSOR)
+            .bind(sink_id)
+            .bind(owner)
+            .bind(event.created_at_unix_ms)
+            .bind(&event.event_id)
+            .bind(now_unix_ms)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot advance audit sink cursor")?;
+        if result.rows_affected() != 1 {
+            return Err("audit sink lease lost");
+        }
+        Ok(())
+    }
+
+    pub async fn release_audit_sink_lease(
+        &self,
+        sink_id: &str,
+        owner: &str,
+        now_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let Self::Sql(pool) = self else {
+            return Err("audit sink leases require SQLite or PostgreSQL");
+        };
+        sqlx::query(RELEASE_AUDIT_SINK_LEASE)
+            .bind(sink_id)
+            .bind(owner)
+            .bind(now_unix_ms)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot release audit sink lease")?;
+        Ok(())
     }
 
     pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
@@ -3744,6 +3864,48 @@ fn merge_audit_outbox_rows(
     });
     events.truncate(limit);
     events
+}
+
+fn read_sql_audit_sink_cursor(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredAuditSinkCursor, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid audit sink cursor");
+    let integer = |name| row.try_get(name).map_err(|_| "invalid audit sink cursor");
+    Ok(StoredAuditSinkCursor {
+        sink_id: text("sink_id")?,
+        cursor_created_at_unix_ms: integer("cursor_created_at_unix_ms")?,
+        cursor_event_id: text("cursor_event_id")?,
+        lease_owner: text("lease_owner")?,
+        lease_until_unix_ms: integer("lease_until_unix_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_audit_sink_cursor(
+    row: &reddb_client::Row,
+) -> Result<StoredAuditSinkCursor, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid audit sink cursor"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid audit sink cursor"),
+    };
+    Ok(StoredAuditSinkCursor {
+        sink_id: text("sink_id")?,
+        cursor_created_at_unix_ms: integer("cursor_created_at_unix_ms")?,
+        cursor_event_id: text("cursor_event_id")?,
+        lease_owner: text("lease_owner")?,
+        lease_until_unix_ms: integer("lease_until_unix_ms")?,
+        revision: integer("revision")?,
+    })
 }
 
 fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> {

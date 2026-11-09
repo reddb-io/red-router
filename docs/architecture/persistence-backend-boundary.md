@@ -32,9 +32,12 @@ an operational event rather than an administrative writer. MCP, A2A and automati
 writers remain migration work. SQL-backed audit publication now atomically appends both the query
 view and a versioned `redrouter.audit.v1` envelope to an ordered outbox journal. Independent sink
 cursors allow the same journal to feed BigQuery, SQS or another exporter without coupling the
-write path to an external service. Business-mutation/outbox atomicity, equivalent RedDB
-transactions and the Rust sink relay are still migration work; until those land, the journal
-closes the audit-to-export gap but not the earlier mutation-to-audit gap.
+write path to an external service. The first Rust relay uses a SQL-backed monotonic cursor and
+lease to export bounded, idempotent batches to an existing BigQuery table; a failed or partially
+rejected batch leaves the cursor unchanged. Business-mutation/outbox atomicity, equivalent RedDB
+transactions, automatic BigQuery schema provisioning and dashboard-owned encrypted sink
+configuration remain migration work. Until those land, the journal closes the audit-to-export
+gap but not the earlier mutation-to-audit gap.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

@@ -568,6 +568,52 @@ async fn sqlite_rolls_back_audit_when_the_outbox_append_fails() {
     db.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn sqlite_audit_sink_lease_serializes_cursor_progress() {
+    let temp = TempDir::new().unwrap();
+    let file = Url::from_file_path(temp.path().join("audit-sink.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let audit = StoredAuditEvent {
+        id: "audit-export".into(),
+        created_at_unix_ms: 1_700_000_000_000,
+        action: "tenant.update".into(),
+        actor: "bootstrap-admin".into(),
+        tenant_id: "red".into(),
+        target: "red".into(),
+        resource_type: "tenant".into(),
+        status: "success".into(),
+        request_id: "request-export".into(),
+        details_json: r#"{"before":null,"after":{"enabled":true}}"#.into(),
+    };
+    db.insert_audit_event(&audit).await.unwrap();
+    let event = db.audit_outbox_events(0, "", 1).await.unwrap().remove(0);
+    assert!(db
+        .acquire_audit_sink_lease("bigquery", "owner-a", 100, 1_000)
+        .await
+        .unwrap());
+    assert!(!db
+        .acquire_audit_sink_lease("bigquery", "owner-b", 200, 1_200)
+        .await
+        .unwrap());
+    db.advance_audit_sink_cursor("bigquery", "owner-a", &event, 300)
+        .await
+        .unwrap();
+    db.release_audit_sink_lease("bigquery", "owner-a", 400)
+        .await
+        .unwrap();
+    let cursor = db.audit_sink_cursor("bigquery").await.unwrap().unwrap();
+    assert_eq!(cursor.cursor_created_at_unix_ms, event.created_at_unix_ms);
+    assert_eq!(cursor.cursor_event_id, event.event_id);
+    assert_eq!(cursor.lease_owner, "");
+    assert_eq!(cursor.lease_until_unix_ms, 0);
+    assert!(db
+        .acquire_audit_sink_lease("bigquery", "owner-b", 500, 1_500)
+        .await
+        .unwrap());
+    db.close().await.unwrap();
+}
+
 #[cfg(feature = "reddb-embedded")]
 #[tokio::test]
 async fn embedded_reddb_configuration_survives_restart() {

@@ -671,6 +671,7 @@ async fn run(
         println!("Upstream configuration saved; restart the proxy to apply it");
         return Ok(());
     }
+    red_routerd::audit_export::spawn_from_env(&db)?;
     if let Some(admin_key) = admin_key {
         let admin_key = zeroize::Zeroizing::new(admin_key);
         let encryption_key = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);

@@ -116,8 +116,21 @@ those environment secrets.
   appends a versioned `redrouter.audit.v1` envelope to `redrouter_control_audit_outbox` in the
   same transaction. The ordered `(created_at_unix_ms, event_id)` cursor is sink-independent, so
   BigQuery, SQS or other exporters can advance independently. Coupling each business mutation
-  itself to that transaction, implementing equivalent RedDB atomicity and porting the existing
-  TypeScript BigQuery exporter remain the next delivery stages.
+  itself to that transaction and implementing equivalent RedDB atomicity remain delivery work.
+  The first Rust relay targets an existing BigQuery table from the outbox in bounded batches.
+  SQL-backed sink leases prevent replicas from draining the same cursor concurrently, failures do
+  not advance the cursor, partial `insertAll` failures fail the whole batch, and the stable audit
+  event ID is sent as BigQuery's `insertId`.
+- Set `RED_ROUTER_AUDIT_BIGQUERY_PROJECT_ID`, `RED_ROUTER_AUDIT_BIGQUERY_DATASET_ID`,
+  `RED_ROUTER_AUDIT_BIGQUERY_TABLE_ID` and
+  `RED_ROUTER_AUDIT_BIGQUERY_SERVICE_ACCOUNT_JSON` to enable that relay. Optional
+  `RED_ROUTER_AUDIT_BIGQUERY_SINK_ID`, `RED_ROUTER_AUDIT_BIGQUERY_BATCH_SIZE` (1-500) and
+  `RED_ROUTER_AUDIT_BIGQUERY_INTERVAL_SECONDS` (1-3600) tune its independent cursor. The target
+  table currently needs `event_id STRING`, `created_at_unix_ms INT64`, `tenant_id STRING`,
+  `topic STRING`, `schema_version INT64` and `payload_json STRING`; automatic table creation and
+  dashboard-managed encrypted destination credentials remain follow-up work. The relay currently
+  requires SQLite or PostgreSQL because its cross-replica lease must be transactional; configuring
+  it with a RedDB backend fails startup instead of silently risking duplicate consumers.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.
