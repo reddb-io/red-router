@@ -4353,6 +4353,25 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .unwrap();
     assert_eq!(combo.status(), StatusCode::OK);
 
+    let diagnostic = client
+        .post(format!("{base}/api/admin/providers/anthropic-oauth/test"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"model":"claude-fixture"}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diagnostic.status(), StatusCode::OK);
+    let diagnostic: serde_json::Value =
+        serde_json::from_str(&diagnostic.text().await.unwrap()).unwrap();
+    assert_eq!(diagnostic["diagnostic"]["provider_id"], "anthropic-oauth");
+    assert_eq!(diagnostic["diagnostic"]["model"], "claude-fixture");
+    assert_eq!(diagnostic["diagnostic"]["ok"], true);
+    assert_eq!(diagnostic["diagnostic"]["category"], "ok");
+    assert_eq!(diagnostic["diagnostic"]["upstream_status"], 200);
+    assert!(diagnostic.to_string().find("oauth-access-token").is_none());
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
     let inference = client
         .post(format!("{base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
@@ -4369,7 +4388,7 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .await
         .unwrap();
     assert_eq!(inference.status(), StatusCode::OK);
-    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
 
     let mut auth = database.provider_auth().await.unwrap();
     assert_eq!(auth.len(), 1);
@@ -4387,6 +4406,25 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .await
         .unwrap();
     let (restarted_base, restarted_task) = gateway(restarted).await;
+    let expired_diagnostic = client
+        .post(format!(
+            "{restarted_base}/api/admin/providers/anthropic-oauth/test"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"model":"claude-fixture"}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(expired_diagnostic.status(), StatusCode::OK);
+    let expired_diagnostic: serde_json::Value =
+        serde_json::from_str(&expired_diagnostic.text().await.unwrap()).unwrap();
+    assert_eq!(
+        expired_diagnostic["diagnostic"]["category"],
+        "credential_expired"
+    );
+    assert!(expired_diagnostic["diagnostic"]["upstream_status"].is_null());
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
     let expired = client
         .post(format!("{restarted_base}/v1/messages"))
         .bearer_auth(CLIENT_KEY)
@@ -4408,7 +4446,7 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .await
         .unwrap()
         .contains("credentials expired"));
-    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
 
     restarted_task.abort();
     provider_task.abort();

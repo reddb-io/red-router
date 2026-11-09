@@ -86,7 +86,10 @@ shows the active validated snapshot and revision, offers its provider namespace 
 inspects provider model metadata without downloading upstream data in the browser. The broad
 OAuth/CLI onboarding and provider-specific diagnostics remain compatibility features to
 migrate as separate vertical slices; they are not silently backed by the Next database in
-Rust mode.
+Rust mode. Rust does own a generic protocol-native connection diagnostic for configured
+API-key or access-token providers: it uses the encrypted credential and pinned runtime
+transport, bounds time and response bytes, and returns only a stable redacted result. OAuth
+refresh, account-specific quota probes and CLI-owned session lifecycle remain follow-up work.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
 production dashboard export/packaging pipeline and provider-specific diagnostics rather

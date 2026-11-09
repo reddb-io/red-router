@@ -69,6 +69,12 @@ those environment secrets.
   rotation remain deliberately outside this generic API.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
+- `POST /api/admin/providers/{id}/test` accepts an exact native `model` ID and
+  performs one bounded protocol-native request with the provider's encrypted credential,
+  pinned transport and configured authentication header. The redacted result contains only
+  success, a stable failure category, upstream status and end-to-end latency. Provider bodies,
+  credentials and transport errors are never returned; the probe is capped at 30 seconds and
+  1 MiB, and an expired credential is rejected before network I/O.
 - `GET /api/admin/tenants` lists the Rust-owned organizations. A fresh store contains
   the enabled `red` tenant.
 - `PUT /api/admin/tenants/{id}` creates or updates an organization with a stable ID,

@@ -9,9 +9,11 @@ import {
   readRustModelCatalog,
   refreshRustModelCatalog,
   replaceRustProvider,
+  testRustProvider,
   type RustCatalogProvider,
   type RustModelCatalogIndex,
   type RustProvider,
+  type RustProviderDiagnostic,
   type RustProviderAuthScheme,
   type RustProviderInput,
   type RustRateLimitScope,
@@ -136,6 +138,9 @@ export default function RustProvidersPageClient() {
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [diagnosticModels, setDiagnosticModels] = useState<Record<string, string>>({});
+  const [diagnostics, setDiagnostics] = useState<Record<string, RustProviderDiagnostic>>({});
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const [providerResult, catalogResult] = await Promise.allSettled([
@@ -234,6 +239,24 @@ export default function RustProvidersPageClient() {
       setCatalogError(errorMessage(cause));
     } finally {
       setCatalogBusy(false);
+    }
+  };
+
+  const testConnection = async (provider: RustProvider) => {
+    const model = diagnosticModels[provider.id]?.trim() ?? "";
+    if (!model || model.length > 256) {
+      setError("Enter an exact provider model ID (maximum 256 characters) before testing");
+      return;
+    }
+    setTestingProviderId(provider.id);
+    setError(null);
+    try {
+      const result = await testRustProvider(provider.id, model);
+      setDiagnostics((current) => ({ ...current, [provider.id]: result }));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setTestingProviderId(null);
     }
   };
 
@@ -547,6 +570,51 @@ export default function RustProvidersPageClient() {
                   <dd className="truncate font-mono">{provider.revision}</dd>
                 </div>
               </dl>
+              {provider.enabled && (
+                <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      className={inputClass}
+                      value={diagnosticModels[provider.id] ?? ""}
+                      placeholder="Exact provider model ID"
+                      maxLength={256}
+                      disabled={testingProviderId === provider.id}
+                      aria-label={`Model used to test ${provider.label}`}
+                      onChange={(event) =>
+                        setDiagnosticModels((current) => ({
+                          ...current,
+                          [provider.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      variant="secondary"
+                      loading={testingProviderId === provider.id}
+                      disabled={testingProviderId !== null && testingProviderId !== provider.id}
+                      onClick={() => void testConnection(provider)}
+                    >
+                      Test connection
+                    </Button>
+                  </div>
+                  {diagnostics[provider.id] && (
+                    <p
+                      className={`mt-2 text-xs ${
+                        diagnostics[provider.id].ok
+                          ? "text-feedback-success-foreground"
+                          : "text-feedback-warning-foreground"
+                      }`}
+                      role="status"
+                    >
+                      {diagnostics[provider.id].ok ? "Connected" : "Test failed"}:{" "}
+                      {diagnostics[provider.id].category.replaceAll("_", " ")}
+                      {diagnostics[provider.id].upstream_status
+                        ? ` · HTTP ${diagnostics[provider.id].upstream_status}`
+                        : ""}
+                      {` · ${diagnostics[provider.id].latency_ms} ms`}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
                   variant="secondary"

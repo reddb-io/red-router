@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   readRustModelCatalog: vi.fn(),
   refreshRustModelCatalog: vi.fn(),
   replaceRustProvider: vi.fn(),
+  testRustProvider: vi.fn(),
 }));
 
 vi.mock("@/lib/rustControlPlane/browserClient", () => api);

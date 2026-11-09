@@ -89,6 +89,29 @@ export interface RustProviderInput {
   expires_at_unix?: number;
 }
 
+export type RustProviderDiagnosticCategory =
+  | "ok"
+  | "credential_expired"
+  | "authentication"
+  | "credits_exhausted"
+  | "model_unavailable"
+  | "rate_limited"
+  | "request_rejected"
+  | "upstream_error"
+  | "unavailable"
+  | "timeout"
+  | "invalid_response"
+  | "response_too_large";
+
+export interface RustProviderDiagnostic {
+  provider_id: string;
+  model: string;
+  ok: boolean;
+  category: RustProviderDiagnosticCategory;
+  upstream_status?: number;
+  latency_ms: number;
+}
+
 export interface RustCatalogManifest {
   schemaVersion: number;
   transformVersion: number;
@@ -281,6 +304,37 @@ function isRustProvider(value: unknown): value is RustProvider {
   );
 }
 
+function isRustProviderDiagnostic(value: unknown): value is RustProviderDiagnostic {
+  if (!value || typeof value !== "object") return false;
+  const diagnostic = value as Record<string, unknown>;
+  const categories: RustProviderDiagnosticCategory[] = [
+    "ok",
+    "credential_expired",
+    "authentication",
+    "credits_exhausted",
+    "model_unavailable",
+    "rate_limited",
+    "request_rejected",
+    "upstream_error",
+    "unavailable",
+    "timeout",
+    "invalid_response",
+    "response_too_large",
+  ];
+  return (
+    !("api_key" in diagnostic) &&
+    !("credential" in diagnostic) &&
+    typeof diagnostic.provider_id === "string" &&
+    typeof diagnostic.model === "string" &&
+    typeof diagnostic.ok === "boolean" &&
+    typeof diagnostic.category === "string" &&
+    categories.includes(diagnostic.category as RustProviderDiagnosticCategory) &&
+    (diagnostic.upstream_status === undefined ||
+      (isNonNegativeInteger(diagnostic.upstream_status) && diagnostic.upstream_status <= 599)) &&
+    isNonNegativeInteger(diagnostic.latency_ms)
+  );
+}
+
 function isRustCatalogManifest(value: unknown): value is RustCatalogManifest {
   if (!value || typeof value !== "object") return false;
   const manifest = value as Record<string, unknown>;
@@ -450,6 +504,19 @@ export async function disableRustProvider(id: string): Promise<void> {
     const value: unknown = await response.json().catch(() => null);
     throw new Error(rustAdminError(value, response.status));
   }
+}
+
+export async function testRustProvider(id: string, model: string): Promise<RustProviderDiagnostic> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/test`,
+    jsonRequest("POST", { model })
+  );
+  const diagnostic =
+    value && typeof value === "object" ? (value as { diagnostic?: unknown }).diagnostic : undefined;
+  if (!isRustProviderDiagnostic(diagnostic)) {
+    throw new Error("Invalid Rust provider diagnostic response");
+  }
+  return diagnostic;
 }
 
 export async function readRustModelCatalog(): Promise<RustModelCatalogIndex> {

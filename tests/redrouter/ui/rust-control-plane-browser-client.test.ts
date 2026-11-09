@@ -15,6 +15,7 @@ import {
   replaceRustProvider,
   refreshRustModelCatalog,
   rustAdminFetch,
+  testRustProvider,
   type RustClientKey,
   type RustProvider,
 } from "@/lib/rustControlPlane/browserClient";
@@ -182,6 +183,18 @@ describe("Rust control-plane browser client", () => {
       .fn()
       .mockResolvedValueOnce(Response.json({ providers: [provider] }))
       .mockResolvedValueOnce(Response.json({ provider }))
+      .mockResolvedValueOnce(
+        Response.json({
+          diagnostic: {
+            provider_id: provider.id,
+            model: "openai/gpt-5",
+            ok: true,
+            category: "ok",
+            upstream_status: 200,
+            latency_ms: 18,
+          },
+        })
+      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(
         Response.json({ providers: [{ ...provider, api_key: "must-not-leak" }] })
@@ -202,17 +215,23 @@ describe("Rust control-plane browser client", () => {
         expires_at_unix: 1_900_000_000,
       })
     ).resolves.toEqual(provider);
+    await expect(testRustProvider(provider.id, "openai/gpt-5")).resolves.toMatchObject({
+      ok: true,
+      upstream_status: 200,
+    });
     await expect(disableRustProvider(provider.id)).resolves.toBeUndefined();
     await expect(listRustProviders()).rejects.toThrow("Invalid Rust provider response");
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/providers",
       "/api/admin/providers/openrouter-main",
+      "/api/admin/providers/openrouter-main/test",
       "/api/admin/providers/openrouter-main",
       "/api/admin/providers",
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
-    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {

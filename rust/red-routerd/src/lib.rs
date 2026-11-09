@@ -1681,6 +1681,10 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_provider).delete(control_plane::delete_provider),
         )
         .route(
+            "/api/admin/providers/{id}/test",
+            post(control_plane::diagnose_provider),
+        )
+        .route(
             "/api/admin/client-keys",
             get(control_plane::list_client_keys).post(control_plane::issue_client_key),
         )

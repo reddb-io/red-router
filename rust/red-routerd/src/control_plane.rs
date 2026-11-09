@@ -25,12 +25,13 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
@@ -39,6 +40,8 @@ use zeroize::{Zeroize, Zeroizing};
 type ControlCipher = AesGcm<Aes256, U16>;
 const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
+const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
+const PROVIDER_DIAGNOSTIC_MAX_BODY_BYTES: usize = 1024 * 1024;
 
 struct Inner {
     database: Arc<crate::storage::Database>,
@@ -140,6 +143,23 @@ pub struct ProviderView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at_unix: Option<u64>,
     pub credential_expired: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderDiagnosticInput {
+    pub model: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderDiagnosticView {
+    pub provider_id: String,
+    pub model: String,
+    pub ok: bool,
+    pub category: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_status: Option<u16>,
+    pub latency_ms: u64,
 }
 
 #[derive(Deserialize)]
@@ -1246,6 +1266,58 @@ impl ControlPlane {
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
         view(&stored, rate_limit_scope, Some(&provider_auth))
+    }
+
+    async fn diagnose_provider_as(
+        &self,
+        id: &str,
+        input: ProviderDiagnosticInput,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderDiagnosticView, &'static str> {
+        validate_id(id)?;
+        validate_diagnostic_model(&input.model)?;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider does not exist")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
+        let auth = self
+            .auth_settings()
+            .await?
+            .remove(&(provider.id.clone(), provider.updated_at))
+            .unwrap_or_else(|| default_provider_auth(&provider));
+        if auth.expires_at_unix > 0
+            && auth.expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX)
+        {
+            return Ok(ProviderDiagnosticView {
+                provider_id: provider.id,
+                model: input.model,
+                ok: false,
+                category: "credential_expired",
+                upstream_status: None,
+                latency_ms: 0,
+            });
+        }
+        let credential = decrypt(
+            &provider.credential_ciphertext,
+            &provider.id,
+            self.0.encryption_key.as_str(),
+        )?;
+        let live = ProxyState::live_provider(
+            &provider.upstream_url,
+            credential.as_str(),
+            self.0.allow_private,
+            ProviderAuthScheme::parse(&auth.auth_scheme)?,
+            auth.expires_at_unix,
+        )
+        .await?;
+        probe_provider(&live, provider.id, input.model).await
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
@@ -2814,6 +2886,174 @@ fn oidc_stored_view(
     Ok(oidc_view(verifier.policy(), browser))
 }
 
+async fn probe_provider(
+    provider: &LiveProvider,
+    provider_id: String,
+    model: String,
+) -> Result<ProviderDiagnosticView, &'static str> {
+    let started = Instant::now();
+    let deadline = tokio::time::Instant::now() + PROVIDER_DIAGNOSTIC_TIMEOUT;
+    let mut target = provider.upstream.clone();
+    let body = match provider.protocol {
+        ProviderProtocol::OpenAi => serde_json::json!({
+            "model":&model,
+            "messages":[{"role":"user","content":"Reply with OK."}],
+            "max_tokens":1,
+            "stream":false
+        }),
+        ProviderProtocol::OpenAiResponses => serde_json::json!({
+            "model":&model,
+            "input":"Reply with OK.",
+            "max_output_tokens":1,
+            "stream":false
+        }),
+        ProviderProtocol::OpenAiEmbeddings => serde_json::json!({
+            "model":&model,
+            "input":"RedRouter connection test"
+        }),
+        ProviderProtocol::CohereRerank => serde_json::json!({
+            "model":&model,
+            "query":"RedRouter connection test",
+            "documents":["RedRouter connection test"],
+            "top_n":1
+        }),
+        ProviderProtocol::Anthropic => serde_json::json!({
+            "model":&model,
+            "messages":[{"role":"user","content":"Reply with OK."}],
+            "max_tokens":1,
+            "stream":false
+        }),
+        ProviderProtocol::Gemini => {
+            let path = target.path().trim_end_matches('/').to_owned();
+            target.set_path(&format!("{path}/{model}:generateContent"));
+            serde_json::json!({
+                "contents":[{"role":"user","parts":[{"text":"Reply with OK."}]}],
+                "generationConfig":{"maxOutputTokens":1}
+            })
+        }
+        ProviderProtocol::OpenAiToAnthropic => {
+            return Err("translated providers cannot be diagnosed directly")
+        }
+    };
+    let mut request = provider
+        .client
+        .post(target)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body.to_string());
+    request = match provider.auth_scheme {
+        ProviderAuthScheme::Bearer => {
+            request.header(header::AUTHORIZATION, provider.provider_key.clone())
+        }
+        ProviderAuthScheme::XApiKey => request.header("x-api-key", provider.provider_key.clone()),
+        ProviderAuthScheme::XGoogApiKey => {
+            request.header("x-goog-api-key", provider.provider_key.clone())
+        }
+        ProviderAuthScheme::Auto => return Err("provider authentication is unresolved"),
+    };
+    if provider.protocol == ProviderProtocol::Anthropic {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
+    let response = match tokio::time::timeout_at(deadline, request.send()).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(_)) => {
+            return Ok(diagnostic_view(
+                provider_id,
+                model,
+                false,
+                "unavailable",
+                None,
+                started,
+            ))
+        }
+        Err(_) => {
+            return Ok(diagnostic_view(
+                provider_id,
+                model,
+                false,
+                "timeout",
+                None,
+                started,
+            ))
+        }
+    };
+    let status = response.status();
+    let mut size = 0usize;
+    let mut stream = response.bytes_stream();
+    loop {
+        match tokio::time::timeout_at(deadline, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                size = size.saturating_add(chunk.len());
+                if size > PROVIDER_DIAGNOSTIC_MAX_BODY_BYTES {
+                    return Ok(diagnostic_view(
+                        provider_id,
+                        model,
+                        false,
+                        "response_too_large",
+                        Some(status.as_u16()),
+                        started,
+                    ));
+                }
+            }
+            Ok(Some(Err(_))) => {
+                return Ok(diagnostic_view(
+                    provider_id,
+                    model,
+                    false,
+                    "invalid_response",
+                    Some(status.as_u16()),
+                    started,
+                ));
+            }
+            Ok(None) => break,
+            Err(_) => {
+                return Ok(diagnostic_view(
+                    provider_id,
+                    model,
+                    false,
+                    "timeout",
+                    Some(status.as_u16()),
+                    started,
+                ));
+            }
+        }
+    }
+    let (ok, category) = match status.as_u16() {
+        200..=299 => (true, "ok"),
+        401 | 403 => (false, "authentication"),
+        402 => (false, "credits_exhausted"),
+        404 => (false, "model_unavailable"),
+        429 => (false, "rate_limited"),
+        400..=499 => (false, "request_rejected"),
+        _ => (false, "upstream_error"),
+    };
+    Ok(diagnostic_view(
+        provider_id,
+        model,
+        ok,
+        category,
+        Some(status.as_u16()),
+        started,
+    ))
+}
+
+fn diagnostic_view(
+    provider_id: String,
+    model: String,
+    ok: bool,
+    category: &'static str,
+    upstream_status: Option<u16>,
+    started: Instant,
+) -> ProviderDiagnosticView {
+    ProviderDiagnosticView {
+        provider_id,
+        model,
+        ok,
+        category,
+        upstream_status,
+        latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    }
+}
+
 fn default_provider_auth(record: &StoredProvider) -> StoredProviderAuth {
     StoredProviderAuth {
         provider_id: record.id.clone(),
@@ -3390,6 +3630,17 @@ fn validate_provider_label(value: &str) -> Result<(), &'static str> {
 fn validate_provider_account_email(value: &str) -> Result<(), &'static str> {
     if value.len() > 320 || value.chars().any(char::is_control) {
         return Err("provider account email is invalid");
+    }
+    Ok(())
+}
+
+fn validate_diagnostic_model(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 256
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+    {
+        return Err("provider diagnostic model is invalid");
     }
     Ok(())
 }
@@ -4153,6 +4404,31 @@ pub async fn put_provider(
             "Provider storage or runtime unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration"),
+    }
+}
+
+pub async fn diagnose_provider(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderDiagnosticInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .diagnose_provider_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(diagnostic) => Json(serde_json::json!({"diagnostic":diagnostic})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider diagnostic unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider diagnostic"),
     }
 }
 
