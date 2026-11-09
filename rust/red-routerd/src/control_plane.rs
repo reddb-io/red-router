@@ -89,6 +89,7 @@ struct OAuthRefreshConfig {
 
 struct OAuthRefreshRuntime {
     cadence: Duration,
+    snapshot_cadence: Duration,
     config: OAuthRefreshConfig,
 }
 
@@ -767,6 +768,7 @@ impl ControlPlane {
             catalog_poll_interval,
             OAuthRefreshRuntime {
                 cadence: OAUTH_REFRESH_INTERVAL,
+                snapshot_cadence: CONTROL_SNAPSHOT_SYNC_INTERVAL,
                 config: OAuthRefreshConfig::production()?,
             },
         )
@@ -804,6 +806,7 @@ impl ControlPlane {
             MODEL_CATALOG_SYNC_INTERVAL,
             OAuthRefreshRuntime {
                 cadence: Duration::from_secs(3_600),
+                snapshot_cadence: Duration::from_millis(100),
                 config: OAuthRefreshConfig::testing(codex_endpoint, claude_endpoint),
             },
         )
@@ -833,8 +836,14 @@ impl ControlPlane {
         if !(Duration::from_secs(1)..=Duration::from_secs(3_600)).contains(&oauth_refresh.cadence) {
             return Err("invalid OAuth refresh interval");
         }
+        if !(Duration::from_millis(10)..=Duration::from_secs(3_600))
+            .contains(&oauth_refresh.snapshot_cadence)
+        {
+            return Err("invalid control snapshot interval");
+        }
         let OAuthRefreshRuntime {
             cadence: oauth_refresh_cadence,
+            snapshot_cadence,
             config: oauth_refresh_config,
         } = oauth_refresh;
         let mut breakers = HashMap::new();
@@ -975,7 +984,7 @@ impl ControlPlane {
         *plane.0.oidc_snapshot_signature.write().await = plane.oidc_runtime_signature().await?;
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
-        plane.spawn_control_snapshot_sync(CONTROL_SNAPSHOT_SYNC_INTERVAL);
+        plane.spawn_control_snapshot_sync(snapshot_cadence);
         if sqlite {
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
         }
@@ -2282,6 +2291,7 @@ impl ControlPlane {
         *self.0.oidc_browser.write().await = None;
         *self.0.oidc.write().await = Some(Arc::new(verifier));
         *self.0.oidc_browser.write().await = browser.clone();
+        *self.0.oidc_snapshot_signature.write().await = self.oidc_runtime_signature().await?;
         oidc_stored_view(&stored, browser.as_deref())
     }
 
@@ -2290,6 +2300,7 @@ impl ControlPlane {
         self.clear_oidc_runtime().await;
         self.0.database.delete_oidc_browser().await?;
         self.0.database.delete_oidc().await?;
+        *self.0.oidc_snapshot_signature.write().await = self.oidc_runtime_signature().await?;
         Ok(())
     }
 
