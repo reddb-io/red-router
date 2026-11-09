@@ -24,11 +24,12 @@ OIDC authorization resolves a canonical opaque identity from the normalized issu
 `sub` claim. Verified e-mail remains only a legacy binding alias; changing or reassigning an
 e-mail cannot change a canonical binding's tenant or role.
 Rust persists tenant-scoped administrative audit events for tenant, identity-binding, client-key,
-provider and combo mutations plus explicit last-known-good pin clearing, and serves them through
-both the native admin route and the legacy compliance route. Audit snapshots are built from
-secret-free public views; provider events omit the upstream URL and every credential/token field.
-MCP, A2A and automatic route-learning writers plus an atomic outbox tying each mutation to its
-event remain migration work.
+provider, manual provider OAuth, provider health/quota and combo mutations plus explicit
+last-known-good pin clearing, and serves them through both the native admin route and the legacy
+compliance route. Audit snapshots are built from secret-free public views; provider and OAuth
+events omit the upstream URL and every credential/token field. Background OAuth refresh remains
+an operational event rather than an administrative writer. MCP, A2A and automatic route-learning
+writers plus an atomic outbox tying each mutation to its event remain migration work.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

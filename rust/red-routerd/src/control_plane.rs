@@ -1321,7 +1321,9 @@ impl ControlPlane {
                     {
                         continue;
                     }
-                    let _ = plane.refresh_provider_oauth_as(&provider.id, None).await;
+                    let _ = plane
+                        .refresh_provider_oauth_as(&provider.id, None, None)
+                        .await;
                 }
             }
         });
@@ -1330,9 +1332,13 @@ impl ControlPlane {
     async fn refresh_provider_oauth_as(
         &self,
         id: &str,
+        actor: Option<&str>,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderOAuthRefreshView, &'static str> {
         validate_id(id)?;
+        if let Some(actor) = actor {
+            validate_actor(actor)?;
+        }
         let (provider, auth, oauth) = self.provider_oauth_records(id, enforced_tenant).await?;
         if let Some(status) = self.oauth_status_settings().await?.get(&(
             id.to_owned(),
@@ -1340,14 +1346,17 @@ impl ControlPlane {
             oauth.generation,
         )) {
             if status.refresh_state == "reauth_required" {
-                return Ok(oauth_refresh_view(
+                let refresh = oauth_refresh_view(
                     id,
                     false,
                     "reauth_required",
                     None,
                     oauth.generation,
                     auth.expires_at_unix,
-                ));
+                );
+                self.record_provider_oauth_refresh_audit(actor, &provider.tenant_id, id, &refresh)
+                    .await;
+                return Ok(refresh);
             }
         }
         let rotation_group = oauth_rotation_group(&oauth.oauth_provider)?;
@@ -1362,14 +1371,17 @@ impl ControlPlane {
             .acquire_oauth_refresh_lease(rotation_group, &owner, now_ms, lease_until)
             .await?
         {
-            return Ok(oauth_refresh_view(
+            let refresh = oauth_refresh_view(
                 id,
                 false,
                 "refresh_in_progress",
                 None,
                 oauth.generation,
                 auth.expires_at_unix,
-            ));
+            );
+            self.record_provider_oauth_refresh_audit(actor, &provider.tenant_id, id, &refresh)
+                .await;
+            return Ok(refresh);
         }
 
         // A different replica may have completed a rotation immediately before
@@ -1413,7 +1425,35 @@ impl ControlPlane {
             .database
             .release_oauth_refresh_lease(rotation_group, &owner, next_allowed)
             .await;
+        if let Ok(refresh) = &outcome {
+            self.record_provider_oauth_refresh_audit(actor, &provider.tenant_id, id, refresh)
+                .await;
+        }
         outcome
+    }
+
+    async fn record_provider_oauth_refresh_audit(
+        &self,
+        actor: Option<&str>,
+        tenant_id: &str,
+        provider_id: &str,
+        refresh: &ProviderOAuthRefreshView,
+    ) {
+        let Some(actor) = actor else {
+            return;
+        };
+        self.record_audit_event(
+            AuditContext {
+                action: "provider_oauth.refresh",
+                actor,
+                tenant_id,
+                target: provider_id,
+                resource_type: "provider_oauth",
+            },
+            Option::<&ProviderOAuthRefreshView>::None,
+            Some(refresh),
+        )
+        .await;
     }
 
     async fn provider_oauth_records(
@@ -2285,9 +2325,11 @@ impl ControlPlane {
         &self,
         id: &str,
         input: ProviderOAuthRotationInput,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         if !(1..=8192).contains(&input.access_token.len())
             || !(1..=8192).contains(&input.refresh_token.len())
         {
@@ -2318,6 +2360,11 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        let auth = self
+            .auth_settings()
+            .await?
+            .remove(&(provider.id.clone(), provider.updated_at))
+            .ok_or("provider authentication configuration not found")?;
         let oauth = self
             .oauth_settings()
             .await?
@@ -2345,6 +2392,30 @@ impl ControlPlane {
         if !rotated {
             return Err("provider OAuth generation conflict");
         }
+        let before = provider_oauth_audit_snapshot(
+            id,
+            &oauth.oauth_provider,
+            oauth.generation,
+            auth.expires_at_unix,
+        );
+        let after = provider_oauth_audit_snapshot(
+            id,
+            &oauth.oauth_provider,
+            oauth.generation.saturating_add(1),
+            expires_at_unix,
+        );
+        self.record_audit_event(
+            AuditContext {
+                action: "provider_oauth.rotate",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider_oauth",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
             return Err(error);
@@ -2897,7 +2968,7 @@ impl ControlPlane {
         provider_id: &str,
         input: ProviderQuotaInput,
     ) -> Result<ProviderQuotaView, &'static str> {
-        self.configure_provider_quota_as(provider_id, input, None)
+        self.configure_provider_quota_as(provider_id, input, "bootstrap-admin", None)
             .await
     }
 
@@ -2926,9 +2997,11 @@ impl ControlPlane {
         &self,
         provider_id: &str,
         input: ProviderQuotaInput,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderQuotaView, &'static str> {
         validate_id(provider_id)?;
+        validate_actor(actor)?;
         validate_quota_input(&input)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
@@ -2960,21 +3033,50 @@ impl ControlPlane {
                 .ok_or("provider quota TTL is out of range")?,
             revision: revision()?,
         };
+        let before = self
+            .0
+            .database
+            .provider_quotas()
+            .await?
+            .into_iter()
+            .find(|quota| quota.provider_id == provider_id)
+            .map(|quota| quota_view(&quota))
+            .transpose()?;
         self.0.database.upsert_provider_quota(&record).await?;
         self.quota_state(provider_id).await.update(&record);
-        quota_view(&record)
+        let after = quota_view(&record)?;
+        self.record_audit_event(
+            AuditContext {
+                action: if before.is_some() {
+                    "provider_quota.update"
+                } else {
+                    "provider_quota.create"
+                },
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: provider_id,
+                resource_type: "provider_quota",
+            },
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
+        Ok(after)
     }
 
     pub async fn clear_provider_quota(&self, provider_id: &str) -> Result<(), &'static str> {
-        self.clear_provider_quota_as(provider_id, None).await
+        self.clear_provider_quota_as(provider_id, "bootstrap-admin", None)
+            .await
     }
 
     async fn clear_provider_quota_as(
         &self,
         provider_id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(provider_id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
             .0
@@ -2987,7 +3089,28 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        let before = self
+            .0
+            .database
+            .provider_quotas()
+            .await?
+            .into_iter()
+            .find(|quota| quota.provider_id == provider_id)
+            .map(|quota| quota_view(&quota))
+            .transpose()?;
         self.0.database.delete_provider_quota(provider_id).await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider_quota.clear",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: provider_id,
+                resource_type: "provider_quota",
+            },
+            before.as_ref(),
+            Option::<&ProviderQuotaView>::None,
+        )
+        .await;
         if let Some(state) = self.0.quotas.read().await.get(provider_id).cloned() {
             state.clear();
         }
@@ -4193,12 +4316,28 @@ impl ControlPlane {
         Ok(statuses)
     }
 
+    async fn provider_health_snapshot(
+        &self,
+        provider: &StoredProvider,
+    ) -> Result<ProviderHealthView, &'static str> {
+        Ok(ProviderHealthView {
+            breaker: self
+                .circuit_for(&provider.id, &provider.upstream_url)
+                .await
+                .status()
+                .await?,
+            availability: self.availability_for(&provider.id).await.status().await?,
+        })
+    }
+
     async fn reset_breaker_as(
         &self,
         id: &str,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<(), &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
             .0
@@ -4211,20 +4350,37 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        let before = self.provider_health_snapshot(&provider).await?;
         self.availability_for(&provider.id).await.reset().await?;
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
             .reset()
-            .await
+            .await?;
+        let after = self.provider_health_snapshot(&provider).await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider_health.reset",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider_health",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        Ok(())
     }
 
     async fn configure_breaker_as(
         &self,
         id: &str,
         input: ProviderHealthInput,
+        actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<BreakerStatus, &'static str> {
         validate_id(id)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let provider = self
             .0
@@ -4237,6 +4393,7 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        let before = self.provider_health_snapshot(&provider).await?;
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
             .configure(
@@ -4244,7 +4401,21 @@ impl ControlPlane {
                 input.degradation_threshold,
                 input.reset_timeout_ms,
             )
-            .await
+            .await?;
+        let after = self.provider_health_snapshot(&provider).await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider_health.configure",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider_health",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        Ok(after.breaker)
     }
 
     async fn circuit_for(&self, id: &str, upstream_url: &str) -> Arc<ProviderCircuit> {
@@ -4830,6 +5001,22 @@ fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
         "enabled": record.enabled,
         "revision": record.updated_at.to_string(),
         "has_credential": true
+    })
+}
+
+fn provider_oauth_audit_snapshot(
+    provider_id: &str,
+    oauth_provider: &str,
+    generation: i64,
+    expires_at_unix: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "provider_id": provider_id,
+        "oauth_provider": oauth_provider,
+        "generation": generation.to_string(),
+        "expires_at_unix": (expires_at_unix > 0).then_some(expires_at_unix as u64),
+        "has_access_token": true,
+        "has_refresh_token": true
     })
 }
 
@@ -6150,7 +6337,7 @@ pub async fn delete_provider_health(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .reset_breaker_as(&id, scope.tenant_id.as_deref())
+        .reset_breaker_as(&id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -6175,7 +6362,7 @@ pub async fn put_provider_health(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_breaker_as(&id, input, scope.tenant_id.as_deref())
+        .configure_breaker_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(health) => Json(serde_json::json!({"provider_health":health})).into_response(),
@@ -6253,7 +6440,7 @@ pub async fn rotate_provider_oauth(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .rotate_provider_oauth_as(&id, input, scope.tenant_id.as_deref())
+        .rotate_provider_oauth_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
@@ -6281,7 +6468,7 @@ pub async fn refresh_provider_oauth(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .refresh_provider_oauth_as(&id, scope.tenant_id.as_deref())
+        .refresh_provider_oauth_as(&id, Some(&scope.actor), scope.tenant_id.as_deref())
         .await
     {
         Ok(refresh) => Json(serde_json::json!({"refresh":refresh})).into_response(),
@@ -6330,7 +6517,7 @@ pub async fn put_provider_quota(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_provider_quota_as(&id, input, scope.tenant_id.as_deref())
+        .configure_provider_quota_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(quota) => Json(serde_json::json!({"provider_quota":quota})).into_response(),
@@ -6354,7 +6541,7 @@ pub async fn delete_provider_quota(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .clear_provider_quota_as(&id, scope.tenant_id.as_deref())
+        .clear_provider_quota_as(&id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

@@ -2664,6 +2664,46 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         scoped_health["provider_health"][0]["provider_id"],
         "oidc-acme-provider"
     );
+    let scoped_health_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider_health.configure"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_health_audit.status(), StatusCode::OK);
+    let scoped_health_audit: serde_json::Value =
+        serde_json::from_str(&scoped_health_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_health_audit.as_array().unwrap().len(), 1);
+    assert_eq!(scoped_health_audit[0]["tenantId"], "acme");
+    assert_eq!(scoped_health_audit[0]["target"], "oidc-acme-provider");
+    assert_eq!(scoped_health_audit[0]["resourceType"], "provider_health");
+    assert_eq!(
+        client
+            .delete(format!(
+                "{base}/api/admin/provider-health/oidc-acme-provider"
+            ))
+            .bearer_auth(&manager)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let scoped_health_reset_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider_health.reset"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_health_reset_audit.status(), StatusCode::OK);
+    let scoped_health_reset_audit: serde_json::Value =
+        serde_json::from_str(&scoped_health_reset_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_health_reset_audit.as_array().unwrap().len(), 1);
+    assert_eq!(scoped_health_reset_audit[0]["target"], "oidc-acme-provider");
     assert_eq!(
         client
             .put(format!(
@@ -2709,6 +2749,21 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         scoped_quotas["provider_quotas"][0]["provider_id"],
         "oidc-acme-provider"
     );
+    let scoped_quota_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider_quota.create"
+        ))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_quota_audit.status(), StatusCode::OK);
+    let scoped_quota_audit: serde_json::Value =
+        serde_json::from_str(&scoped_quota_audit.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_quota_audit.as_array().unwrap().len(), 1);
+    assert_eq!(scoped_quota_audit[0]["tenantId"], "acme");
+    assert_eq!(scoped_quota_audit[0]["target"], "oidc-acme-provider");
+    assert_eq!(scoped_quota_audit[0]["resourceType"], "provider_quota");
     assert_eq!(
         client
             .delete(format!("{base}/api/admin/combos/acme-managed-combo/lkgp"))
@@ -4895,6 +4950,23 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
     let rotated: serde_json::Value = serde_json::from_str(&rotated.text().await.unwrap()).unwrap();
     assert_eq!(rotated["provider"]["oauth_generation"], "1");
     assert!(!rotated.to_string().contains("rotated-oauth"));
+    let oauth_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider_oauth.rotate&target=claude-oauth"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(oauth_audit.status(), StatusCode::OK);
+    let oauth_audit: serde_json::Value =
+        serde_json::from_str(&oauth_audit.text().await.unwrap()).unwrap();
+    assert_eq!(oauth_audit.as_array().unwrap().len(), 1);
+    assert_eq!(oauth_audit[0]["details"]["before"]["generation"], "0");
+    assert_eq!(oauth_audit[0]["details"]["after"]["generation"], "1");
+    let oauth_audit_details = oauth_audit[0]["details"].to_string();
+    assert!(!oauth_audit_details.contains("rotated-oauth-access-token"));
+    assert!(!oauth_audit_details.contains("rotated-oauth-refresh-token"));
 
     let stale = client
         .post(format!(
@@ -5065,6 +5137,30 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         ["initial-refresh-token"]
     );
     assert_eq!(database.provider_oauth().await.unwrap()[0].generation, 1);
+    let refresh_audit = client
+        .get(format!(
+            "{first_base}/api/admin/audit-log?action=provider_oauth.refresh&target=claude-refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refresh_audit.status(), StatusCode::OK);
+    let refresh_audit: serde_json::Value =
+        serde_json::from_str(&refresh_audit.text().await.unwrap()).unwrap();
+    assert_eq!(refresh_audit.as_array().unwrap().len(), 2);
+    assert!(refresh_audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| { event["details"]["after"]["category"] == "refreshed" }));
+    assert!(refresh_audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| { event["details"]["after"]["category"] == "refresh_in_progress" }));
+    assert!(!refresh_audit.to_string().contains("initial-refresh-token"));
+    assert!(!refresh_audit.to_string().contains("server-refreshed"));
 
     let refreshed_base = if first_refresh["refresh"]["category"] == "refreshed" {
         &first_base
@@ -5934,6 +6030,20 @@ async fn rust_control_plane_applies_live_quota_strategies_without_route_reloads(
             .status(),
         204
     );
+    let quota_clear_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider_quota.clear&target=quota-second"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(quota_clear_audit.status(), StatusCode::OK);
+    let quota_clear_audit: serde_json::Value =
+        serde_json::from_str(&quota_clear_audit.text().await.unwrap()).unwrap();
+    assert_eq!(quota_clear_audit.as_array().unwrap().len(), 1);
+    assert!(quota_clear_audit[0]["details"]["before"].is_object());
+    assert!(quota_clear_audit[0]["details"]["after"].is_null());
 
     gateway_task.abort();
     first_task.abort();

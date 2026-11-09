@@ -108,10 +108,11 @@ those environment secrets.
   /api/compliance/audit-log` read Rust-owned audit events with actor, tenant, action, target,
   status and redacted before/after snapshots. Tenant administrators see only their tenant. The
   migrated writers cover tenants, identity bindings, client-key create/update/revoke, provider
-  create/update/disable, combo create/update/disable and explicit last-known-good pin clearing.
-  Provider snapshots deliberately omit the upstream URL and all credential/token material. MCP,
-  A2A and automatic route-learning writers plus a transactional audit outbox remain follow-up
-  work.
+  create/update/disable, manual OAuth rotation/refresh, provider health configuration/reset,
+  quota create/update/clear, combo create/update/disable and explicit last-known-good pin clearing.
+  Provider and OAuth snapshots deliberately omit the upstream URL and all credential/token
+  material; background OAuth refresh does not emit an administrative event. MCP, A2A and
+  automatic route-learning writers plus a transactional audit outbox remain follow-up work.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.
