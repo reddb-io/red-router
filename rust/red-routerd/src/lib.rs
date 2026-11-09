@@ -1438,13 +1438,26 @@ impl ProxyState {
                 if strategy == RouteStrategy::ContextOptimized && context_window_tokens.is_none() {
                     return Err("context-optimized targets require context windows");
                 }
-                let auth_scheme = target
-                    .get("auth")
-                    .and_then(|value| value.as_str())
-                    .map(ProviderAuthScheme::parse)
-                    .transpose()?
-                    .unwrap_or(ProviderAuthScheme::Auto)
-                    .resolve(target_protocol)?;
+                let auth_scheme = match target.get("auth") {
+                    None => ProviderAuthScheme::Auto.resolve(target_protocol)?,
+                    Some(value)
+                        if matches!(
+                            target_protocol,
+                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+                        ) && value.as_str() == Some("x-api-key") =>
+                    {
+                        ProviderAuthScheme::XApiKey
+                    }
+                    Some(value)
+                        if matches!(
+                            target_protocol,
+                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+                        ) && value.as_str() == Some("bearer") =>
+                    {
+                        ProviderAuthScheme::Bearer
+                    }
+                    _ => return Err("unsupported target authentication"),
+                };
                 let proxy = Self::new_for_protocol(
                     url,
                     &self.client_key,
