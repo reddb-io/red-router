@@ -4403,7 +4403,11 @@ async fn rust_provider_auth_metadata_drives_headers_and_expiry() {
         .await
         .unwrap();
     assert_eq!(expired.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(expired.text().await.unwrap().contains("credential expired"));
+    assert!(expired
+        .text()
+        .await
+        .unwrap()
+        .contains("credentials expired"));
     assert_eq!(requests.load(Ordering::SeqCst), 1);
 
     restarted_task.abort();
