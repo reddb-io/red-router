@@ -341,7 +341,10 @@ export default function RustApiManagerPageClient() {
   }, []);
 
   useEffect(() => {
-    void refresh()
+    void (async () => {
+      await Promise.resolve();
+      await refresh();
+    })()
       .catch((cause) => setError(errorMessage(cause)))
       .finally(() => setLoading(false));
   }, [refresh]);
@@ -479,8 +482,8 @@ export default function RustApiManagerPageClient() {
           {editing ? `Edit ${editing.label}` : "Issue a client key"}
         </h2>
         <p className="mb-4 text-xs text-text-muted">
-          Empty grant lists mean unrestricted access within the key's tenant. Token or spend quotas
-          require conservative reservation values.
+          Empty grant lists mean unrestricted access within the key&apos;s tenant. Token or spend
+          quotas require conservative reservation values.
         </p>
         <PolicyFields draft={draft} onChange={setDraft} />
         <div className="mt-4 flex justify-end gap-2">
