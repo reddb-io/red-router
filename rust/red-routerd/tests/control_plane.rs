@@ -538,6 +538,35 @@ async fn embeddings_provider(expected_key: &'static str) -> (String, tokio::task
     (format!("http://{address}/v1/embeddings"), task)
 }
 
+async fn responses_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(
+                headers["authorization"].to_str().unwrap(),
+                format!("Bearer {expected_key}")
+            );
+            Json(serde_json::json!({
+                "id":"resp_fixture",
+                "object":"response",
+                "model":"gpt-4.1",
+                "output":[],
+                "usage":{
+                    "input_tokens":3,
+                    "output_tokens":2,
+                    "total_tokens":5,
+                    "input_tokens_details":{"cached_tokens":1},
+                    "output_tokens_details":{"reasoning_tokens":1}
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/responses"), task)
+}
+
 async fn gateway(control: ControlPlane) -> (String, tokio::task::JoinHandle<()>) {
     let state = ProxyState::new(
         "http://127.0.0.1:1/v1/chat/completions",
@@ -2683,6 +2712,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
         .await
         .unwrap();
     let (provider_url, provider_task) = embeddings_provider("embedding-secret").await;
+    let (responses_url, responses_task) = responses_provider("responses-secret").await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
@@ -2707,6 +2737,25 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     );
     assert_eq!(
         client
+            .put(format!("{base}/api/admin/providers/responses-provider"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":responses_url,
+                    "api_key":"responses-secret"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
             .put(format!("{base}/api/admin/client-keys/embedding-client"))
             .bearer_auth(ADMIN_KEY)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
@@ -2716,11 +2765,33 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
                     "api_key":RUST_CLIENT_KEY,
                     "scopes":["inference:embeddings","inference:chat"],
                     "allowed_endpoints":["embeddings","chat"],
-                    "allowed_models":["embedding-combo","text-embedding-3-small"],
-                    "allowed_provider_ids":["embedding-provider"],
-                    "max_tokens_per_minute":10,
+                    "allowed_models":["embedding-combo","text-embedding-3-small","responses-combo","gpt-4.1"],
+                    "allowed_provider_ids":["embedding-provider","responses-provider"],
+                    "max_tokens_per_minute":30,
                     "max_tokens_per_day":100,
                     "reservation_tokens":10
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/responses-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai-responses",
+                    "strategy":"priority",
+                    "targets":[{
+                        "provider_id":"responses-provider",
+                        "model":"gpt-4.1"
+                    }]
                 })
                 .to_string()
             )
@@ -2765,14 +2836,49 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let response: serde_json::Value =
         serde_json::from_str(&response.text().await.unwrap()).unwrap();
     assert_eq!(response["usage"]["prompt_tokens"], 4);
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/responses"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "model":"responses-combo",
+                    "input":"hello",
+                    "stream":true
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let response = client
+        .post(format!("{base}/v1/responses"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"model":"responses-combo","input":"hello"}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response: serde_json::Value =
+        serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(response["usage"]["input_tokens"], 3);
+    assert_eq!(
+        response["usage"]["output_tokens_details"]["reasoning_tokens"],
+        1
+    );
     let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
-    let ledger: (i64, i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), SUM(tokens_input), SUM(tokens_output) FROM redrouter_usage_ledger WHERE key_id='embedding-client'",
+    let ledger: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), SUM(tokens_input), SUM(tokens_output), SUM(tokens_reasoning) FROM redrouter_usage_ledger WHERE key_id='embedding-client'",
     )
     .fetch_one(&audit)
     .await
     .unwrap();
-    assert_eq!(ledger, (1, 4, 0));
+    assert_eq!(ledger, (2, 7, 2, 1));
     audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
@@ -2783,6 +2889,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
 
     gateway_task.abort();
     provider_task.abort();
+    responses_task.abort();
 }
 
 #[tokio::test]

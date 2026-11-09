@@ -2737,7 +2737,9 @@ async fn proxy_request(
     if usage_accounting
         && (!matches!(
             protocol,
-            ProviderProtocol::OpenAi | ProviderProtocol::OpenAiEmbeddings
+            ProviderProtocol::OpenAi
+                | ProviderProtocol::OpenAiResponses
+                | ProviderProtocol::OpenAiEmbeddings
         ) || (protocol == ProviderProtocol::OpenAi
             && (!matches!(
                 parsed.get("stream"),
@@ -2747,6 +2749,11 @@ async fn proxy_request(
                     .pointer("/stream_options/include_usage")
                     .and_then(serde_json::Value::as_bool)
                     != Some(true))))
+            || (protocol == ProviderProtocol::OpenAiResponses
+                && !matches!(
+                    parsed.get("stream"),
+                    None | Some(serde_json::Value::Bool(false))
+                ))
             || (protocol == ProviderProtocol::OpenAiEmbeddings && parsed.get("stream").is_some())
             || parsed
                 .get("service_tier")
@@ -2754,7 +2761,7 @@ async fn proxy_request(
     {
         return error(
             StatusCode::BAD_REQUEST,
-            "Usage accounting requires OpenAI chat or embeddings, the default tier, and include_usage for streaming",
+            "Usage accounting requires non-streaming OpenAI Responses/embeddings or OpenAI chat with include_usage for streaming, all on the default tier",
         );
     }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
@@ -3726,6 +3733,9 @@ async fn proxy_request(
                     match protocol {
                         ProviderProtocol::OpenAiEmbeddings => {
                             accounting::ChatUsage::from_embedding_response(&v).ok()
+                        }
+                        ProviderProtocol::OpenAiResponses => {
+                            accounting::ChatUsage::from_responses_response(&v).ok()
                         }
                         _ => accounting::ChatUsage::from_response(&v).ok(),
                     }

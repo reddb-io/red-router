@@ -168,6 +168,64 @@ impl ChatUsage {
         Ok(result)
     }
 
+    /// Normalize a completed OpenAI Responses API object. Responses uses
+    /// `input_tokens`/`output_tokens` rather than the chat-completions field
+    /// names, and its optional total excludes the reasoning detail because
+    /// reasoning is already part of `output_tokens`.
+    pub fn from_responses_response(response: &Value) -> Result<Self, &'static str> {
+        let usage = response
+            .get("usage")
+            .and_then(Value::as_object)
+            .ok_or("usage is missing")?;
+        let required = |field: &str| {
+            usage
+                .get(field)
+                .and_then(Value::as_u64)
+                .ok_or("invalid responses token usage")
+        };
+        let input = required("input_tokens")?;
+        let output = required("output_tokens")?;
+        if let Some(total) = usage.get("total_tokens") {
+            let total = total.as_u64().ok_or("invalid responses token usage")?;
+            if input.checked_add(output) != Some(total) {
+                return Err("inconsistent responses token usage");
+            }
+        }
+        let input_details = usage.get("input_tokens_details").filter(|v| !v.is_null());
+        let output_details = usage.get("output_tokens_details").filter(|v| !v.is_null());
+        if input_details.is_some_and(|value| !value.is_object())
+            || output_details.is_some_and(|value| !value.is_object())
+        {
+            return Err("invalid responses token details");
+        }
+        let optional = |value: Option<&Value>| match value {
+            None | Some(Value::Null) => Ok(0),
+            Some(value) => value.as_u64().ok_or("invalid responses token details"),
+        };
+        let cache_read = optional(input_details.and_then(|v| v.get("cached_tokens")))?;
+        let cache_creation = optional(input_details.and_then(|v| {
+            v.get("cache_creation_tokens")
+                .or_else(|| v.get("cache_write_tokens"))
+        }))?;
+        let reasoning = optional(output_details.and_then(|v| v.get("reasoning_tokens")))?;
+        if cache_read
+            .checked_add(cache_creation)
+            .is_none_or(|tokens| tokens > input)
+            || reasoning > output
+        {
+            return Err("inconsistent responses token details");
+        }
+        let result = Self {
+            input,
+            output,
+            reasoning,
+            cache_read,
+            cache_creation,
+        };
+        result.billable_tokens()?;
+        Ok(result)
+    }
+
     /// Matches the product's quota counter (input + output + reasoning).
     pub fn billable_tokens(&self) -> Result<u64, &'static str> {
         self.input
@@ -799,6 +857,37 @@ mod tests {
             json!({"usage":{"total_tokens":-1}}),
         ] {
             assert!(ChatUsage::from_embedding_response(&response).is_err());
+        }
+    }
+
+    #[test]
+    fn normalizes_responses_usage_and_rejects_inconsistent_details() {
+        let usage = ChatUsage::from_responses_response(&json!({"usage":{
+            "input_tokens":10,
+            "output_tokens":5,
+            "total_tokens":15,
+            "input_tokens_details":{"cached_tokens":3,"cache_creation_tokens":2},
+            "output_tokens_details":{"reasoning_tokens":4}
+        }}))
+        .unwrap();
+        assert_eq!(
+            usage,
+            ChatUsage {
+                input: 10,
+                output: 5,
+                reasoning: 4,
+                cache_read: 3,
+                cache_creation: 2,
+            }
+        );
+        assert_eq!(usage.billable_tokens().unwrap(), 19);
+        for invalid in [
+            json!({"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":14}}),
+            json!({"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":{"cached_tokens":11}}}),
+            json!({"usage":{"input_tokens":10,"output_tokens":5,"output_tokens_details":{"reasoning_tokens":6}}}),
+            json!({"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":[]}}),
+        ] {
+            assert!(ChatUsage::from_responses_response(&invalid).is_err());
         }
     }
 

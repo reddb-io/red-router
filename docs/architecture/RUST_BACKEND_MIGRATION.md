@@ -47,8 +47,8 @@ features must not be implemented only there.
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/embedding/streaming settlement; budgets, schedules and non-SQLite stores remain |
-| Usage and audit             | Rust-owned SQLite      | Chat/SSE/embedding ledger, counters and cursor-paginated tenant-scoped reporting; retention and remaining protocols remain |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/Responses/embedding/streaming settlement; budgets, schedules and non-SQLite stores remain |
+| Usage and audit             | Rust-owned SQLite      | Chat/SSE/Responses/embedding ledger, counters and cursor-paginated tenant-scoped reporting; retention and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
