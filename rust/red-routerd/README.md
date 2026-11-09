@@ -101,7 +101,9 @@ those environment secrets.
   `oidc_subject`; Rust stores a stable opaque identity derived from that pair, so a verified
   e-mail rename does not change ownership and reusing the e-mail with another subject does not
   inherit access. Existing `subject: "oidc:..."` e-mail/sub bindings remain compatibility aliases,
-  but canonical pair bindings take precedence when both exist.
+  but canonical pair bindings take precedence when both exist. `DELETE
+  /api/admin/identity-bindings/{id}` removes a binding durably and immediately revokes bearer and
+  browser-session management access backed by it.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

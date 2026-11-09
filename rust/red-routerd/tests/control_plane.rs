@@ -2165,6 +2165,47 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     );
     assert_eq!(
         client
+            .delete(format!(
+                "{base}/api/admin/identity-bindings/stable-oidc-admin"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let removed_identity = oidc_token_for(
+        "ec01",
+        "red-router-admin",
+        "operator",
+        "stable-user-123",
+        "renamed.identity@example.com",
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .bearer_auth(removed_identity)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .delete(format!(
+                "{base}/api/admin/identity-bindings/stable-oidc-admin"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        client
             .put(format!("{base}/api/admin/tenants/acme"))
             .bearer_auth(ADMIN_KEY)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
@@ -2804,6 +2845,60 @@ async fn rust_control_plane_converges_oidc_enablement_and_revocation_across_repl
     })
     .await
     .expect("the follower did not publish the OIDC policy");
+
+    assert_eq!(
+        client
+            .delete(format!(
+                "{leader_base}/api/admin/identity-bindings/replica-operator"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .get(format!("{follower_base}/api/admin/providers"))
+            .bearer_auth(&valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .put(format!(
+                "{leader_base}/api/admin/identity-bindings/replica-operator"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:operator@example.com",
+                    "tenant_id":"red",
+                    "role":"admin"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(format!("{follower_base}/api/admin/providers"))
+            .bearer_auth(&valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
 
     assert_eq!(
         client

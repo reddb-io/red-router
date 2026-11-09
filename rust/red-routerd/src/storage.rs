@@ -46,6 +46,8 @@ const UPSERT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, na
 const CREATE_IDENTITY_BINDINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_identity_bindings (id TEXT PRIMARY KEY, subject TEXT NOT NULL UNIQUE, tenant_id TEXT NOT NULL, binding_role TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_IDENTITY_BINDINGS: &str = "SELECT id, subject, tenant_id, binding_role, enabled, revision FROM redrouter_control_identity_bindings ORDER BY revision DESC, id ASC";
 const UPSERT_IDENTITY_BINDING: &str = "INSERT INTO redrouter_control_identity_bindings (id, subject, tenant_id, binding_role, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET subject = $2, tenant_id = $3, binding_role = $4, enabled = $5, revision = $6";
+const DELETE_IDENTITY_BINDING: &str =
+    "DELETE FROM redrouter_control_identity_bindings WHERE id = $1";
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
@@ -1347,6 +1349,30 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot write identity binding configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_identity_binding(&self, id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_IDENTITY_BINDING)
+                    .bind(id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete identity binding configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_IDENTITY_BINDING, &params())
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_IDENTITY_BINDING, params())
+                    .await
+                    .map_err(|_| "cannot delete identity binding configuration")?;
             }
         }
         Ok(())

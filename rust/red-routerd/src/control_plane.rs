@@ -3113,6 +3113,22 @@ impl ControlPlane {
         Ok(identity_binding_view(&record))
     }
 
+    pub async fn delete_identity_binding(&self, id: &str) -> Result<(), &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        if !self
+            .0
+            .database
+            .identity_bindings()
+            .await?
+            .iter()
+            .any(|binding| binding.id == id)
+        {
+            return Err("identity binding configuration not found");
+        }
+        self.0.database.delete_identity_binding(id).await
+    }
+
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
         self.revoke_client_key_as(id, None).await
     }
@@ -5824,6 +5840,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("storage encryption")
         || error.contains("cannot write")
         || error.contains("cannot read")
+        || error.contains("cannot delete")
         || error.contains("cannot reload")
         || error.contains("breaker storage")
         || error.contains("route pin")
@@ -6048,6 +6065,33 @@ pub async fn put_identity_binding(
         Err(_) => api_error(
             StatusCode::BAD_REQUEST,
             "Invalid identity binding configuration",
+        ),
+    }
+}
+
+pub async fn delete_identity_binding(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.delete_identity_binding(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Identity binding storage unavailable",
+        ),
+        Err(error) if error == "identity binding configuration not found" => {
+            api_error(StatusCode::NOT_FOUND, "Identity binding not found")
+        }
+        Err(_) => api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid identity binding identifier",
         ),
     }
 }

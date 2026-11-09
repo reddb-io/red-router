@@ -1709,7 +1709,7 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route(
             "/api/admin/identity-bindings/{id}",
-            put(control_plane::put_identity_binding),
+            put(control_plane::put_identity_binding).delete(control_plane::delete_identity_binding),
         )
         .route(
             "/api/provision/client-keys/{id}",

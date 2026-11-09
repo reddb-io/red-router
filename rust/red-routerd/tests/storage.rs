@@ -37,7 +37,12 @@ async fn exercise(backend: Backend, url: &str) {
         revision: 2,
     };
     db.upsert_identity_binding(&identity).await.unwrap();
-    assert_eq!(db.identity_bindings().await.unwrap(), vec![identity]);
+    assert_eq!(
+        db.identity_bindings().await.unwrap(),
+        vec![identity.clone()]
+    );
+    db.delete_identity_binding(&identity.id).await.unwrap();
+    assert!(db.identity_bindings().await.unwrap().is_empty());
     assert_eq!(db.upstream().await.unwrap(), None);
     db.seed("https://first.example/v1/chat/completions")
         .await
