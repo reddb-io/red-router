@@ -6086,7 +6086,7 @@ pub async fn delete_identity_binding(
             StatusCode::SERVICE_UNAVAILABLE,
             "Identity binding storage unavailable",
         ),
-        Err(error) if error == "identity binding configuration not found" => {
+        Err("identity binding configuration not found") => {
             api_error(StatusCode::NOT_FOUND, "Identity binding not found")
         }
         Err(_) => api_error(
