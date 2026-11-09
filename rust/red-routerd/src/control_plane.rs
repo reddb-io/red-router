@@ -1304,10 +1304,13 @@ impl ControlPlane {
                 })
             }
         };
-        let mut form = url::form_urlencoded::Serializer::new(String::new());
-        form.append_pair("grant_type", "refresh_token");
-        form.append_pair("client_id", client_id);
-        form.append_pair("refresh_token", refresh_token);
+        let form = {
+            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+            serializer.append_pair("grant_type", "refresh_token");
+            serializer.append_pair("client_id", client_id);
+            serializer.append_pair("refresh_token", refresh_token);
+            serializer.finish()
+        };
         let mut request = self
             .0
             .oauth_refresh_client
@@ -1316,7 +1319,7 @@ impl ControlPlane {
                 header::CONTENT_TYPE.as_str(),
                 "application/x-www-form-urlencoded",
             )
-            .body(form.finish());
+            .body(form);
         if claude {
             request = request.header("anthropic-beta", "oauth-2025-04-20");
         }
