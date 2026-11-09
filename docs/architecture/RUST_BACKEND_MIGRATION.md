@@ -63,7 +63,7 @@ their Rust migration state:
 
 | Next.js change | Rust state | Remaining acceptance work |
 | --- | --- | --- |
-| Frozen model-price snapshots in usage export | Product bridge preserves snapshots; native Rust ledger uses the active exact-ID models.dev price | Persist the full native price breakdown and cover every protocol |
+| Frozen model-price snapshots in usage export | Product bridge and native Rust ledger persist the exact price vector used at settlement | Cover the remaining protocol-specific unit prices |
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Complete the remaining protocol sinks and retention policy |
 | Durable embedding usage | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses | Add protocol-wide fixtures outside embeddings |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
@@ -157,6 +157,11 @@ and recent ledger entries. Stable composite cursors page the immutable descendin
 without loading an unbounded export into memory while totals continue to cover the complete
 selected window. Global admins can filter by tenant and key; `tenant-admin` callers are
 unconditionally restricted to their bound tenant.
+Each priced native ledger row stores the complete models.dev token-price vector and capture
+time used for settlement. Reports return that frozen JSON object instead of joining against
+the current catalog. The SQLite migration serializes with `BEGIN IMMEDIATE`; pre-snapshot
+priced rows receive an explicit legacy marker, while unpriced rows remain distinguishable
+from free usage.
 
 Verified OIDC identity is deliberately separate from authorization. Durable identity
 bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`

@@ -101,6 +101,7 @@ pub(crate) struct UsageLedgerEntry {
     pub(crate) tokens_reasoning: i64,
     pub(crate) amount_microusd: i64,
     pub(crate) pricing_known: bool,
+    pub(crate) pricing_snapshot: Option<serde_json::Value>,
     pub(crate) created_at_unix_ms: i64,
 }
 
@@ -189,7 +190,7 @@ impl NativeUsage {
             .fetch_one(pool)
             .await
             .map_err(|_| "usage reservations unavailable")?;
-        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
         rows.push_bind(from_unix_ms)
             .push(" AND created_at_unix_ms < ")
             .push_bind(to_unix_ms);
@@ -218,9 +219,25 @@ impl NativeUsage {
             row.try_get::<String, _>(name)
                 .map_err(|_| "invalid usage ledger")
         };
+        let optional_json = |row: &sqlx::any::AnyRow, name| {
+            row.try_get::<Option<String>, _>(name)
+                .map_err(|_| "invalid usage ledger")?
+                .map(|value| {
+                    serde_json::from_str::<serde_json::Value>(&value)
+                        .map_err(|_| "invalid usage ledger")
+                })
+                .transpose()
+        };
         let entries = rows
             .iter()
             .map(|row| {
+                let pricing_known = integer(row, "pricing_known")?;
+                let pricing_snapshot = optional_json(row, "pricing_snapshot")?;
+                if !matches!(pricing_known, 0 | 1)
+                    || (pricing_known == 1) != pricing_snapshot.is_some()
+                {
+                    return Err("invalid usage ledger");
+                }
                 Ok(UsageLedgerEntry {
                     event_id: text(row, "event_id")?,
                     key_id: text(row, "key_id")?,
@@ -233,7 +250,8 @@ impl NativeUsage {
                     tokens_cache_creation: integer(row, "tokens_cache_creation")?,
                     tokens_reasoning: integer(row, "tokens_reasoning")?,
                     amount_microusd: integer(row, "amount_microusd")?,
-                    pricing_known: integer(row, "pricing_known")? == 1,
+                    pricing_known: pricing_known == 1,
+                    pricing_snapshot,
                     created_at_unix_ms: integer(row, "created_at_unix_ms")?,
                 })
             })
@@ -413,9 +431,16 @@ impl NativeUsage {
             Some(prices) => usd_to_micros(prices.cost_usd(event.usage)?)?,
             None => 0,
         };
+        let pricing_snapshot = native_pricing_snapshot(event.prices, event.now_ms)?;
         let mut connection = self.begin().await?;
         let result = self
-            .settle_in(&mut connection, event, tokens, amount_microusd)
+            .settle_in(
+                &mut connection,
+                event,
+                tokens,
+                amount_microusd,
+                pricing_snapshot.as_deref(),
+            )
             .await;
         match result {
             Ok(recorded) => {
@@ -438,6 +463,7 @@ impl NativeUsage {
         event: &UsageEvent<'_>,
         tokens: i64,
         amount_microusd: i64,
+        pricing_snapshot: Option<&str>,
     ) -> Result<bool, &'static str> {
         let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
             .bind(event.event_id)
@@ -493,7 +519,7 @@ impl NativeUsage {
         let cache_creation =
             i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
             .bind(event.event_id)
             .bind(event.key_id)
             .bind(event.tenant_id)
@@ -506,6 +532,7 @@ impl NativeUsage {
             .bind(reasoning)
             .bind(amount_microusd)
             .bind(i64::from(event.prices.is_some()))
+            .bind(pricing_snapshot)
             .bind(event.now_ms)
             .execute(&mut **connection)
             .await
@@ -627,6 +654,41 @@ fn usd_to_micros(usd: f64) -> Result<i64, &'static str> {
     Ok(micros.ceil() as i64)
 }
 
+fn native_pricing_snapshot(
+    prices: Option<&TokenPrices>,
+    captured_at_unix_ms: i64,
+) -> Result<Option<String>, &'static str> {
+    let Some(prices) = prices else {
+        return Ok(None);
+    };
+    if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&captured_at_unix_ms)
+        || [
+            prices.input,
+            prices.output,
+            prices.cache_read,
+            prices.cache_creation,
+            prices.reasoning,
+        ]
+        .into_iter()
+        .any(|price| !price.is_finite() || price < 0.0)
+    {
+        return Err("invalid usage price snapshot");
+    }
+    serde_json::to_string(&serde_json::json!({
+        "currency": "USD",
+        "unit": "million-tokens",
+        "source": "models.dev",
+        "capturedAtUnixMs": captured_at_unix_ms,
+        "input": prices.input,
+        "output": prices.output,
+        "cacheRead": prices.cache_read,
+        "cacheWrite": prices.cache_creation,
+        "reasoning": prices.reasoning,
+    }))
+    .map(Some)
+    .map_err(|_| "invalid usage price snapshot")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,13 +792,21 @@ mod tests {
             })
             .await
             .unwrap());
-        let ledger: (i64, i64) = sqlx::query_as(
-            "SELECT tokens_input + tokens_output + tokens_reasoning, amount_microusd FROM redrouter_usage_ledger WHERE event_id = 'event-one'",
+        let ledger: (i64, i64, String) = sqlx::query_as(
+            "SELECT tokens_input + tokens_output + tokens_reasoning, amount_microusd, pricing_snapshot FROM redrouter_usage_ledger WHERE event_id = 'event-one'",
         )
         .fetch_one(database.sql_pool().unwrap())
         .await
         .unwrap();
-        assert_eq!(ledger, (17, 40));
+        assert_eq!((ledger.0, ledger.1), (17, 40));
+        let snapshot: serde_json::Value = serde_json::from_str(&ledger.2).unwrap();
+        assert_eq!(snapshot["source"], "models.dev");
+        assert_eq!(snapshot["capturedAtUnixMs"], 1_700_000_000_100_i64);
+        assert_eq!(snapshot["input"], 2.0);
+        assert_eq!(snapshot["output"], 4.0);
+        assert_eq!(snapshot["cacheRead"], 1.0);
+        assert_eq!(snapshot["cacheWrite"], 2.0);
+        assert_eq!(snapshot["reasoning"], 4.0);
         drop(usage);
         let database = Arc::try_unwrap(database).ok().unwrap();
         database.close().await.unwrap();

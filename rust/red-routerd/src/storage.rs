@@ -37,7 +37,7 @@ const CREATE_CLIENT_KEY_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_con
 const LIST_CLIENT_KEY_QUOTAS: &str = "SELECT key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision FROM redrouter_control_client_key_quotas ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_quotas (key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO UPDATE SET max_tokens_per_minute = $2, max_tokens_per_day = $3, max_monthly_microusd = $4, reservation_tokens = $5, reservation_microusd = $6, revision = $7";
 const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL)";
-const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL)";
+const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL)";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
 const CREATE_USAGE_RESERVATIONS_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_tenant_time ON redrouter_usage_reservations (tenant_id, created_at_unix_ms DESC)";
@@ -540,6 +540,7 @@ impl Database {
                             .await
                             .map_err(|_| "cannot initialize usage database")?;
                     }
+                    migrate_sqlite_usage_schema(&pool).await?;
                 }
                 sqlx::query(SEED_DEFAULT_TENANT)
                     .execute(&pool)
@@ -2178,6 +2179,48 @@ impl Database {
                 *guard = None;
                 Err("database operation failed")
             }
+        }
+    }
+}
+
+async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str> {
+    let mut connection = pool
+        .acquire()
+        .await
+        .map_err(|_| "cannot initialize usage database")?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| "cannot initialize usage database")?;
+    let result = async {
+        let pricing_snapshot: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('redrouter_usage_ledger') WHERE name = 'pricing_snapshot'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| "cannot inspect usage database")?;
+        if pricing_snapshot == 0 {
+            sqlx::query("ALTER TABLE redrouter_usage_ledger ADD COLUMN pricing_snapshot TEXT")
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot migrate usage database")?;
+        }
+        sqlx::query("UPDATE redrouter_usage_ledger SET pricing_snapshot = '{\"source\":\"legacy\",\"available\":false}' WHERE pricing_known = 1 AND pricing_snapshot IS NULL")
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot migrate usage database")?;
+        Ok::<_, &'static str>(())
+    }
+    .await;
+    match result {
+        Ok(()) => sqlx::query("COMMIT")
+            .execute(&mut *connection)
+            .await
+            .map(|_| ())
+            .map_err(|_| "cannot initialize usage database"),
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+            Err(error)
         }
     }
 }

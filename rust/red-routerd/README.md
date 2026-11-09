@@ -113,6 +113,11 @@ its dispatched reservation for explicit reconciliation rather than silently maki
 available; enabling native quotas never silently forwards an unaccounted terminal event.
 Money is stored as integer micro-USD. Prices come from the active exact-ID models.dev
 snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
+Every priced native ledger row also freezes the complete per-million-token price vector,
+its source and capture time. Usage reports return that immutable snapshot so later catalog
+changes cannot rewrite the explanation of historical spend. Existing priced rows created
+before this schema are marked as legacy snapshots with unavailable detail rather than being
+silently recomputed.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on
 RedDB or PostgreSQL is rejected instead of falling back to process-local counters.
 - `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the

@@ -2170,7 +2170,7 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         ("usage-acme", acme_key_id, "acme", 11_i64),
         ("usage-red", "red-key", "red", 29_i64),
     ] {
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
             .bind(event_id)
             .bind(key_id)
             .bind(tenant_id)
@@ -2183,6 +2183,7 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .bind(1_i64)
             .bind(amount)
             .bind(1_i64)
+            .bind(r#"{"source":"fixture","input":1,"output":2}"#)
             .bind(usage_time)
             .execute(&usage_db)
             .await
@@ -2201,6 +2202,10 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     assert_eq!(scoped_usage["usage"]["request_count"], 1);
     assert_eq!(scoped_usage["usage"]["amount_microusd"], 11);
     assert_eq!(scoped_usage["usage"]["entries"][0]["tenant_id"], "acme");
+    assert_eq!(
+        scoped_usage["usage"]["entries"][0]["pricing_snapshot"]["source"],
+        "fixture"
+    );
     assert_eq!(
         client
             .get(format!("{base}/api/admin/usage?tenant_id=red"))

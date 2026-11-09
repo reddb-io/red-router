@@ -331,6 +331,54 @@ async fn sqlite_usage_paths_have_bounded_report_and_quota_indexes() {
 }
 
 #[tokio::test]
+async fn sqlite_usage_schema_backfills_legacy_price_snapshots() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("usage-price-migration.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query("CREATE TABLE redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL)")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO redrouter_usage_ledger VALUES ('priced','key','red','openai','gpt',1,2,0,0,0,3,1,1700000000000),('unpriced','key','red','openai','gpt',1,2,0,0,0,0,0,1700000000001)")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    raw.close().await.unwrap();
+
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT event_id, pricing_snapshot FROM redrouter_usage_ledger ORDER BY event_id",
+    )
+    .fetch_all(&mut raw)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "priced".into(),
+                Some(r#"{"source":"legacy","available":false}"#.into()),
+            ),
+            ("unpriced".into(), None),
+        ]
+    );
+    raw.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn sqlite_client_preference_revision_mismatch_fails_closed() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("preference-revision.sqlite");
