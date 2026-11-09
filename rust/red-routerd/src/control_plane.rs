@@ -1508,8 +1508,9 @@ impl ControlPlane {
             .tenant_id
             .as_deref()
             .or_else(|| existing.as_ref().map(|combo| combo.tenant_id.as_str()))
-            .unwrap_or("red");
-        validate_id(tenant_id)?;
+            .unwrap_or("red")
+            .to_owned();
+        validate_id(&tenant_id)?;
         if existing
             .as_ref()
             .is_some_and(|combo| combo.tenant_id != tenant_id)
@@ -1549,7 +1550,7 @@ impl ControlPlane {
         }
         let record = StoredCombo {
             id: id.to_owned(),
-            tenant_id: tenant_id.to_owned(),
+            tenant_id,
             protocol: input.protocol,
             strategy: input.strategy,
             fallback: input.fallback,
