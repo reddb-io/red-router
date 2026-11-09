@@ -185,14 +185,17 @@ impl BigQueryAuditSink {
             encode(&Header::new(Algorithm::RS256), &claims, &key)
                 .map_err(|_| "cannot sign BigQuery service account assertion")?,
         );
-        let mut form = url::form_urlencoded::Serializer::new(String::new());
-        form.append_pair("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
-        form.append_pair("assertion", assertion.as_str());
+        let form = {
+            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+            serializer.append_pair("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+            serializer.append_pair("assertion", assertion.as_str());
+            serializer.finish()
+        };
         let response = self
             .client
             .post(self.token_uri.clone())
             .header("content-type", "application/x-www-form-urlencoded")
-            .body(form.finish())
+            .body(form)
             .send()
             .await
             .map_err(|_| "BigQuery token exchange unavailable")?;
