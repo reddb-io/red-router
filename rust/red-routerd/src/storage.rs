@@ -27,6 +27,12 @@ const LIST_PROVIDER_OAUTH: &str = "SELECT provider_id, oauth_provider, refresh_t
 const UPSERT_PROVIDER_OAUTH: &str = "INSERT INTO redrouter_control_provider_oauth (provider_id, oauth_provider, refresh_token_ciphertext, generation, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id) DO UPDATE SET oauth_provider = $2, refresh_token_ciphertext = $3, generation = $4, revision = $5";
 const DELETE_PROVIDER_OAUTH: &str =
     "DELETE FROM redrouter_control_provider_oauth WHERE provider_id = $1";
+const CREATE_PROVIDER_OAUTH_STATUS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_oauth_status (provider_id TEXT PRIMARY KEY, revision BIGINT NOT NULL, generation BIGINT NOT NULL, refresh_state TEXT NOT NULL, error_code TEXT NOT NULL, observed_at_unix BIGINT NOT NULL)";
+const LIST_PROVIDER_OAUTH_STATUS: &str = "SELECT provider_id, revision, generation, refresh_state, error_code, observed_at_unix FROM redrouter_control_provider_oauth_status ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_OAUTH_STATUS: &str = "INSERT INTO redrouter_control_provider_oauth_status (provider_id, revision, generation, refresh_state, error_code, observed_at_unix) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET revision = $2, generation = $3, refresh_state = $4, error_code = $5, observed_at_unix = $6";
+const DELETE_PROVIDER_OAUTH_STATUS: &str =
+    "DELETE FROM redrouter_control_provider_oauth_status WHERE provider_id = $1";
+const CREATE_OAUTH_REFRESH_LEASES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oauth_refresh_leases (rotation_group TEXT PRIMARY KEY, owner TEXT NOT NULL, lease_until_unix_ms BIGINT NOT NULL, next_allowed_unix_ms BIGINT NOT NULL)";
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
@@ -134,6 +140,16 @@ pub struct StoredProviderOAuth {
     pub refresh_token_ciphertext: String,
     pub generation: i64,
     pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderOAuthStatus {
+    pub provider_id: String,
+    pub revision: i64,
+    pub generation: i64,
+    pub refresh_state: String,
+    pub error_code: String,
+    pub observed_at_unix: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -388,6 +404,8 @@ impl Database {
                         CREATE_PROVIDER_OWNERSHIP,
                         CREATE_PROVIDER_AUTH,
                         CREATE_PROVIDER_OAUTH,
+                        CREATE_PROVIDER_OAUTH_STATUS,
+                        CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
@@ -491,6 +509,8 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_PROVIDER_AUTH).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH).await?;
+                db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
+                db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
@@ -537,6 +557,8 @@ impl Database {
                     CREATE_PROVIDER_OWNERSHIP,
                     CREATE_PROVIDER_AUTH,
                     CREATE_PROVIDER_OAUTH,
+                    CREATE_PROVIDER_OAUTH_STATUS,
+                    CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
@@ -963,6 +985,166 @@ impl Database {
         Ok(())
     }
 
+    pub async fn provider_oauth_status(
+        &self,
+    ) -> Result<Vec<StoredProviderOAuthStatus>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_OAUTH_STATUS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider OAuth refresh status")?
+                .iter()
+                .map(read_sql_provider_oauth_status)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_OAUTH_STATUS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_oauth_status)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_OAUTH_STATUS)
+                .await
+                .map_err(|_| "cannot read provider OAuth refresh status")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_oauth_status)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_oauth_status(
+        &self,
+        status: &StoredProviderOAuthStatus,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_OAUTH_STATUS)
+                    .bind(&status.provider_id)
+                    .bind(status.revision)
+                    .bind(status.generation)
+                    .bind(&status.refresh_state)
+                    .bind(&status.error_code)
+                    .bind(status.observed_at_unix)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider OAuth refresh status")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_PROVIDER_OAUTH_STATUS,
+                    &provider_oauth_status_params(status),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_PROVIDER_OAUTH_STATUS,
+                    provider_oauth_status_params(status),
+                )
+                .await
+                .map_err(|_| "cannot write provider OAuth refresh status")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn mark_provider_oauth_reauth_required(
+        &self,
+        status: &StoredProviderOAuthStatus,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("provider OAuth refresh requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("provider OAuth refresh requires SQLite")?;
+        let result = sqlx::query("INSERT INTO redrouter_control_provider_oauth_status (provider_id, revision, generation, refresh_state, error_code, observed_at_unix) SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS (SELECT 1 FROM redrouter_control_provider_oauth WHERE provider_id = $1 AND revision = $2 AND generation = $3) ON CONFLICT (provider_id) DO UPDATE SET revision = $2, generation = $3, refresh_state = $4, error_code = $5, observed_at_unix = $6")
+            .bind(&status.provider_id)
+            .bind(status.revision)
+            .bind(status.generation)
+            .bind(&status.refresh_state)
+            .bind(&status.error_code)
+            .bind(status.observed_at_unix)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot write provider OAuth refresh status")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn delete_provider_oauth_status(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_OAUTH_STATUS)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider OAuth refresh status")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER_OAUTH_STATUS, &params())
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER_OAUTH_STATUS, params())
+                    .await
+                    .map_err(|_| "cannot delete provider OAuth refresh status")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn acquire_oauth_refresh_lease(
+        &self,
+        rotation_group: &str,
+        owner: &str,
+        now_unix_ms: i64,
+        lease_until_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("provider OAuth refresh requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("provider OAuth refresh requires SQLite")?;
+        let result = sqlx::query("INSERT INTO redrouter_control_oauth_refresh_leases (rotation_group, owner, lease_until_unix_ms, next_allowed_unix_ms) VALUES ($1,$2,$3,0) ON CONFLICT (rotation_group) DO UPDATE SET owner = $2, lease_until_unix_ms = $3 WHERE redrouter_control_oauth_refresh_leases.lease_until_unix_ms <= $4 AND redrouter_control_oauth_refresh_leases.next_allowed_unix_ms <= $4")
+            .bind(rotation_group)
+            .bind(owner)
+            .bind(lease_until_unix_ms)
+            .bind(now_unix_ms)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot acquire provider OAuth refresh lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn release_oauth_refresh_lease(
+        &self,
+        rotation_group: &str,
+        owner: &str,
+        next_allowed_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let pool = self
+            .sql_pool()
+            .ok_or("provider OAuth refresh requires SQLite")?;
+        sqlx::query("UPDATE redrouter_control_oauth_refresh_leases SET lease_until_unix_ms = 0, next_allowed_unix_ms = $1 WHERE rotation_group = $2 AND owner = $3")
+            .bind(next_allowed_unix_ms)
+            .bind(rotation_group)
+            .bind(owner)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot release provider OAuth refresh lease")?;
+        Ok(())
+    }
+
     /// Atomically replace a rotating OAuth token pair if the caller still owns
     /// the generation it read. SQLite is the current production authority for
     /// this path; other backends fail closed until they provide equivalent CAS.
@@ -1025,6 +1207,11 @@ impl Database {
             if provider.rows_affected() != 1 || auth.rows_affected() != 1 {
                 return Err("provider OAuth revision mismatch");
             }
+            sqlx::query("DELETE FROM redrouter_control_provider_oauth_status WHERE provider_id = $1")
+                .bind(provider_id)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot clear provider OAuth refresh status")?;
             Ok(true)
         }
         .await;
@@ -2721,6 +2908,69 @@ fn provider_oauth_params(oauth: &StoredProviderOAuth) -> Vec<reddb_client::Value
         reddb_client::Value::Text(oauth.refresh_token_ciphertext.clone()),
         reddb_client::Value::Int(oauth.generation),
         reddb_client::Value::Int(oauth.revision),
+    ]
+}
+
+fn read_sql_provider_oauth_status(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredProviderOAuthStatus, &'static str> {
+    Ok(StoredProviderOAuthStatus {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+        generation: row
+            .try_get("generation")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+        refresh_state: row
+            .try_get("refresh_state")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+        error_code: row
+            .try_get("error_code")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+        observed_at_unix: row
+            .try_get("observed_at_unix")
+            .map_err(|_| "invalid provider OAuth refresh status")?,
+    })
+}
+
+fn read_reddb_provider_oauth_status(
+    row: &reddb_client::Row,
+) -> Result<StoredProviderOAuthStatus, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider OAuth refresh status"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider OAuth refresh status"),
+    };
+    Ok(StoredProviderOAuthStatus {
+        provider_id: text("provider_id")?,
+        revision: integer("revision")?,
+        generation: integer("generation")?,
+        refresh_state: text("refresh_state")?,
+        error_code: text("error_code")?,
+        observed_at_unix: integer("observed_at_unix")?,
+    })
+}
+
+fn provider_oauth_status_params(status: &StoredProviderOAuthStatus) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(status.provider_id.clone()),
+        reddb_client::Value::Int(status.revision),
+        reddb_client::Value::Int(status.generation),
+        reddb_client::Value::Text(status.refresh_state.clone()),
+        reddb_client::Value::Text(status.error_code.clone()),
+        reddb_client::Value::Int(status.observed_at_unix),
     ]
 }
 

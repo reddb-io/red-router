@@ -14,6 +14,7 @@ import {
   replaceRustClientKey,
   replaceRustProvider,
   refreshRustModelCatalog,
+  refreshRustProviderOAuth,
   rotateRustProviderOAuth,
   rustAdminFetch,
   testRustProvider,
@@ -61,6 +62,7 @@ const provider: RustProvider = {
   credential_expired: false,
   credential_type: "static",
   refreshable: false,
+  reauth_required: false,
 };
 
 const catalogManifest = {
@@ -247,6 +249,8 @@ describe("Rust control-plane browser client", () => {
       oauth_provider: "claude",
       oauth_generation: "4",
       refreshable: true,
+      oauth_refresh_state: "ready",
+      reauth_required: false,
     };
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ provider: oauthProvider }));
     vi.stubGlobal("fetch", fetch);
@@ -267,6 +271,24 @@ describe("Rust control-plane browser client", () => {
       refresh_token: "new-refresh-token",
       expires_at_unix: 1_900_000_000,
     });
+  });
+
+  it("requests a server-owned OAuth refresh without exposing either token", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const refresh = {
+      provider_id: "claude-team",
+      ok: true,
+      category: "refreshed",
+      generation: "5",
+      expires_at_unix: 1_900_000_000,
+    };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ refresh }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(refreshRustProviderOAuth("claude-team")).resolves.toEqual(refresh);
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/providers/claude-team/oauth/refresh");
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: "{}" });
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain("token");
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {

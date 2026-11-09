@@ -7,7 +7,8 @@ use crate::{
     storage::{
         StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
         StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
-        StoredProviderOAuth, StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
+        StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota, StoredResilience,
+        StoredRoutePin, StoredTenant,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -42,6 +43,15 @@ const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_DIAGNOSTIC_MAX_BODY_BYTES: usize = 1024 * 1024;
+const OAUTH_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+const OAUTH_REFRESH_LEAD_SECONDS: i64 = 300;
+const OAUTH_REFRESH_LEASE_MS: i64 = 45_000;
+const OAUTH_REFRESH_SETTLE_MS: i64 = 2_000;
+const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
+const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
+const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 struct Inner {
     database: Arc<crate::storage::Database>,
@@ -57,11 +67,38 @@ struct Inner {
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
     catalog_source: reqwest::Url,
+    oauth_refresh_client: reqwest::Client,
+    oauth_refresh: OAuthRefreshConfig,
     native_usage: RwLock<Option<crate::native_usage::NativeUsage>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
     allow_private: bool,
+}
+
+#[derive(Clone)]
+struct OAuthRefreshConfig {
+    codex_endpoint: reqwest::Url,
+    codex_client_id: String,
+    claude_endpoint: reqwest::Url,
+    claude_client_id: String,
+}
+
+struct OAuthTokenPair {
+    access_token: Zeroizing<String>,
+    refresh_token: Zeroizing<String>,
+    expires_at_unix: i64,
+}
+
+enum OAuthExchangeFailure {
+    Terminal {
+        code: String,
+        status: u16,
+    },
+    Transient {
+        category: &'static str,
+        status: Option<u16>,
+    },
 }
 
 struct CatalogState {
@@ -153,6 +190,11 @@ pub struct ProviderView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth_generation: Option<String>,
     pub refreshable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_refresh_state: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_error_code: Option<String>,
+    pub reauth_required: bool,
 }
 
 #[derive(Deserialize)]
@@ -162,6 +204,18 @@ pub struct ProviderOAuthRotationInput {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at_unix: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderOAuthRefreshView {
+    pub provider_id: String,
+    pub ok: bool,
+    pub category: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_status: Option<u16>,
+    pub generation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_unix: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -616,6 +670,41 @@ fn validate_catalog_source(value: &str, allow_private: bool) -> Result<reqwest::
     Ok(url)
 }
 
+impl OAuthRefreshConfig {
+    fn production() -> Result<Self, &'static str> {
+        let codex_client_id = std::env::var("CODEX_OAUTH_CLIENT_ID")
+            .unwrap_or_else(|_| CODEX_OAUTH_CLIENT_ID.to_owned());
+        let claude_client_id = std::env::var("CLAUDE_OAUTH_CLIENT_ID")
+            .unwrap_or_else(|_| CLAUDE_OAUTH_CLIENT_ID.to_owned());
+        validate_oauth_client_id(&codex_client_id)?;
+        validate_oauth_client_id(&claude_client_id)?;
+        Ok(Self {
+            codex_endpoint: reqwest::Url::parse(CODEX_OAUTH_TOKEN_URL)
+                .map_err(|_| "invalid Codex OAuth token URL")?,
+            codex_client_id,
+            claude_endpoint: reqwest::Url::parse(CLAUDE_OAUTH_TOKEN_URL)
+                .map_err(|_| "invalid Claude OAuth token URL")?,
+            claude_client_id,
+        })
+    }
+
+    fn testing(codex_endpoint: reqwest::Url, claude_endpoint: reqwest::Url) -> Self {
+        Self {
+            codex_endpoint,
+            codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
+            claude_endpoint,
+            claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
+        }
+    }
+}
+
+fn validate_oauth_client_id(value: &str) -> Result<(), &'static str> {
+    if !(1..=512).contains(&value.len()) || value.chars().any(char::is_control) {
+        return Err("invalid OAuth client identifier");
+    }
+    Ok(())
+}
+
 impl ControlPlane {
     pub async fn new(
         database: Arc<crate::storage::Database>,
@@ -661,6 +750,64 @@ impl ControlPlane {
         catalog_source: &str,
         catalog_poll_interval: Duration,
     ) -> Result<Self, &'static str> {
+        Self::new_with_runtime_options(
+            database,
+            admin_key,
+            encryption_key,
+            allow_private,
+            catalog_source,
+            catalog_poll_interval,
+            OAUTH_REFRESH_INTERVAL,
+            OAuthRefreshConfig::production()?,
+        )
+        .await
+    }
+
+    #[doc(hidden)]
+    pub async fn new_with_oauth_refresh_endpoints(
+        database: Arc<crate::storage::Database>,
+        admin_key: &str,
+        encryption_key: &str,
+        allow_private: bool,
+        codex_endpoint: reqwest::Url,
+        claude_endpoint: reqwest::Url,
+    ) -> Result<Self, &'static str> {
+        if codex_endpoint.scheme() != "http"
+            || claude_endpoint.scheme() != "http"
+            || !codex_endpoint.host_str().is_some_and(|host| {
+                host.parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+            })
+            || !claude_endpoint.host_str().is_some_and(|host| {
+                host.parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+            })
+        {
+            return Err("test OAuth endpoints must be loopback HTTP URLs");
+        }
+        Self::new_with_runtime_options(
+            database,
+            admin_key,
+            encryption_key,
+            allow_private,
+            crate::catalog::EXPECTED_SOURCE,
+            MODEL_CATALOG_SYNC_INTERVAL,
+            Duration::from_secs(3_600),
+            OAuthRefreshConfig::testing(codex_endpoint, claude_endpoint),
+        )
+        .await
+    }
+
+    async fn new_with_runtime_options(
+        database: Arc<crate::storage::Database>,
+        admin_key: &str,
+        encryption_key: &str,
+        allow_private: bool,
+        catalog_source: &str,
+        catalog_poll_interval: Duration,
+        oauth_refresh_interval: Duration,
+        oauth_refresh: OAuthRefreshConfig,
+    ) -> Result<Self, &'static str> {
         if !(32..=512).contains(&admin_key.len()) {
             return Err("RED_ROUTER_ADMIN_KEY must be 32-512 bytes");
         }
@@ -671,6 +818,10 @@ impl ControlPlane {
             .contains(&catalog_poll_interval)
         {
             return Err("invalid model catalog poll interval");
+        }
+        if !(Duration::from_secs(1)..=Duration::from_secs(3_600)).contains(&oauth_refresh_interval)
+        {
+            return Err("invalid OAuth refresh interval");
         }
         let mut breakers = HashMap::new();
         for record in database.breakers().await? {
@@ -759,7 +910,15 @@ impl ControlPlane {
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
             .map_err(|_| "cannot initialize models.dev client")?;
-        let native_usage = if database.is_sqlite().await {
+        let oauth_refresh_client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| "cannot initialize OAuth refresh client")?;
+        let sqlite = database.is_sqlite().await;
+        let native_usage = if sqlite {
             Some(crate::native_usage::NativeUsage::new(database.clone())?)
         } else {
             None
@@ -784,6 +943,8 @@ impl ControlPlane {
             catalog_refresh: tokio::sync::Mutex::new(()),
             catalog_client,
             catalog_source,
+            oauth_refresh_client,
+            oauth_refresh,
             native_usage: RwLock::new(native_usage),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
@@ -795,6 +956,9 @@ impl ControlPlane {
         plane.refresh_routes().await?;
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
+        if sqlite {
+            plane.spawn_oauth_refresh_sync(oauth_refresh_interval);
+        }
         Ok(plane)
     }
 
@@ -827,6 +991,407 @@ impl ControlPlane {
                 }
             }
         });
+    }
+
+    fn spawn_oauth_refresh_sync(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let plane = ControlPlane(inner);
+                let Ok(now) = unix_time_seconds()
+                    .and_then(|value| i64::try_from(value).map_err(|_| "system clock is invalid"))
+                else {
+                    continue;
+                };
+                let Ok(providers) = plane.0.database.providers().await else {
+                    continue;
+                };
+                let Ok(auth) = plane.auth_settings().await else {
+                    continue;
+                };
+                let Ok(oauth) = plane.oauth_settings().await else {
+                    continue;
+                };
+                let Ok(statuses) = plane.oauth_status_settings().await else {
+                    continue;
+                };
+                for provider in providers {
+                    let key = (provider.id.clone(), provider.updated_at);
+                    let Some(provider_auth) = auth.get(&key) else {
+                        continue;
+                    };
+                    let Some(provider_oauth) = oauth.get(&key) else {
+                        continue;
+                    };
+                    if !provider.enabled
+                        || provider_auth.expires_at_unix > now + OAUTH_REFRESH_LEAD_SECONDS
+                        || statuses
+                            .get(&(
+                                provider.id.clone(),
+                                provider.updated_at,
+                                provider_oauth.generation,
+                            ))
+                            .is_some_and(|status| status.refresh_state == "reauth_required")
+                    {
+                        continue;
+                    }
+                    let _ = plane.refresh_provider_oauth_as(&provider.id, None).await;
+                }
+            }
+        });
+    }
+
+    async fn refresh_provider_oauth_as(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderOAuthRefreshView, &'static str> {
+        validate_id(id)?;
+        let (provider, auth, oauth) = self.provider_oauth_records(id, enforced_tenant).await?;
+        if let Some(status) = self.oauth_status_settings().await?.get(&(
+            id.to_owned(),
+            provider.updated_at,
+            oauth.generation,
+        )) {
+            if status.refresh_state == "reauth_required" {
+                return Ok(oauth_refresh_view(
+                    id,
+                    false,
+                    "reauth_required",
+                    None,
+                    oauth.generation,
+                    auth.expires_at_unix,
+                ));
+            }
+        }
+        let rotation_group = oauth_rotation_group(&oauth.oauth_provider)?;
+        let owner = random_token(18)?;
+        let now_ms = unix_time_ms()?;
+        let lease_until = now_ms
+            .checked_add(OAUTH_REFRESH_LEASE_MS)
+            .ok_or("system clock is invalid")?;
+        if !self
+            .0
+            .database
+            .acquire_oauth_refresh_lease(rotation_group, &owner, now_ms, lease_until)
+            .await?
+        {
+            return Ok(oauth_refresh_view(
+                id,
+                false,
+                "refresh_in_progress",
+                None,
+                oauth.generation,
+                auth.expires_at_unix,
+            ));
+        }
+
+        // A different replica may have completed a rotation immediately before
+        // this lease was acquired. Re-read the durable generation and token.
+        let records = self.provider_oauth_records(id, enforced_tenant).await;
+        let outcome = match records {
+            Ok((fresh_provider, fresh_auth, fresh_oauth)) => {
+                match self.oauth_status_settings().await {
+                    Ok(statuses) => {
+                        if statuses
+                            .get(&(
+                                id.to_owned(),
+                                fresh_provider.updated_at,
+                                fresh_oauth.generation,
+                            ))
+                            .is_some_and(|status| status.refresh_state == "reauth_required")
+                        {
+                            Ok(oauth_refresh_view(
+                                id,
+                                false,
+                                "reauth_required",
+                                None,
+                                fresh_oauth.generation,
+                                fresh_auth.expires_at_unix,
+                            ))
+                        } else {
+                            self.exchange_and_persist_oauth(fresh_provider, fresh_auth, fresh_oauth)
+                                .await
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        };
+        let next_allowed = unix_time_ms()
+            .unwrap_or(now_ms)
+            .saturating_add(OAUTH_REFRESH_SETTLE_MS);
+        let _ = self
+            .0
+            .database
+            .release_oauth_refresh_lease(rotation_group, &owner, next_allowed)
+            .await;
+        outcome
+    }
+
+    async fn provider_oauth_records(
+        &self,
+        id: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(StoredProvider, StoredProviderAuth, StoredProviderOAuth), &'static str> {
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|record| record.id == id)
+            .ok_or("provider configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
+        if !provider.enabled {
+            return Err("provider is disabled");
+        }
+        let key = (provider.id.clone(), provider.updated_at);
+        let auth = self
+            .auth_settings()
+            .await?
+            .remove(&key)
+            .ok_or("provider authentication configuration not found")?;
+        let oauth = self
+            .oauth_settings()
+            .await?
+            .remove(&key)
+            .ok_or("provider OAuth configuration not found")?;
+        Ok((provider, auth, oauth))
+    }
+
+    async fn exchange_and_persist_oauth(
+        &self,
+        provider: StoredProvider,
+        auth: StoredProviderAuth,
+        oauth: StoredProviderOAuth,
+    ) -> Result<ProviderOAuthRefreshView, &'static str> {
+        let aad = format!("{}:oauth-refresh", provider.id);
+        let refresh_token = decrypt(
+            &oauth.refresh_token_ciphertext,
+            &aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        match self
+            .exchange_oauth_token(&oauth.oauth_provider, refresh_token.as_str())
+            .await
+        {
+            Ok(tokens) => {
+                let access_ciphertext = encrypt(
+                    tokens.access_token.as_str(),
+                    &provider.id,
+                    self.0.encryption_key.as_str(),
+                )?;
+                let refresh_ciphertext = encrypt(
+                    tokens.refresh_token.as_str(),
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                let rotated = self
+                    .0
+                    .database
+                    .rotate_provider_oauth_credentials(
+                        &provider.id,
+                        provider.updated_at,
+                        oauth.generation,
+                        &access_ciphertext,
+                        &refresh_ciphertext,
+                        tokens.expires_at_unix,
+                    )
+                    .await?;
+                if !rotated {
+                    return Ok(oauth_refresh_view(
+                        &provider.id,
+                        false,
+                        "superseded",
+                        None,
+                        oauth.generation,
+                        auth.expires_at_unix,
+                    ));
+                }
+                let _mutation = self.0.mutation.lock().await;
+                if let Err(error) = self.refresh().await {
+                    *self.0.current.write().await = None;
+                    return Err(error);
+                }
+                if let Err(error) = self.refresh_routes().await {
+                    *self.0.routes.write().await = RouteSnapshot::Unavailable;
+                    return Err(error);
+                }
+                Ok(oauth_refresh_view(
+                    &provider.id,
+                    true,
+                    "refreshed",
+                    None,
+                    oauth.generation.saturating_add(1),
+                    tokens.expires_at_unix,
+                ))
+            }
+            Err(OAuthExchangeFailure::Terminal { code, status }) => {
+                let marked = self
+                    .0
+                    .database
+                    .mark_provider_oauth_reauth_required(&StoredProviderOAuthStatus {
+                        provider_id: provider.id.clone(),
+                        revision: provider.updated_at,
+                        generation: oauth.generation,
+                        refresh_state: "reauth_required".to_owned(),
+                        error_code: code,
+                        observed_at_unix: i64::try_from(unix_time_seconds()?)
+                            .map_err(|_| "system clock is invalid")?,
+                    })
+                    .await?;
+                if !marked {
+                    return Ok(oauth_refresh_view(
+                        &provider.id,
+                        false,
+                        "superseded",
+                        Some(status),
+                        oauth.generation,
+                        auth.expires_at_unix,
+                    ));
+                }
+                Ok(oauth_refresh_view(
+                    &provider.id,
+                    false,
+                    "reauth_required",
+                    Some(status),
+                    oauth.generation,
+                    auth.expires_at_unix,
+                ))
+            }
+            Err(OAuthExchangeFailure::Transient { category, status }) => Ok(oauth_refresh_view(
+                &provider.id,
+                false,
+                category,
+                status,
+                oauth.generation,
+                auth.expires_at_unix,
+            )),
+        }
+    }
+
+    async fn exchange_oauth_token(
+        &self,
+        oauth_provider: &str,
+        refresh_token: &str,
+    ) -> Result<OAuthTokenPair, OAuthExchangeFailure> {
+        let (endpoint, client_id, claude) = match oauth_provider {
+            "codex" => (
+                &self.0.oauth_refresh.codex_endpoint,
+                self.0.oauth_refresh.codex_client_id.as_str(),
+                false,
+            ),
+            "claude" => (
+                &self.0.oauth_refresh.claude_endpoint,
+                self.0.oauth_refresh.claude_client_id.as_str(),
+                true,
+            ),
+            _ => {
+                return Err(OAuthExchangeFailure::Transient {
+                    category: "unsupported_provider",
+                    status: None,
+                })
+            }
+        };
+        let mut form = url::form_urlencoded::Serializer::new(String::new());
+        form.append_pair("grant_type", "refresh_token");
+        form.append_pair("client_id", client_id);
+        form.append_pair("refresh_token", refresh_token);
+        let mut request = self
+            .0
+            .oauth_refresh_client
+            .post(endpoint.clone())
+            .header(
+                header::CONTENT_TYPE.as_str(),
+                "application/x-www-form-urlencoded",
+            )
+            .body(form.finish());
+        if claude {
+            request = request.header("anthropic-beta", "oauth-2025-04-20");
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| OAuthExchangeFailure::Transient {
+                category: if error.is_timeout() {
+                    "timeout"
+                } else {
+                    "unavailable"
+                },
+                status: None,
+            })?;
+        let status = response.status().as_u16();
+        let body = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES)
+            .await
+            .map_err(|category| OAuthExchangeFailure::Transient {
+                category,
+                status: Some(status),
+            })?;
+        let value: serde_json::Value = match serde_json::from_slice(&body) {
+            Ok(value) => value,
+            Err(_) if !(200..300).contains(&status) => serde_json::Value::Null,
+            Err(_) => {
+                return Err(OAuthExchangeFailure::Transient {
+                    category: "invalid_response",
+                    status: Some(status),
+                })
+            }
+        };
+        if !(200..300).contains(&status) {
+            let code = oauth_error_code(&value);
+            if oauth_terminal_error(oauth_provider, status, &code) {
+                return Err(OAuthExchangeFailure::Terminal { code, status });
+            }
+            return Err(OAuthExchangeFailure::Transient {
+                category: if status == 429 {
+                    "rate_limited"
+                } else if status >= 500 {
+                    "upstream_error"
+                } else {
+                    "request_rejected"
+                },
+                status: Some(status),
+            });
+        }
+        let access_token = oauth_token_field(&value, "access_token")?;
+        let refresh_token = match value
+            .get("refresh_token")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some(value) => validate_oauth_token(value)?,
+            None => validate_oauth_token(refresh_token)?,
+        };
+        let expires_in = value
+            .get("expires_in")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| (1..=2_678_400).contains(value))
+            .ok_or(OAuthExchangeFailure::Transient {
+                category: "invalid_response",
+                status: Some(status),
+            })?;
+        let now = unix_time_seconds()
+            .ok()
+            .and_then(|value| i64::try_from(value).ok())
+            .ok_or(OAuthExchangeFailure::Transient {
+                category: "invalid_response",
+                status: Some(status),
+            })?;
+        Ok(OAuthTokenPair {
+            access_token: Zeroizing::new(access_token),
+            refresh_token: Zeroizing::new(refresh_token),
+            expires_at_unix: now.saturating_add(expires_in),
+        })
     }
 
     fn spawn_model_catalog_sync(&self, cadence: Duration) {
@@ -1152,6 +1717,7 @@ impl ControlPlane {
             && self.0.database.provider_resilience().await.is_ok()
             && self.0.database.provider_auth().await.is_ok()
             && self.0.database.provider_oauth().await.is_ok()
+            && self.0.database.provider_oauth_status().await.is_ok()
             && self
                 .0
                 .database
@@ -1337,6 +1903,7 @@ impl ControlPlane {
             self.0.database.delete_provider_oauth(id).await?;
             None
         };
+        self.0.database.delete_provider_oauth_status(id).await?;
         // Refresh from the durable authority so concurrent writers converge on
         // the same latest enabled record rather than on local write order.
         if let Err(error) = self.refresh().await {
@@ -1355,6 +1922,7 @@ impl ControlPlane {
             rate_limit_scope,
             Some(&provider_auth),
             provider_oauth.as_ref(),
+            None,
         )
     }
 
@@ -2619,10 +3187,19 @@ impl ControlPlane {
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
         let oauth = self.oauth_settings().await?;
+        let oauth_status = self.oauth_status_settings().await?;
         self.0.database.providers().await.and_then(|rows| {
             rows.iter()
                 .filter(|record| tenant_id.is_none_or(|tenant| tenant == record.tenant_id))
                 .map(|record| {
+                    let provider_oauth = oauth.get(&(record.id.clone(), record.updated_at));
+                    let status = provider_oauth.and_then(|provider_oauth| {
+                        oauth_status.get(&(
+                            record.id.clone(),
+                            record.updated_at,
+                            provider_oauth.generation,
+                        ))
+                    });
                     view(
                         record,
                         resilience
@@ -2630,7 +3207,8 @@ impl ControlPlane {
                             .copied()
                             .unwrap_or_default(),
                         auth.get(&(record.id.clone(), record.updated_at)),
-                        oauth.get(&(record.id.clone(), record.updated_at)),
+                        provider_oauth,
+                        status,
                     )
                 })
                 .collect()
@@ -2673,6 +3251,40 @@ impl ControlPlane {
                     return Err("invalid provider OAuth configuration");
                 }
                 Ok(((record.provider_id.clone(), record.revision), record))
+            })
+            .collect()
+    }
+
+    async fn oauth_status_settings(
+        &self,
+    ) -> Result<HashMap<(String, i64, i64), StoredProviderOAuthStatus>, &'static str> {
+        self.0
+            .database
+            .provider_oauth_status()
+            .await?
+            .into_iter()
+            .map(|record| {
+                if record.revision < 0
+                    || record.generation < 0
+                    || record.refresh_state != "reauth_required"
+                    || record.observed_at_unix < 0
+                    || record.error_code.is_empty()
+                    || record.error_code.len() > 64
+                    || !record
+                        .error_code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                {
+                    return Err("invalid provider OAuth refresh status");
+                }
+                Ok((
+                    (
+                        record.provider_id.clone(),
+                        record.revision,
+                        record.generation,
+                    ),
+                    record,
+                ))
             })
             .collect()
     }
@@ -3271,6 +3883,7 @@ fn view(
     rate_limit_scope: RateLimitScope,
     auth: Option<&StoredProviderAuth>,
     oauth: Option<&StoredProviderOAuth>,
+    oauth_status: Option<&StoredProviderOAuthStatus>,
 ) -> Result<ProviderView, &'static str> {
     let fallback;
     let auth = match auth {
@@ -3304,6 +3917,15 @@ fn view(
         oauth_provider: oauth.map(|value| value.oauth_provider.clone()),
         oauth_generation: oauth.map(|value| value.generation.to_string()),
         refreshable: oauth.is_some(),
+        oauth_refresh_state: oauth.map(|_| {
+            if oauth_status.is_some() {
+                "reauth_required"
+            } else {
+                "ready"
+            }
+        }),
+        oauth_error_code: oauth_status.map(|status| status.error_code.clone()),
+        reauth_required: oauth_status.is_some(),
     })
 }
 
@@ -3860,6 +4482,112 @@ fn local_endpoint(value: &str) -> bool {
             url::Host::Domain(_) => Some(false),
         })
         .unwrap_or(false)
+}
+
+fn oauth_rotation_group(provider: &str) -> Result<&'static str, &'static str> {
+    match provider {
+        "codex" => Ok("openai-auth0"),
+        "claude" => Ok("anthropic-oauth"),
+        _ => Err("unsupported OAuth provider"),
+    }
+}
+
+fn oauth_refresh_view(
+    provider_id: &str,
+    ok: bool,
+    category: &'static str,
+    upstream_status: Option<u16>,
+    generation: i64,
+    expires_at_unix: i64,
+) -> ProviderOAuthRefreshView {
+    ProviderOAuthRefreshView {
+        provider_id: provider_id.to_owned(),
+        ok,
+        category,
+        upstream_status,
+        generation: generation.to_string(),
+        expires_at_unix: (expires_at_unix > 0).then_some(expires_at_unix as u64),
+    }
+}
+
+fn validate_oauth_token(value: &str) -> Result<String, OAuthExchangeFailure> {
+    if !(1..=8192).contains(&value.len()) || value.chars().any(char::is_control) {
+        return Err(OAuthExchangeFailure::Transient {
+            category: "invalid_response",
+            status: None,
+        });
+    }
+    Ok(value.to_owned())
+}
+
+fn oauth_token_field(
+    value: &serde_json::Value,
+    field: &str,
+) -> Result<String, OAuthExchangeFailure> {
+    value
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .ok_or(OAuthExchangeFailure::Transient {
+            category: "invalid_response",
+            status: None,
+        })
+        .and_then(validate_oauth_token)
+}
+
+fn oauth_error_code(value: &serde_json::Value) -> String {
+    let raw = value
+        .get("error")
+        .and_then(|error| {
+            error.as_str().or_else(|| {
+                error
+                    .as_object()
+                    .and_then(|object| object.get("code"))
+                    .and_then(serde_json::Value::as_str)
+            })
+        })
+        .or_else(|| value.get("code").and_then(serde_json::Value::as_str))
+        .unwrap_or("oauth_error");
+    let normalized = raw.trim().to_ascii_lowercase().replace(' ', "_");
+    if !normalized.is_empty()
+        && normalized.len() <= 64
+        && normalized
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        normalized
+    } else {
+        "oauth_error".to_owned()
+    }
+}
+
+fn oauth_terminal_error(provider: &str, status: u16, code: &str) -> bool {
+    match provider {
+        "codex" => {
+            status == 401
+                || matches!(
+                    code,
+                    "refresh_token_reused" | "invalid_grant" | "token_expired" | "invalid_token"
+                )
+        }
+        "claude" => matches!(code, "invalid_grant" | "invalid_request"),
+        _ => false,
+    }
+}
+
+async fn read_bounded_response(
+    response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, &'static str> {
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "invalid_response")?;
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err("response_too_large");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn revision() -> Result<i64, &'static str> {
@@ -4667,6 +5395,30 @@ pub async fn rotate_provider_oauth(
     }
 }
 
+pub async fn refresh_provider_oauth(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .refresh_provider_oauth_as(&id, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(refresh) => Json(serde_json::json!({"refresh":refresh})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider OAuth refresh unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider OAuth refresh"),
+    }
+}
+
 fn is_runtime_error(error: &str) -> bool {
     error.contains("database")
         || error.contains("provider configuration")
@@ -4687,6 +5439,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("OAuth rotation requires SQLite")
         || error.contains("OAuth revision mismatch")
         || error.contains("OAuth rotation state")
+        || error.contains("OAuth refresh")
 }
 
 pub async fn put_provider_quota(

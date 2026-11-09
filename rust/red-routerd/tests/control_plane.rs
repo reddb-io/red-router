@@ -700,6 +700,81 @@ async fn recording_anthropic_bearer_provider(
     (format!("http://{address}/v1/messages"), requests, task)
 }
 
+async fn claude_oauth_refresh_server() -> (
+    Url,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    Arc<Mutex<Vec<String>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let mode = Arc::new(AtomicUsize::new(0));
+    let refresh_tokens = Arc::new(Mutex::new(Vec::new()));
+    let observed_requests = requests.clone();
+    let observed_mode = mode.clone();
+    let observed_tokens = refresh_tokens.clone();
+    let app = Router::new().route(
+        "/token",
+        post(move |headers: HeaderMap, body: String| {
+            let observed_requests = observed_requests.clone();
+            let observed_mode = observed_mode.clone();
+            let observed_tokens = observed_tokens.clone();
+            async move {
+                observed_requests.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(
+                    headers[header::CONTENT_TYPE].to_str().unwrap(),
+                    "application/x-www-form-urlencoded"
+                );
+                assert_eq!(
+                    headers["anthropic-beta"].to_str().unwrap(),
+                    "oauth-2025-04-20"
+                );
+                let fields: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect();
+                assert_eq!(
+                    fields.get("grant_type").map(String::as_str),
+                    Some("refresh_token")
+                );
+                assert_eq!(
+                    fields.get("client_id").map(String::as_str),
+                    Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+                );
+                observed_tokens
+                    .lock()
+                    .unwrap()
+                    .push(fields["refresh_token"].clone());
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                if observed_mode.load(Ordering::SeqCst) == 0 {
+                    Json(serde_json::json!({
+                        "access_token":"server-refreshed-access-token",
+                        "refresh_token":"server-refreshed-refresh-token",
+                        "expires_in":3600
+                    }))
+                    .into_response()
+                } else {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error":"invalid_grant"})),
+                    )
+                        .into_response()
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        Url::parse(&format!("http://{address}/token")).unwrap(),
+        requests,
+        mode,
+        refresh_tokens,
+        task,
+    )
+}
+
 async fn gemini_usage_provider(
     expected_key: &'static str,
 ) -> (String, tokio::task::JoinHandle<()>) {
@@ -4341,7 +4416,7 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
         .body(
             serde_json::json!({
                 "provider":"claude",
-                "upstream_url":upstream,
+                "upstream_url":&upstream,
                 "api_key":"initial-oauth-access-token",
                 "auth_scheme":"bearer",
                 "expires_at_unix":expiry,
@@ -4486,6 +4561,201 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
         .contains("rotated-oauth-refresh-token"));
 
     gateway_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
+async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_state() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("provider-refresh.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (token_endpoint, token_requests, token_mode, observed_refresh_tokens, token_task) =
+        claude_oauth_refresh_server().await;
+    let (upstream, upstream_requests, provider_task) = recording_anthropic_bearer_provider().await;
+    let first = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint.clone(),
+    )
+    .await
+    .unwrap();
+    let (first_base, first_task) = gateway(first).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    assert_eq!(
+        client
+            .put(format!("{first_base}/api/admin/providers/claude-refresh"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "provider":"claude",
+                "upstream_url":&upstream,
+                "api_key":"initial-refresh-access-token",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"claude",
+                "refresh_token":"initial-refresh-token"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!(
+                "{first_base}/api/admin/combos/claude-refresh-model"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "protocol":"anthropic",
+                "strategy":"priority",
+                "targets":[{"provider_id":"claude-refresh","model":"claude-refresh-model"}]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    let second = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (second_base, second_task) = gateway(second).await;
+    let first_refresh = client
+        .post(format!(
+            "{first_base}/api/admin/providers/claude-refresh/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send();
+    let second_refresh = client
+        .post(format!(
+            "{second_base}/api/admin/providers/claude-refresh/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send();
+    let (first_refresh, second_refresh) = tokio::join!(first_refresh, second_refresh);
+    let first_refresh: serde_json::Value = first_refresh.unwrap().json().await.unwrap();
+    let second_refresh: serde_json::Value = second_refresh.unwrap().json().await.unwrap();
+    let categories = [
+        first_refresh["refresh"]["category"].as_str().unwrap(),
+        second_refresh["refresh"]["category"].as_str().unwrap(),
+    ];
+    assert!(categories.contains(&"refreshed"));
+    assert!(categories.contains(&"refresh_in_progress"));
+    assert_eq!(token_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        observed_refresh_tokens.lock().unwrap().as_slice(),
+        ["initial-refresh-token"]
+    );
+    assert_eq!(database.provider_oauth().await.unwrap()[0].generation, 1);
+
+    let refreshed_base = if first_refresh["refresh"]["category"] == "refreshed" {
+        &first_base
+    } else {
+        &second_base
+    };
+    assert_eq!(
+        client
+            .post(format!("{refreshed_base}/v1/messages"))
+            .bearer_auth(CLIENT_KEY)
+            .json(&serde_json::json!({
+                "model":"claude-refresh-model",
+                "messages":[],
+                "max_tokens":8
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        upstream_requests.lock().unwrap().last().map(String::as_str),
+        Some("Bearer server-refreshed-access-token")
+    );
+
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    token_mode.store(1, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .put(format!("{first_base}/api/admin/providers/claude-refresh"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "provider":"claude",
+                "upstream_url":&upstream,
+                "api_key":"replacement-access-token",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"claude",
+                "refresh_token":"revoked-refresh-token"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let terminal: serde_json::Value = client
+        .post(format!(
+            "{first_base}/api/admin/providers/claude-refresh/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(terminal["refresh"]["category"], "reauth_required");
+    assert_eq!(token_requests.load(Ordering::SeqCst), 2);
+    let repeated: serde_json::Value = client
+        .post(format!(
+            "{first_base}/api/admin/providers/claude-refresh/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(repeated["refresh"]["category"], "reauth_required");
+    assert_eq!(token_requests.load(Ordering::SeqCst), 2);
+    let listed: serde_json::Value = client
+        .get(format!("{first_base}/api/admin/providers"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(listed["providers"][0]["reauth_required"], true);
+    assert_eq!(listed["providers"][0]["oauth_error_code"], "invalid_grant");
+    assert!(!listed.to_string().contains("revoked-refresh-token"));
+
+    first_task.abort();
+    second_task.abort();
+    token_task.abort();
     provider_task.abort();
 }
 

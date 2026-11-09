@@ -78,6 +78,9 @@ export interface RustProvider {
   oauth_provider?: "codex" | "claude";
   oauth_generation?: string;
   refreshable: boolean;
+  oauth_refresh_state?: "ready" | "reauth_required";
+  oauth_error_code?: string;
+  reauth_required: boolean;
 }
 
 export interface RustProviderInput {
@@ -101,6 +104,29 @@ export interface RustProviderOAuthRotationInput {
   access_token: string;
   refresh_token: string;
   expires_at_unix: number;
+}
+
+export type RustProviderOAuthRefreshCategory =
+  | "refreshed"
+  | "refresh_in_progress"
+  | "reauth_required"
+  | "superseded"
+  | "rate_limited"
+  | "request_rejected"
+  | "upstream_error"
+  | "unavailable"
+  | "timeout"
+  | "invalid_response"
+  | "response_too_large"
+  | "unsupported_provider";
+
+export interface RustProviderOAuthRefresh {
+  provider_id: string;
+  ok: boolean;
+  category: RustProviderOAuthRefreshCategory;
+  upstream_status?: number;
+  generation: string;
+  expires_at_unix?: number;
 }
 
 export type RustProviderDiagnosticCategory =
@@ -314,6 +340,11 @@ function isRustProvider(value: unknown): value is RustProvider {
       provider.oauth_provider === "claude") &&
     (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
     typeof provider.refreshable === "boolean" &&
+    (provider.oauth_refresh_state === undefined ||
+      provider.oauth_refresh_state === "ready" ||
+      provider.oauth_refresh_state === "reauth_required") &&
+    (provider.oauth_error_code === undefined || typeof provider.oauth_error_code === "string") &&
+    typeof provider.reauth_required === "boolean" &&
     (provider.auth_scheme === "auto" ||
       provider.auth_scheme === "bearer" ||
       provider.auth_scheme === "x-api-key" ||
@@ -321,6 +352,34 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.rate_limit_scope === "auto" ||
       provider.rate_limit_scope === "connection" ||
       provider.rate_limit_scope === "model")
+  );
+}
+
+function isRustProviderOAuthRefresh(value: unknown): value is RustProviderOAuthRefresh {
+  if (!value || typeof value !== "object") return false;
+  const refresh = value as Record<string, unknown>;
+  const categories: RustProviderOAuthRefreshCategory[] = [
+    "refreshed",
+    "refresh_in_progress",
+    "reauth_required",
+    "superseded",
+    "rate_limited",
+    "request_rejected",
+    "upstream_error",
+    "unavailable",
+    "timeout",
+    "invalid_response",
+    "response_too_large",
+    "unsupported_provider",
+  ];
+  return (
+    typeof refresh.provider_id === "string" &&
+    typeof refresh.ok === "boolean" &&
+    typeof refresh.category === "string" &&
+    categories.includes(refresh.category as RustProviderOAuthRefreshCategory) &&
+    (refresh.upstream_status === undefined || isOptionalNumber(refresh.upstream_status)) &&
+    typeof refresh.generation === "string" &&
+    (refresh.expires_at_unix === undefined || isOptionalNumber(refresh.expires_at_unix))
   );
 }
 
@@ -538,6 +597,19 @@ export async function rotateRustProviderOAuth(
     value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
   if (!isRustProvider(provider)) throw new Error("Invalid Rust provider response");
   return provider;
+}
+
+export async function refreshRustProviderOAuth(id: string): Promise<RustProviderOAuthRefresh> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/oauth/refresh`,
+    jsonRequest("POST", {})
+  );
+  const refresh =
+    value && typeof value === "object" ? (value as { refresh?: unknown }).refresh : undefined;
+  if (!isRustProviderOAuthRefresh(refresh)) {
+    throw new Error("Invalid Rust provider OAuth refresh response");
+  }
+  return refresh;
 }
 
 export async function testRustProvider(id: string, model: string): Promise<RustProviderDiagnostic> {

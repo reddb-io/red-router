@@ -8,6 +8,7 @@ import {
   readRustCatalogProvider,
   readRustModelCatalog,
   refreshRustModelCatalog,
+  refreshRustProviderOAuth,
   replaceRustProvider,
   testRustProvider,
   type RustCatalogProvider,
@@ -168,6 +169,7 @@ export default function RustProvidersPageClient() {
   const [diagnosticModels, setDiagnosticModels] = useState<Record<string, string>>({});
   const [diagnostics, setDiagnostics] = useState<Record<string, RustProviderDiagnostic>>({});
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const [providerResult, catalogResult] = await Promise.allSettled([
@@ -284,6 +286,22 @@ export default function RustProvidersPageClient() {
       setError(errorMessage(cause));
     } finally {
       setTestingProviderId(null);
+    }
+  };
+
+  const refreshOAuth = async (provider: RustProvider) => {
+    setRefreshingProviderId(provider.id);
+    setError(null);
+    try {
+      const result = await refreshRustProviderOAuth(provider.id);
+      if (!result.ok && result.category !== "refresh_in_progress") {
+        setError(`OAuth refresh requires attention: ${result.category.replaceAll("_", " ")}`);
+      }
+      await reload();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setRefreshingProviderId(null);
     }
   };
 
@@ -654,6 +672,20 @@ export default function RustProvidersPageClient() {
                     <dd>{new Date(provider.expires_at_unix * 1_000).toLocaleString()}</dd>
                   </div>
                 )}
+                {provider.refreshable && (
+                  <div>
+                    <dt className="font-medium">OAuth refresh</dt>
+                    <dd
+                      className={
+                        provider.reauth_required ? "text-feedback-danger-foreground" : undefined
+                      }
+                    >
+                      {provider.reauth_required
+                        ? `Sign-in required${provider.oauth_error_code ? ` · ${provider.oauth_error_code}` : ""}`
+                        : "Ready · automatic before expiry"}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="font-medium">Revision</dt>
                   <dd className="truncate font-mono">{provider.revision}</dd>
@@ -705,6 +737,18 @@ export default function RustProvidersPageClient() {
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
+                {provider.enabled && provider.refreshable && (
+                  <Button
+                    variant="secondary"
+                    loading={refreshingProviderId === provider.id}
+                    disabled={
+                      refreshingProviderId !== null && refreshingProviderId !== provider.id
+                    }
+                    onClick={() => void refreshOAuth(provider)}
+                  >
+                    Refresh OAuth
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   disabled={saving}

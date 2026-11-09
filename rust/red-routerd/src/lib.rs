@@ -1689,6 +1689,10 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::rotate_provider_oauth),
         )
         .route(
+            "/api/admin/providers/{id}/oauth/refresh",
+            post(control_plane::refresh_provider_oauth),
+        )
+        .route(
             "/api/admin/client-keys",
             get(control_plane::list_client_keys).post(control_plane::issue_client_key),
         )

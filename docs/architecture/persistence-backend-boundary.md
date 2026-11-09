@@ -214,6 +214,23 @@ The slice must include:
 - encryption and redaction verification for stored credentials;
 - no change to the default startup configuration.
 
+## Rust-owned OAuth rotation
+
+The Rust control plane owns imported Codex and Claude OAuth token pairs. Access and refresh tokens
+are encrypted independently, are write-only in management responses, and rotate together with a
+generation compare-and-swap. Automatic refresh uses fixed upstream token endpoints, a bounded
+no-proxy HTTP client and a durable SQLite lease per upstream rotation group. This prevents two
+Rust replicas from spending the same one-time refresh token concurrently.
+
+Terminal upstream responses such as `invalid_grant` are persisted as `reauth_required`; automatic
+and manual retries then stop until an operator replaces the credential. Transient failures remain
+retryable and do not replace the active token pair. The dashboard may request a refresh and display
+the resulting state, but it never receives either token.
+
+The atomic lease and token-pair rotation path is intentionally SQLite-only for now. RedDB and
+PostgreSQL can store imported OAuth metadata, but server-owned refresh must fail closed until each
+backend implements and tests equivalent cross-replica lease and compare-and-swap semantics.
+
 ## Alternatives considered
 
 ### Add PostgreSQL beneath `SqliteAdapter`
