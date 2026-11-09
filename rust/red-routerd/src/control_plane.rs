@@ -1718,6 +1718,7 @@ impl ControlPlane {
             .tenant_id
             .as_deref()
             .or_else(|| existing.as_ref().map(|row| row.tenant_id.as_str()))
+            .or(enforced_tenant)
             .unwrap_or("red");
         if enforced_tenant.is_some_and(|required| {
             required != tenant_id

@@ -1900,6 +1900,18 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         issued["client_key"]["created_by"],
         "oidc:manager@acme.example"
     );
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/client-keys"))
+            .bearer_auth(&manager)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"label":"Forbidden Red key","tenant_id":"red"}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     let scoped_combos = client
         .get(format!("{base}/api/admin/combos"))
         .bearer_auth(&manager)
