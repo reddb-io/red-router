@@ -20,6 +20,9 @@ storage or validation failure removes the verifier from that replica while the b
 administrator remains available for recovery.
 SQLite replicas use a dedicated `PRAGMA data_version` watcher and a compact control-row marker,
 so ordinary inference/accounting writes do not trigger full configuration table scans.
+OIDC authorization resolves a canonical opaque identity from the normalized issuer and signed
+`sub` claim. Verified e-mail remains only a legacy binding alias; changing or reassigning an
+e-mail cannot change a canonical binding's tenant or role.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

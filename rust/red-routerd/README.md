@@ -97,7 +97,11 @@ those environment secrets.
   combos, client keys, provider health/quota observations and LKGP state only inside its
   bound tenant and can read the shared model catalog; omitted ownership defaults to that
   bound tenant. `issuer` remains limited to the scoped provisioning endpoint. The bootstrap
-  administrator remains the recovery identity.
+  administrator remains the recovery identity. New bindings can supply `oidc_issuer` and
+  `oidc_subject`; Rust stores a stable opaque identity derived from that pair, so a verified
+  e-mail rename does not change ownership and reusing the e-mail with another subject does not
+  inherit access. Existing `subject: "oidc:..."` e-mail/sub bindings remain compatibility aliases,
+  but canonical pair bindings take precedence when both exist.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

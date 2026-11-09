@@ -2043,7 +2043,9 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
                     "allowed_subjects":[
                         "operator@example.com",
                         "cloud@acme.example",
-                        "manager@acme.example"
+                        "manager@acme.example",
+                        "first.identity@example.com",
+                        "renamed.identity@example.com"
                     ]
                 })
                 .to_string(),
@@ -2097,6 +2099,69 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .unwrap()
             .status(),
         StatusCode::OK
+    );
+
+    let canonical_binding = client
+        .put(format!(
+            "{base}/api/admin/identity-bindings/stable-oidc-admin"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "oidc_issuer":"https://issuer.example",
+                "oidc_subject":"stable-user-123",
+                "tenant_id":"red",
+                "role":"admin"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(canonical_binding.status(), StatusCode::OK);
+    let canonical_binding: serde_json::Value =
+        serde_json::from_str(&canonical_binding.text().await.unwrap()).unwrap();
+    let canonical_subject = canonical_binding["identity_binding"]["subject"]
+        .as_str()
+        .unwrap();
+    assert!(canonical_subject.starts_with("oidc:v1:"));
+    assert!(!canonical_subject.contains("stable-user-123"));
+    for email in ["first.identity@example.com", "renamed.identity@example.com"] {
+        let token = oidc_token_for(
+            "ec01",
+            "red-router-admin",
+            "operator",
+            "stable-user-123",
+            email,
+        );
+        assert_eq!(
+            client
+                .get(format!("{base}/api/admin/providers"))
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    let same_email_different_subject = oidc_token_for(
+        "ec01",
+        "red-router-admin",
+        "operator",
+        "different-user-456",
+        "renamed.identity@example.com",
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .bearer_auth(same_email_different_subject)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
     );
     assert_eq!(
         client

@@ -3103,8 +3103,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "callback mints authenticated:true only (src/app/api/auth/oidc/callback/route.ts:90)",
+          "head": "better",
+          "headEvidence": "Rust derives a canonical opaque identity from normalized issuer+sub, prefers it over verified-email legacy aliases, and binds it durably to tenant roles; rust/red-routerd/src/oidc.rs; rust/red-routerd/src/control_plane.rs; rust/red-routerd/tests/control_plane.rs",
           "ownUnique": false,
           "value": "H",
           "effort": "M",

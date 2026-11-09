@@ -229,6 +229,22 @@ struct ManagementScope {
     tenant_id: Option<String>,
 }
 
+struct AuthenticatedActor {
+    subjects: Vec<String>,
+}
+
+impl AuthenticatedActor {
+    fn bound(subject: String) -> Self {
+        Self {
+            subjects: vec![subject],
+        }
+    }
+
+    fn matches(&self, subject: &str) -> bool {
+        self.subjects.iter().any(|candidate| candidate == subject)
+    }
+}
+
 #[derive(Clone)]
 pub struct ControlPlane(Arc<Inner>);
 
@@ -464,7 +480,9 @@ pub struct TenantView {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityBindingInput {
-    pub subject: String,
+    pub subject: Option<String>,
+    pub oidc_issuer: Option<String>,
+    pub oidc_subject: Option<String>,
     pub tenant_id: String,
     pub role: String,
     #[serde(default = "enabled_by_default")]
@@ -2505,7 +2523,7 @@ impl ControlPlane {
             "oidc-browser-client-secret",
             self.0.encryption_key.as_str(),
         )?;
-        let subject = verifier
+        let identity = verifier
             .exchange_browser_code(&browser, code, &flow.verifier, &flow.nonce, &secret)
             .await?;
         if flow.test {
@@ -2519,10 +2537,12 @@ impl ControlPlane {
             });
         }
         let bindings = self.0.database.identity_bindings().await?;
-        let binding = bindings
-            .iter()
-            .find(|binding| {
-                binding.enabled && binding.subject == subject && binding.role == "admin"
+        let binding = identity
+            .binding_subjects()
+            .find_map(|subject| {
+                bindings.iter().find(|binding| {
+                    binding.enabled && binding.subject == subject && binding.role == "admin"
+                })
             })
             .ok_or("OIDC subject has no dashboard authorization")?;
         if !self
@@ -2537,7 +2557,7 @@ impl ControlPlane {
         }
         let csrf = random_token(32)?;
         let session = AdminSession {
-            subject,
+            subject: binding.subject.clone(),
             csrf_hash: hex::encode(Sha256::digest(csrf.as_bytes())),
             expires_at: now
                 .checked_add(ADMIN_SESSION_SECONDS)
@@ -3047,7 +3067,20 @@ impl ControlPlane {
         input: IdentityBindingInput,
     ) -> Result<IdentityBindingView, &'static str> {
         validate_id(id)?;
-        validate_bound_subject(&input.subject)?;
+        let subject = match (
+            input.subject.as_deref(),
+            input.oidc_issuer.as_deref(),
+            input.oidc_subject.as_deref(),
+        ) {
+            (Some(subject), None, None) => {
+                validate_bound_subject(subject)?;
+                subject.to_owned()
+            }
+            (None, Some(issuer), Some(oidc_subject)) => {
+                crate::oidc::canonical_subject(issuer, oidc_subject)?
+            }
+            _ => return Err("identity binding must use subject or OIDC issuer and subject"),
+        };
         validate_id(&input.tenant_id)?;
         validate_identity_role(&input.role)?;
         let _mutation = self.0.mutation.lock().await;
@@ -3064,13 +3097,13 @@ impl ControlPlane {
         let bindings = self.0.database.identity_bindings().await?;
         if bindings
             .iter()
-            .any(|binding| binding.id != id && binding.subject == input.subject)
+            .any(|binding| binding.id != id && binding.subject == subject)
         {
             return Err("identity subject is already bound");
         }
         let record = StoredIdentityBinding {
             id: id.to_owned(),
-            subject: input.subject,
+            subject,
             tenant_id: input.tenant_id,
             role: input.role,
             enabled: input.enabled,
@@ -3849,17 +3882,19 @@ impl ControlPlane {
 
     async fn management_scope(&self, headers: &HeaderMap) -> Option<ManagementScope> {
         let actor = self.authorized_actor(headers).await?;
-        if actor == "bootstrap-admin" {
+        if actor.matches("bootstrap-admin") {
             return Some(ManagementScope {
-                actor,
+                actor: "bootstrap-admin".to_owned(),
                 tenant_id: None,
             });
         }
         let bindings = self.0.database.identity_bindings().await.ok()?;
-        let binding = bindings.iter().find(|binding| {
-            binding.enabled
-                && binding.subject == actor
-                && matches!(binding.role.as_str(), "admin" | "tenant-admin")
+        let binding = actor.subjects.iter().find_map(|subject| {
+            bindings.iter().find(|binding| {
+                binding.enabled
+                    && binding.subject.as_str() == subject.as_str()
+                    && matches!(binding.role.as_str(), "admin" | "tenant-admin")
+            })
         })?;
         if self
             .0
@@ -3871,7 +3906,7 @@ impl ControlPlane {
             .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
         {
             Some(ManagementScope {
-                actor,
+                actor: binding.subject.clone(),
                 tenant_id: (binding.role == "tenant-admin").then(|| binding.tenant_id.clone()),
             })
         } else {
@@ -3885,15 +3920,17 @@ impl ControlPlane {
         tenant_id: &str,
     ) -> Option<String> {
         let actor = self.authorized_actor(headers).await?;
-        if actor == "bootstrap-admin" {
-            return Some(actor);
+        if actor.matches("bootstrap-admin") {
+            return Some("bootstrap-admin".to_owned());
         }
         let bindings = self.0.database.identity_bindings().await.ok()?;
-        let binding = bindings.iter().find(|binding| {
-            binding.enabled
-                && binding.subject == actor
-                && binding.tenant_id == tenant_id
-                && matches!(binding.role.as_str(), "admin" | "tenant-admin" | "issuer")
+        let binding = actor.subjects.iter().find_map(|subject| {
+            bindings.iter().find(|binding| {
+                binding.enabled
+                    && binding.subject.as_str() == subject.as_str()
+                    && binding.tenant_id == tenant_id
+                    && matches!(binding.role.as_str(), "admin" | "tenant-admin" | "issuer")
+            })
         })?;
         if self
             .0
@@ -3904,13 +3941,13 @@ impl ControlPlane {
             .iter()
             .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
         {
-            Some(actor)
+            Some(binding.subject.clone())
         } else {
             None
         }
     }
 
-    async fn authorized_actor(&self, headers: &HeaderMap) -> Option<String> {
+    async fn authorized_actor(&self, headers: &HeaderMap) -> Option<AuthenticatedActor> {
         let authorization_count = headers.get_all(header::AUTHORIZATION).iter().count();
         if authorization_count > 0 {
             if authorization_count != 1 {
@@ -3924,12 +3961,20 @@ impl ControlPlane {
             if (32..=512).contains(&candidate.len()) {
                 let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
                 if bool::from(self.0.admin_hash.ct_eq(&digest)) {
-                    return Some("bootstrap-admin".to_owned());
+                    return Some(AuthenticatedActor::bound("bootstrap-admin".to_owned()));
                 }
             }
             let verifier = self.0.oidc.read().await.clone();
             return match verifier {
-                Some(verifier) => verifier.verify(candidate).await.ok(),
+                Some(verifier) => {
+                    verifier
+                        .verify(candidate)
+                        .await
+                        .ok()
+                        .map(|identity| AuthenticatedActor {
+                            subjects: identity.binding_subjects().map(str::to_owned).collect(),
+                        })
+                }
                 None => None,
             };
         }
@@ -3995,7 +4040,7 @@ impl ControlPlane {
         if csrf_hash.len() == session.csrf_hash.len()
             && bool::from(csrf_hash.as_bytes().ct_eq(session.csrf_hash.as_bytes()))
         {
-            Some(session.subject)
+            Some(AuthenticatedActor::bound(session.subject))
         } else {
             None
         }

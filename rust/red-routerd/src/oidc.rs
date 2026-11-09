@@ -8,6 +8,7 @@ use jsonwebtoken::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, net::IpAddr, time::Duration};
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
@@ -39,6 +40,19 @@ pub(crate) struct OidcVerifier {
     policy: OidcPolicy,
     allow_private: bool,
     cache: Mutex<Option<CachedKeys>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct VerifiedOidcIdentity {
+    canonical_subject: String,
+    legacy_subjects: Vec<String>,
+}
+
+impl VerifiedOidcIdentity {
+    pub(crate) fn binding_subjects(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.canonical_subject.as_str())
+            .chain(self.legacy_subjects.iter().map(String::as_str))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -228,7 +242,7 @@ impl OidcVerifier {
         Ok(())
     }
 
-    pub(crate) async fn verify(&self, token: &str) -> Result<String, &'static str> {
+    pub(crate) async fn verify(&self, token: &str) -> Result<VerifiedOidcIdentity, &'static str> {
         self.verify_for_audience(token, &self.policy.audience, None)
             .await
     }
@@ -240,7 +254,7 @@ impl OidcVerifier {
         verifier: &str,
         nonce: &str,
         client_secret: &str,
-    ) -> Result<String, &'static str> {
+    ) -> Result<VerifiedOidcIdentity, &'static str> {
         if code.is_empty()
             || code.len() > 4096
             || verifier.len() < 43
@@ -294,7 +308,7 @@ impl OidcVerifier {
         token: &str,
         audience: &str,
         expected_nonce: Option<&str>,
-    ) -> Result<String, &'static str> {
+    ) -> Result<VerifiedOidcIdentity, &'static str> {
         if !self.policy.enabled || token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err("invalid OIDC token");
         }
@@ -384,13 +398,22 @@ impl OidcVerifier {
         {
             return Err("OIDC subject is not allowed");
         }
-        if subject.is_empty() && email.is_empty() {
+        if subject.is_empty() || subject.len() > 512 || subject.chars().any(char::is_control) {
             return Err("OIDC subject is missing");
         }
-        Ok(format!(
-            "oidc:{}",
-            if email.is_empty() { subject } else { &email }
-        ))
+        let canonical_subject = canonical_subject(&self.policy.issuer, subject)?;
+        let mut legacy_subjects = Vec::with_capacity(2);
+        if !email.is_empty() {
+            legacy_subjects.push(format!("oidc:{email}"));
+        }
+        let legacy_sub = format!("oidc:{subject}");
+        if !legacy_subjects.contains(&legacy_sub) {
+            legacy_subjects.push(legacy_sub);
+        }
+        Ok(VerifiedOidcIdentity {
+            canonical_subject,
+            legacy_subjects,
+        })
     }
 
     async fn keys(&self, force: bool) -> Result<JwkSet, &'static str> {
@@ -431,6 +454,24 @@ impl OidcVerifier {
         });
         Ok(keys)
     }
+}
+
+pub(crate) fn canonical_subject(issuer: &str, subject: &str) -> Result<String, &'static str> {
+    let issuer = validate_issuer(issuer)?;
+    if subject.is_empty()
+        || subject.len() > 512
+        || subject.trim() != subject
+        || subject.chars().any(char::is_control)
+    {
+        return Err("invalid OIDC subject");
+    }
+    let normalized_issuer = issuer.as_str().trim_end_matches('/');
+    let mut digest = Sha256::new();
+    digest.update((normalized_issuer.len() as u64).to_be_bytes());
+    digest.update(normalized_issuer.as_bytes());
+    digest.update((subject.len() as u64).to_be_bytes());
+    digest.update(subject.as_bytes());
+    Ok(format!("oidc:v1:{}", hex::encode(digest.finalize())))
 }
 
 async fn bounded_body(
@@ -747,6 +788,26 @@ async fn pinned_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_subject_is_stable_and_scoped_to_the_issuer() {
+        let subject = canonical_subject("https://issuer.example", "stable-user-123").unwrap();
+        assert_eq!(
+            subject,
+            canonical_subject("https://issuer.example/", "stable-user-123").unwrap()
+        );
+        assert!(subject.starts_with("oidc:v1:"));
+        assert!(!subject.contains("stable-user-123"));
+        assert_ne!(
+            subject,
+            canonical_subject("https://other-issuer.example", "stable-user-123").unwrap()
+        );
+        assert_ne!(
+            subject,
+            canonical_subject("https://issuer.example", "different-user").unwrap()
+        );
+        assert!(canonical_subject("https://issuer.example", " stable-user-123").is_err());
+    }
 
     #[test]
     fn claim_policies_match_only_bounded_signed_claim_shapes() {

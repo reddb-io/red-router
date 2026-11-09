@@ -234,7 +234,7 @@
           "litellm/proxy/management_endpoints/organization_endpoints.py"
         ]
       },
-      "remaining": "Rust owns OIDC discovery, PKCE browser login, signed bearer verification, tenant/role bindings and cross-replica enable/revoke convergence. SAML is not migrated, and issuer+subject identity linking plus the remaining user/team audit semantics still require independent implementation.",
+      "remaining": "Rust owns OIDC discovery, PKCE browser login, signed bearer verification, canonical issuer+subject identity linking, tenant/role bindings and cross-replica enable/revoke convergence. SAML is not migrated, and the remaining user/team audit semantics still require independent implementation.",
       "acceptance": [
         "RedRouter password/OIDC/SAML workflows and resource scoping are preserved.",
         "Cross-user and cross-organization reads/writes are denied.",
