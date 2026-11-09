@@ -48,7 +48,7 @@ features must not be implemented only there.
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and streaming settlement; budgets, schedules and non-SQLite stores remain |
-| Usage and audit             | SQLite foundation      | Rust-owned chat/SSE ledger and counters; reporting APIs, retention/export and remaining protocols remain |
+| Usage and audit             | Rust-owned SQLite      | Chat/SSE ledger, counters and tenant-scoped reporting API; retention/export and remaining protocols remain |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
@@ -151,7 +151,10 @@ transactions against `redrouter_usage_reservations`, `redrouter_usage_ledger` an
 `redrouter_usage_counters`; normal and SSE responses share the same accounting path.
 Uncertain attempts remain reserved. Other storage engines keep the portable quota
 configuration record but fail closed if a key tries to activate it until an equivalent
-atomic ledger implementation exists.
+atomic ledger implementation exists. The authenticated Rust management API exposes a
+bounded, non-cacheable usage report with exact token/micro-USD totals, pending reservations
+and recent ledger entries. Global admins can filter by tenant and key; `tenant-admin`
+callers are unconditionally restricted to their bound tenant.
 
 Verified OIDC identity is deliberately separate from authorization. Durable identity
 bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`

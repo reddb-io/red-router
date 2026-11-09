@@ -10,6 +10,8 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+const MIN_USAGE_TIMESTAMP_MS: i64 = 946_684_800_000;
+const MAX_USAGE_TIMESTAMP_MS: i64 = 4_102_444_800_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct NativeQuota {
@@ -84,12 +86,143 @@ pub(crate) struct UsageEvent<'a> {
     pub(crate) now_ms: i64,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct UsageLedgerEntry {
+    pub(crate) event_id: String,
+    pub(crate) key_id: String,
+    pub(crate) tenant_id: String,
+    pub(crate) provider: String,
+    pub(crate) model: String,
+    pub(crate) tokens_input: i64,
+    pub(crate) tokens_output: i64,
+    pub(crate) tokens_cache_read: i64,
+    pub(crate) tokens_cache_creation: i64,
+    pub(crate) tokens_reasoning: i64,
+    pub(crate) amount_microusd: i64,
+    pub(crate) pricing_known: bool,
+    pub(crate) created_at_unix_ms: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct UsageReport {
+    pub(crate) from_unix_ms: i64,
+    pub(crate) to_unix_ms: i64,
+    pub(crate) key_id: Option<String>,
+    pub(crate) request_count: i64,
+    pub(crate) priced_request_count: i64,
+    pub(crate) tokens_input: i64,
+    pub(crate) tokens_output: i64,
+    pub(crate) tokens_cache_read: i64,
+    pub(crate) tokens_cache_creation: i64,
+    pub(crate) tokens_reasoning: i64,
+    pub(crate) amount_microusd: i64,
+    pub(crate) pending_request_count: i64,
+    pub(crate) pending_reserved_tokens: i64,
+    pub(crate) pending_reserved_microusd: i64,
+    pub(crate) entries: Vec<UsageLedgerEntry>,
+}
+
 impl NativeUsage {
     pub(crate) fn new(database: Arc<crate::storage::Database>) -> Result<Self, &'static str> {
         database
             .sql_pool()
             .ok_or("native usage requires SQLite storage")?;
         Ok(Self { database })
+    }
+
+    pub(crate) async fn report(
+        &self,
+        tenant_id: Option<&str>,
+        key_id: Option<&str>,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+        limit: i64,
+    ) -> Result<UsageReport, &'static str> {
+        if tenant_id.is_some_and(|value| value.is_empty() || value.len() > 128)
+            || key_id.is_some_and(|value| value.is_empty() || value.len() > 128)
+            || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&from_unix_ms)
+            || !(MIN_USAGE_TIMESTAMP_MS + 1..=MAX_USAGE_TIMESTAMP_MS).contains(&to_unix_ms)
+            || from_unix_ms >= to_unix_ms
+            || !(1..=200).contains(&limit)
+        {
+            return Err("invalid usage report query");
+        }
+        let pool = self
+            .database
+            .sql_pool()
+            .ok_or("native usage requires SQLite storage")?;
+        let tenant = tenant_id.unwrap_or("");
+        let key = key_id.unwrap_or("");
+        let totals = sqlx::query("SELECT COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4")
+            .bind(tenant)
+            .bind(key)
+            .bind(from_unix_ms)
+            .bind(to_unix_ms)
+            .fetch_one(pool)
+            .await
+            .map_err(|_| "usage ledger unavailable")?;
+        let pending = sqlx::query("SELECT COUNT(*) AS request_count, COALESCE(SUM(reserved_tokens),0) AS reserved_tokens, COALESCE(SUM(reserved_microusd),0) AS reserved_microusd FROM redrouter_usage_reservations WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4")
+            .bind(tenant)
+            .bind(key)
+            .bind(from_unix_ms)
+            .bind(to_unix_ms)
+            .fetch_one(pool)
+            .await
+            .map_err(|_| "usage reservations unavailable")?;
+        let rows = sqlx::query("SELECT event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms FROM redrouter_usage_ledger WHERE ($1 = '' OR tenant_id = $1) AND ($2 = '' OR key_id = $2) AND created_at_unix_ms >= $3 AND created_at_unix_ms < $4 ORDER BY created_at_unix_ms DESC, event_id DESC LIMIT $5")
+            .bind(tenant)
+            .bind(key)
+            .bind(from_unix_ms)
+            .bind(to_unix_ms)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "usage ledger unavailable")?;
+        let integer = |row: &sqlx::any::AnyRow, name| {
+            row.try_get::<i64, _>(name)
+                .map_err(|_| "invalid usage ledger")
+        };
+        let text = |row: &sqlx::any::AnyRow, name| {
+            row.try_get::<String, _>(name)
+                .map_err(|_| "invalid usage ledger")
+        };
+        let entries = rows
+            .iter()
+            .map(|row| {
+                Ok(UsageLedgerEntry {
+                    event_id: text(row, "event_id")?,
+                    key_id: text(row, "key_id")?,
+                    tenant_id: text(row, "tenant_id")?,
+                    provider: text(row, "provider")?,
+                    model: text(row, "model")?,
+                    tokens_input: integer(row, "tokens_input")?,
+                    tokens_output: integer(row, "tokens_output")?,
+                    tokens_cache_read: integer(row, "tokens_cache_read")?,
+                    tokens_cache_creation: integer(row, "tokens_cache_creation")?,
+                    tokens_reasoning: integer(row, "tokens_reasoning")?,
+                    amount_microusd: integer(row, "amount_microusd")?,
+                    pricing_known: integer(row, "pricing_known")? == 1,
+                    created_at_unix_ms: integer(row, "created_at_unix_ms")?,
+                })
+            })
+            .collect::<Result<Vec<_>, &'static str>>()?;
+        Ok(UsageReport {
+            from_unix_ms,
+            to_unix_ms,
+            key_id: key_id.map(str::to_owned),
+            request_count: integer(&totals, "request_count")?,
+            priced_request_count: integer(&totals, "priced_request_count")?,
+            tokens_input: integer(&totals, "tokens_input")?,
+            tokens_output: integer(&totals, "tokens_output")?,
+            tokens_cache_read: integer(&totals, "tokens_cache_read")?,
+            tokens_cache_creation: integer(&totals, "tokens_cache_creation")?,
+            tokens_reasoning: integer(&totals, "tokens_reasoning")?,
+            amount_microusd: integer(&totals, "amount_microusd")?,
+            pending_request_count: integer(&pending, "request_count")?,
+            pending_reserved_tokens: integer(&pending, "reserved_tokens")?,
+            pending_reserved_microusd: integer(&pending, "reserved_microusd")?,
+            entries,
+        })
     }
 
     async fn begin(&self) -> Result<PoolConnection<Any>, &'static str> {
@@ -119,7 +252,9 @@ impl NativeUsage {
         )?;
         validate_route(reservation.provider, reservation.model)?;
         let quota = reservation.quota.validate()?;
-        if !quota.enabled() || !(946_684_800_000..4_102_444_800_000).contains(&reservation.now_ms) {
+        if !quota.enabled()
+            || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&reservation.now_ms)
+        {
             return Err("invalid usage reservation");
         }
         let mut connection = self.begin().await?;
@@ -231,7 +366,7 @@ impl NativeUsage {
     pub(crate) async fn settle(&self, event: &UsageEvent<'_>) -> Result<bool, &'static str> {
         validate_identity(event.event_id, event.key_id, event.tenant_id)?;
         validate_route(event.provider, event.model)?;
-        if !(946_684_800_000..4_102_444_800_000).contains(&event.now_ms) {
+        if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&event.now_ms) {
             return Err("invalid usage event");
         }
         let tokens =

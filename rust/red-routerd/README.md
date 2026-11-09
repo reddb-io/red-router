@@ -110,6 +110,12 @@ Money is stored as integer micro-USD. Prices come from the active exact-ID model
 snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on
 RedDB or PostgreSQL is rejected instead of falling back to process-local counters.
+- `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
+  newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
+  `from_unix_ms`, `to_unix_ms` and `limit` filters support dashboard drill-down without
+  exposing credentials. A `tenant-admin` is always constrained to its bound tenant;
+  global administrators may inspect all tenants or select one explicitly. Responses are
+  non-cacheable and retain integer micro-USD values for exact accounting.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `GET /api/admin/model-catalog` lists the active models.dev manifest, provider index and
   whether the generation is bundled or persisted. `GET /api/admin/model-catalog/{provider}`

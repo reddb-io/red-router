@@ -188,6 +188,16 @@ pub struct ClientKeyIssueInput {
     pub reservation_spend_usd: Option<f64>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsageReportQuery {
+    pub tenant_id: Option<String>,
+    pub key_id: Option<String>,
+    pub from_unix_ms: Option<i64>,
+    pub to_unix_ms: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 impl ClientKeyIssueInput {
     fn with_secret(self, api_key: String) -> ClientKeyInput {
         ClientKeyInput {
@@ -1641,6 +1651,26 @@ impl ControlPlane {
         input: ProviderQuotaInput,
     ) -> Result<ProviderQuotaView, &'static str> {
         self.configure_provider_quota_as(provider_id, input, None)
+            .await
+    }
+
+    async fn native_usage_report(
+        &self,
+        tenant_id: Option<&str>,
+        key_id: Option<&str>,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+        limit: i64,
+    ) -> Result<crate::native_usage::UsageReport, &'static str> {
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        usage
+            .report(tenant_id, key_id, from_unix_ms, to_unix_ms, limit)
             .await
     }
 
@@ -3654,6 +3684,66 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Client key storage unavailable",
+        ),
+    }
+}
+
+pub async fn get_usage_report(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<UsageReportQuery>,
+) -> Response {
+    const REPORT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let tenant_id = match (scope.tenant_id.as_deref(), query.tenant_id.as_deref()) {
+        (Some(tenant), Some(requested)) if tenant != requested => {
+            return api_error(StatusCode::BAD_REQUEST, "Invalid usage report query");
+        }
+        (Some(tenant), _) => Some(tenant),
+        (None, requested) => requested,
+    };
+    let now = match unix_time_ms() {
+        Ok(now) => now,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Usage reporting unavailable",
+            );
+        }
+    };
+    let to_unix_ms = query.to_unix_ms.unwrap_or_else(|| now.saturating_add(1));
+    let from_unix_ms = query
+        .from_unix_ms
+        .unwrap_or_else(|| to_unix_ms.saturating_sub(REPORT_WINDOW_MS));
+    match control
+        .native_usage_report(
+            tenant_id,
+            query.key_id.as_deref(),
+            from_unix_ms,
+            to_unix_ms,
+            query.limit.unwrap_or(50),
+        )
+        .await
+    {
+        Ok(report) => {
+            let mut response = Json(serde_json::json!({"usage":report})).into_response();
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response
+        }
+        Err("invalid usage report query") => {
+            api_error(StatusCode::BAD_REQUEST, "Invalid usage report query")
+        }
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage reporting unavailable",
         ),
     }
 }

@@ -1230,6 +1230,56 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
         .await
         .unwrap();
     assert_eq!(pending, 0);
+    let report = client
+        .get(format!("{base}/api/admin/usage?limit=2"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(report.status(), StatusCode::OK);
+    assert_eq!(
+        report.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    let report: serde_json::Value = serde_json::from_str(&report.text().await.unwrap()).unwrap();
+    assert_eq!(report["usage"]["request_count"], 2);
+    assert_eq!(report["usage"]["tokens_input"], 6);
+    assert_eq!(report["usage"]["tokens_output"], 4);
+    assert_eq!(report["usage"]["amount_microusd"], 10);
+    assert_eq!(report["usage"]["pending_request_count"], 0);
+    assert_eq!(report["usage"]["entries"].as_array().unwrap().len(), 2);
+    let filtered = client
+        .get(format!(
+            "{base}/api/admin/usage?key_id=native-stream&limit=1"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(filtered.status(), StatusCode::OK);
+    let filtered: serde_json::Value =
+        serde_json::from_str(&filtered.text().await.unwrap()).unwrap();
+    assert_eq!(filtered["usage"]["request_count"], 1);
+    assert_eq!(filtered["usage"]["entries"][0]["key_id"], "native-stream");
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/usage?limit=201"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/usage"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
     audit.close().await;
     gateway_task.abort();
     provider_task.abort();
@@ -1923,6 +1973,68 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         issued["client_key"]["created_by"],
         "oidc:manager@acme.example"
     );
+    let acme_key_id = issued["client_key"]["id"].as_str().unwrap();
+    let usage_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let usage_db = sqlx::SqlitePool::connect(&url).await.unwrap();
+    for (event_id, key_id, tenant_id, amount) in [
+        ("usage-acme", acme_key_id, "acme", 11_i64),
+        ("usage-red", "red-key", "red", 29_i64),
+    ] {
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,created_at_unix_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            .bind(event_id)
+            .bind(key_id)
+            .bind(tenant_id)
+            .bind("openai")
+            .bind("gpt-4o")
+            .bind(3_i64)
+            .bind(2_i64)
+            .bind(0_i64)
+            .bind(0_i64)
+            .bind(1_i64)
+            .bind(amount)
+            .bind(1_i64)
+            .bind(usage_time)
+            .execute(&usage_db)
+            .await
+            .unwrap();
+    }
+    usage_db.close().await;
+    let scoped_usage = client
+        .get(format!("{base}/api/admin/usage"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scoped_usage.status(), StatusCode::OK);
+    let scoped_usage: serde_json::Value =
+        serde_json::from_str(&scoped_usage.text().await.unwrap()).unwrap();
+    assert_eq!(scoped_usage["usage"]["request_count"], 1);
+    assert_eq!(scoped_usage["usage"]["amount_microusd"], 11);
+    assert_eq!(scoped_usage["usage"]["entries"][0]["tenant_id"], "acme");
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/usage?tenant_id=red"))
+            .bearer_auth(&manager)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let global_usage = client
+        .get(format!("{base}/api/admin/usage"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(global_usage.status(), StatusCode::OK);
+    let global_usage: serde_json::Value =
+        serde_json::from_str(&global_usage.text().await.unwrap()).unwrap();
+    assert_eq!(global_usage["usage"]["request_count"], 2);
+    assert_eq!(global_usage["usage"]["amount_microusd"], 40);
     assert_eq!(
         client
             .post(format!("{base}/api/admin/client-keys"))
