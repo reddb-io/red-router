@@ -84,6 +84,11 @@ struct OAuthRefreshConfig {
     claude_client_id: String,
 }
 
+struct OAuthRefreshRuntime {
+    cadence: Duration,
+    config: OAuthRefreshConfig,
+}
+
 struct OAuthTokenPair {
     access_token: Zeroizing<String>,
     refresh_token: Zeroizing<String>,
@@ -757,8 +762,10 @@ impl ControlPlane {
             allow_private,
             catalog_source,
             catalog_poll_interval,
-            OAUTH_REFRESH_INTERVAL,
-            OAuthRefreshConfig::production()?,
+            OAuthRefreshRuntime {
+                cadence: OAUTH_REFRESH_INTERVAL,
+                config: OAuthRefreshConfig::production()?,
+            },
         )
         .await
     }
@@ -792,8 +799,10 @@ impl ControlPlane {
             allow_private,
             crate::catalog::EXPECTED_SOURCE,
             MODEL_CATALOG_SYNC_INTERVAL,
-            Duration::from_secs(3_600),
-            OAuthRefreshConfig::testing(codex_endpoint, claude_endpoint),
+            OAuthRefreshRuntime {
+                cadence: Duration::from_secs(3_600),
+                config: OAuthRefreshConfig::testing(codex_endpoint, claude_endpoint),
+            },
         )
         .await
     }
@@ -805,8 +814,7 @@ impl ControlPlane {
         allow_private: bool,
         catalog_source: &str,
         catalog_poll_interval: Duration,
-        oauth_refresh_interval: Duration,
-        oauth_refresh: OAuthRefreshConfig,
+        oauth_refresh: OAuthRefreshRuntime,
     ) -> Result<Self, &'static str> {
         if !(32..=512).contains(&admin_key.len()) {
             return Err("RED_ROUTER_ADMIN_KEY must be 32-512 bytes");
@@ -819,10 +827,13 @@ impl ControlPlane {
         {
             return Err("invalid model catalog poll interval");
         }
-        if !(Duration::from_secs(1)..=Duration::from_secs(3_600)).contains(&oauth_refresh_interval)
-        {
+        if !(Duration::from_secs(1)..=Duration::from_secs(3_600)).contains(&oauth_refresh.cadence) {
             return Err("invalid OAuth refresh interval");
         }
+        let OAuthRefreshRuntime {
+            cadence: oauth_refresh_cadence,
+            config: oauth_refresh_config,
+        } = oauth_refresh;
         let mut breakers = HashMap::new();
         for record in database.breakers().await? {
             let id = record.provider_id.clone();
@@ -944,7 +955,7 @@ impl ControlPlane {
             catalog_client,
             catalog_source,
             oauth_refresh_client,
-            oauth_refresh,
+            oauth_refresh: oauth_refresh_config,
             native_usage: RwLock::new(native_usage),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
@@ -957,7 +968,7 @@ impl ControlPlane {
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
         if sqlite {
-            plane.spawn_oauth_refresh_sync(oauth_refresh_interval);
+            plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
         }
         Ok(plane)
     }
