@@ -475,7 +475,9 @@ impl NativeUsage {
         {
             return Err("invalid usage reservation");
         }
-        if tokens > reserved_tokens || amount_microusd > reserved_microusd {
+        if tokens > reserved_tokens
+            || (reserved_microusd > 0 && amount_microusd > reserved_microusd)
+        {
             sqlx::query("UPDATE redrouter_usage_reservations SET reserved_tokens = $2, reserved_microusd = $2 WHERE event_id = $1")
                 .bind(event.event_id)
                 .bind(MAX_SAFE_INTEGER)
@@ -765,5 +767,69 @@ mod tests {
             })
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn token_only_quota_records_known_spend_without_enforcing_a_zero_spend_cap() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let token_only = NativeQuota {
+            max_tokens_per_minute: 100,
+            max_tokens_per_day: 1_000,
+            max_monthly_microusd: 0,
+            reservation_tokens: 60,
+            reservation_microusd: 0,
+        };
+        assert!(usage
+            .reserve(&Reservation {
+                event_id: "token-only",
+                key_id: "key",
+                tenant_id: "tenant",
+                provider: "openai",
+                model: "text-embedding-3-small",
+                quota: token_only,
+                now_ms: 1_700_000_000_000,
+            })
+            .await
+            .unwrap());
+        let tokens = ChatUsage {
+            input: 4,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        let prices = TokenPrices {
+            input: 20.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_creation: 0.0,
+            reasoning: 0.0,
+        };
+        assert!(usage
+            .settle(&UsageEvent {
+                event_id: "token-only",
+                key_id: "key",
+                tenant_id: "tenant",
+                provider: "openai",
+                model: "text-embedding-3-small",
+                usage: &tokens,
+                prices: Some(&prices),
+                now_ms: 1_700_000_000_100,
+            })
+            .await
+            .unwrap());
+        let ledger: (i64, i64) = sqlx::query_as(
+            "SELECT tokens_input, amount_microusd FROM redrouter_usage_ledger WHERE event_id = 'token-only'",
+        )
+        .fetch_one(database.sql_pool().unwrap())
+        .await
+        .unwrap();
+        assert_eq!(ledger, (4, 80));
     }
 }
