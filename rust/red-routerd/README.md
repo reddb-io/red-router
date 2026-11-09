@@ -143,6 +143,13 @@ those environment secrets.
   `pricing_known` and `pricing_snapshot_json`. `api_key_name` is a historical label snapshot;
   plaintext API-key secrets are never persisted or exported. This usage relay currently requires
   SQLite because the Rust-native usage ledger is SQLite-owned.
+- The same usage relay can now be managed through the existing usage-sinks dashboard and
+  `GET/POST/PATCH/DELETE /api/usage-sinks`. Rust owns the destination row, tenant and optional
+  API-key scope, cursor lease and live supervisor. Service-account JSON is accepted write-only,
+  encrypted with `STORAGE_ENCRYPTION_KEY`, and returned only as `__stored__`. Updates are adopted
+  without restart and revision-bound workers stop before another delivery when a sink is changed,
+  disabled or deleted. The dashboard exposes only `instant` mode for this cursor-based BigQuery
+  transport; window aggregation and per-attempt delivery history remain legacy-only features.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

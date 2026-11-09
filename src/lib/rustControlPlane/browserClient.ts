@@ -263,6 +263,27 @@ export async function rustAdminFetch(path: string, init: RequestInit = {}): Prom
   });
 }
 
+/** Same authenticated browser session, limited to the Rust-owned usage-sink surface. */
+export async function rustUsageSinkFetch(
+  path: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  if (!path.startsWith("/api/usage-sinks")) {
+    throw new TypeError("Rust usage-sink requests must use a same-origin /api/usage-sinks path");
+  }
+  const csrf = readRustAdminCsrfCookie();
+  if (!csrf) throw new Error("Rust admin session is unavailable");
+  const headers = new Headers(init.headers);
+  headers.set(CSRF_HEADER, csrf);
+  headers.set("Accept", "application/json");
+  return fetch(path, {
+    ...init,
+    cache: init.cache ?? "no-store",
+    credentials: "same-origin",
+    headers,
+  });
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }

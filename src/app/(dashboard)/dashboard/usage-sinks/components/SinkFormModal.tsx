@@ -24,6 +24,7 @@ import {
 } from "../types";
 import { ApiKeyPicker } from "./ApiKeyPicker";
 import { TestResultPanel } from "./TestResultPanel";
+import { usageSinkFetch } from "../usageSinkFetch";
 
 type FormValues = Record<string, string | boolean>;
 
@@ -69,7 +70,12 @@ function SinkForm({ types, sink, onClose, onSaved }: SinkFormProps) {
   });
   // Optional credentials the operator chose to remove on this edit.
   const [cleared, setCleared] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"instant" | "window">(sink?.mode ?? "window");
+  const initialDescriptor = types.find(
+    (type) => type.type === (sink?.type ?? types[0]?.type)
+  );
+  const [mode, setMode] = useState<"instant" | "window">(
+    sink?.mode ?? initialDescriptor?.modes?.[0] ?? "window"
+  );
   const [windowSec, setWindowSec] = useState(String(sink?.windowSec ?? 900));
   const [keyScope, setKeyScope] = useState<"all" | "selected">(
     sink?.apiKeyIds.length ? "selected" : "all"
@@ -94,6 +100,7 @@ function SinkForm({ types, sink, onClose, onSaved }: SinkFormProps) {
     );
     if (next === "webhook") fresh.secret = newSigningSecret();
     setValues(fresh);
+    setMode(types.find((type) => type.type === next)?.modes?.[0] ?? "window");
   };
 
   const hasStored = (field: FieldDescriptor) =>
@@ -138,7 +145,7 @@ function SinkForm({ types, sink, onClose, onSaved }: SinkFormProps) {
         apiKeyIds: keyScope === "selected" ? selectedKeys.map((key) => key.id) : [],
         enabled,
       };
-      const res = await fetch(sink ? `/api/usage-sinks/${sink.id}` : "/api/usage-sinks", {
+      const res = await usageSinkFetch(sink ? `/api/usage-sinks/${sink.id}` : "/api/usage-sinks", {
         method: sink ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sink ? shared : { ...shared, type: typeId }),
@@ -158,7 +165,7 @@ function SinkForm({ types, sink, onClose, onSaved }: SinkFormProps) {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`/api/usage-sinks/${sink.id}/test`, {
+      const res = await usageSinkFetch(`/api/usage-sinks/${sink.id}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: buildConfig(), ...schedule() }),
@@ -271,10 +278,10 @@ function SinkForm({ types, sink, onClose, onSaved }: SinkFormProps) {
           label={t("fieldWhatToSend")}
           value={mode}
           onChange={(event) => setMode(event.target.value === "instant" ? "instant" : "window")}
-          options={[
-            { value: "window", label: t("modeWindow") },
-            { value: "instant", label: t("modeInstant") },
-          ]}
+          options={(descriptor?.modes ?? ["window", "instant"]).map((value) => ({
+            value,
+            label: value === "window" ? t("modeWindow") : t("modeInstant"),
+          }))}
         />
         {mode === "window" ? (
           <Select

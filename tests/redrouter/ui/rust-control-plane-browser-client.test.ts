@@ -17,6 +17,7 @@ import {
   refreshRustProviderOAuth,
   rotateRustProviderOAuth,
   rustAdminFetch,
+  rustUsageSinkFetch,
   testRustProvider,
   type RustClientKey,
   type RustProvider,
@@ -138,6 +139,20 @@ describe("Rust control-plane browser client", () => {
       "same-origin"
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("adds the Rust CSRF proof only to same-origin usage-sink paths", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi.fn().mockResolvedValue(Response.json({ sinks: [] }));
+    vi.stubGlobal("fetch", fetch);
+
+    await rustUsageSinkFetch("/api/usage-sinks/types");
+    const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
+    await expect(rustUsageSinkFetch("/api/admin/providers")).rejects.toThrow("usage-sinks");
+    await expect(
+      rustUsageSinkFetch("https://attacker.example/api/usage-sinks")
+    ).rejects.toThrow("same-origin");
   });
 
   it("uses the Rust key authority for list, issue, replacement and revocation", async () => {

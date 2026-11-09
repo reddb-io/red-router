@@ -2,7 +2,7 @@ use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExportEvent};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use std::{env, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
@@ -24,6 +24,8 @@ pub struct BigQueryAuditConfig {
     pub service_account_json: Zeroizing<String>,
     pub batch_size: usize,
     pub interval: Duration,
+    pub tenant_id: Option<String>,
+    pub api_key_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +105,8 @@ impl BigQueryAuditConfig {
             )?),
             batch_size,
             interval: Duration::from_secs(interval_seconds),
+            tenant_id: None,
+            api_key_ids: Vec::new(),
         };
         config.validate()?;
         Ok(Some(config))
@@ -139,12 +143,14 @@ impl BigQueryAuditConfig {
             )?),
             batch_size,
             interval: Duration::from_secs(interval_seconds),
+            tenant_id: None,
+            api_key_ids: Vec::new(),
         };
         config.validate()?;
         Ok(Some(config))
     }
 
-    fn validate(&self) -> Result<(), &'static str> {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
         validate_sink_id(&self.sink_id)?;
         validate_project_id(&self.project_id)?;
         validate_bigquery_name(&self.dataset_id)?;
@@ -157,6 +163,14 @@ impl BigQueryAuditConfig {
         }
         if self.service_account_json.len() > 128 * 1024 {
             return Err("BigQuery service account JSON is too large");
+        }
+        if self.api_key_ids.len() > 200
+            || self
+                .api_key_ids
+                .iter()
+                .any(|value| value.is_empty() || value.len() > 200)
+        {
+            return Err("BigQuery usage key filter is invalid");
         }
         Ok(())
     }
@@ -382,6 +396,127 @@ pub async fn spawn_from_env(database: &Arc<Database>) -> Result<bool, &'static s
     Ok(usage_enabled)
 }
 
+/// Watches Rust-owned usage destinations and starts one revision-bound relay per enabled sink.
+/// A relay exits before its next delivery as soon as its record is edited, disabled, or deleted.
+pub fn spawn_persisted_usage(
+    database: &Arc<Database>,
+    encryption_key: &str,
+) -> Result<(), &'static str> {
+    if !database.supports_audit_sink_leases() {
+        return Err("managed BigQuery usage export requires SQLite or PostgreSQL");
+    }
+    let weak = Arc::downgrade(database);
+    let encryption_key = Zeroizing::new(encryption_key.to_owned());
+    tokio::spawn(async move {
+        let mut revisions = HashMap::<String, i64>::new();
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            let exports = match database.usage_exports().await {
+                Ok(exports) => exports,
+                Err(error) => {
+                    eprintln!("Rust managed usage export refresh failed: {error}");
+                    continue;
+                }
+            };
+            for export in exports {
+                if revisions.get(&export.id) == Some(&export.revision) {
+                    continue;
+                }
+                if !export.enabled {
+                    revisions.insert(export.id.clone(), export.revision);
+                    continue;
+                }
+                let aad = format!("usage-export:{}:service-account", export.id);
+                let service_account_json = match crate::control_plane::decrypt(
+                    &export.service_account_ciphertext,
+                    &aad,
+                    encryption_key.as_str(),
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        eprintln!("Rust managed usage export credential failed: {error}");
+                        continue;
+                    }
+                };
+                let api_key_ids =
+                    match serde_json::from_str::<Vec<String>>(&export.api_key_ids_json) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            eprintln!("Rust managed usage export key filter is invalid");
+                            continue;
+                        }
+                    };
+                let config = BigQueryAuditConfig {
+                    sink_id: format!("managed-{}", export.id),
+                    project_id: export.project_id,
+                    dataset_id: export.dataset_id,
+                    table_id: export.table_id,
+                    service_account_json,
+                    batch_size: match usize::try_from(export.batch_size) {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    },
+                    interval: match u64::try_from(export.interval_seconds) {
+                        Ok(value) => Duration::from_secs(value),
+                        Err(_) => continue,
+                    },
+                    tenant_id: Some(export.tenant_id),
+                    api_key_ids,
+                };
+                let export_id = export.id;
+                let export_revision = export.revision;
+                match spawn_managed_usage(&database, config, export_id.clone(), export_revision) {
+                    Ok(()) => {
+                        revisions.insert(export_id, export_revision);
+                    }
+                    Err(error) => {
+                        eprintln!("Rust managed usage export start failed: {error}");
+                    }
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+fn spawn_managed_usage(
+    database: &Arc<Database>,
+    config: BigQueryAuditConfig,
+    record_id: String,
+    revision: i64,
+) -> Result<(), &'static str> {
+    let sink = Arc::new(BigQueryAuditSink::new(config.clone())?);
+    let weak = Arc::downgrade(database);
+    let owner = random_owner()?;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(config.interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            let current = database
+                .usage_exports()
+                .await
+                .ok()
+                .and_then(|exports| exports.into_iter().find(|item| item.id == record_id));
+            if !current.is_some_and(|item| item.enabled && item.revision == revision) {
+                return;
+            }
+            if let Err(error) = drain_usage_once(&database, &sink, &owner).await {
+                eprintln!("Rust managed usage export failed: {error}");
+            }
+        }
+    });
+    Ok(())
+}
+
 fn spawn_audit(database: &Arc<Database>, config: BigQueryAuditConfig) -> Result<(), &'static str> {
     let sink = Arc::new(BigQueryAuditSink::new(config.clone())?);
     let weak = Arc::downgrade(database);
@@ -500,7 +635,12 @@ async fn drain_usage_once(
             .usage_export_events(created_at, event_id, sink.config.batch_size)
             .await?;
         if let Some(last) = events.last() {
-            sink.send_usage(&events).await?;
+            let selected = events
+                .iter()
+                .filter(|event| usage_event_selected(&sink.config, event))
+                .cloned()
+                .collect::<Vec<_>>();
+            sink.send_usage(&selected).await?;
             database
                 .advance_sink_cursor_position(
                     &sink.config.sink_id,
@@ -518,6 +658,14 @@ async fn drain_usage_once(
         .release_audit_sink_lease(&sink.config.sink_id, owner, unix_time_ms().unwrap_or(now))
         .await;
     result
+}
+
+fn usage_event_selected(config: &BigQueryAuditConfig, event: &StoredUsageExportEvent) -> bool {
+    config
+        .tenant_id
+        .as_ref()
+        .is_none_or(|tenant| event.tenant_id == *tenant)
+        && (config.api_key_ids.is_empty() || config.api_key_ids.contains(&event.key_id))
 }
 
 fn bigquery_chunks(
@@ -802,5 +950,28 @@ mod tests {
         assert_eq!(row["json"]["tokens_total"], 150);
         assert_eq!(row["json"]["amount_microusd"], 1234);
         assert!(row["json"].get("api_key").is_none());
+    }
+
+    #[test]
+    fn managed_usage_filters_never_cross_tenant_or_key_scope() {
+        let config = BigQueryAuditConfig {
+            sink_id: "managed-report".to_owned(),
+            project_id: "red-router-prod".to_owned(),
+            dataset_id: "billing".to_owned(),
+            table_id: "usage".to_owned(),
+            service_account_json: Zeroizing::new("{}".to_owned()),
+            batch_size: 100,
+            interval: Duration::from_secs(10),
+            tenant_id: Some("red".to_owned()),
+            api_key_ids: vec!["agent-key".to_owned()],
+        };
+        let allowed = usage_event("allowed");
+        assert!(usage_event_selected(&config, &allowed));
+        let mut other_tenant = allowed.clone();
+        other_tenant.tenant_id = "other".to_owned();
+        assert!(!usage_event_selected(&config, &other_tenant));
+        let mut other_key = allowed;
+        other_key.key_id = "other-key".to_owned();
+        assert!(!usage_event_selected(&config, &other_key));
     }
 }

@@ -16,6 +16,8 @@ export interface TransportDescriptor {
   label: string;
   description: string;
   fields: FieldDescriptor[];
+  /** Omitted by legacy transports, which support both schedules. */
+  modes?: Array<"instant" | "window">;
 }
 
 export interface DeliveryStats {
@@ -46,6 +48,8 @@ export interface UsageSink {
   nextWindowEnd: string | null;
   createdAt: string;
   deliveries: DeliveryStats;
+  /** False for cursor-based exports, which do not create per-attempt outbox rows. */
+  deliveryHistory?: boolean;
 }
 
 export interface Delivery {

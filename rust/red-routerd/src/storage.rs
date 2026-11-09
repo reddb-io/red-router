@@ -76,6 +76,12 @@ const CREATE_USAGE_RESERVATIONS_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS
 const CREATE_USAGE_LEDGER_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_key_time ON redrouter_usage_ledger (key_id, created_at_unix_ms DESC, event_id DESC)";
 const CREATE_USAGE_LEDGER_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_tenant_time ON redrouter_usage_ledger (tenant_id, created_at_unix_ms DESC, event_id DESC)";
 const CREATE_USAGE_LEDGER_TENANT_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_tenant_key_time ON redrouter_usage_ledger (tenant_id, key_id, created_at_unix_ms DESC, event_id DESC)";
+const CREATE_USAGE_EXPORTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_usage_exports (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, export_type TEXT NOT NULL, mode TEXT NOT NULL, window_sec BIGINT NOT NULL, api_key_ids_json TEXT NOT NULL, project_id TEXT NOT NULL, dataset_id TEXT NOT NULL, table_id TEXT NOT NULL, service_account_ciphertext TEXT NOT NULL, batch_size BIGINT NOT NULL, interval_seconds BIGINT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_USAGE_EXPORTS: &str = "SELECT id, tenant_id, name, export_type, mode, window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, batch_size, interval_seconds, enabled, revision FROM redrouter_control_usage_exports ORDER BY revision DESC, id ASC";
+const UPSERT_USAGE_EXPORT: &str = "INSERT INTO redrouter_control_usage_exports (id, tenant_id, name, export_type, mode, window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, batch_size, interval_seconds, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO NOTHING";
+const UPDATE_USAGE_EXPORT: &str = "UPDATE redrouter_control_usage_exports SET name = $3, export_type = $4, mode = $5, window_sec = $6, api_key_ids_json = $7, project_id = $8, dataset_id = $9, table_id = $10, service_account_ciphertext = $11, batch_size = $12, interval_seconds = $13, enabled = $14, revision = $15 WHERE id = $1 AND tenant_id = $2 AND revision = $16";
+const DELETE_USAGE_EXPORT: &str =
+    "DELETE FROM redrouter_control_usage_exports WHERE id = $1 AND revision = $2";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
@@ -293,6 +299,25 @@ pub struct StoredUsageExportEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredUsageExport {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub export_type: String,
+    pub mode: String,
+    pub window_sec: i64,
+    pub api_key_ids_json: String,
+    pub project_id: String,
+    pub dataset_id: String,
+    pub table_id: String,
+    pub service_account_ciphertext: String,
+    pub batch_size: i64,
+    pub interval_seconds: i64,
+    pub enabled: bool,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredCombo {
     pub id: String,
     pub tenant_id: String,
@@ -489,6 +514,7 @@ impl Database {
                         CREATE_AUDIT_OUTBOX,
                         CREATE_AUDIT_OUTBOX_ORDER_INDEX,
                         CREATE_AUDIT_SINK_CURSORS,
+                        CREATE_USAGE_EXPORTS,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
                         CREATE_COMBOS,
@@ -603,6 +629,7 @@ impl Database {
                 db.remote_schema_query(CREATE_AUDIT_OUTBOX_ORDER_INDEX)
                     .await?;
                 db.remote_schema_query(CREATE_AUDIT_SINK_CURSORS).await?;
+                db.remote_schema_query(CREATE_USAGE_EXPORTS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
@@ -656,6 +683,7 @@ impl Database {
                     CREATE_AUDIT_OUTBOX,
                     CREATE_AUDIT_OUTBOX_ORDER_INDEX,
                     CREATE_AUDIT_SINK_CURSORS,
+                    CREATE_USAGE_EXPORTS,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
                     CREATE_COMBOS,
@@ -1727,6 +1755,145 @@ impl Database {
             .iter()
             .map(read_sql_usage_export_event)
             .collect()
+    }
+
+    pub async fn usage_exports(&self) -> Result<Vec<StoredUsageExport>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_USAGE_EXPORTS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read usage export configuration")?
+                .iter()
+                .map(read_sql_usage_export)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_USAGE_EXPORTS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_usage_export)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_USAGE_EXPORTS)
+                .await
+                .map_err(|_| "cannot read usage export configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_usage_export)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_usage_export(
+        &self,
+        export: &StoredUsageExport,
+    ) -> Result<(), &'static str> {
+        let enabled = i64::from(export.enabled);
+        match self {
+            Self::Sql(pool) => {
+                let result = sqlx::query(UPSERT_USAGE_EXPORT)
+                    .bind(&export.id)
+                    .bind(&export.tenant_id)
+                    .bind(&export.name)
+                    .bind(&export.export_type)
+                    .bind(&export.mode)
+                    .bind(export.window_sec)
+                    .bind(&export.api_key_ids_json)
+                    .bind(&export.project_id)
+                    .bind(&export.dataset_id)
+                    .bind(&export.table_id)
+                    .bind(&export.service_account_ciphertext)
+                    .bind(export.batch_size)
+                    .bind(export.interval_seconds)
+                    .bind(enabled)
+                    .bind(export.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write usage export configuration")?;
+                if result.rows_affected() != 1 {
+                    return Err("usage export identifier collision");
+                }
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_USAGE_EXPORT, &usage_export_params(export, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_USAGE_EXPORT, usage_export_params(export, enabled))
+                    .await
+                    .map_err(|_| "cannot write usage export configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn update_usage_export(
+        &self,
+        export: &StoredUsageExport,
+        expected_revision: i64,
+    ) -> Result<(), &'static str> {
+        let enabled = i64::from(export.enabled);
+        match self {
+            Self::Sql(pool) => {
+                let result = sqlx::query(UPDATE_USAGE_EXPORT)
+                    .bind(&export.id)
+                    .bind(&export.tenant_id)
+                    .bind(&export.name)
+                    .bind(&export.export_type)
+                    .bind(&export.mode)
+                    .bind(export.window_sec)
+                    .bind(&export.api_key_ids_json)
+                    .bind(&export.project_id)
+                    .bind(&export.dataset_id)
+                    .bind(&export.table_id)
+                    .bind(&export.service_account_ciphertext)
+                    .bind(export.batch_size)
+                    .bind(export.interval_seconds)
+                    .bind(enabled)
+                    .bind(export.revision)
+                    .bind(expected_revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot update usage export configuration")?;
+                if result.rows_affected() != 1 {
+                    return Err("usage export revision mismatch");
+                }
+            }
+            _ => return Err("usage export updates currently require SQL storage"),
+        }
+        Ok(())
+    }
+
+    pub async fn delete_usage_export(
+        &self,
+        id: &str,
+        expected_revision: i64,
+    ) -> Result<bool, &'static str> {
+        let existed = self
+            .usage_exports()
+            .await?
+            .iter()
+            .any(|export| export.id == id);
+        if !existed {
+            return Ok(false);
+        }
+        match self {
+            Self::Sql(pool) => {
+                let result = sqlx::query(DELETE_USAGE_EXPORT)
+                    .bind(id)
+                    .bind(expected_revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete usage export configuration")?;
+                if result.rows_affected() != 1 {
+                    return Err("usage export revision mismatch");
+                }
+            }
+            _ => return Err("usage export deletion currently requires SQL storage"),
+        }
+        Ok(true)
     }
 
     pub async fn advance_audit_sink_cursor(
@@ -3993,6 +4160,96 @@ fn read_sql_usage_export_event(
         pricing_known: pricing_known == 1,
         pricing_snapshot,
     })
+}
+
+fn read_sql_usage_export(row: &sqlx::any::AnyRow) -> Result<StoredUsageExport, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid usage export configuration")
+    };
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid usage export configuration")
+    };
+    let enabled = integer("enabled")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid usage export configuration");
+    }
+    Ok(StoredUsageExport {
+        id: text("id")?,
+        tenant_id: text("tenant_id")?,
+        name: text("name")?,
+        export_type: text("export_type")?,
+        mode: text("mode")?,
+        window_sec: integer("window_sec")?,
+        api_key_ids_json: text("api_key_ids_json")?,
+        project_id: text("project_id")?,
+        dataset_id: text("dataset_id")?,
+        table_id: text("table_id")?,
+        service_account_ciphertext: text("service_account_ciphertext")?,
+        batch_size: integer("batch_size")?,
+        interval_seconds: integer("interval_seconds")?,
+        enabled: enabled == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_usage_export(row: &reddb_client::Row) -> Result<StoredUsageExport, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid usage export configuration"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid usage export configuration"),
+    };
+    let enabled = integer("enabled")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid usage export configuration");
+    }
+    Ok(StoredUsageExport {
+        id: text("id")?,
+        tenant_id: text("tenant_id")?,
+        name: text("name")?,
+        export_type: text("export_type")?,
+        mode: text("mode")?,
+        window_sec: integer("window_sec")?,
+        api_key_ids_json: text("api_key_ids_json")?,
+        project_id: text("project_id")?,
+        dataset_id: text("dataset_id")?,
+        table_id: text("table_id")?,
+        service_account_ciphertext: text("service_account_ciphertext")?,
+        batch_size: integer("batch_size")?,
+        interval_seconds: integer("interval_seconds")?,
+        enabled: enabled == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn usage_export_params(export: &StoredUsageExport, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(export.id.clone()),
+        reddb_client::Value::Text(export.tenant_id.clone()),
+        reddb_client::Value::Text(export.name.clone()),
+        reddb_client::Value::Text(export.export_type.clone()),
+        reddb_client::Value::Text(export.mode.clone()),
+        reddb_client::Value::Int(export.window_sec),
+        reddb_client::Value::Text(export.api_key_ids_json.clone()),
+        reddb_client::Value::Text(export.project_id.clone()),
+        reddb_client::Value::Text(export.dataset_id.clone()),
+        reddb_client::Value::Text(export.table_id.clone()),
+        reddb_client::Value::Text(export.service_account_ciphertext.clone()),
+        reddb_client::Value::Int(export.batch_size),
+        reddb_client::Value::Int(export.interval_seconds),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(export.revision),
+    ]
 }
 
 fn read_reddb_audit_sink_cursor(

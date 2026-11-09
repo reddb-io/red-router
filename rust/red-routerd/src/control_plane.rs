@@ -8,7 +8,7 @@ use crate::{
         StoredAuditEvent, StoredClientKey, StoredCombo, StoredIdentityBinding,
         StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
         StoredProviderAuth, StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota,
-        StoredResilience, StoredRoutePin, StoredTenant,
+        StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -414,6 +414,66 @@ pub struct UsageReportQuery {
     pub to_unix_ms: Option<i64>,
     pub limit: Option<i64>,
     pub cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageExportConfigInput {
+    pub project_id: Option<String>,
+    pub dataset_id: Option<String>,
+    pub table_id: Option<String>,
+    pub service_account_json: Option<String>,
+    pub batch_size: Option<UnsignedInput>,
+    pub interval_seconds: Option<UnsignedInput>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum UnsignedInput {
+    Number(u64),
+    Text(String),
+}
+
+impl UnsignedInput {
+    fn value(self) -> Result<u64, &'static str> {
+        match self {
+            Self::Number(value) => Ok(value),
+            Self::Text(value) => value
+                .parse()
+                .map_err(|_| "invalid unsigned configuration value"),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageExportCreateInput {
+    pub name: String,
+    pub tenant_id: Option<String>,
+    #[serde(rename = "type", default = "bigquery_export_type")]
+    pub export_type: String,
+    pub mode: String,
+    pub window_sec: Option<i64>,
+    #[serde(default)]
+    pub api_key_ids: Vec<String>,
+    pub config: UsageExportConfigInput,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageExportUpdateInput {
+    pub name: Option<String>,
+    pub mode: Option<String>,
+    pub window_sec: Option<i64>,
+    pub api_key_ids: Option<Vec<String>>,
+    pub config: Option<UsageExportConfigInput>,
+    pub enabled: Option<bool>,
+}
+
+fn bigquery_export_type() -> String {
+    "bigquery".to_owned()
 }
 
 impl ClientKeyIssueInput {
@@ -3477,6 +3537,396 @@ impl ControlPlane {
         Ok(())
     }
 
+    async fn usage_export_views(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, &'static str> {
+        let keys = self.0.database.client_keys().await?;
+        self.0
+            .database
+            .usage_exports()
+            .await?
+            .iter()
+            .filter(|export| tenant_id.is_none_or(|tenant| export.tenant_id == tenant))
+            .map(|export| usage_export_view(export, &keys))
+            .collect()
+    }
+
+    async fn create_usage_export_as(
+        &self,
+        input: UsageExportCreateInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<serde_json::Value, &'static str> {
+        let id = format!("usage-{}", random_token(12)?);
+        let tenant_id = input
+            .tenant_id
+            .as_deref()
+            .or(enforced_tenant)
+            .unwrap_or("red")
+            .to_owned();
+        if enforced_tenant.is_some_and(|required| required != tenant_id) {
+            return Err("usage export tenant cannot be changed");
+        }
+        let record = self
+            .resolve_usage_export(
+                &id,
+                tenant_id,
+                input.name,
+                input.export_type,
+                input.mode,
+                input.window_sec,
+                input.api_key_ids,
+                input.config,
+                input.enabled,
+                None,
+            )
+            .await?;
+        let _mutation = self.0.mutation.lock().await;
+        self.0.database.upsert_usage_export(&record).await?;
+        let view = usage_export_view(&record, &self.0.database.client_keys().await?)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "usage_export.create",
+                actor,
+                tenant_id: &record.tenant_id,
+                target: &record.id,
+                resource_type: "usage_export",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&view),
+        )
+        .await;
+        Ok(view)
+    }
+
+    async fn update_usage_export_as(
+        &self,
+        id: &str,
+        input: UsageExportUpdateInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<serde_json::Value, &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        let current = self
+            .0
+            .database
+            .usage_exports()
+            .await?
+            .into_iter()
+            .find(|export| export.id == id)
+            .ok_or("usage export configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != current.tenant_id) {
+            return Err("usage export tenant is unavailable");
+        }
+        let api_key_ids = match input.api_key_ids {
+            Some(value) => value,
+            None => serde_json::from_str(&current.api_key_ids_json)
+                .map_err(|_| "invalid usage export key filters")?,
+        };
+        let config = input.config.unwrap_or(UsageExportConfigInput {
+            project_id: None,
+            dataset_id: None,
+            table_id: None,
+            service_account_json: None,
+            batch_size: None,
+            interval_seconds: None,
+        });
+        let record = self
+            .resolve_usage_export(
+                id,
+                current.tenant_id.clone(),
+                input.name.unwrap_or_else(|| current.name.clone()),
+                current.export_type.clone(),
+                input.mode.unwrap_or_else(|| current.mode.clone()),
+                input.window_sec.or(Some(current.window_sec)),
+                api_key_ids,
+                config,
+                input.enabled.unwrap_or(current.enabled),
+                Some(&current),
+            )
+            .await?;
+        let before = usage_export_view(&current, &self.0.database.client_keys().await?)?;
+        self.0
+            .database
+            .update_usage_export(&record, current.revision)
+            .await?;
+        let after = usage_export_view(&record, &self.0.database.client_keys().await?)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "usage_export.update",
+                actor,
+                tenant_id: &record.tenant_id,
+                target: &record.id,
+                resource_type: "usage_export",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        Ok(after)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn resolve_usage_export(
+        &self,
+        id: &str,
+        tenant_id: String,
+        name: String,
+        export_type: String,
+        mode: String,
+        window_sec: Option<i64>,
+        mut api_key_ids: Vec<String>,
+        config: UsageExportConfigInput,
+        enabled: bool,
+        current: Option<&StoredUsageExport>,
+    ) -> Result<StoredUsageExport, &'static str> {
+        if !self.0.database.is_sqlite().await {
+            return Err("usage exports currently require SQLite storage");
+        }
+        validate_id(id)?;
+        validate_id(&tenant_id)?;
+        let name = name.trim().to_owned();
+        if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
+            return Err("invalid usage export name");
+        }
+        if export_type != "bigquery" {
+            return Err("unsupported usage export type");
+        }
+        if mode != "instant" || window_sec.is_some_and(|value| value != 0) {
+            return Err("BigQuery usage export currently supports instant mode only");
+        }
+        if api_key_ids.len() > 200 {
+            return Err("too many usage export key filters");
+        }
+        api_key_ids.sort();
+        api_key_ids.dedup();
+        if api_key_ids.iter().any(|key| validate_id(key).is_err()) {
+            return Err("invalid usage export key filter");
+        }
+        let tenants = self.0.database.tenants().await?;
+        if !tenants
+            .iter()
+            .any(|tenant| tenant.id == tenant_id && tenant.enabled)
+        {
+            return Err("usage export tenant is unavailable");
+        }
+        let keys = self.0.database.client_keys().await?;
+        if !api_key_ids.iter().all(|id| {
+            keys.iter()
+                .any(|key| key.id == *id && key.tenant_id == tenant_id)
+        }) {
+            return Err("usage export key filter is unavailable");
+        }
+        let project_id = config
+            .project_id
+            .or_else(|| current.map(|value| value.project_id.clone()))
+            .ok_or("BigQuery project ID is required")?;
+        let dataset_id = config
+            .dataset_id
+            .or_else(|| current.map(|value| value.dataset_id.clone()))
+            .ok_or("BigQuery dataset ID is required")?;
+        let table_id = config
+            .table_id
+            .or_else(|| current.map(|value| value.table_id.clone()))
+            .ok_or("BigQuery table ID is required")?;
+        let batch_size = match config.batch_size {
+            Some(value) => {
+                usize::try_from(value.value()?).map_err(|_| "invalid BigQuery batch size")?
+            }
+            None => current
+                .and_then(|value| usize::try_from(value.batch_size).ok())
+                .unwrap_or(500),
+        };
+        let interval_seconds = match config.interval_seconds {
+            Some(value) => value.value()?,
+            None => current
+                .and_then(|value| u64::try_from(value.interval_seconds).ok())
+                .unwrap_or(10),
+        };
+        let aad = format!("usage-export:{id}:service-account");
+        let (service_account_ciphertext, service_account_json) = match config.service_account_json {
+            Some(value) if value != "__stored__" => {
+                let secret = Zeroizing::new(value);
+                let ciphertext = encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
+                (ciphertext, secret)
+            }
+            _ => {
+                let stored = current.ok_or("BigQuery service account JSON is required")?;
+                let secret = decrypt(
+                    &stored.service_account_ciphertext,
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                (stored.service_account_ciphertext.clone(), secret)
+            }
+        };
+        let runtime = crate::audit_export::BigQueryAuditConfig {
+            sink_id: format!("managed-{id}"),
+            project_id: project_id.clone(),
+            dataset_id: dataset_id.clone(),
+            table_id: table_id.clone(),
+            service_account_json,
+            batch_size,
+            interval: Duration::from_secs(interval_seconds),
+            tenant_id: Some(tenant_id.clone()),
+            api_key_ids: api_key_ids.clone(),
+        };
+        crate::audit_export::BigQueryAuditSink::new(runtime)?;
+        Ok(StoredUsageExport {
+            id: id.to_owned(),
+            tenant_id,
+            name,
+            export_type,
+            mode,
+            window_sec: 0,
+            api_key_ids_json: serde_json::to_string(&api_key_ids)
+                .map_err(|_| "cannot encode usage export key filters")?,
+            project_id,
+            dataset_id,
+            table_id,
+            service_account_ciphertext,
+            batch_size: i64::try_from(batch_size).map_err(|_| "invalid BigQuery batch size")?,
+            interval_seconds: i64::try_from(interval_seconds)
+                .map_err(|_| "invalid BigQuery interval")?,
+            enabled,
+            revision: revision()?,
+        })
+    }
+
+    async fn delete_usage_export_as(
+        &self,
+        id: &str,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<bool, &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        let current = self
+            .0
+            .database
+            .usage_exports()
+            .await?
+            .into_iter()
+            .find(|export| export.id == id);
+        let Some(current) = current else {
+            return Ok(false);
+        };
+        if enforced_tenant.is_some_and(|tenant| tenant != current.tenant_id) {
+            return Err("usage export tenant is unavailable");
+        }
+        let before = usage_export_view(&current, &self.0.database.client_keys().await?)?;
+        self.0
+            .database
+            .delete_usage_export(id, current.revision)
+            .await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "usage_export.delete",
+                actor,
+                tenant_id: &current.tenant_id,
+                target: id,
+                resource_type: "usage_export",
+            },
+            Some(&before),
+            Option::<&serde_json::Value>::None,
+        )
+        .await;
+        Ok(true)
+    }
+
+    async fn test_usage_export_as(
+        &self,
+        id: &str,
+        input: UsageExportUpdateInput,
+        enforced_tenant: Option<&str>,
+    ) -> Result<u64, &'static str> {
+        validate_id(id)?;
+        let current = self
+            .0
+            .database
+            .usage_exports()
+            .await?
+            .into_iter()
+            .find(|export| export.id == id)
+            .ok_or("usage export configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != current.tenant_id) {
+            return Err("usage export tenant is unavailable");
+        }
+        let api_key_ids = match input.api_key_ids {
+            Some(value) => value,
+            None => serde_json::from_str(&current.api_key_ids_json)
+                .map_err(|_| "invalid usage export key filters")?,
+        };
+        let config = input.config.unwrap_or(UsageExportConfigInput {
+            project_id: None,
+            dataset_id: None,
+            table_id: None,
+            service_account_json: None,
+            batch_size: None,
+            interval_seconds: None,
+        });
+        let record = self
+            .resolve_usage_export(
+                id,
+                current.tenant_id.clone(),
+                input.name.unwrap_or_else(|| current.name.clone()),
+                current.export_type.clone(),
+                input.mode.unwrap_or_else(|| current.mode.clone()),
+                input.window_sec.or(Some(current.window_sec)),
+                api_key_ids,
+                config,
+                input.enabled.unwrap_or(current.enabled),
+                Some(&current),
+            )
+            .await?;
+        let aad = format!("usage-export:{id}:service-account");
+        let service_account_json = decrypt(
+            &record.service_account_ciphertext,
+            &aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        let sink = crate::audit_export::BigQueryAuditSink::new(
+            crate::audit_export::BigQueryAuditConfig {
+                sink_id: format!("managed-{id}"),
+                project_id: record.project_id,
+                dataset_id: record.dataset_id,
+                table_id: record.table_id,
+                service_account_json,
+                batch_size: usize::try_from(record.batch_size)
+                    .map_err(|_| "invalid BigQuery batch size")?,
+                interval: Duration::from_secs(
+                    u64::try_from(record.interval_seconds)
+                        .map_err(|_| "invalid BigQuery interval")?,
+                ),
+                tenant_id: Some(record.tenant_id.clone()),
+                api_key_ids: Vec::new(),
+            },
+        )?;
+        let started = Instant::now();
+        let now = unix_time_ms()?;
+        sink.send_usage(&[crate::storage::StoredUsageExportEvent {
+            event_id: format!("test-{}", random_token(12)?),
+            created_at_unix_ms: now,
+            tenant_id: record.tenant_id,
+            key_id: "test".to_owned(),
+            key_name: "Red Router destination test".to_owned(),
+            provider: "red-router".to_owned(),
+            model: "destination-test".to_owned(),
+            tokens_input: 0,
+            tokens_output: 0,
+            tokens_cache_read: 0,
+            tokens_cache_creation: 0,
+            tokens_reasoning: 0,
+            amount_microusd: 0,
+            pricing_known: false,
+            pricing_snapshot: None,
+        }])
+        .await?;
+        Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
+    }
+
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
         self.revoke_client_key_as(id, "bootstrap-admin", None).await
     }
@@ -4970,6 +5420,61 @@ fn audit_event_view(record: StoredAuditEvent) -> Result<AuditEventView, &'static
     })
 }
 
+fn usage_export_view(
+    record: &StoredUsageExport,
+    keys: &[StoredClientKey],
+) -> Result<serde_json::Value, &'static str> {
+    let api_key_ids: Vec<String> = serde_json::from_str(&record.api_key_ids_json)
+        .map_err(|_| "invalid usage export key filters")?;
+    if api_key_ids.len() > 200 {
+        return Err("invalid usage export key filters");
+    }
+    let created_at = ::time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(record.revision))
+        .map_err(|_| "invalid usage export revision")?
+        .format(&::time::format_description::well_known::Rfc3339)
+        .map_err(|_| "invalid usage export revision")?;
+    let filter_keys = api_key_ids
+        .iter()
+        .map(|id| {
+            keys.iter()
+                .find(|key| key.id == *id && key.tenant_id == record.tenant_id)
+                .map_or_else(
+                    || serde_json::json!({"id": id, "name": null, "deleted": true}),
+                    |key| serde_json::json!({"id": id, "name": key.label}),
+                )
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "id": record.id,
+        "tenantId": record.tenant_id,
+        "name": record.name,
+        "type": record.export_type,
+        "typeLabel": "Google BigQuery",
+        "mode": record.mode,
+        "windowSec": if record.window_sec == 0 { serde_json::Value::Null } else { serde_json::json!(record.window_sec) },
+        "apiKeyIds": api_key_ids,
+        "filterKeys": filter_keys,
+        "config": {
+            "projectId": record.project_id,
+            "datasetId": record.dataset_id,
+            "tableId": record.table_id,
+            "serviceAccountJson": "__stored__",
+            "batchSize": record.batch_size,
+            "intervalSeconds": record.interval_seconds,
+        },
+        "summary": format!("{}.{}.{}", record.project_id, record.dataset_id, record.table_id),
+        "enabled": record.enabled,
+        "cursorId": 0,
+        "nextWindowEnd": null,
+        "createdAt": created_at,
+        "updatedAt": created_at,
+        "source": "redrouter_usage_ledger",
+        "coverage": "verified-terminal-usage",
+        "deliveries": {"pending": 0, "delivered": 0, "dead": 0},
+        "deliveryHistory": false,
+    }))
+}
+
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     let targets: Vec<ComboTarget> = if record.targets_json.len() <= 256 * 1024 {
         serde_json::from_str(&record.targets_json).map_err(|_| "invalid combo targets")?
@@ -5747,7 +6252,11 @@ fn encrypt(value: &str, id: &str, secret: &str) -> Result<String, &'static str> 
     Ok(encoded)
 }
 
-fn decrypt(stored: &str, id: &str, secret: &str) -> Result<Zeroizing<String>, &'static str> {
+pub(crate) fn decrypt(
+    stored: &str,
+    id: &str,
+    secret: &str,
+) -> Result<Zeroizing<String>, &'static str> {
     let parts: Vec<_> = stored.split(':').collect();
     if parts.len() != 5 || parts[0] != "rr" || parts[1] != "v1" || stored.len() > 20_000 {
         return Err("unsupported Rust provider credential");
@@ -6052,6 +6561,196 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
             StatusCode::SERVICE_UNAVAILABLE,
             "Client key storage unavailable",
         ),
+    }
+}
+
+pub async fn usage_export_types(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if control.management_scope(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    Json(serde_json::json!({
+        "types": [{
+            "type": "bigquery",
+            "label": "Google BigQuery",
+            "description": "Exports attributed token and spend reports from the Rust usage ledger.",
+            "modes": ["instant"],
+            "fields": [
+                {"key":"projectId","labelFallback":"Project ID","type":"text","required":true},
+                {"key":"datasetId","labelFallback":"Dataset ID","type":"text","required":true},
+                {"key":"tableId","labelFallback":"Table ID","type":"text","required":true},
+                {"key":"serviceAccountJson","labelFallback":"Service account JSON","type":"textarea","required":true,"secret":true,"helpFallback":"Write-only; the credential is encrypted at rest."},
+                {"key":"batchSize","labelFallback":"Batch size","type":"number","placeholder":"500"},
+                {"key":"intervalSeconds","labelFallback":"Interval (seconds)","type":"number","placeholder":"10"}
+            ]
+        }],
+        "windowSizesSec": []
+    }))
+    .into_response()
+}
+
+pub async fn list_usage_exports(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.usage_export_views(scope.tenant_id.as_deref()).await {
+        Ok(sinks) => Json(serde_json::json!({"sinks": sinks})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage export storage unavailable",
+        ),
+    }
+}
+
+pub async fn create_usage_export(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<UsageExportCreateInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .create_usage_export_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(sink) => (StatusCode::CREATED, Json(serde_json::json!({"sink": sink}))).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage export storage unavailable",
+        ),
+        Err(_) => api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid usage export configuration",
+        ),
+    }
+}
+
+pub async fn get_usage_export(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.usage_export_views(scope.tenant_id.as_deref()).await {
+        Ok(sinks) => match sinks
+            .into_iter()
+            .find(|sink| sink.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str()))
+        {
+            Some(sink) => Json(serde_json::json!({"sink": sink, "deliveries": []})).into_response(),
+            None => api_error(StatusCode::NOT_FOUND, "Usage sink not found"),
+        },
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage export storage unavailable",
+        ),
+    }
+}
+
+pub async fn update_usage_export(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<UsageExportUpdateInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .update_usage_export_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(sink) => Json(serde_json::json!({"sink": sink})).into_response(),
+        Err("usage export configuration not found") => {
+            api_error(StatusCode::NOT_FOUND, "Usage sink not found")
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage export storage unavailable",
+        ),
+        Err(_) => api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid usage export configuration",
+        ),
+    }
+}
+
+pub async fn delete_usage_export(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .delete_usage_export_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(true) => Json(serde_json::json!({"deleted": true})).into_response(),
+        Ok(false) => api_error(StatusCode::NOT_FOUND, "Usage sink not found"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage export storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid usage export identifier"),
+    }
+}
+
+pub async fn test_usage_export(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<UsageExportUpdateInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .test_usage_export_as(&id, input, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(latency_ms) => Json(serde_json::json!({
+            "valid": true,
+            "error": null,
+            "latencyMs": latency_ms,
+            "probe": {"method":"POST","url":null,"status":200,"statusText":"OK","bytes":null,"durationMs":latency_ms,"error":null},
+            "requests": []
+        }))
+        .into_response(),
+        Err("usage export configuration not found") => {
+            api_error(StatusCode::NOT_FOUND, "Usage sink not found")
+        }
+        Err(error) => Json(serde_json::json!({
+            "valid": false,
+            "error": error,
+            "latencyMs": null,
+            "probe": {"method":"POST","url":null,"status":null,"statusText":null,"bytes":null,"durationMs":null,"error":error},
+            "requests": []
+        }))
+        .into_response(),
     }
 }
 
@@ -6862,5 +7561,37 @@ mod tests {
         );
         assert!(decrypt(&encrypted, "other", secret).is_err());
         assert!(decrypt(&encrypted, "first", "wrong-storage-key").is_err());
+    }
+
+    #[test]
+    fn usage_export_views_are_write_only_for_service_accounts() {
+        let record = StoredUsageExport {
+            id: "usage-report".to_owned(),
+            tenant_id: "red".to_owned(),
+            name: "Billing warehouse".to_owned(),
+            export_type: "bigquery".to_owned(),
+            mode: "instant".to_owned(),
+            window_sec: 0,
+            api_key_ids_json: "[]".to_owned(),
+            project_id: "red-router-prod".to_owned(),
+            dataset_id: "billing".to_owned(),
+            table_id: "usage".to_owned(),
+            service_account_ciphertext: "rrenc1:secret-ciphertext".to_owned(),
+            batch_size: 500,
+            interval_seconds: 10,
+            enabled: true,
+            revision: 1_700_000_000_000_000_000,
+        };
+        let view = usage_export_view(&record, &[]).unwrap();
+        let encoded = view.to_string();
+        assert_eq!(view["config"]["serviceAccountJson"], "__stored__");
+        assert!(!encoded.contains("secret-ciphertext"));
+    }
+
+    #[test]
+    fn dashboard_number_fields_accept_strings_and_numbers() {
+        assert_eq!(UnsignedInput::Text("500".to_owned()).value().unwrap(), 500);
+        assert_eq!(UnsignedInput::Number(10).value().unwrap(), 10);
+        assert!(UnsignedInput::Text("ten".to_owned()).value().is_err());
     }
 }

@@ -1709,6 +1709,25 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
         )
         .route("/api/admin/usage", get(control_plane::get_usage_report))
+        .route(
+            "/api/usage-sinks/types",
+            get(control_plane::usage_export_types),
+        )
+        .route(
+            "/api/usage-sinks",
+            get(control_plane::list_usage_exports).post(control_plane::create_usage_export),
+        )
+        .route(
+            "/api/usage-sinks/{id}",
+            get(control_plane::get_usage_export)
+                .patch(control_plane::update_usage_export)
+                .put(control_plane::update_usage_export)
+                .delete(control_plane::delete_usage_export),
+        )
+        .route(
+            "/api/usage-sinks/{id}/test",
+            post(control_plane::test_usage_export),
+        )
         .route("/api/admin/tenants", get(control_plane::list_tenants))
         .route("/api/admin/tenants/{id}", put(control_plane::put_tenant))
         .route(

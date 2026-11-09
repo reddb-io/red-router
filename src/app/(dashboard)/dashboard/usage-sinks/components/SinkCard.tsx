@@ -88,14 +88,16 @@ export function SinkCard({
             <Button size="sm" variant="secondary" icon="send" loading={testing} onClick={onTest}>
               {t("sendTest")}
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon="list"
-              onClick={() => setShowDeliveries(!showDeliveries)}
-            >
-              {t("deliveries")}
-            </Button>
+            {sink.deliveryHistory !== false ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="list"
+                onClick={() => setShowDeliveries(!showDeliveries)}
+              >
+                {t("deliveries")}
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" icon="edit" onClick={onEdit}>
               {t("edit")}
             </Button>
@@ -110,7 +112,9 @@ export function SinkCard({
         </div>
 
         <TestResultPanel result={testResult} />
-        {showDeliveries ? <DeliveriesPanel sinkId={sink.id} onChange={onChange} /> : null}
+        {showDeliveries && sink.deliveryHistory !== false ? (
+          <DeliveriesPanel sinkId={sink.id} onChange={onChange} />
+        ) : null}
       </div>
     </Card>
   );

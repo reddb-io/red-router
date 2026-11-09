@@ -6,6 +6,7 @@ import { Button, Card, ConfirmModal, Loading } from "@/shared/components";
 import { SinkCard } from "./components/SinkCard";
 import { SinkFormModal } from "./components/SinkFormModal";
 import { errorText, type TestResult, type TransportDescriptor, type UsageSink } from "./types";
+import { usageSinkFetch } from "./usageSinkFetch";
 
 export function UsageSinksPageClient() {
   const t = useTranslations("usageSinks");
@@ -24,8 +25,8 @@ export function UsageSinksPageClient() {
   const load = useCallback(async () => {
     try {
       const [sinksRes, typesRes] = await Promise.all([
-        fetch("/api/usage-sinks"),
-        fetch("/api/usage-sinks/types"),
+        usageSinkFetch("/api/usage-sinks"),
+        usageSinkFetch("/api/usage-sinks/types"),
       ]);
       const sinksData = await sinksRes.json().catch(() => ({}));
       const typesData = await typesRes.json().catch(() => ({}));
@@ -48,7 +49,7 @@ export function UsageSinksPageClient() {
 
   const toggle = async (sink: UsageSink, enabled: boolean) => {
     setNotice(null);
-    const res = await fetch(`/api/usage-sinks/${sink.id}`, {
+    const res = await usageSinkFetch(`/api/usage-sinks/${sink.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
@@ -63,7 +64,7 @@ export function UsageSinksPageClient() {
   const runTest = async (sink: UsageSink) => {
     setTestingId(sink.id);
     try {
-      const res = await fetch(`/api/usage-sinks/${sink.id}/test`, {
+      const res = await usageSinkFetch(`/api/usage-sinks/${sink.id}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -82,7 +83,7 @@ export function UsageSinksPageClient() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await fetch(`/api/usage-sinks/${deleteTarget.id}`, { method: "DELETE" });
+      await usageSinkFetch(`/api/usage-sinks/${deleteTarget.id}`, { method: "DELETE" });
       setDeleteTarget(null);
       await load();
     } finally {

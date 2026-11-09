@@ -43,6 +43,10 @@ exports exact token categories, model/provider attribution, tenant, cost and the
 key ID plus a label snapshot; it never exports the client secret. Activating that relay enables
 verified terminal-usage capture for native keys without requiring a quota, while quota-enabled
 keys retain reservation-based admission. The usage writer and relay are SQLite-only for now.
+Usage BigQuery destinations are Rust-owned and dashboard-managed: tenant/key scope is persisted
+with the sink, service-account JSON is encrypted and write-only, and a revision-aware supervisor
+applies create/update/enable/disable changes without a process restart. The legacy webhook, SQS,
+Kafka and RedDB transports plus window aggregation still run only in the compatibility backend.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.

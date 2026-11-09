@@ -685,6 +685,9 @@ async fn run(
             allow_private,
         )
         .await?;
+        if backend == Backend::Sqlite {
+            red_routerd::audit_export::spawn_persisted_usage(&db, encryption_key.as_str())?;
+        }
         if !control.has_active_provider().await? {
             if let Some(upstream) = requested.as_deref() {
                 let provider_key = zeroize::Zeroizing::new(env::var("RED_ROUTER_PROVIDER_KEY")?);
@@ -727,7 +730,9 @@ async fn run(
         )
         .await?
         .with_control_plane(control)
-        .with_native_usage_reporting(usage_export_enabled);
+        // SQLite is the current durable usage authority. Keep the ledger complete so a
+        // dashboard-managed export can be enabled without losing requests before its first poll.
+        .with_native_usage_reporting(usage_export_enabled || backend == Backend::Sqlite);
         if let Some(limit) = max_in_flight {
             state = state.with_max_in_flight(limit)?;
         }
