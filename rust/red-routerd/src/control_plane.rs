@@ -41,6 +41,7 @@ use zeroize::{Zeroize, Zeroizing};
 type ControlCipher = AesGcm<Aes256, U16>;
 const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
+const CONTROL_SNAPSHOT_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_DIAGNOSTIC_MAX_BODY_BYTES: usize = 1024 * 1024;
 const OAUTH_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
@@ -63,6 +64,8 @@ struct Inner {
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
+    provider_snapshot_signature: RwLock<[u8; 32]>,
+    oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
@@ -944,6 +947,8 @@ impl ControlPlane {
             availability: RwLock::new(availability),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
+            provider_snapshot_signature: RwLock::new([0; 32]),
+            oidc_snapshot_signature: RwLock::new([0; 32]),
             catalog: RwLock::new(CatalogState {
                 catalog,
                 source,
@@ -965,8 +970,12 @@ impl ControlPlane {
         plane.refresh().await?;
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
+        *plane.0.provider_snapshot_signature.write().await =
+            plane.provider_runtime_signature().await?;
+        *plane.0.oidc_snapshot_signature.write().await = plane.oidc_runtime_signature().await?;
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
+        plane.spawn_control_snapshot_sync(CONTROL_SNAPSHOT_SYNC_INTERVAL);
         if sqlite {
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
         }
@@ -1002,6 +1011,89 @@ impl ControlPlane {
                 }
             }
         });
+    }
+
+    fn spawn_control_snapshot_sync(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let plane = ControlPlane(inner);
+                plane.sync_provider_snapshot().await;
+                plane.sync_oidc_snapshot().await;
+            }
+        });
+    }
+
+    async fn sync_provider_snapshot(&self) {
+        let observed = match self.provider_runtime_signature().await {
+            Ok(signature) => signature,
+            Err(_) => {
+                *self.0.current.write().await = None;
+                *self.0.routes.write().await = RouteSnapshot::Unavailable;
+                return;
+            }
+        };
+        if *self.0.provider_snapshot_signature.read().await == observed {
+            return;
+        }
+        let _mutation = self.0.mutation.lock().await;
+        let latest = match self.provider_runtime_signature().await {
+            Ok(signature) => signature,
+            Err(_) => {
+                *self.0.current.write().await = None;
+                *self.0.routes.write().await = RouteSnapshot::Unavailable;
+                return;
+            }
+        };
+        if *self.0.provider_snapshot_signature.read().await == latest {
+            return;
+        }
+        if self.refresh().await.is_err() {
+            *self.0.current.write().await = None;
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return;
+        }
+        if self.refresh_routes().await.is_err() {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return;
+        }
+        *self.0.provider_snapshot_signature.write().await = latest;
+    }
+
+    async fn sync_oidc_snapshot(&self) {
+        let observed = match self.oidc_runtime_signature().await {
+            Ok(signature) => signature,
+            Err(_) => {
+                self.clear_oidc_runtime().await;
+                return;
+            }
+        };
+        if *self.0.oidc_snapshot_signature.read().await == observed {
+            return;
+        }
+        let _mutation = self.0.mutation.lock().await;
+        let latest = match self.oidc_runtime_signature().await {
+            Ok(signature) => signature,
+            Err(_) => {
+                self.clear_oidc_runtime().await;
+                return;
+            }
+        };
+        if *self.0.oidc_snapshot_signature.read().await == latest {
+            return;
+        }
+        if self.refresh_oidc().await.is_err() {
+            self.clear_oidc_runtime().await;
+            return;
+        }
+        *self.0.oidc_snapshot_signature.write().await = latest;
     }
 
     fn spawn_oauth_refresh_sync(&self, cadence: Duration) {
@@ -2158,12 +2250,15 @@ impl ControlPlane {
                     stored
                 })
         };
+        // Publish the authorization policy before its browser client. A peer
+        // that observes the two writes separately will disable browser login
+        // until revisions match instead of retaining the older verifier.
+        self.0.database.upsert_oidc(&record).await?;
         if let Some(browser) = &browser_record {
             self.0.database.upsert_oidc_browser(browser).await?;
         } else if input.clear_browser {
             self.0.database.delete_oidc_browser().await?;
         }
-        self.0.database.upsert_oidc(&record).await?;
         let stored = self
             .0
             .database
@@ -2184,6 +2279,7 @@ impl ControlPlane {
             .map(crate::oidc::OidcBrowserConfig::from_stored)
             .transpose()?
             .map(Arc::new);
+        *self.0.oidc_browser.write().await = None;
         *self.0.oidc.write().await = Some(Arc::new(verifier));
         *self.0.oidc_browser.write().await = browser.clone();
         oidc_stored_view(&stored, browser.as_deref())
@@ -2191,10 +2287,9 @@ impl ControlPlane {
 
     pub async fn delete_oidc(&self) -> Result<(), &'static str> {
         let _mutation = self.0.mutation.lock().await;
+        self.clear_oidc_runtime().await;
         self.0.database.delete_oidc_browser().await?;
         self.0.database.delete_oidc().await?;
-        *self.0.oidc.write().await = None;
-        *self.0.oidc_browser.write().await = None;
         Ok(())
     }
 
@@ -2894,6 +2989,116 @@ impl ControlPlane {
             return Err("cannot reload client key configuration");
         }
         Ok(())
+    }
+
+    async fn provider_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
+        let mut digest = Sha256::new();
+        signature_text(&mut digest, "redrouter-provider-runtime-v1");
+        for record in self.0.database.providers().await? {
+            signature_text(&mut digest, &record.id);
+            signature_text(&mut digest, &record.tenant_id);
+            signature_text(&mut digest, &record.provider);
+            signature_text(&mut digest, &record.upstream_url);
+            signature_text(&mut digest, &record.credential_ciphertext);
+            signature_bool(&mut digest, record.enabled);
+            signature_i64(&mut digest, record.updated_at);
+        }
+        for record in self.0.database.provider_auth().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.auth_scheme);
+            signature_text(&mut digest, &record.label);
+            signature_text(&mut digest, &record.account_email);
+            signature_i64(&mut digest, record.expires_at_unix);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.provider_oauth().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.oauth_provider);
+            signature_text(&mut digest, &record.refresh_token_ciphertext);
+            signature_i64(&mut digest, record.generation);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.provider_resilience().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.rate_limit_scope);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.combos().await? {
+            signature_text(&mut digest, &record.id);
+            signature_text(&mut digest, &record.tenant_id);
+            signature_text(&mut digest, &record.protocol);
+            signature_text(&mut digest, &record.strategy);
+            signature_bool(&mut digest, record.fallback);
+            signature_text(&mut digest, &record.targets_json);
+            signature_bool(&mut digest, record.enabled);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.route_pins().await? {
+            signature_text(&mut digest, &record.combo_id);
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.model);
+            signature_i64(&mut digest, record.revision);
+        }
+        Ok(digest.finalize().into())
+    }
+
+    async fn oidc_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
+        let mut digest = Sha256::new();
+        signature_text(&mut digest, "redrouter-oidc-runtime-v1");
+        if let Some(record) = self.0.database.oidc_config().await? {
+            signature_bool(&mut digest, true);
+            signature_bool(&mut digest, record.enabled);
+            signature_text(&mut digest, &record.issuer);
+            signature_text(&mut digest, &record.audience);
+            signature_text(&mut digest, &record.jwks_uri);
+            signature_text(&mut digest, &record.required_claims_json);
+            signature_text(&mut digest, &record.allowed_subjects_json);
+            signature_i64(&mut digest, record.revision);
+        } else {
+            signature_bool(&mut digest, false);
+        }
+        if let Some(record) = self.0.database.oidc_browser_config().await? {
+            signature_bool(&mut digest, true);
+            signature_text(&mut digest, &record.public_origin);
+            signature_text(&mut digest, &record.client_id);
+            signature_text(&mut digest, &record.client_secret_ciphertext);
+            signature_text(&mut digest, &record.authorization_endpoint);
+            signature_text(&mut digest, &record.token_endpoint);
+            signature_text(&mut digest, &record.scopes_json);
+            signature_i64(&mut digest, record.revision);
+        } else {
+            signature_bool(&mut digest, false);
+        }
+        Ok(digest.finalize().into())
+    }
+
+    async fn refresh_oidc(&self) -> Result<(), &'static str> {
+        let stored = self.0.database.oidc_config().await?;
+        let verifier = stored
+            .as_ref()
+            .map(|record| crate::oidc::OidcVerifier::from_stored(record, self.0.allow_private))
+            .transpose()?
+            .map(Arc::new);
+        let browser = match (
+            stored.as_ref(),
+            self.0.database.oidc_browser_config().await?,
+        ) {
+            (Some(policy), Some(browser)) if policy.revision == browser.revision => Some(Arc::new(
+                crate::oidc::OidcBrowserConfig::from_stored(&browser)?,
+            )),
+            _ => None,
+        };
+        // Disable browser login while the verifier changes so no request can
+        // observe policy and confidential-client records from different revisions.
+        *self.0.oidc_browser.write().await = None;
+        *self.0.oidc.write().await = verifier;
+        *self.0.oidc_browser.write().await = browser;
+        Ok(())
+    }
+
+    async fn clear_oidc_runtime(&self) {
+        *self.0.oidc_browser.write().await = None;
+        *self.0.oidc.write().await = None;
     }
 
     async fn refresh(&self) -> Result<(), &'static str> {
@@ -4602,6 +4807,19 @@ async fn read_bounded_response(
         body.extend_from_slice(&chunk);
     }
     Ok(body)
+}
+
+fn signature_text(digest: &mut Sha256, value: &str) {
+    digest.update((value.len() as u64).to_be_bytes());
+    digest.update(value.as_bytes());
+}
+
+fn signature_i64(digest: &mut Sha256, value: i64) {
+    digest.update(value.to_be_bytes());
+}
+
+fn signature_bool(digest: &mut Sha256, value: bool) {
+    digest.update([u8::from(value)]);
 }
 
 fn revision() -> Result<i64, &'static str> {

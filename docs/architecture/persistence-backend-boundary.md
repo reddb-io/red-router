@@ -1,7 +1,7 @@
 ---
 title: "ADR: Pluggable persistence boundary"
 status: accepted
-lastUpdated: 2026-11-08
+lastUpdated: 2026-11-09
 ---
 
 # ADR: Pluggable persistence boundary
@@ -14,6 +14,10 @@ Rust-owned control-plane slices persist encrypted provider configurations, hash-
 client keys and their authorization policy, combos, provider circuit-breaker state, and
 OIDC bearer/browser configuration with an encrypted confidential-client secret.
 Configuration snapshots reload without restart and breaker/session policy survives restart.
+Provider, combo, rotated OAuth credential and OIDC policy snapshots are fingerprinted and
+converge across Rust replicas without continuously rebuilding upstream HTTP clients. OIDC
+storage or validation failure removes the verifier from that replica while the bootstrap
+administrator remains available for recovery.
 The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
 They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
 or establish full domain parity.
@@ -221,6 +225,9 @@ are encrypted independently, are write-only in management responses, and rotate 
 generation compare-and-swap. Automatic refresh uses fixed upstream token endpoints, a bounded
 no-proxy HTTP client and a durable SQLite lease per upstream rotation group. This prevents two
 Rust replicas from spending the same one-time refresh token concurrently.
+After a successful rotation, peer Rust replicas detect the changed encrypted credential and
+OAuth generation in the durable snapshot and rebuild their affected routing snapshot. They do
+not continue serving the stale access token until restart.
 
 Terminal upstream responses such as `invalid_grant` are persisted as `reauth_required`; automatic
 and manual retries then stop until an operator replaces the credential. Transient failures remain

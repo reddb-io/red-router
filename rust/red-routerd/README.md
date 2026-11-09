@@ -72,8 +72,10 @@ those environment secrets.
   pair and expiry. The caller supplies the last observed `expected_generation`; SQLite uses
   `BEGIN IMMEDIATE` plus a generation CAS to update both ciphertexts and expiry atomically,
   so a delayed writer cannot restore an already-consumed refresh token. A stale generation
-  returns `409` and no token is changed. Provider-side refresh and browser authorization are
-  the next layer; this endpoint is the durable handoff used by a trusted refresher or CLI importer.
+  returns `409` and no token is changed. `POST /api/admin/providers/{id}/oauth/refresh`
+  performs the provider-side exchange in Rust. A durable SQLite lease prevents replicas from
+  spending the same rotating refresh token concurrently, and peer replicas fingerprint the
+  resulting durable provider snapshot so they publish the new access token without restart.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `POST /api/admin/providers/{id}/test` accepts an exact native `model` ID and
@@ -223,6 +225,9 @@ legacy environment keys are confined to tenant `red`.
   policy. `PUT` validates, fetches and verifies its JWKS before durably replacing
   the live policy; `DELETE` removes it. The payload contains `enabled`, `issuer`,
   `audience`, `jwks_uri`, `required_claims` and `allowed_subjects`.
+  Rust replicas fingerprint the durable policy and confidential browser-client record, so both
+  enablement and deletion propagate without restart. A failed reload disables OIDC on that
+  replica; the bootstrap administrator remains the recovery path.
 - `GET /api/auth/config` is a cache-disabled, non-secret bootstrap for the static
   dashboard. `POST /api/admin/oidc/discover` performs authenticated, bounded and
   DNS-pinned standard issuer discovery and returns validated endpoints and scopes.

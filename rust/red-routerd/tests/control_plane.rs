@@ -2659,6 +2659,122 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
 }
 
 #[tokio::test]
+async fn rust_control_plane_converges_oidc_enablement_and_revocation_across_replicas() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("oidc-replicas.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let leader_database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let follower_database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let leader = ControlPlane::new(leader_database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let follower = ControlPlane::new(follower_database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (leader_base, leader_task) = gateway(leader).await;
+    let (follower_base, follower_task) = gateway(follower).await;
+    let (jwks_uri, _, jwks_task) = oidc_jwks().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!(
+                "{leader_base}/api/admin/identity-bindings/replica-operator"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:operator@example.com",
+                    "tenant_id":"red",
+                    "role":"admin"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{leader_base}/api/admin/oidc"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "enabled":true,
+                    "issuer":"https://issuer.example",
+                    "audience":"red-router-admin",
+                    "jwks_uri":jwks_uri,
+                    "required_claims":{"org_role":["operator"]},
+                    "allowed_subjects":["operator@example.com"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    let valid = oidc_token("ec01", "red-router-admin", "operator");
+    tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            if client
+                .get(format!("{follower_base}/api/admin/providers"))
+                .bearer_auth(&valid)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                == StatusCode::OK
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the follower did not publish the OIDC policy");
+
+    assert_eq!(
+        client
+            .delete(format!("{leader_base}/api/admin/oidc"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            if client
+                .get(format!("{follower_base}/api/admin/providers"))
+                .bearer_auth(&valid)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                == StatusCode::UNAUTHORIZED
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the follower did not revoke the deleted OIDC policy");
+
+    leader_task.abort();
+    follower_task.abort();
+    jwks_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_exposes_safe_browser_bootstrap_and_oidc_discovery() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("oidc-discovery.sqlite")).unwrap();
@@ -4705,6 +4821,43 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         upstream_requests.lock().unwrap().last().map(String::as_str),
         Some("Bearer server-refreshed-access-token")
     );
+
+    let follower_base = if first_refresh["refresh"]["category"] == "refreshed" {
+        &second_base
+    } else {
+        &first_base
+    };
+    tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            assert_eq!(
+                client
+                    .post(format!("{follower_base}/v1/messages"))
+                    .bearer_auth(CLIENT_KEY)
+                    .header(header::CONTENT_TYPE.as_str(), "application/json")
+                    .body(
+                        serde_json::json!({
+                            "model":"claude-refresh-model",
+                            "messages":[],
+                            "max_tokens":8
+                        })
+                        .to_string()
+                    )
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::OK
+            );
+            if upstream_requests.lock().unwrap().last().map(String::as_str)
+                == Some("Bearer server-refreshed-access-token")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the follower did not publish the rotated provider credential");
 
     tokio::time::sleep(Duration::from_millis(2_100)).await;
     token_mode.store(1, Ordering::SeqCst);
