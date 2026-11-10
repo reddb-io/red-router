@@ -4086,6 +4086,18 @@ impl ControlPlane {
                         .as_ref()
                         .is_some_and(|provider| oauth.revision == provider.updated_at)
             });
+        let existing_auth = self
+            .0
+            .database
+            .provider_auth()
+            .await?
+            .into_iter()
+            .find(|auth| {
+                auth.provider_id == id
+                    && existing
+                        .as_ref()
+                        .is_some_and(|provider| auth.revision == provider.updated_at)
+            });
         let existing_session =
             self.0
                 .database
@@ -4116,6 +4128,24 @@ impl ControlPlane {
         };
         let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
         let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
+        if !replacing_access_token {
+            let existing = existing
+                .as_ref()
+                .ok_or("provider credential must be 1-8192 bytes")?;
+            let existing_auth_scheme = existing_auth
+                .as_ref()
+                .map(|auth| auth.auth_scheme.as_str())
+                .unwrap_or("auto");
+            if existing.provider != input.provider
+                || existing.upstream_url != input.upstream_url
+                || existing_auth_scheme != auth_scheme.as_str()
+                || (input.credential_type == "oauth") != existing_oauth.is_some()
+            {
+                return Err(
+                    "provider credential is required when changing upstream or authentication",
+                );
+            }
+        }
         let label = input.label.as_deref().unwrap_or(id).trim();
         validate_provider_label(label)?;
         let account_email = input.account_email.as_deref().unwrap_or("").trim();

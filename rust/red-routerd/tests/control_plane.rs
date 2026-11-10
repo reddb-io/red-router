@@ -7138,6 +7138,27 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         "first"
     );
 
+    let unsafe_upstream_change = client
+        .put(format!("{base}/api/admin/providers/first"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"openai",
+                "upstream_url":&second_url,
+                "label":"Must not reuse the credential"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsafe_upstream_change.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        chat(&client, &base, CLIENT_KEY).await.text().await.unwrap(),
+        "first"
+    );
+
     let key_response = client
         .put(format!("{base}/api/admin/client-keys/agent-fleet"))
         .bearer_auth(ADMIN_KEY)
