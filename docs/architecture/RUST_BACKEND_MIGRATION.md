@@ -1,7 +1,7 @@
 ---
 title: "Rust backend migration"
 status: accepted
-lastUpdated: 2026-11-09
+lastUpdated: 2026-11-10
 ---
 
 # Rust backend migration
@@ -54,6 +54,32 @@ features must not be implemented only there.
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains                                                                    |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                                                                                                             |
 
+## Definition of done and closure order
+
+The migration is finished when the production package can start `red-routerd`, serve the
+dashboard as a static SPA and complete every normal operator workflow without starting a
+Next.js server or writing durable state from TypeScript. A route count is not the exit
+criterion. The cutover is gated by the following operator journeys, in this order:
+
+| Gate | Required outcome | Current remaining work | Complexity |
+| --- | --- | --- | --- |
+| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import sessions, test, refresh, disable and delete from the SPA | Preserve the complete CLI-session artifact needed for safe Codex/Claude export; migrate the remaining product provider auth/import flows actually exposed by the dashboard | High |
+| 2. Traffic lifecycle | Issue a named client key, restrict it, select a provider/combo, proxy every advertised protocol, account usage and enforce limits | Finish protocol/error/stream parity fixtures; migrate the remaining dashboard policy and versioned resilience settings | High |
+| 3. Identity and tenancy | Password/bootstrap and configured OIDC can administer tenant-owned providers, combos and keys without cross-tenant access | Complete production SPA wiring and provider-specific OIDC diagnostics | Medium |
+| 4. Existing installation | Upgrade an existing RedRouter installation without losing providers, keys, combos, quotas, usage or audit history | Maintenance-mode legacy SQLite importer, dry-run verification report and rollback marker | High |
+| 5. Packaging and operations | One Rust process serves proxy, admin API and SPA; health/readiness, backup and restore are documented and exercised | Build/package the static dashboard artifact and add installation/upgrade smoke coverage | Medium |
+
+Only these five gates block switching the shipped server from Next.js to Rust. Local CLI
+file writes, desktop process management, MCP/A2A tools, tunnels, plugins, skills, memory,
+evals and other workstation integrations remain supported product capabilities, but they
+must run as explicit local companions or later Rust modules rather than keeping a hidden
+TypeScript persistence backend alive. They are tracked after the server cutover and may
+not receive direct access to the Rust storage database.
+
+The closure sequence is therefore provider lifecycle, traffic/policy parity, SPA
+packaging, legacy import, then upgrade/cutover validation. New compatibility work that
+does not close one of these gates must not displace this sequence.
+
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
 
 The functional upstream baseline was rechecked against `origin/main` on 2026-11-07.
@@ -84,9 +110,14 @@ when that control plane is active. Its form preserves the stable connection ID u
 policies and combos, treats replacement credentials as write-only and exposes the Rust
 connection/model rate-limit scope. It consumes the Rust-owned `anomalyco/models.dev` index,
 shows the active validated snapshot and revision, offers its provider namespace and lazily
-inspects provider model metadata without downloading upstream data in the browser. The broad
-Browser authorization and most CLI import formats remain compatibility features to migrate
-as separate vertical slices; they are not silently backed by the Next database in Rust mode.
+inspects provider model metadata without downloading upstream data in the browser. Codex and
+Claude browser authorization-code flows are now Rust-owned. The authorize response preserves
+the dashboard contract, while a sealed ten-minute state binds provider, redirect, PKCE verifier
+hash, actor and tenant. The exchange can complete on another replica sharing the storage key,
+uses fixed provider endpoints with bounded redirect-free HTTP, and persists through the same
+encrypted import path as CLI sessions. Other provider browser flows remain compatibility features
+to migrate as separate vertical slices; they are not silently backed by the Next database in Rust
+mode.
 Codex CLI `auth.json` and Claude CLI `.credentials.json` imports are now Rust-owned for both the
 dashboard's single and bulk JSON contracts. Codex derives a tenant-scoped stable connection
 identity from the workspace and user claims, so two members of one ChatGPT workspace do not
@@ -99,7 +130,9 @@ imports are audit logged. Codex and Claude bulk ZIP extraction is also Rust-owne
 archive contents to disk, runs decompression outside the async executor, preserves per-entry JSON
 parse errors and rejects traversal, special/encrypted entries and compressed or expanded size
 abuse. Export back to a local CLI and the remaining provider import formats are still compatibility
-work.
+work. Server-side export additionally requires preserving the encrypted provider session fields
+that are not derivable from the access/refresh pair (notably Codex `id_token`); the server must not
+fabricate those fields or write into a remote host's home directory.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one
@@ -109,9 +142,9 @@ generation-CAS rotation and durable reauthentication state for Codex and Claude 
 Rust also owns a generic protocol-native
 connection diagnostic for configured
 API-key or access-token providers: it uses the encrypted credential and pinned runtime
-transport, bounds time and response bytes, and returns only a stable redacted result. OAuth
-authorization, account-specific quota probes and the remaining CLI-owned session lifecycle
-remain follow-up work.
+transport, bounds time and response bytes, and returns only a stable redacted result.
+Account-specific quota probes, the remaining provider authorization flows and the local
+CLI-owned session lifecycle remain follow-up work.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
 production dashboard export/packaging pipeline and provider-specific diagnostics rather
