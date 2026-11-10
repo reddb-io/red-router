@@ -409,7 +409,7 @@ struct UsageWebhookSink {
 }
 
 enum ManagedUsageTransport {
-    BigQuery(BigQueryAuditSink),
+    BigQuery(Box<BigQueryAuditSink>),
     Webhook(UsageWebhookSink),
 }
 
@@ -449,17 +449,19 @@ impl ManagedUsageRelay {
                     &aad,
                     encryption_key,
                 )?;
-                ManagedUsageTransport::BigQuery(BigQueryAuditSink::new(BigQueryAuditConfig {
-                    sink_id: sink_id.clone(),
-                    project_id: record.project_id.clone(),
-                    dataset_id: record.dataset_id.clone(),
-                    table_id: record.table_id.clone(),
-                    service_account_json,
-                    batch_size,
-                    interval,
-                    tenant_id: Some(record.tenant_id.clone()),
-                    api_key_ids: api_key_ids.clone(),
-                })?)
+                ManagedUsageTransport::BigQuery(Box::new(BigQueryAuditSink::new(
+                    BigQueryAuditConfig {
+                        sink_id: sink_id.clone(),
+                        project_id: record.project_id.clone(),
+                        dataset_id: record.dataset_id.clone(),
+                        table_id: record.table_id.clone(),
+                        service_account_json,
+                        batch_size,
+                        interval,
+                        tenant_id: Some(record.tenant_id.clone()),
+                        api_key_ids: api_key_ids.clone(),
+                    },
+                )?))
             }
             "webhook" => {
                 let aad = format!("usage-export:{}:secret", record.id);
