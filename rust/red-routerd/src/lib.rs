@@ -1709,6 +1709,10 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::refresh_provider_oauth),
         )
         .route(
+            "/api/providers/{id}/refresh",
+            post(control_plane::refresh_provider_oauth_compat),
+        )
+        .route(
             "/api/providers/codex-auth/import",
             post(control_plane::import_codex_auth),
         )

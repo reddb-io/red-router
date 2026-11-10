@@ -5510,6 +5510,22 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         .unwrap()
         .contains('.'));
 
+    let codex_refresh = client
+        .post(format!(
+            "{second_base}/api/providers/{codex_provider_id}/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(codex_refresh.status(), StatusCode::OK);
+    let codex_refresh: serde_json::Value =
+        serde_json::from_str(&codex_refresh.text().await.unwrap()).unwrap();
+    assert_eq!(codex_refresh["success"], true);
+    assert_eq!(codex_refresh["skipped"], true);
+    assert_eq!(codex_refresh["provider"], "codex");
+    assert_eq!(codex_requests.load(Ordering::SeqCst), 1);
+
     let claude_export = client
         .post(format!(
             "{second_base}/api/providers/{claude_provider_id}/claude-auth/export"

@@ -9056,6 +9056,107 @@ pub async fn refresh_provider_oauth(
     }
 }
 
+pub async fn refresh_provider_oauth_compat(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let (_, auth, oauth) = match control
+        .provider_oauth_records(&id, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(records) => records,
+        Err(error) if error.contains("not found") => {
+            return api_error(StatusCode::NOT_FOUND, "Connection not found")
+        }
+        Err(error) if is_runtime_error(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Provider OAuth refresh unavailable",
+            )
+        }
+        Err(_) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "Only OAuth connections support manual token refresh",
+            )
+        }
+    };
+    let refreshed_at = match ::time::OffsetDateTime::now_utc()
+        .format(&::time::format_description::well_known::Rfc3339)
+    {
+        Ok(value) => value,
+        Err(_) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Token refresh failed"),
+    };
+    let expires_at = |value: i64| {
+        (value > 0)
+            .then(|| ::time::OffsetDateTime::from_unix_timestamp(value).ok())
+            .flatten()
+            .and_then(|value| {
+                value
+                    .format(&::time::format_description::well_known::Rfc3339)
+                    .ok()
+            })
+    };
+    if oauth.oauth_provider == "codex" {
+        return Json(serde_json::json!({
+            "success":true,
+            "skipped":true,
+            "connectionId":id,
+            "provider":oauth.oauth_provider,
+            "message":"Rotating-refresh provider: the token refreshes automatically on the next request. Manual refresh is skipped to protect the token family.",
+            "expiresAt":expires_at(auth.expires_at_unix),
+            "refreshedAt":refreshed_at,
+        }))
+        .into_response();
+    }
+    match control
+        .refresh_provider_oauth_as(&id, Some(&scope.actor), scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(refresh) if refresh.ok => Json(serde_json::json!({
+            "success":true,
+            "connectionId":id,
+            "provider":oauth.oauth_provider,
+            "expiresAt":refresh.expires_at_unix.and_then(|value| i64::try_from(value).ok()).and_then(expires_at),
+            "refreshedAt":refreshed_at,
+        }))
+        .into_response(),
+        Ok(refresh) if refresh.category == "refresh_in_progress" => {
+            Json(serde_json::json!({
+                "success":true,
+                "skipped":true,
+                "connectionId":id,
+                "provider":oauth.oauth_provider,
+                "message":"A token refresh is already in progress on another replica.",
+                "expiresAt":refresh.expires_at_unix.and_then(|value| i64::try_from(value).ok()).and_then(expires_at),
+                "refreshedAt":refreshed_at,
+            }))
+            .into_response()
+        }
+        Ok(refresh) if refresh.category == "reauth_required" => api_error_code(
+            StatusCode::UNAUTHORIZED,
+            "Refresh token expired. Please re-authenticate this account.",
+            "reauth_required",
+        ),
+        Ok(_) => api_error(
+            StatusCode::BAD_GATEWAY,
+            "Token refresh failed - provider returned no new token",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider OAuth refresh unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider OAuth refresh"),
+    }
+}
+
 fn is_runtime_error(error: &str) -> bool {
     error.contains("database")
         || error.contains("provider configuration")
