@@ -1078,10 +1078,10 @@ fn prompt_cache_affinity_key(body: &serde_json::Value) -> Option<String> {
         if !matches!(role, "system" | "tool" | "assistant") {
             break;
         }
-        let content = object.get("content").unwrap_or(&serde_json::Value::Null);
-        prefix.push(match content {
-            serde_json::Value::String(value) => value.clone(),
-            value => serde_json::to_string(value).ok()?,
+        prefix.push(match object.get("content") {
+            Some(serde_json::Value::String(value)) => value.clone(),
+            Some(value) => serde_json::to_string(value).ok()?,
+            None => "null".to_owned(),
         });
     }
     if prefix.is_empty() {
