@@ -1701,6 +1701,14 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::refresh_provider_oauth),
         )
         .route(
+            "/api/providers/codex-auth/import",
+            post(control_plane::import_codex_auth),
+        )
+        .route(
+            "/api/providers/codex-auth/import-bulk",
+            post(control_plane::import_codex_auth_bulk),
+        )
+        .route(
             "/api/admin/client-keys",
             get(control_plane::list_client_keys).post(control_plane::issue_client_key),
         )

@@ -52,6 +52,7 @@ const OAUTH_REFRESH_SETTLE_MS: i64 = 2_000;
 const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
+const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const SQLITE_CONTROL_MARKER: &str = "SELECT kind, record_id, revision, generation FROM (
@@ -99,6 +100,7 @@ struct OAuthRefreshConfig {
     codex_client_id: String,
     claude_endpoint: reqwest::Url,
     claude_client_id: String,
+    codex_provider_endpoint: reqwest::Url,
 }
 
 struct OAuthRefreshRuntime {
@@ -315,6 +317,54 @@ pub struct ProviderOAuthRotationInput {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at_unix: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ProviderAuthImportSource {
+    Json { json: serde_json::Value },
+    Text { text: String },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderAuthImportInput {
+    pub source: ProviderAuthImportSource,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    #[serde(default, rename = "overwriteExisting")]
+    pub overwrite_existing: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexAuthBulkEntry {
+    pub json: serde_json::Value,
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexAuthBulkImportInput {
+    pub entries: Vec<CodexAuthBulkEntry>,
+    #[serde(default, rename = "overwriteExisting")]
+    pub overwrite_existing: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ProviderAuthImportView {
+    connection: ProviderView,
+    created: bool,
+}
+
+struct ParsedCodexAuth {
+    access_token: Zeroizing<String>,
+    refresh_token: Zeroizing<String>,
+    account_id: String,
+    user_id: Option<String>,
+    email: Option<String>,
+    expires_at_unix: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -893,11 +943,14 @@ impl OAuthRefreshConfig {
             claude_endpoint: reqwest::Url::parse(CLAUDE_OAUTH_TOKEN_URL)
                 .map_err(|_| "invalid Claude OAuth token URL")?,
             claude_client_id,
+            codex_provider_endpoint: reqwest::Url::parse(CODEX_PROVIDER_URL)
+                .map_err(|_| "invalid Codex provider URL")?,
         })
     }
 
     fn testing(codex_endpoint: reqwest::Url, claude_endpoint: reqwest::Url) -> Self {
         Self {
+            codex_provider_endpoint: codex_endpoint.clone(),
             codex_endpoint,
             codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
             claude_endpoint,
@@ -2123,6 +2176,93 @@ impl ControlPlane {
     ) -> Result<ProviderView, &'static str> {
         self.configure_provider_as(id, input, "bootstrap-admin", None)
             .await
+    }
+
+    async fn import_codex_auth_as(
+        &self,
+        input: ProviderAuthImportInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderAuthImportView, &'static str> {
+        validate_actor(actor)?;
+        let tenant_id = enforced_tenant.unwrap_or("red");
+        validate_id(tenant_id)?;
+        let raw = match input.source {
+            ProviderAuthImportSource::Json { json } => json,
+            ProviderAuthImportSource::Text { text } => {
+                if text.len() > 256 * 1024 {
+                    return Err("Codex auth file is too large");
+                }
+                serde_json::from_str(&text).map_err(|_| "invalid Codex auth JSON")?
+            }
+        };
+        let parsed = parse_codex_auth(raw)?;
+        let provider_id =
+            codex_import_provider_id(tenant_id, &parsed.account_id, parsed.user_id.as_deref());
+        let existing = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == provider_id);
+        if existing.is_some() && !input.overwrite_existing {
+            return Err("Codex account already exists");
+        }
+        if existing
+            .as_ref()
+            .is_some_and(|provider| provider.provider != "codex")
+        {
+            return Err("Codex account identifier conflicts with another provider");
+        }
+        let created = existing.is_none();
+        let email = input.email.or(parsed.email);
+        let label = input
+            .name
+            .or_else(|| email.clone())
+            .unwrap_or_else(|| "Codex (imported)".to_owned());
+        let connection = self
+            .configure_provider_as(
+                &provider_id,
+                ProviderInput {
+                    tenant_id: Some(tenant_id.to_owned()),
+                    provider: "codex".to_owned(),
+                    upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
+                    api_key: parsed.access_token.to_string(),
+                    enabled: true,
+                    rate_limit_scope: "connection".to_owned(),
+                    auth_scheme: "bearer".to_owned(),
+                    label: Some(label),
+                    account_email: email,
+                    expires_at_unix: Some(parsed.expires_at_unix),
+                    credential_type: "oauth".to_owned(),
+                    oauth_provider: Some("codex".to_owned()),
+                    refresh_token: Some(parsed.refresh_token.to_string()),
+                },
+                actor,
+                enforced_tenant,
+            )
+            .await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.credentials.imported",
+                actor,
+                tenant_id,
+                target: &provider_id,
+                resource_type: "provider_credentials",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&serde_json::json!({
+                "provider": "codex",
+                "created": created,
+                "has_email": connection.account_email.is_some(),
+            })),
+        )
+        .await;
+        Ok(ProviderAuthImportView {
+            connection,
+            created,
+        })
     }
 
     async fn configure_provider_as(
@@ -6192,6 +6332,104 @@ fn validate_oauth_token(value: &str) -> Result<String, OAuthExchangeFailure> {
     Ok(value.to_owned())
 }
 
+fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static str> {
+    let document = raw.as_object().ok_or("invalid Codex auth file")?;
+    if document
+        .get("auth_mode")
+        .is_some_and(|value| !value.is_null() && value.as_str() != Some("chatgpt"))
+    {
+        return Err("invalid Codex auth mode");
+    }
+    let tokens = document
+        .get("tokens")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("Codex auth tokens are missing")?;
+    let id_token =
+        json_non_empty_string(tokens.get("id_token")).ok_or("Codex id token is missing")?;
+    let access_token =
+        json_non_empty_string(tokens.get("access_token")).ok_or("Codex access token is missing")?;
+    let refresh_token = json_non_empty_string(tokens.get("refresh_token"))
+        .ok_or("Codex refresh token is missing")?;
+    for token in [id_token, access_token, refresh_token] {
+        if token.len() > 8192 || token.chars().any(char::is_control) {
+            return Err("Codex auth token is invalid");
+        }
+    }
+    let id_claims =
+        decode_unverified_jwt_payload(id_token).ok_or("Codex id token payload is invalid")?;
+    let access_claims = decode_unverified_jwt_payload(access_token);
+    let auth_claims = id_claims
+        .get("https://api.openai.com/auth")
+        .and_then(serde_json::Value::as_object);
+    let account_id = json_non_empty_string(tokens.get("account_id"))
+        .or_else(|| {
+            auth_claims.and_then(|claims| json_non_empty_string(claims.get("chatgpt_account_id")))
+        })
+        .or_else(|| auth_claims.and_then(|claims| json_non_empty_string(claims.get("account_id"))))
+        .ok_or("Codex account identifier is missing")?;
+    if account_id.len() > 512 || account_id.chars().any(char::is_control) {
+        return Err("Codex account identifier is invalid");
+    }
+    let user_id = auth_claims
+        .and_then(|claims| json_non_empty_string(claims.get("chatgpt_user_id")))
+        .or_else(|| auth_claims.and_then(|claims| json_non_empty_string(claims.get("user_id"))))
+        .or_else(|| json_non_empty_string(id_claims.get("sub")))
+        .map(str::to_owned);
+    let email = json_non_empty_string(id_claims.get("email")).map(str::to_owned);
+    let expires_at_unix = access_claims
+        .as_ref()
+        .and_then(|claims| claims.get("exp"))
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| id_claims.get("exp").and_then(serde_json::Value::as_u64))
+        .ok_or("Codex token expiry is missing")?;
+    Ok(ParsedCodexAuth {
+        access_token: Zeroizing::new(access_token.to_owned()),
+        refresh_token: Zeroizing::new(refresh_token.to_owned()),
+        account_id: account_id.to_owned(),
+        user_id,
+        email,
+        expires_at_unix,
+    })
+}
+
+fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn decode_unverified_jwt_payload(
+    token: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut parts = token.split('.');
+    let _header = parts.next()?;
+    let payload = parts.next()?;
+    let _signature = parts.next()?;
+    if parts.next().is_some() || payload.len() > 16 * 1024 {
+        return None;
+    }
+    let decoded = URL_SAFE_NO_PAD.decode(payload.as_bytes()).ok()?;
+    if decoded.len() > 16 * 1024 {
+        return None;
+    }
+    serde_json::from_slice::<serde_json::Value>(&decoded)
+        .ok()?
+        .as_object()
+        .cloned()
+}
+
+fn codex_import_provider_id(tenant_id: &str, account_id: &str, user_id: Option<&str>) -> String {
+    let mut digest = Sha256::new();
+    digest.update(tenant_id.as_bytes());
+    digest.update([0]);
+    digest.update(account_id.as_bytes());
+    digest.update([0]);
+    digest.update(user_id.unwrap_or("").as_bytes());
+    let suffix = hex::encode(digest.finalize());
+    format!("codex-{}", &suffix[..24])
+}
+
 fn oauth_token_field(
     value: &serde_json::Value,
     field: &str,
@@ -6436,6 +6674,14 @@ fn api_error(status: StatusCode, message: &'static str) -> Response {
     (
         status,
         Json(serde_json::json!({"error":{"message":message,"type":"control_plane_error"}})),
+    )
+        .into_response()
+}
+
+fn api_error_code(status: StatusCode, message: &'static str, code: &'static str) -> Response {
+    (
+        status,
+        Json(serde_json::json!({"error":message,"code":code})),
     )
         .into_response()
 }
@@ -7259,6 +7505,112 @@ pub async fn put_provider(
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration"),
     }
+}
+
+pub async fn import_codex_auth(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderAuthImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .import_codex_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(imported) => {
+            let mut response = Json(imported).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("Codex account already exists") => api_error_code(
+            StatusCode::CONFLICT,
+            "A Codex connection for this account already exists",
+            "duplicate_account",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(_) => api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Invalid Codex auth file",
+            "invalid_auth_file",
+        ),
+    }
+}
+
+pub async fn import_codex_auth_bulk(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<CodexAuthBulkImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if input.entries.is_empty() || input.entries.len() > 50 {
+        return api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Codex bulk import requires 1-50 entries",
+            "invalid_request",
+        );
+    }
+    let total = input.entries.len();
+    let mut success = 0usize;
+    let mut errors = Vec::new();
+    for (index, entry) in input.entries.into_iter().enumerate() {
+        let display_name = entry
+            .name
+            .clone()
+            .or_else(|| entry.email.clone())
+            .unwrap_or_else(|| format!("entry {}", index + 1));
+        let imported = control
+            .import_codex_auth_as(
+                ProviderAuthImportInput {
+                    source: ProviderAuthImportSource::Json { json: entry.json },
+                    name: entry.name,
+                    email: entry.email,
+                    overwrite_existing: input.overwrite_existing,
+                },
+                &scope.actor,
+                scope.tenant_id.as_deref(),
+            )
+            .await;
+        match imported {
+            Ok(_) => success += 1,
+            Err(error) => errors.push(serde_json::json!({
+                "index": index,
+                "name": display_name,
+                "message": if error == "Codex account already exists" {
+                    "Account already exists"
+                } else if is_runtime_error(error) {
+                    "Provider storage or runtime unavailable"
+                } else {
+                    "Invalid Codex auth file"
+                },
+            })),
+        }
+    }
+    let mut response = Json(serde_json::json!({
+        "success": success,
+        "failed": total - success,
+        "total": total,
+        "errors": errors,
+    }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 pub async fn diagnose_provider(

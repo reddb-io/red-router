@@ -1,11 +1,12 @@
 use axum::{
     body::{Body, Bytes},
     extract::Path,
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use red_routerd::{
     control_plane::ControlPlane,
@@ -33,6 +34,14 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWTFfCGljY6aw3Hrt
 kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
 950IxEzvw/x5BMEINRMrXLBJhqzO9Bm+d6JbqA21YQmd1Kt4RzLJR1W+
 -----END PRIVATE KEY-----"#;
+
+fn unverified_jwt(payload: serde_json::Value) -> String {
+    format!(
+        "{}.{}.fixture-signature",
+        URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#),
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+    )
+}
 
 fn oidc_token(kid: &str, audience: &str, role: &str) -> String {
     oidc_token_for(kid, audience, role, "operator-123", "operator@example.com")
@@ -4832,6 +4841,164 @@ async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
     gateway_task.abort();
     red_task.abort();
     acme_task.abort();
+}
+
+#[tokio::test]
+async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("codex-import.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (token_endpoint, _, _, _, token_task) = claude_oauth_refresh_server().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    let id_token = unverified_jwt(serde_json::json!({
+        "email":"codex@example.com",
+        "sub":"user-one",
+        "exp":expiry,
+        "https://api.openai.com/auth":{
+            "chatgpt_account_id":"workspace-one",
+            "chatgpt_user_id":"user-one"
+        }
+    }));
+    let access_token = unverified_jwt(serde_json::json!({"exp":expiry}));
+    let auth_file = serde_json::json!({
+        "auth_mode":"chatgpt",
+        "tokens":{
+            "id_token":id_token.clone(),
+            "access_token":access_token.clone(),
+            "refresh_token":"codex-refresh-secret",
+            "account_id":"workspace-one"
+        }
+    });
+    let imported = client
+        .post(format!("{base}/api/providers/codex-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "source":{"kind":"json","json":auth_file.clone()},
+            "name":"Primary Codex"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), StatusCode::OK);
+    assert_eq!(
+        imported.headers()[header::CACHE_CONTROL],
+        HeaderValue::from_static("no-store")
+    );
+    let imported: serde_json::Value = imported.json().await.unwrap();
+    assert_eq!(imported["created"], true);
+    assert_eq!(imported["connection"]["provider"], "codex");
+    assert_eq!(imported["connection"]["label"], "Primary Codex");
+    assert_eq!(imported["connection"]["account_email"], "codex@example.com");
+    assert!(!imported.to_string().contains("codex-refresh-secret"));
+    assert!(!imported.to_string().contains(&access_token));
+    let provider_id = imported["connection"]["id"].as_str().unwrap().to_owned();
+
+    let duplicate = client
+        .post(format!("{base}/api/providers/codex-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"source":{"kind":"json","json":auth_file.clone()}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    let duplicate: serde_json::Value = duplicate.json().await.unwrap();
+    assert_eq!(duplicate["code"], "duplicate_account");
+
+    let overwritten = client
+        .post(format!("{base}/api/providers/codex-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "source":{"kind":"json","json":auth_file},
+            "overwriteExisting":true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(overwritten.status(), StatusCode::OK);
+    let overwritten: serde_json::Value = overwritten.json().await.unwrap();
+    assert_eq!(overwritten["created"], false);
+    assert_eq!(overwritten["connection"]["id"], provider_id);
+
+    let second_id_token = unverified_jwt(serde_json::json!({
+        "email":"second@example.com",
+        "sub":"user-two",
+        "exp":expiry,
+        "https://api.openai.com/auth":{
+            "chatgpt_account_id":"workspace-one",
+            "chatgpt_user_id":"user-two"
+        }
+    }));
+    let second_auth = serde_json::json!({
+        "tokens":{
+            "id_token":second_id_token,
+            "access_token":access_token.clone(),
+            "refresh_token":"second-refresh-secret"
+        }
+    });
+    let bulk = client
+        .post(format!("{base}/api/providers/codex-auth/import-bulk"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "entries":[
+                {"json":second_auth,"name":"Second Codex"},
+                {"json":{"tokens":{}},"name":"Broken"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bulk.status(), StatusCode::OK);
+    let bulk: serde_json::Value = bulk.json().await.unwrap();
+    assert_eq!(bulk["success"], 1);
+    assert_eq!(bulk["failed"], 1);
+    assert_eq!(bulk["errors"][0]["index"], 1);
+
+    let providers = database.providers().await.unwrap();
+    assert_eq!(providers.len(), 2);
+    assert!(providers
+        .iter()
+        .all(|provider| provider.provider == "codex"));
+    let oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(oauth.len(), 2);
+    assert!(oauth
+        .iter()
+        .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));
+    assert!(oauth
+        .iter()
+        .all(|record| !record.refresh_token_ciphertext.contains("refresh-secret")));
+
+    let audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider.credentials.imported&target={provider_id}"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(audit.status(), StatusCode::OK);
+    let audit: serde_json::Value = audit.json().await.unwrap();
+    assert_eq!(audit.as_array().unwrap().len(), 2);
+    assert!(!audit.to_string().contains("refresh-secret"));
+
+    gateway_task.abort();
+    token_task.abort();
 }
 
 #[tokio::test]
