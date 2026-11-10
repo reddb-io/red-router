@@ -477,7 +477,7 @@ async fn sqlite_usage_export_preserves_key_and_model_attribution() {
         service_account_ciphertext: String::new(),
         config_json: r#"{"url":"https://billing.example.com/usage"}"#.into(),
         secret_ciphertext: "rrenc1:ciphertext".into(),
-        batch_size: 100,
+        batch_size: 8,
         interval_seconds: 1,
         enabled: true,
         revision: 1_700_000_000_000_000_001,

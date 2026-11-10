@@ -3851,7 +3851,7 @@ impl ControlPlane {
                     serde_json::to_string(&serde_json::json!({"url": url}))
                         .map_err(|_| "cannot encode webhook configuration")?,
                     secret_ciphertext,
-                    100,
+                    8,
                     1,
                 )
             }
@@ -7761,7 +7761,7 @@ mod tests {
             service_account_ciphertext: String::new(),
             config_json: r#"{"url":"https://billing.example.com/usage"}"#.to_owned(),
             secret_ciphertext: "rrenc1:webhook-secret-ciphertext".to_owned(),
-            batch_size: 100,
+            batch_size: 8,
             interval_seconds: 1,
             enabled: true,
             revision: 1_700_000_000_000_000_000,

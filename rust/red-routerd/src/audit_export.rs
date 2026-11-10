@@ -1,6 +1,5 @@
 use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExport, StoredUsageExportEvent};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use futures_util::{StreamExt, TryStreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
@@ -514,12 +513,10 @@ impl UsageWebhookSink {
         events: &[StoredUsageExportEvent],
         test: bool,
     ) -> Result<(), &'static str> {
-        futures_util::stream::iter(events.iter())
-            .map(|event| self.send_one(event, test))
-            .buffer_unordered(16)
-            .try_collect::<Vec<_>>()
-            .await
-            .map(|_| ())
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
     }
 
     async fn send_one(
