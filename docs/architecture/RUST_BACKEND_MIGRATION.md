@@ -54,40 +54,6 @@ features must not be implemented only there.
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains                                                                                                             |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                                                                                                                                                      |
 
-## Definition of done and closure order
-
-The migration is finished when the production package can start `red-routerd`, serve the
-dashboard as a static SPA and complete every normal operator workflow without starting a
-Next.js server or writing durable state from TypeScript. A route count is not the exit
-criterion. The cutover is gated by the following operator journeys, in this order:
-
-| Gate                        | Required outcome                                                                                                                              | Current remaining work                                                                                                                                     | Complexity |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| 1. Provider lifecycle       | Create API-key providers, sign into Codex/Claude/Antigravity, import Antigravity CLI sessions, test, refresh, disable and delete from the SPA | Migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High       |
-| 2. Traffic lifecycle        | Issue a named client key, restrict it, select a provider/combo, proxy every advertised protocol, account usage and enforce limits             | Finish protocol/error/stream parity fixtures; migrate the remaining dashboard policy and versioned resilience settings                                     | High       |
-| 3. Identity and tenancy     | Password/bootstrap and configured OIDC can administer tenant-owned providers, combos and keys without cross-tenant access                     | Complete production SPA wiring and provider-specific OIDC diagnostics                                                                                      | Medium     |
-| 4. Existing installation    | Upgrade an existing RedRouter installation without losing providers, keys, combos, quotas, usage or audit history                             | Maintenance-mode legacy SQLite importer, dry-run verification report and rollback marker                                                                   | High       |
-| 5. Packaging and operations | One Rust process serves proxy, admin API and SPA; health/readiness, backup and restore are documented and exercised                           | Build/package the static dashboard artifact and add installation/upgrade smoke coverage                                                                    | Medium     |
-
-Only these five gates block switching the shipped server from Next.js to Rust. Local CLI
-file writes, desktop process management, MCP/A2A tools, tunnels, plugins, skills, memory,
-evals and other workstation integrations remain supported product capabilities, but they
-must run as explicit local companions or later Rust modules rather than keeping a hidden
-TypeScript persistence backend alive. They are tracked after the server cutover and may
-not receive direct access to the Rust storage database.
-
-The executable cutover ledger is `config/migration/rust-backend-cutover.json`. It records
-the reviewed disposition and exact count of every top-level Next API route family, the five
-operator gates above and the Rust routes that already support them. `npm run
-check:rust-cutover` is a required pull-request check: a new or removed Next route cannot
-silently change the inventory. `npm run check:rust-cutover-ready` is intentionally red
-until every gate is marked ready with no remaining blocker; release cutover must use that
-strict mode rather than inferring completion from route counts.
-
-The closure sequence is therefore provider lifecycle, traffic/policy parity, SPA
-packaging, legacy import, then upgrade/cutover validation. New compatibility work that
-does not close one of these gates must not displace this sequence.
-
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
 
 The functional upstream baseline was rechecked against `origin/main` on 2026-11-07.
