@@ -823,6 +823,50 @@ async fn claude_oauth_refresh_server() -> (
     )
 }
 
+async fn codex_quota_server() -> (
+    Url,
+    Arc<AtomicUsize>,
+    Arc<Mutex<Vec<(String, String, String, String)>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed_requests = requests.clone();
+    let headers_seen = Arc::new(Mutex::new(Vec::new()));
+    let observed_headers = headers_seen.clone();
+    let app = Router::new().route(
+        "/codex-usage",
+        get(move |headers: HeaderMap| {
+            let observed_requests = observed_requests.clone();
+            let observed_headers = observed_headers.clone();
+            async move {
+                observed_requests.fetch_add(1, Ordering::SeqCst);
+                observed_headers.lock().unwrap().push((
+                    headers[header::AUTHORIZATION].to_str().unwrap().to_owned(),
+                    headers["chatgpt-account-id"].to_str().unwrap().to_owned(),
+                    headers[header::USER_AGENT].to_str().unwrap().to_owned(),
+                    headers["originator"].to_str().unwrap().to_owned(),
+                ));
+                Json(serde_json::json!({
+                    "rate_limit":{
+                        "primary_window":{"used_percent":80,"reset_after_seconds":60},
+                        "secondary_window":{"used_percent":40,"reset_at":2_000_000_000},
+                        "limit_reached":false
+                    }
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        Url::parse(&format!("http://{address}/token")).unwrap(),
+        requests,
+        headers_seen,
+        task,
+    )
+}
+
 async fn provider_browser_oauth_server() -> (
     Url,
     Url,
@@ -5210,6 +5254,130 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
 
     gateway_task.abort();
     token_task.abort();
+}
+
+#[tokio::test]
+async fn rust_collects_codex_quota_with_cli_identity_and_durable_cooldown() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("codex-quota.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (quota_endpoint, quota_requests, headers_seen, quota_task) = codex_quota_server().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        quota_endpoint.clone(),
+        quota_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    let id_token = unverified_jwt(serde_json::json!({
+        "email":"quota@example.com",
+        "sub":"quota-user",
+        "exp":expiry,
+        "https://api.openai.com/auth":{
+            "chatgpt_account_id":"quota-workspace",
+            "chatgpt_user_id":"quota-user"
+        }
+    }));
+    let access_token = unverified_jwt(serde_json::json!({"exp":expiry}));
+    let imported = client
+        .post(format!("{base}/api/providers/codex-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "source":{"kind":"json","json":{
+                "auth_mode":"chatgpt",
+                "tokens":{
+                    "id_token":id_token,
+                    "access_token":access_token.clone(),
+                    "refresh_token":"quota-refresh-secret"
+                }
+            }}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), StatusCode::OK);
+    let imported: serde_json::Value = imported.json().await.unwrap();
+    let provider_id = imported["connection"]["id"].as_str().unwrap();
+
+    let unauthorized = client
+        .post(format!(
+            "{base}/api/admin/provider-quotas/{provider_id}/refresh"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let refreshed = client
+        .post(format!(
+            "{base}/api/admin/provider-quotas/{provider_id}/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value = refreshed.json().await.unwrap();
+    assert_eq!(refreshed["refresh"]["refreshed"], true);
+    assert_eq!(refreshed["refresh"]["category"], "refreshed");
+    assert_eq!(
+        refreshed["refresh"]["quota"]["session"]["remaining_percent"],
+        20.0
+    );
+    assert_eq!(
+        refreshed["refresh"]["quota"]["weekly"]["remaining_percent"],
+        60.0
+    );
+    assert!(!refreshed.to_string().contains("quota-refresh-secret"));
+    assert_eq!(quota_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        headers_seen.lock().unwrap().as_slice(),
+        [(
+            format!("Bearer {access_token}"),
+            "quota-workspace".to_owned(),
+            "codex_cli_rs/0.163.0".to_owned(),
+            "codex_cli_rs".to_owned()
+        )]
+    );
+
+    let cooling_down = client
+        .post(format!(
+            "{base}/api/admin/provider-quotas/{provider_id}/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cooling_down.status(), StatusCode::OK);
+    let cooling_down: serde_json::Value = cooling_down.json().await.unwrap();
+    assert_eq!(cooling_down["refresh"]["refreshed"], false);
+    assert_eq!(cooling_down["refresh"]["category"], "refresh_in_progress");
+    assert_eq!(quota_requests.load(Ordering::SeqCst), 1);
+
+    let listed = client
+        .get(format!("{base}/api/admin/provider-quotas"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed: serde_json::Value = listed.json().await.unwrap();
+    assert_eq!(listed["provider_quotas"][0]["provider_id"], provider_id);
+    assert_eq!(database.provider_quotas().await.unwrap().len(), 1);
+
+    gateway_task.abort();
+    quota_task.abort();
 }
 
 #[tokio::test]

@@ -298,6 +298,12 @@ legacy environment keys are confined to tenant `red`.
 - `PUT /api/admin/provider-quotas/{id}` publishes `session` and/or `weekly`
   `{remaining_percent, reset_at_unix_ms}` windows, optional `limit_reached`, and a
   bounded `ttl_seconds`. `DELETE` clears the observation immediately.
+- `POST /api/admin/provider-quotas/{id}/refresh` performs a leased, bounded upstream
+  usage refresh for Rust-owned Codex and Claude OAuth sessions. The background poller
+  runs the same path every minute, spaces account requests, preserves the last valid
+  snapshot on upstream failure and expires stale observations after three minutes.
+  Codex retains the verified ChatGPT workspace binding and both providers use their
+  CLI identity headers. Quota revisions propagate to other SQLite proxy replicas.
 - `GET /api/admin/oidc` returns the redacted Rust-owned management authentication
   policy. `PUT` validates, fetches and verifies its JWKS before durably replacing
   the live policy; `DELETE` removes it. The payload contains `enabled`, `issuer`,
@@ -339,9 +345,10 @@ storage and are never returned. Supported client policy fields are `enabled`,
 `allowed_provider_ids`, `max_concurrent_requests`, `max_requests_per_minute` and
 `max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
-unknown or disabled aliases do not fall through to the active provider. Target
-routing metadata and provider quota observations are durable; automatic provider quota polling
-and the remaining dashboard settings still need migration.
+unknown or disabled aliases do not fall through to the active provider. Target routing metadata
+and provider quota observations are durable. Codex and Claude OAuth quota polling is automatic;
+provider-specific collectors for the remaining account types and the remaining dashboard
+settings still need migration.
 
 The Rust provider dashboard can start browser OAuth for Codex, Claude Code and Antigravity, or
 import one to fifty existing JSON sessions (including bounded ZIP extraction). These browser

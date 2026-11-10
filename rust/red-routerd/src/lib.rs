@@ -16,6 +16,7 @@ mod policy;
 pub mod product;
 pub mod product_combo;
 pub mod product_provider;
+mod provider_quota;
 pub mod reconcile;
 mod resilience;
 pub mod shared_usage;
@@ -1993,6 +1994,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/provider-quotas/{id}",
             put(control_plane::put_provider_quota).delete(control_plane::delete_provider_quota),
+        )
+        .route(
+            "/api/admin/provider-quotas/{id}/refresh",
+            post(control_plane::refresh_provider_quota),
         )
         .route("/api/v1/models", get(models))
         .route("/v1/models", get(models))

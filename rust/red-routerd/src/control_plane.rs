@@ -53,6 +53,11 @@ const OAUTH_REFRESH_LEAD_SECONDS: i64 = 300;
 const OAUTH_REFRESH_LEASE_MS: i64 = 45_000;
 const OAUTH_REFRESH_SETTLE_MS: i64 = 2_000;
 const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
+const PROVIDER_QUOTA_POLL_INTERVAL: Duration = Duration::from_secs(60);
+const PROVIDER_QUOTA_POLL_GAP: Duration = Duration::from_millis(500);
+const PROVIDER_QUOTA_LEASE_MS: i64 = 15_000;
+const PROVIDER_QUOTA_TTL_SECONDS: u64 = 180;
+const PROVIDER_QUOTA_MAX_BODY_BYTES: usize = 512 * 1024;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -67,6 +72,8 @@ const AGY_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo";
 const AGY_LOAD_CODE_ASSIST_URL: &str =
     "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/bootstrap";
+const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const PROVIDER_OAUTH_FLOW_SECONDS: u64 = 10 * 60;
@@ -75,6 +82,9 @@ const THOUGHT_SIGNATURE_MEMORY_TTL_MS: i64 = 60 * 60 * 1_000;
 const THOUGHT_SIGNATURE_PERSISTED_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
 const MAX_THOUGHT_SIGNATURES_IN_MEMORY: usize = 1_000;
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
+const CLAUDE_USAGE_USER_AGENT: &str = "claude-code/2.1.301";
+const CODEX_USAGE_USER_AGENT: &str = "codex_cli_rs/0.163.0";
+const CODEX_USAGE_VERSION: &str = "0.163.0";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTH_ZIP_BODY_LIMIT_BYTES: usize = 11 * 1024 * 1024;
@@ -89,6 +99,7 @@ UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
+UNION ALL SELECT 'provider-quota', provider_id, revision, 0 FROM redrouter_provider_quotas
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
 UNION ALL SELECT 'combo-ownership', combo_id, revision, 0 FROM redrouter_control_combo_ownership
 UNION ALL SELECT 'route-pin', combo_id, revision, 0 FROM redrouter_route_pins
@@ -136,6 +147,8 @@ struct OAuthRefreshConfig {
     codex_provider_endpoint: reqwest::Url,
     claude_provider_endpoint: reqwest::Url,
     claude_bootstrap_endpoint: reqwest::Url,
+    codex_quota_endpoint: reqwest::Url,
+    claude_quota_endpoint: reqwest::Url,
     agy_provider_endpoint: reqwest::Url,
     agy_userinfo_endpoint: reqwest::Url,
     agy_load_code_assist_endpoint: reqwest::Url,
@@ -143,6 +156,7 @@ struct OAuthRefreshConfig {
 
 struct OAuthRefreshRuntime {
     cadence: Duration,
+    quota_cadence: Duration,
     snapshot_cadence: Duration,
     config: OAuthRefreshConfig,
 }
@@ -1046,6 +1060,15 @@ pub struct ProviderQuotaView {
     pub revision: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ProviderQuotaRefreshView {
+    pub provider_id: String,
+    pub refreshed: bool,
+    pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota: Option<ProviderQuotaView>,
+}
+
 fn enabled_by_default() -> bool {
     true
 }
@@ -1148,6 +1171,10 @@ impl OAuthRefreshConfig {
                 .map_err(|_| "invalid Claude provider URL")?,
             claude_bootstrap_endpoint: reqwest::Url::parse(CLAUDE_BOOTSTRAP_URL)
                 .map_err(|_| "invalid Claude bootstrap URL")?,
+            codex_quota_endpoint: reqwest::Url::parse(CODEX_USAGE_URL)
+                .map_err(|_| "invalid Codex usage URL")?,
+            claude_quota_endpoint: reqwest::Url::parse(CLAUDE_USAGE_URL)
+                .map_err(|_| "invalid Claude usage URL")?,
             agy_provider_endpoint: reqwest::Url::parse(AGY_PROVIDER_URL)
                 .map_err(|_| "invalid Antigravity provider URL")?,
             agy_userinfo_endpoint: reqwest::Url::parse(AGY_USERINFO_URL)
@@ -1170,6 +1197,14 @@ impl OAuthRefreshConfig {
         claude_bootstrap_endpoint.set_path("/bootstrap");
         claude_bootstrap_endpoint.set_query(None);
         claude_bootstrap_endpoint.set_fragment(None);
+        let mut codex_quota_endpoint = codex_endpoint.clone();
+        codex_quota_endpoint.set_path("/codex-usage");
+        codex_quota_endpoint.set_query(None);
+        codex_quota_endpoint.set_fragment(None);
+        let mut claude_quota_endpoint = claude_endpoint.clone();
+        claude_quota_endpoint.set_path("/claude-usage");
+        claude_quota_endpoint.set_query(None);
+        claude_quota_endpoint.set_fragment(None);
         let mut agy_provider_endpoint = codex_endpoint.clone();
         agy_provider_endpoint.set_path("/v1internal:streamGenerateContent");
         agy_provider_endpoint.set_query(None);
@@ -1188,6 +1223,8 @@ impl OAuthRefreshConfig {
             codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
             claude_provider_endpoint,
             claude_bootstrap_endpoint,
+            codex_quota_endpoint,
+            claude_quota_endpoint,
             claude_endpoint,
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
             agy_endpoint: codex_endpoint,
@@ -1285,6 +1322,7 @@ impl ControlPlane {
             catalog_poll_interval,
             OAuthRefreshRuntime {
                 cadence: OAUTH_REFRESH_INTERVAL,
+                quota_cadence: PROVIDER_QUOTA_POLL_INTERVAL,
                 snapshot_cadence: CONTROL_SNAPSHOT_SYNC_INTERVAL,
                 config: OAuthRefreshConfig::production()?,
             },
@@ -1323,6 +1361,7 @@ impl ControlPlane {
             MODEL_CATALOG_SYNC_INTERVAL,
             OAuthRefreshRuntime {
                 cadence: Duration::from_secs(3_600),
+                quota_cadence: Duration::from_secs(3_600),
                 snapshot_cadence: Duration::from_millis(100),
                 config: OAuthRefreshConfig::testing(codex_endpoint, claude_endpoint),
             },
@@ -1353,6 +1392,11 @@ impl ControlPlane {
         if !(Duration::from_secs(1)..=Duration::from_secs(3_600)).contains(&oauth_refresh.cadence) {
             return Err("invalid OAuth refresh interval");
         }
+        if !(Duration::from_secs(10)..=Duration::from_secs(3_600))
+            .contains(&oauth_refresh.quota_cadence)
+        {
+            return Err("invalid provider quota refresh interval");
+        }
         if !(Duration::from_millis(10)..=Duration::from_secs(3_600))
             .contains(&oauth_refresh.snapshot_cadence)
         {
@@ -1360,6 +1404,7 @@ impl ControlPlane {
         }
         let OAuthRefreshRuntime {
             cadence: oauth_refresh_cadence,
+            quota_cadence,
             snapshot_cadence,
             config: oauth_refresh_config,
         } = oauth_refresh;
@@ -1518,6 +1563,7 @@ impl ControlPlane {
         plane.spawn_control_snapshot_sync(snapshot_cadence);
         if sqlite {
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
+            plane.spawn_provider_quota_sync(quota_cadence);
         }
         Ok(plane)
     }
@@ -1615,6 +1661,10 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return;
         }
+        if self.refresh_quotas().await.is_err() {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return;
+        }
         if self.refresh_routes().await.is_err() {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return;
@@ -1706,6 +1756,245 @@ impl ControlPlane {
                 }
             }
         });
+    }
+
+    fn spawn_provider_quota_sync(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let plane = ControlPlane(inner);
+                let Ok(providers) = plane.0.database.providers().await else {
+                    continue;
+                };
+                let Ok(oauth) = plane.oauth_settings().await else {
+                    continue;
+                };
+                let mut attempted = false;
+                for provider in providers {
+                    let Some(settings) = oauth.get(&(provider.id.clone(), provider.updated_at))
+                    else {
+                        continue;
+                    };
+                    if !provider.enabled
+                        || !matches!(settings.oauth_provider.as_str(), "codex" | "claude")
+                    {
+                        continue;
+                    }
+                    if attempted {
+                        tokio::time::sleep(PROVIDER_QUOTA_POLL_GAP).await;
+                    }
+                    attempted = true;
+                    let _ = plane
+                        .refresh_provider_quota_as(&provider.id, None, None)
+                        .await;
+                }
+            }
+        });
+    }
+
+    async fn refresh_provider_quota_as(
+        &self,
+        id: &str,
+        actor: Option<&str>,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderQuotaRefreshView, &'static str> {
+        validate_id(id)?;
+        if let Some(actor) = actor {
+            validate_actor(actor)?;
+        }
+        let (provider, auth, oauth) = self.provider_oauth_records(id, enforced_tenant).await?;
+        if !matches!(oauth.oauth_provider.as_str(), "codex" | "claude") {
+            return Ok(quota_refresh_view(id, false, "unsupported_provider", None));
+        }
+        let now_seconds =
+            i64::try_from(unix_time_seconds()?).map_err(|_| "system clock is invalid")?;
+        if auth.expires_at_unix <= now_seconds {
+            return Ok(quota_refresh_view(id, false, "credential_expired", None));
+        }
+        let owner = random_token(18)?;
+        let now_ms = unix_time_ms()?;
+        let lease_until = now_ms
+            .checked_add(PROVIDER_QUOTA_LEASE_MS)
+            .ok_or("system clock is invalid")?;
+        let lease_group = format!("quota:{id}");
+        if !self
+            .0
+            .database
+            .acquire_oauth_refresh_lease(&lease_group, &owner, now_ms, lease_until)
+            .await?
+        {
+            return Ok(quota_refresh_view(id, false, "refresh_in_progress", None));
+        }
+        let fetched = self.fetch_provider_quota(&provider, &oauth).await;
+        let next_allowed = now_ms
+            .checked_add(i64::try_from(PROVIDER_QUOTA_POLL_INTERVAL.as_millis()).unwrap_or(60_000))
+            .ok_or("system clock is invalid")?;
+        self.0
+            .database
+            .release_oauth_refresh_lease(&lease_group, &owner, next_allowed)
+            .await?;
+        let snapshot = match fetched {
+            Ok(snapshot) => snapshot,
+            Err(category) => return Ok(quota_refresh_view(id, false, category, None)),
+        };
+        let _mutation = self.0.mutation.lock().await;
+        let current = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|candidate| candidate.id == id)
+            .ok_or("provider does not exist")?;
+        if current.updated_at != provider.updated_at || !current.enabled {
+            return Ok(quota_refresh_view(id, false, "superseded", None));
+        }
+        let observed_at_unix_ms = unix_time_ms()?;
+        let ttl_ms = i64::try_from(PROVIDER_QUOTA_TTL_SECONDS * 1_000)
+            .map_err(|_| "provider quota TTL is out of range")?;
+        let record = automatic_quota_record(id, snapshot, observed_at_unix_ms, ttl_ms)?;
+        let before = self
+            .0
+            .database
+            .provider_quotas()
+            .await?
+            .into_iter()
+            .find(|quota| quota.provider_id == id)
+            .map(|quota| quota_view(&quota))
+            .transpose()?;
+        self.0.database.upsert_provider_quota(&record).await?;
+        self.quota_state(id).await.update(&record);
+        let quota = quota_view(&record)?;
+        if let Some(actor) = actor {
+            self.record_audit_event(
+                AuditContext {
+                    action: "provider_quota.refresh",
+                    actor,
+                    tenant_id: &provider.tenant_id,
+                    target: id,
+                    resource_type: "provider_quota",
+                },
+                before.as_ref(),
+                Some(&quota),
+            )
+            .await;
+        }
+        Ok(quota_refresh_view(id, true, "refreshed", Some(quota)))
+    }
+
+    async fn fetch_provider_quota(
+        &self,
+        provider: &StoredProvider,
+        oauth: &StoredProviderOAuth,
+    ) -> Result<crate::provider_quota::Snapshot, &'static str> {
+        let access_token = decrypt(
+            &provider.credential_ciphertext,
+            &provider.id,
+            self.0.encryption_key.as_str(),
+        )?;
+        let request = match oauth.oauth_provider.as_str() {
+            "codex" => {
+                let account_id = self.codex_quota_account_id(provider).await?;
+                self.0
+                    .oauth_refresh_client
+                    .get(self.0.oauth_refresh.codex_quota_endpoint.clone())
+                    .bearer_auth(access_token.as_str())
+                    .header(header::ACCEPT, "application/json")
+                    .header(header::USER_AGENT, CODEX_USAGE_USER_AGENT)
+                    .header("originator", "codex_cli_rs")
+                    .header("version", CODEX_USAGE_VERSION)
+                    .header("chatgpt-account-id", account_id)
+            }
+            "claude" => self
+                .0
+                .oauth_refresh_client
+                .get(self.0.oauth_refresh.claude_quota_endpoint.clone())
+                .bearer_auth(access_token.as_str())
+                .header(header::ACCEPT, "application/json, text/plain, */*")
+                .header(header::USER_AGENT, CLAUDE_USAGE_USER_AGENT)
+                .header("anthropic-beta", "oauth-2025-04-20"),
+            _ => return Err("unsupported_provider"),
+        };
+        let response = request.send().await.map_err(|error| {
+            if error.is_timeout() {
+                "timeout"
+            } else {
+                "unavailable"
+            }
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(if status == StatusCode::TOO_MANY_REQUESTS {
+                "rate_limited"
+            } else if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+                "authorization_failed"
+            } else if status.is_server_error() {
+                "upstream_error"
+            } else {
+                "request_rejected"
+            });
+        }
+        let body = read_bounded_response(response, PROVIDER_QUOTA_MAX_BODY_BYTES)
+            .await
+            .map_err(|_| "invalid_response")?;
+        let value: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|_| "invalid_response")?;
+        match oauth.oauth_provider.as_str() {
+            "codex" => crate::provider_quota::parse_codex(
+                &value,
+                u64::try_from(unix_time_ms()?).map_err(|_| "invalid_response")?,
+            )
+            .map_err(|_| "invalid_response"),
+            "claude" => crate::provider_quota::parse_claude(&value).map_err(|_| "invalid_response"),
+            _ => Err("unsupported_provider"),
+        }
+    }
+
+    async fn codex_quota_account_id(
+        &self,
+        provider: &StoredProvider,
+    ) -> Result<String, &'static str> {
+        let session = self
+            .0
+            .database
+            .provider_sessions()
+            .await?
+            .into_iter()
+            .find(|session| {
+                session.provider_id == provider.id
+                    && session.revision == provider.updated_at
+                    && session.provider == "codex"
+            })
+            .ok_or("session_unavailable")?;
+        let aad = format!("{}:oauth-session", provider.id);
+        let metadata = decrypt(
+            &session.session_ciphertext,
+            &aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        let metadata: serde_json::Value =
+            serde_json::from_str(metadata.as_str()).map_err(|_| "session_unavailable")?;
+        let id_token =
+            json_non_empty_string(metadata.get("id_token")).ok_or("session_unavailable")?;
+        let claims = decode_unverified_jwt_payload(id_token).ok_or("session_unavailable")?;
+        let auth = claims
+            .get("https://api.openai.com/auth")
+            .and_then(serde_json::Value::as_object);
+        let account_id = auth
+            .and_then(|auth| json_non_empty_string(auth.get("chatgpt_account_id")))
+            .or_else(|| auth.and_then(|auth| json_non_empty_string(auth.get("account_id"))))
+            .ok_or("session_unavailable")?;
+        if account_id.len() > 512 || account_id.chars().any(char::is_control) {
+            return Err("session_unavailable");
+        }
+        Ok(account_id.to_owned())
     }
 
     async fn refresh_provider_oauth_as(
@@ -5605,7 +5894,7 @@ impl ControlPlane {
 
     async fn provider_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
         let mut digest = Sha256::new();
-        signature_text(&mut digest, "redrouter-provider-runtime-v2");
+        signature_text(&mut digest, "redrouter-provider-runtime-v3");
         for record in self.0.database.providers().await? {
             signature_text(&mut digest, &record.id);
             signature_text(&mut digest, &record.tenant_id);
@@ -5639,6 +5928,17 @@ impl ControlPlane {
         for record in self.0.database.provider_resilience().await? {
             signature_text(&mut digest, &record.provider_id);
             signature_text(&mut digest, &record.rate_limit_scope);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.provider_quotas().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_i64(&mut digest, record.session_remaining_ppm);
+            signature_i64(&mut digest, record.session_reset_unix_ms);
+            signature_i64(&mut digest, record.weekly_remaining_ppm);
+            signature_i64(&mut digest, record.weekly_reset_unix_ms);
+            signature_bool(&mut digest, record.limit_reached);
+            signature_i64(&mut digest, record.observed_at_unix_ms);
+            signature_i64(&mut digest, record.expires_at_unix_ms);
             signature_i64(&mut digest, record.revision);
         }
         for record in self.0.database.combos().await? {
@@ -5944,6 +6244,27 @@ impl ControlPlane {
             }
         }
         *self.0.routes.write().await = RouteSnapshot::Current(Arc::new(routes));
+        Ok(())
+    }
+
+    async fn refresh_quotas(&self) -> Result<(), &'static str> {
+        let records = self.0.database.provider_quotas().await?;
+        for record in &records {
+            validate_stored_quota(record)?;
+        }
+        let active: HashSet<_> = records
+            .iter()
+            .map(|record| record.provider_id.clone())
+            .collect();
+        let existing = self.0.quotas.read().await.clone();
+        for (provider_id, state) in existing {
+            if !active.contains(provider_id.as_str()) {
+                state.clear();
+            }
+        }
+        for record in records {
+            self.quota_state(&record.provider_id).await.update(&record);
+        }
         Ok(())
     }
 
@@ -7265,6 +7586,56 @@ fn quota_view(record: &StoredProviderQuota) -> Result<ProviderQuotaView, &'stati
         expires_at_unix_ms: record.expires_at_unix_ms as u64,
         revision: record.revision.to_string(),
     })
+}
+
+fn quota_refresh_view(
+    provider_id: &str,
+    refreshed: bool,
+    category: &str,
+    quota: Option<ProviderQuotaView>,
+) -> ProviderQuotaRefreshView {
+    ProviderQuotaRefreshView {
+        provider_id: provider_id.to_owned(),
+        refreshed,
+        category: category.to_owned(),
+        quota,
+    }
+}
+
+fn automatic_quota_record(
+    provider_id: &str,
+    snapshot: crate::provider_quota::Snapshot,
+    observed_at_unix_ms: i64,
+    ttl_ms: i64,
+) -> Result<StoredProviderQuota, &'static str> {
+    let ppm = |window: Option<crate::provider_quota::Window>| {
+        window.map_or(-1, |window| {
+            (window.remaining_percent * 10_000.0).round() as i64
+        })
+    };
+    let reset = |window: Option<crate::provider_quota::Window>| {
+        window
+            .and_then(|window| window.reset_at_unix_ms)
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "provider quota reset is out of range")
+            .map(|value| value.unwrap_or(0))
+    };
+    let record = StoredProviderQuota {
+        provider_id: provider_id.to_owned(),
+        session_remaining_ppm: ppm(snapshot.session),
+        session_reset_unix_ms: reset(snapshot.session)?,
+        weekly_remaining_ppm: ppm(snapshot.weekly),
+        weekly_reset_unix_ms: reset(snapshot.weekly)?,
+        limit_reached: snapshot.limit_reached,
+        observed_at_unix_ms,
+        expires_at_unix_ms: observed_at_unix_ms
+            .checked_add(ttl_ms)
+            .ok_or("provider quota TTL is out of range")?,
+        revision: revision()?,
+    };
+    validate_stored_quota(&record)?;
+    Ok(record)
 }
 
 fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str> {
@@ -10018,6 +10389,33 @@ pub async fn put_provider_quota(
             "Provider quota storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider quota"),
+    }
+}
+
+pub async fn refresh_provider_quota(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .refresh_provider_quota_as(&id, Some(&scope.actor), scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(refresh) => Json(serde_json::json!({"refresh":refresh})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider quota refresh unavailable",
+        ),
+        Err("provider does not exist" | "provider OAuth configuration not found") => {
+            api_error(StatusCode::NOT_FOUND, "Provider quota source not found")
+        }
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider quota refresh"),
     }
 }
 
