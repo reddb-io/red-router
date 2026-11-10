@@ -27,6 +27,11 @@ const LIST_PROVIDER_OAUTH: &str = "SELECT provider_id, oauth_provider, refresh_t
 const UPSERT_PROVIDER_OAUTH: &str = "INSERT INTO redrouter_control_provider_oauth (provider_id, oauth_provider, refresh_token_ciphertext, generation, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id) DO UPDATE SET oauth_provider = $2, refresh_token_ciphertext = $3, generation = $4, revision = $5";
 const DELETE_PROVIDER_OAUTH: &str =
     "DELETE FROM redrouter_control_provider_oauth WHERE provider_id = $1";
+const CREATE_PROVIDER_SESSIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_sessions (provider_id TEXT PRIMARY KEY, provider TEXT NOT NULL, session_ciphertext TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_SESSIONS: &str = "SELECT provider_id, provider, session_ciphertext, revision FROM redrouter_control_provider_sessions ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_SESSION: &str = "INSERT INTO redrouter_control_provider_sessions (provider_id, provider, session_ciphertext, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (provider_id) DO UPDATE SET provider = $2, session_ciphertext = $3, revision = $4";
+const DELETE_PROVIDER_SESSION: &str =
+    "DELETE FROM redrouter_control_provider_sessions WHERE provider_id = $1";
 const CREATE_PROVIDER_OAUTH_STATUS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_oauth_status (provider_id TEXT PRIMARY KEY, revision BIGINT NOT NULL, generation BIGINT NOT NULL, refresh_state TEXT NOT NULL, error_code TEXT NOT NULL, observed_at_unix BIGINT NOT NULL)";
 const LIST_PROVIDER_OAUTH_STATUS: &str = "SELECT provider_id, revision, generation, refresh_state, error_code, observed_at_unix FROM redrouter_control_provider_oauth_status ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_OAUTH_STATUS: &str = "INSERT INTO redrouter_control_provider_oauth_status (provider_id, revision, generation, refresh_state, error_code, observed_at_unix) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET revision = $2, generation = $3, refresh_state = $4, error_code = $5, observed_at_unix = $6";
@@ -163,6 +168,14 @@ pub struct StoredProviderOAuth {
     pub oauth_provider: String,
     pub refresh_token_ciphertext: String,
     pub generation: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderSession {
+    pub provider_id: String,
+    pub provider: String,
+    pub session_ciphertext: String,
     pub revision: i64,
 }
 
@@ -508,6 +521,7 @@ impl Database {
                         CREATE_PROVIDER_OWNERSHIP,
                         CREATE_PROVIDER_AUTH,
                         CREATE_PROVIDER_OAUTH,
+                        CREATE_PROVIDER_SESSIONS,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
@@ -620,6 +634,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_PROVIDER_AUTH).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH).await?;
+                db.remote_schema_query(CREATE_PROVIDER_SESSIONS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
                 db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
@@ -677,6 +692,7 @@ impl Database {
                     CREATE_PROVIDER_OWNERSHIP,
                     CREATE_PROVIDER_AUTH,
                     CREATE_PROVIDER_OAUTH,
+                    CREATE_PROVIDER_SESSIONS,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,
@@ -1107,6 +1123,87 @@ impl Database {
                 db.query_with(DELETE_PROVIDER_OAUTH, params())
                     .await
                     .map_err(|_| "cannot delete provider OAuth configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_sessions(&self) -> Result<Vec<StoredProviderSession>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_SESSIONS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider session configuration")?
+                .iter()
+                .map(read_sql_provider_session)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_SESSIONS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_session)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_SESSIONS)
+                .await
+                .map_err(|_| "cannot read provider session configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_session)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_session(
+        &self,
+        session: &StoredProviderSession,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_SESSION)
+                    .bind(&session.provider_id)
+                    .bind(&session.provider)
+                    .bind(&session.session_ciphertext)
+                    .bind(session.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider session configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_PROVIDER_SESSION, &provider_session_params(session))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_PROVIDER_SESSION, provider_session_params(session))
+                    .await
+                    .map_err(|_| "cannot write provider session configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_session(&self, provider_id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_SESSION)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider session configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER_SESSION, &params())
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER_SESSION, params())
+                    .await
+                    .map_err(|_| "cannot delete provider session configuration")?;
             }
         }
         Ok(())
@@ -3570,6 +3667,59 @@ fn provider_oauth_params(oauth: &StoredProviderOAuth) -> Vec<reddb_client::Value
         reddb_client::Value::Text(oauth.refresh_token_ciphertext.clone()),
         reddb_client::Value::Int(oauth.generation),
         reddb_client::Value::Int(oauth.revision),
+    ]
+}
+
+fn read_sql_provider_session(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredProviderSession, &'static str> {
+    Ok(StoredProviderSession {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider session record")?,
+        provider: row
+            .try_get("provider")
+            .map_err(|_| "invalid provider session record")?,
+        session_ciphertext: row
+            .try_get("session_ciphertext")
+            .map_err(|_| "invalid provider session record")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider session record")?,
+    })
+}
+
+fn read_reddb_provider_session(
+    row: &reddb_client::Row,
+) -> Result<StoredProviderSession, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider session record"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider session record"),
+    }?;
+    Ok(StoredProviderSession {
+        provider_id: text("provider_id")?,
+        provider: text("provider")?,
+        session_ciphertext: text("session_ciphertext")?,
+        revision,
+    })
+}
+
+fn provider_session_params(session: &StoredProviderSession) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(session.provider_id.clone()),
+        reddb_client::Value::Text(session.provider.clone()),
+        reddb_client::Value::Text(session.session_ciphertext.clone()),
+        reddb_client::Value::Int(session.revision),
     ]
 }
 

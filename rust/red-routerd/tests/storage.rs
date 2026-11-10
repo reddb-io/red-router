@@ -2,7 +2,7 @@ use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
     StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
     StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-    StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+    StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -128,6 +128,19 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(db.active_provider().await.unwrap(), Some(second.clone()));
     db.disable_provider("second", 4).await.unwrap();
     assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
+    let provider_session = StoredProviderSession {
+        provider_id: "first".into(),
+        provider: "codex".into(),
+        session_ciphertext: "rr:v1:encrypted-session".into(),
+        revision: 1,
+    };
+    db.upsert_provider_session(&provider_session).await.unwrap();
+    assert_eq!(
+        db.provider_sessions().await.unwrap(),
+        vec![provider_session]
+    );
+    db.delete_provider_session("first").await.unwrap();
+    assert!(db.provider_sessions().await.unwrap().is_empty());
     let client_key = StoredClientKey {
         id: "agent-fleet".into(),
         label: "Agent fleet".into(),

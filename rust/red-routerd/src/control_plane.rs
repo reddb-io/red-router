@@ -8,7 +8,7 @@ use crate::{
         StoredAuditEvent, StoredClientKey, StoredCombo, StoredIdentityBinding,
         StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
         StoredProviderAuth, StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota,
-        StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+        StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -421,9 +421,15 @@ struct ProviderAuthImportView {
     created: bool,
 }
 
+struct ProviderAuthExport {
+    file_name: String,
+    content: String,
+}
+
 struct ParsedCodexAuth {
     access_token: Zeroizing<String>,
     refresh_token: Zeroizing<String>,
+    session_metadata: Zeroizing<String>,
     account_id: String,
     user_id: Option<String>,
     email: Option<String>,
@@ -433,6 +439,7 @@ struct ParsedCodexAuth {
 struct ParsedClaudeAuth {
     access_token: Zeroizing<String>,
     refresh_token: Zeroizing<String>,
+    session_metadata: Zeroizing<String>,
     expires_at_unix: u64,
 }
 
@@ -2290,6 +2297,7 @@ impl ControlPlane {
             && self.0.database.provider_resilience().await.is_ok()
             && self.0.database.provider_auth().await.is_ok()
             && self.0.database.provider_oauth().await.is_ok()
+            && self.0.database.provider_sessions().await.is_ok()
             && self.0.database.provider_oauth_status().await.is_ok()
             && self
                 .0
@@ -2305,7 +2313,7 @@ impl ControlPlane {
         id: &str,
         input: ProviderInput,
     ) -> Result<ProviderView, &'static str> {
-        self.configure_provider_as(id, input, "bootstrap-admin", None)
+        self.configure_provider_as(id, input, None, "bootstrap-admin", None)
             .await
     }
 
@@ -2595,6 +2603,11 @@ impl ControlPlane {
                 .await
             }
             "claude" => {
+                let scopes = token_data
+                    .get("scope")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|value| value.split_whitespace().collect::<Vec<_>>())
+                    .unwrap_or_default();
                 self.import_claude_auth_as(
                     ProviderAuthImportInput {
                         source: ProviderAuthImportSource::Json {
@@ -2602,7 +2615,10 @@ impl ControlPlane {
                                 "claudeAiOauth":{
                                     "accessToken":access_token,
                                     "refreshToken":refresh_token,
-                                    "expiresAt":expires_at.saturating_mul(1_000)
+                                    "expiresAt":expires_at.saturating_mul(1_000),
+                                    "scopes":scopes,
+                                    "subscriptionType":token_data.get("subscription_type"),
+                                    "rateLimitTier":token_data.get("rate_limit_tier")
                                 }
                             }),
                         },
@@ -2680,6 +2696,7 @@ impl ControlPlane {
                     oauth_provider: Some("codex".to_owned()),
                     refresh_token: Some(parsed.refresh_token.to_string()),
                 },
+                Some(parsed.session_metadata),
                 actor,
                 enforced_tenant,
             )
@@ -2785,6 +2802,7 @@ impl ControlPlane {
                     oauth_provider: Some("claude".to_owned()),
                     refresh_token: Some(parsed.refresh_token.to_string()),
                 },
+                Some(parsed.session_metadata),
                 actor,
                 enforced_tenant,
             )
@@ -2810,6 +2828,146 @@ impl ControlPlane {
             connection,
             created,
         })
+    }
+
+    async fn export_provider_auth_as(
+        &self,
+        id: &str,
+        expected_provider: &str,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderAuthExport, &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        if !matches!(expected_provider, "codex" | "claude") {
+            return Err("unsupported provider session export");
+        }
+        let (_, auth, _) = self.provider_oauth_records(id, enforced_tenant).await?;
+        let now = i64::try_from(unix_time_seconds()?).map_err(|_| "system clock is invalid")?;
+        if auth.expires_at_unix <= now.saturating_add(OAUTH_REFRESH_LEAD_SECONDS) {
+            let refreshed = self
+                .refresh_provider_oauth_as(id, Some(actor), enforced_tenant)
+                .await?;
+            if !refreshed.ok {
+                return Err(if refreshed.category == "reauth_required" {
+                    "provider session requires reauthentication"
+                } else {
+                    "provider session refresh is unavailable"
+                });
+            }
+        }
+        let (provider, auth, oauth) = self.provider_oauth_records(id, enforced_tenant).await?;
+        if provider.provider != expected_provider || oauth.oauth_provider != expected_provider {
+            return Err("provider session type does not match export");
+        }
+        let session = self
+            .0
+            .database
+            .provider_sessions()
+            .await?
+            .into_iter()
+            .find(|session| session.provider_id == id)
+            .ok_or("provider session export requires reauthentication")?;
+        if session.revision != provider.updated_at || session.provider != expected_provider {
+            return Err("provider session revision mismatch");
+        }
+        let access_token = decrypt(
+            &provider.credential_ciphertext,
+            id,
+            self.0.encryption_key.as_str(),
+        )?;
+        let refresh_aad = format!("{id}:oauth-refresh");
+        let refresh_token = decrypt(
+            &oauth.refresh_token_ciphertext,
+            &refresh_aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        let session_aad = format!("{id}:oauth-session");
+        let metadata = decrypt(
+            &session.session_ciphertext,
+            &session_aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
+            .map_err(|_| "provider session metadata is invalid")?;
+        let label = if auth.account_email.is_empty() {
+            auth.label.as_str()
+        } else {
+            auth.account_email.as_str()
+        };
+        let file_label = sanitize_auth_file_name(label);
+        let (file_name, payload) = if expected_provider == "codex" {
+            let id_token = json_non_empty_string(metadata.get("id_token"))
+                .ok_or("Codex session requires reauthentication")?;
+            let parsed = parse_codex_auth(serde_json::json!({
+                "auth_mode":"chatgpt",
+                "tokens":{
+                    "id_token":id_token,
+                    "access_token":access_token.as_str(),
+                    "refresh_token":refresh_token.as_str(),
+                }
+            }))?;
+            let last_refresh = ::time::OffsetDateTime::now_utc()
+                .format(&::time::format_description::well_known::Rfc3339)
+                .map_err(|_| "system clock is invalid")?;
+            (
+                format!("auth-{file_label}.json"),
+                serde_json::json!({
+                    "auth_mode":"chatgpt",
+                    "OPENAI_API_KEY":serde_json::Value::Null,
+                    "tokens":{
+                        "id_token":id_token,
+                        "access_token":access_token.as_str(),
+                        "refresh_token":refresh_token.as_str(),
+                        "account_id":parsed.account_id,
+                    },
+                    "last_refresh":last_refresh,
+                }),
+            )
+        } else {
+            let expires_at = auth
+                .expires_at_unix
+                .checked_mul(1_000)
+                .ok_or("provider credential expiry is invalid")?;
+            let mut claude = serde_json::json!({
+                "accessToken":access_token.as_str(),
+                "refreshToken":refresh_token.as_str(),
+                "expiresAt":expires_at,
+                "scopes":metadata.get("scopes").cloned().unwrap_or_else(|| serde_json::json!([])),
+            });
+            if let Some(value) = metadata
+                .get("subscriptionType")
+                .and_then(serde_json::Value::as_str)
+            {
+                claude["subscriptionType"] = serde_json::Value::String(value.to_owned());
+            }
+            if let Some(value) = metadata
+                .get("rateLimitTier")
+                .and_then(serde_json::Value::as_str)
+            {
+                claude["rateLimitTier"] = serde_json::Value::String(value.to_owned());
+            }
+            (
+                format!("claude-auth-{file_label}.json"),
+                serde_json::json!({"claudeAiOauth":claude}),
+            )
+        };
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.credentials.exported",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider_credentials",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&serde_json::json!({"provider":expected_provider})),
+        )
+        .await;
+        let mut content = serde_json::to_string_pretty(&payload)
+            .map_err(|_| "cannot encode provider session export")?;
+        content.push('\n');
+        Ok(ProviderAuthExport { file_name, content })
     }
 
     async fn claude_bootstrap_identity(&self, access_token: &str) -> ClaudeBootstrapIdentity {
@@ -2859,6 +3017,7 @@ impl ControlPlane {
         &self,
         id: &str,
         input: ProviderInput,
+        session_metadata: Option<Zeroizing<String>>,
         actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderView, &'static str> {
@@ -3025,6 +3184,27 @@ impl ControlPlane {
             self.0.database.delete_provider_oauth(id).await?;
             None
         };
+        if let Some(session_metadata) = session_metadata {
+            if provider_oauth.is_none() {
+                return Err("provider session requires OAuth credentials");
+            }
+            let aad = format!("{id}:oauth-session");
+            self.0
+                .database
+                .upsert_provider_session(&StoredProviderSession {
+                    provider_id: id.to_owned(),
+                    provider: stored.provider.clone(),
+                    session_ciphertext: encrypt(
+                        session_metadata.as_str(),
+                        &aad,
+                        self.0.encryption_key.as_str(),
+                    )?,
+                    revision,
+                })
+                .await?;
+        } else {
+            self.0.database.delete_provider_session(id).await?;
+        }
         self.0.database.delete_provider_oauth_status(id).await?;
         let before = existing.as_ref().map(provider_audit_snapshot);
         let after = provider_audit_snapshot(&stored);
@@ -3551,6 +3731,19 @@ impl ControlPlane {
             .oauth_settings()
             .await?
             .remove(&(provider.id.clone(), provider.updated_at));
+        let session = self
+            .0
+            .database
+            .provider_sessions()
+            .await?
+            .into_iter()
+            .find(|session| session.provider_id == provider.id);
+        if session
+            .as_ref()
+            .is_some_and(|session| session.revision != provider.updated_at)
+        {
+            return Err("provider session revision mismatch");
+        }
         let revision = revision()?;
         self.0
             .database
@@ -3568,6 +3761,15 @@ impl ControlPlane {
             self.0
                 .database
                 .upsert_provider_oauth(&StoredProviderOAuth { revision, ..oauth })
+                .await?;
+        }
+        if let Some(session) = session {
+            self.0
+                .database
+                .upsert_provider_session(&StoredProviderSession {
+                    revision,
+                    ..session
+                })
                 .await?;
         }
         self.0.database.disable_provider(id, revision).await?;
@@ -6922,6 +7124,34 @@ fn validate_oauth_token(value: &str) -> Result<String, OAuthExchangeFailure> {
     Ok(value.to_owned())
 }
 
+fn sanitize_auth_file_name(value: &str) -> String {
+    let mut output = String::with_capacity(value.len().min(128));
+    let mut pending_dash = false;
+    for character in value.trim().chars().flat_map(char::to_lowercase) {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '@') {
+            if pending_dash && !output.is_empty() {
+                output.push('-');
+            }
+            pending_dash = false;
+            output.push(character);
+        } else if character == '-' {
+            if !output.is_empty() {
+                pending_dash = true;
+            }
+        } else if !output.is_empty() {
+            pending_dash = true;
+        }
+        if output.len() >= 128 {
+            break;
+        }
+    }
+    if output.is_empty() {
+        "account".to_owned()
+    } else {
+        output
+    }
+}
+
 fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static str> {
     let document = raw.as_object().ok_or("invalid Codex auth file")?;
     if document
@@ -6975,6 +7205,7 @@ fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static 
     Ok(ParsedCodexAuth {
         access_token: Zeroizing::new(access_token.to_owned()),
         refresh_token: Zeroizing::new(refresh_token.to_owned()),
+        session_metadata: Zeroizing::new(serde_json::json!({"id_token": id_token}).to_string()),
         account_id: account_id.to_owned(),
         user_id,
         email,
@@ -6998,9 +7229,43 @@ fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'stati
         }
     }
     let expires_at_unix = parse_claude_expiry(oauth.get("expiresAt"))?;
+    let scopes = match oauth.get("scopes") {
+        None => Vec::new(),
+        Some(serde_json::Value::Array(values)) if values.len() <= 64 => values
+            .iter()
+            .map(|value| {
+                let value =
+                    json_non_empty_string(Some(value)).ok_or("Claude OAuth scope is invalid")?;
+                if value.len() > 256 || value.chars().any(char::is_control) {
+                    return Err("Claude OAuth scope is invalid");
+                }
+                Ok(value.to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => return Err("Claude OAuth scopes are invalid"),
+    };
+    let optional_metadata = |name: &str| -> Result<Option<String>, &'static str> {
+        let Some(value) = oauth.get(name) else {
+            return Ok(None);
+        };
+        if value.is_null() {
+            return Ok(None);
+        }
+        let value = json_non_empty_string(Some(value)).ok_or("Claude OAuth metadata is invalid")?;
+        if value.len() > 256 || value.chars().any(char::is_control) {
+            return Err("Claude OAuth metadata is invalid");
+        }
+        Ok(Some(value.to_owned()))
+    };
+    let session_metadata = serde_json::json!({
+        "scopes": scopes,
+        "subscriptionType": optional_metadata("subscriptionType")?,
+        "rateLimitTier": optional_metadata("rateLimitTier")?,
+    });
     Ok(ParsedClaudeAuth {
         access_token: Zeroizing::new(access_token.to_owned()),
         refresh_token: Zeroizing::new(refresh_token.to_owned()),
+        session_metadata: Zeroizing::new(session_metadata.to_string()),
         expires_at_unix,
     })
 }
@@ -8246,7 +8511,7 @@ pub async fn put_provider(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .configure_provider_as(&id, input, &scope.actor, scope.tenant_id.as_deref())
+        .configure_provider_as(&id, input, None, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
@@ -8554,6 +8819,97 @@ pub async fn import_claude_auth(
             "invalid_auth_file",
         ),
     }
+}
+
+async fn export_provider_auth_response(
+    state: ProxyState,
+    id: String,
+    headers: HeaderMap,
+    provider: &'static str,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .export_provider_auth_as(&id, provider, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(export) => {
+            let disposition = match HeaderValue::from_str(&format!(
+                "attachment; filename=\"{}\"",
+                export.file_name
+            )) {
+                Ok(value) => value,
+                Err(_) => {
+                    return api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Provider session export unavailable",
+                    )
+                }
+            };
+            let mut response = export.content.into_response();
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            );
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, disposition);
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response.headers_mut().insert(
+                "x-content-type-options",
+                HeaderValue::from_static("nosniff"),
+            );
+            response
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(error)
+            if error.contains("reauthentication")
+                || error.contains("refresh is unavailable")
+                || error.contains("session metadata") =>
+        {
+            api_error_code(
+                StatusCode::CONFLICT,
+                "Provider session must be refreshed or re-authenticated before export",
+                "reauth_required",
+            )
+        }
+        Err(error) if error.contains("not found") => api_error_code(
+            StatusCode::NOT_FOUND,
+            "Provider connection not found",
+            "not_found",
+        ),
+        Err(_) => api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Provider connection does not support this export",
+            "invalid_provider",
+        ),
+    }
+}
+
+pub async fn export_codex_auth(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    export_provider_auth_response(state, id, headers, "codex").await
+}
+
+pub async fn export_claude_auth(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    export_provider_auth_response(state, id, headers, "claude").await
 }
 
 pub async fn import_claude_auth_bulk(

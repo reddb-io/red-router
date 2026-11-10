@@ -904,7 +904,10 @@ async fn provider_browser_oauth_server() -> (
                         Json(serde_json::json!({
                             "access_token":"claude-access-browser",
                             "refresh_token":"claude-browser-refresh",
-                            "expires_in":3600
+                            "expires_in":3600,
+                            "scope":"user:inference user:profile",
+                            "subscription_type":"pro",
+                            "rate_limit_tier":"tier-2"
                         }))
                     }
                 },
@@ -5392,6 +5395,10 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         codex_exchange["connection"]["email"],
         "browser-codex@example.com"
     );
+    let codex_provider_id = codex_exchange["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert!(!codex_exchange.to_string().contains("browser-refresh"));
     assert_eq!(codex_requests.load(Ordering::SeqCst), 1);
 
@@ -5434,6 +5441,10 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         claude_exchange["connection"]["email"],
         "browser-claude@example.com"
     );
+    let claude_provider_id = claude_exchange["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert!(!claude_exchange.to_string().contains("browser-refresh"));
     assert_eq!(claude_requests.load(Ordering::SeqCst), 1);
 
@@ -5447,6 +5458,95 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
     assert!(oauth
         .iter()
         .all(|record| !record.refresh_token_ciphertext.contains("browser-refresh")));
+    let sessions = database.provider_sessions().await.unwrap();
+    assert_eq!(sessions.len(), 2);
+    assert!(sessions
+        .iter()
+        .all(|record| record.session_ciphertext.starts_with("rr:v1:")));
+    assert!(sessions.iter().all(|record| {
+        !record.session_ciphertext.contains("browser-codex")
+            && !record.session_ciphertext.contains("user:inference")
+    }));
+
+    let unauthorized_export = client
+        .post(format!(
+            "{second_base}/api/providers/{codex_provider_id}/codex-auth/export"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized_export.status(), StatusCode::UNAUTHORIZED);
+
+    let codex_export = client
+        .post(format!(
+            "{second_base}/api/providers/{codex_provider_id}/codex-auth/export"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(codex_export.status(), StatusCode::OK);
+    assert_eq!(
+        codex_export.headers()[header::CACHE_CONTROL],
+        HeaderValue::from_static("no-store, max-age=0")
+    );
+    assert_eq!(
+        codex_export.headers()[header::CONTENT_DISPOSITION],
+        HeaderValue::from_static("attachment; filename=\"auth-browser-codex@example.com.json\"")
+    );
+    let codex_export: serde_json::Value =
+        serde_json::from_str(&codex_export.text().await.unwrap()).unwrap();
+    assert_eq!(codex_export["auth_mode"], "chatgpt");
+    assert_eq!(
+        codex_export["tokens"]["account_id"],
+        "browser-codex-workspace"
+    );
+    assert_eq!(
+        codex_export["tokens"]["refresh_token"],
+        "codex-browser-refresh"
+    );
+    assert!(codex_export["tokens"]["id_token"]
+        .as_str()
+        .unwrap()
+        .contains('.'));
+
+    let claude_export = client
+        .post(format!(
+            "{second_base}/api/providers/{claude_provider_id}/claude-auth/export"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(claude_export.status(), StatusCode::OK);
+    assert_eq!(
+        claude_export.headers()[header::CONTENT_DISPOSITION],
+        HeaderValue::from_static(
+            "attachment; filename=\"claude-auth-browser-claude@example.com.json\""
+        )
+    );
+    let claude_export: serde_json::Value =
+        serde_json::from_str(&claude_export.text().await.unwrap()).unwrap();
+    assert_eq!(
+        claude_export["claudeAiOauth"]["accessToken"],
+        "claude-access-browser"
+    );
+    assert_eq!(
+        claude_export["claudeAiOauth"]["scopes"],
+        serde_json::json!(["user:inference", "user:profile"])
+    );
+    assert_eq!(claude_export["claudeAiOauth"]["subscriptionType"], "pro");
+    assert_eq!(claude_export["claudeAiOauth"]["rateLimitTier"], "tier-2");
+
+    let wrong_export = client
+        .post(format!(
+            "{second_base}/api/providers/{codex_provider_id}/claude-auth/export"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong_export.status(), StatusCode::BAD_REQUEST);
 
     first_task.abort();
     second_task.abort();

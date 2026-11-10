@@ -63,7 +63,7 @@ criterion. The cutover is gated by the following operator journeys, in this orde
 
 | Gate | Required outcome | Current remaining work | Complexity |
 | --- | --- | --- | --- |
-| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import sessions, test, refresh, disable and delete from the SPA | Preserve the complete CLI-session artifact needed for safe Codex/Claude export; migrate the remaining product provider auth/import flows actually exposed by the dashboard | High |
+| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import sessions, test, refresh, disable and delete from the SPA | Migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High |
 | 2. Traffic lifecycle | Issue a named client key, restrict it, select a provider/combo, proxy every advertised protocol, account usage and enforce limits | Finish protocol/error/stream parity fixtures; migrate the remaining dashboard policy and versioned resilience settings | High |
 | 3. Identity and tenancy | Password/bootstrap and configured OIDC can administer tenant-owned providers, combos and keys without cross-tenant access | Complete production SPA wiring and provider-specific OIDC diagnostics | Medium |
 | 4. Existing installation | Upgrade an existing RedRouter installation without losing providers, keys, combos, quotas, usage or audit history | Maintenance-mode legacy SQLite importer, dry-run verification report and rollback marker | High |
@@ -129,10 +129,13 @@ the normal encrypted provider/OAuth repositories, responses are redacted and non
 imports are audit logged. Codex and Claude bulk ZIP extraction is also Rust-owned: it never writes
 archive contents to disk, runs decompression outside the async executor, preserves per-entry JSON
 parse errors and rejects traversal, special/encrypted entries and compressed or expanded size
-abuse. Export back to a local CLI and the remaining provider import formats are still compatibility
-work. Server-side export additionally requires preserving the encrypted provider session fields
-that are not derivable from the access/refresh pair (notably Codex `id_token`); the server must not
-fabricate those fields or write into a remote host's home directory.
+abuse. Rust now also preserves a revision-coupled encrypted session sidecar for fields that are not
+derivable from the access/refresh pair (notably Codex `id_token` and Claude scopes/tier metadata).
+The authenticated tenant-scoped export routes refresh expiring credentials, reconstruct the exact
+Codex/Claude CLI documents, return them with non-cacheable download headers and audit only redacted
+metadata. The central server never writes into a remote host's home directory; applying an export
+to local CLI files belongs to the explicit desktop/companion boundary. The remaining provider import
+formats are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one
