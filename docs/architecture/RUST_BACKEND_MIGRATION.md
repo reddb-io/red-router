@@ -95,8 +95,11 @@ uses the returned account UUID as its stable identity, accepts an operator-suppl
 bootstrap cannot identify the account, and otherwise requires explicit unsafe-import intent.
 Both importers require explicit overwrite for an existing account. Access and refresh tokens use
 the normal encrypted provider/OAuth repositories, responses are redacted and non-cacheable, and
-imports are audit logged. ZIP extraction, export back to a local CLI and the remaining provider
-import formats are still compatibility work.
+imports are audit logged. Codex and Claude bulk ZIP extraction is also Rust-owned: it never writes
+archive contents to disk, runs decompression outside the async executor, preserves per-entry JSON
+parse errors and rejects traversal, special/encrypted entries and compressed or expanded size
+abuse. Export back to a local CLI and the remaining provider import formats are still compatibility
+work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one

@@ -82,6 +82,12 @@ those environment secrets.
   state except for the validated account e-mail. When bootstrap cannot identify an account, an
   operator-supplied e-mail is accepted; otherwise the import fails with `identity_unverified`
   unless the caller explicitly opts into overwrite mode. Tokens remain write-only and encrypted.
+- `POST /api/providers/{codex|claude}-auth/zip-extract` preserves the dashboard's bulk archive
+  contract without Next.js or filesystem extraction. Rust accepts at most 11 MiB compressed,
+  processes ZIP work off the async executor, returns at most 50 JSON entries, and caps each entry
+  at 256 KiB and the uncompressed JSON total at 10 MiB. Unsafe paths, non-file JSON entries,
+  encrypted entries and oversized archives fail closed; credential-bearing responses are marked
+  `no-store`.
 - `POST /api/admin/providers/{id}/oauth/rotate` replaces an imported access/refresh-token
   pair and expiry. The caller supplies the last observed `expected_generation`; SQLite uses
   `BEGIN IMMEDIATE` plus a generation CAS to update both ciphertexts and expiry atomically,

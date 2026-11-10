@@ -2137,7 +2137,10 @@ async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
-    sqlx::query("INSERT INTO api_key_quota_counters VALUES ('shared', 'key-quota:rpm', ?, 1, ?)")
+    // Use two consumed requests so a minute rollover between this write and the
+    // HTTP request still exceeds the weighted limit instead of making the test
+    // intermittently admit one request at the bucket boundary.
+    sqlx::query("INSERT INTO api_key_quota_counters VALUES ('shared', 'key-quota:rpm', ?, 2, ?)")
         .bind(now / 60_000)
         .bind(now)
         .execute(&mut db)
