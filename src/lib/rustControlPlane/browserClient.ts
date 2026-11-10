@@ -230,6 +230,13 @@ export interface RustProviderQuota {
   revision: string;
 }
 
+export interface RustProviderQuotaInput {
+  session?: RustProviderQuotaWindow;
+  weekly?: RustProviderQuotaWindow;
+  limit_reached: boolean;
+  ttl_seconds: number;
+}
+
 export type RustProviderQuotaRefreshCategory =
   | "refreshed"
   | "refresh_in_progress"
@@ -1180,6 +1187,31 @@ export async function listRustProviderQuotas(): Promise<RustProviderQuota[]> {
     throw new Error("Invalid Rust provider quota response");
   }
   return quotas;
+}
+
+export async function configureRustProviderQuota(
+  id: string,
+  input: RustProviderQuotaInput
+): Promise<RustProviderQuota> {
+  const value = await rustAdminJson(
+    `/api/admin/provider-quotas/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const quota =
+    value && typeof value === "object"
+      ? (value as { provider_quota?: unknown }).provider_quota
+      : undefined;
+  if (!isRustProviderQuota(quota) || quota.provider_id !== id) {
+    throw new Error("Invalid Rust provider quota response");
+  }
+  return quota;
+}
+
+export async function clearRustProviderQuota(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/provider-quotas/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (response.status !== 204) await rustError(response);
 }
 
 export async function listRustProviderHealth(): Promise<RustProviderHealth[]> {

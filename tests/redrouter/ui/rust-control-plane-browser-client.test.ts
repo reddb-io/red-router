@@ -2,7 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   authorizeRustProviderOAuth,
+  clearRustProviderQuota,
   configureRustProviderHealth,
+  configureRustProviderQuota,
   deleteRustClientKey,
   disableRustProvider,
   exchangeRustProviderOAuth,
@@ -483,6 +485,8 @@ describe("Rust control-plane browser client", () => {
           },
         })
       )
+      .mockResolvedValueOnce(Response.json({ provider_quota: providerQuota }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(
         Response.json({
           provider_quotas: [{ ...providerQuota, access_token: "must-not-leak" }],
@@ -495,15 +499,34 @@ describe("Rust control-plane browser client", () => {
       refreshed: true,
       quota: providerQuota,
     });
+    await expect(
+      configureRustProviderQuota(providerQuota.provider_id, {
+        session: { remaining_percent: 72.5 },
+        limit_reached: false,
+        ttl_seconds: 300,
+      })
+    ).resolves.toEqual(providerQuota);
+    await expect(clearRustProviderQuota(providerQuota.provider_id)).resolves.toBeUndefined();
     await expect(listRustProviderQuotas()).rejects.toThrow("Invalid Rust provider quota response");
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/provider-quotas",
       "/api/admin/provider-quotas/claude-team/refresh",
+      "/api/admin/provider-quotas/claude-team",
+      "/api/admin/provider-quotas/claude-team",
       "/api/admin/provider-quotas",
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[1]?.[1]?.body).toBeUndefined();
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({
+      method: "PUT",
+      body: JSON.stringify({
+        session: { remaining_percent: 72.5 },
+        limit_reached: false,
+        ttl_seconds: 300,
+      }),
+    });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
   });
 
   it("reads and resets durable provider health without exposing credentials", async () => {

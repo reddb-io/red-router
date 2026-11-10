@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   authorizeRustProviderOAuth: vi.fn(),
+  clearRustProviderQuota: vi.fn(),
   configureRustProviderHealth: vi.fn(),
+  configureRustProviderQuota: vi.fn(),
   disableRustProvider: vi.fn(),
   exchangeRustProviderOAuth: vi.fn(),
   extractRustProviderSessionZip: vi.fn(),
@@ -224,6 +226,8 @@ describe("Rust provider models.dev catalog", () => {
       category: "refreshed",
       quota: refreshedQuota,
     });
+    api.configureRustProviderQuota.mockResolvedValue(refreshedQuota);
+    api.clearRustProviderQuota.mockResolvedValue(undefined);
 
     const container = await mount();
     expect(container.textContent).toContain("Provider quota");
@@ -262,6 +266,37 @@ describe("Rust provider models.dev catalog", () => {
     expect(api.refreshRustProviderQuota).toHaveBeenCalledWith(provider.id);
     expect(api.refreshRustProviderOAuth).not.toHaveBeenCalled();
     expect(container.textContent).toContain("59% remaining");
+
+    const saveQuota = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save manual quota"
+    );
+    await act(async () => {
+      saveQuota?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.configureRustProviderQuota).toHaveBeenCalledWith(
+      provider.id,
+      expect.objectContaining({
+        session: expect.objectContaining({ remaining_percent: 72.5 }),
+        weekly: { remaining_percent: 59 },
+        limit_reached: false,
+        ttl_seconds: expect.any(Number),
+      })
+    );
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const clearQuota = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Clear quota"
+    );
+    await act(async () => {
+      clearQuota?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    confirm.mockRestore();
+    expect(api.clearRustProviderQuota).toHaveBeenCalledWith(provider.id);
+    expect(container.textContent).toContain("No quota snapshot collected yet");
   });
 
   it("completes Antigravity browser OAuth through the Rust control plane", async () => {

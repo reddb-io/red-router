@@ -5,6 +5,8 @@ import { Button, Card } from "@/shared/components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
+  clearRustProviderQuota,
+  configureRustProviderQuota,
   configureRustProviderHealth,
   disableRustProvider,
   deleteRustProvider,
@@ -52,6 +54,24 @@ type HealthDraft = {
   failureThreshold: string;
   degradationThreshold: string;
   resetTimeoutMs: string;
+};
+
+type QuotaDraft = {
+  sessionRemainingPercent: string;
+  sessionResetAt: string;
+  weeklyRemainingPercent: string;
+  weeklyResetAt: string;
+  limitReached: boolean;
+  ttlSeconds: string;
+};
+
+const EMPTY_QUOTA_DRAFT: QuotaDraft = {
+  sessionRemainingPercent: "",
+  sessionResetAt: "",
+  weeklyRemainingPercent: "",
+  weeklyResetAt: "",
+  limitReached: false,
+  ttlSeconds: "300",
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -193,6 +213,29 @@ function quotaPercent(value: number): string {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}% remaining`;
 }
 
+function localDateTimeMs(unixMs?: number): string {
+  if (!unixMs) return "";
+  const date = new Date(unixMs);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function quotaDraftFromQuota(quota?: RustProviderQuota): QuotaDraft {
+  if (!quota) return EMPTY_QUOTA_DRAFT;
+  return {
+    sessionRemainingPercent:
+      quota.session?.remaining_percent === undefined ? "" : String(quota.session.remaining_percent),
+    sessionResetAt: localDateTimeMs(quota.session?.reset_at_unix_ms),
+    weeklyRemainingPercent:
+      quota.weekly?.remaining_percent === undefined ? "" : String(quota.weekly.remaining_percent),
+    weeklyResetAt: localDateTimeMs(quota.weekly?.reset_at_unix_ms),
+    limitReached: quota.limit_reached,
+    ttlSeconds: String(
+      Math.max(1, Math.min(86_400, Math.round((quota.expires_at_unix_ms - Date.now()) / 1_000)))
+    ),
+  };
+}
+
 function supportsQuotaRefresh(provider: RustProvider): boolean {
   return (
     provider.credential_type === "oauth" &&
@@ -205,6 +248,7 @@ function supportsQuotaRefresh(provider: RustProvider): boolean {
 export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
+  const [quotaDrafts, setQuotaDrafts] = useState<Record<string, QuotaDraft>>({});
   const [providerHealth, setProviderHealth] = useState<Record<string, RustProviderHealth>>({});
   const [healthDrafts, setHealthDrafts] = useState<Record<string, HealthDraft>>({});
   const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
@@ -226,6 +270,7 @@ export default function RustProvidersPageClient() {
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   const [refreshingQuotaProviderId, setRefreshingQuotaProviderId] = useState<string | null>(null);
+  const [updatingQuotaProviderId, setUpdatingQuotaProviderId] = useState<string | null>(null);
   const [resettingHealthProviderId, setResettingHealthProviderId] = useState<string | null>(null);
   const [configuringHealthProviderId, setConfiguringHealthProviderId] = useState<string | null>(
     null
@@ -252,6 +297,14 @@ export default function RustProvidersPageClient() {
     if (quotaResult.status === "fulfilled") {
       setProviderQuotas(
         Object.fromEntries(quotaResult.value.map((quota) => [quota.provider_id, quota]))
+      );
+      setQuotaDrafts((current) =>
+        Object.fromEntries(
+          quotaResult.value.map((quota) => [
+            quota.provider_id,
+            current[quota.provider_id] ?? quotaDraftFromQuota(quota),
+          ])
+        )
       );
       setQuotaError(null);
     } else {
@@ -437,11 +490,102 @@ export default function RustProvidersPageClient() {
       const quota = result.quota;
       if (quota) {
         setProviderQuotas((current) => ({ ...current, [provider.id]: quota }));
+        setQuotaDrafts((current) => ({
+          ...current,
+          [provider.id]: quotaDraftFromQuota(quota),
+        }));
       }
     } catch (cause) {
       setQuotaError(errorMessage(cause));
     } finally {
       setRefreshingQuotaProviderId(null);
+    }
+  };
+
+  const configureQuota = async (provider: RustProvider) => {
+    const draft = quotaDrafts[provider.id] ?? quotaDraftFromQuota(providerQuotas[provider.id]);
+    const parseWindow = (remainingValue: string, resetValue: string, label: string) => {
+      const trimmed = remainingValue.trim();
+      if (!trimmed) {
+        if (resetValue) throw new Error(`${label} reset requires a remaining percentage`);
+        return undefined;
+      }
+      const remainingPercent = Number(trimmed);
+      if (!Number.isFinite(remainingPercent) || remainingPercent < 0 || remainingPercent > 100) {
+        throw new Error(`${label} remaining percentage must be between 0 and 100`);
+      }
+      const resetAt = resetValue ? new Date(resetValue) : null;
+      if (resetAt && !Number.isFinite(resetAt.getTime())) {
+        throw new Error(`${label} reset time is invalid`);
+      }
+      return {
+        remaining_percent: remainingPercent,
+        ...(resetAt ? { reset_at_unix_ms: resetAt.getTime() } : {}),
+      };
+    };
+
+    setUpdatingQuotaProviderId(provider.id);
+    setQuotaError(null);
+    try {
+      const session = parseWindow(draft.sessionRemainingPercent, draft.sessionResetAt, "Session");
+      const weekly = parseWindow(draft.weeklyRemainingPercent, draft.weeklyResetAt, "Weekly");
+      const ttlSeconds = Number(draft.ttlSeconds);
+      if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 86_400) {
+        throw new Error("Quota TTL must be an integer from 1 to 86400 seconds");
+      }
+      if (!session && !weekly && !draft.limitReached) {
+        throw new Error("Set a session or weekly window, or mark the provider as exhausted");
+      }
+      const quota = await configureRustProviderQuota(provider.id, {
+        ...(session ? { session } : {}),
+        ...(weekly ? { weekly } : {}),
+        limit_reached: draft.limitReached,
+        ttl_seconds: ttlSeconds,
+      });
+      setProviderQuotas((current) => ({ ...current, [provider.id]: quota }));
+      setQuotaDrafts((current) => ({
+        ...current,
+        [provider.id]: quotaDraftFromQuota(quota),
+      }));
+      setQuotaRefreshCategories((current) => {
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
+    } catch (cause) {
+      setQuotaError(errorMessage(cause));
+    } finally {
+      setUpdatingQuotaProviderId(null);
+    }
+  };
+
+  const clearQuota = async (provider: RustProvider) => {
+    if (
+      !window.confirm(
+        `Clear the quota snapshot for “${provider.id}”? Routing will treat quota as unknown until the next refresh or manual override.`
+      )
+    ) {
+      return;
+    }
+    setUpdatingQuotaProviderId(provider.id);
+    setQuotaError(null);
+    try {
+      await clearRustProviderQuota(provider.id);
+      setProviderQuotas((current) => {
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
+      setQuotaDrafts((current) => ({ ...current, [provider.id]: EMPTY_QUOTA_DRAFT }));
+      setQuotaRefreshCategories((current) => {
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
+    } catch (cause) {
+      setQuotaError(errorMessage(cause));
+    } finally {
+      setUpdatingQuotaProviderId(null);
     }
   };
 
@@ -860,6 +1004,7 @@ export default function RustProvidersPageClient() {
         ) : (
           providers.map((provider) => {
             const quota = providerQuotas[provider.id];
+            const quotaDraft = quotaDrafts[provider.id] ?? quotaDraftFromQuota(quota);
             const health = providerHealth[provider.id];
             const healthDraft = healthDrafts[provider.id];
             const quotaExpired = quota ? quota.expires_at_unix_ms <= Date.now() : false;
@@ -1085,133 +1230,273 @@ export default function RustProvidersPageClient() {
                     )}
                   </div>
                 )}
-                {(quota || canRefreshQuota) && (
-                  <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-medium text-text">Provider quota</div>
-                        {quota ? (
-                          <div className="mt-2 grid gap-2 text-xs text-text-muted sm:grid-cols-2">
-                            {quota.session && (
-                              <div>
-                                <span className="font-medium text-text">Session: </span>
-                                {quotaPercent(quota.session.remaining_percent)}
-                                {quota.session.reset_at_unix_ms
-                                  ? ` · resets ${quotaDate(quota.session.reset_at_unix_ms)}`
-                                  : ""}
-                              </div>
-                            )}
-                            {quota.weekly && (
-                              <div>
-                                <span className="font-medium text-text">Weekly: </span>
-                                {quotaPercent(quota.weekly.remaining_percent)}
-                                {quota.weekly.reset_at_unix_ms
-                                  ? ` · resets ${quotaDate(quota.weekly.reset_at_unix_ms)}`
-                                  : ""}
-                              </div>
-                            )}
-                            <div>Observed {quotaDate(quota.observed_at_unix_ms)}</div>
-                            <div>Valid until {quotaDate(quota.expires_at_unix_ms)}</div>
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-xs text-text-muted">
-                            No quota snapshot collected yet.
-                          </p>
-                        )}
-                      </div>
-                      {quota && (
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs ${
-                            quotaExpired
-                              ? "bg-feedback-warning-surface text-feedback-warning-foreground"
-                              : quota.limit_reached
-                                ? "bg-feedback-danger-surface text-feedback-danger-foreground"
-                                : "bg-feedback-success-surface text-feedback-success-foreground"
-                          }`}
-                        >
-                          {quotaExpired
-                            ? "Expired"
-                            : quota.limit_reached
-                              ? "Limit reached"
-                              : "Current"}
-                        </span>
+                <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium text-text">Provider quota</div>
+                      {quota ? (
+                        <div className="mt-2 grid gap-2 text-xs text-text-muted sm:grid-cols-2">
+                          {quota.session && (
+                            <div>
+                              <span className="font-medium text-text">Session: </span>
+                              {quotaPercent(quota.session.remaining_percent)}
+                              {quota.session.reset_at_unix_ms
+                                ? ` · resets ${quotaDate(quota.session.reset_at_unix_ms)}`
+                                : ""}
+                            </div>
+                          )}
+                          {quota.weekly && (
+                            <div>
+                              <span className="font-medium text-text">Weekly: </span>
+                              {quotaPercent(quota.weekly.remaining_percent)}
+                              {quota.weekly.reset_at_unix_ms
+                                ? ` · resets ${quotaDate(quota.weekly.reset_at_unix_ms)}`
+                                : ""}
+                            </div>
+                          )}
+                          <div>Observed {quotaDate(quota.observed_at_unix_ms)}</div>
+                          <div>Valid until {quotaDate(quota.expires_at_unix_ms)}</div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-text-muted">
+                          No quota snapshot collected yet.
+                        </p>
                       )}
                     </div>
-                    {quota?.models && quota.models.length > 0 && (
-                      <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
-                        <div className="text-xs font-medium text-text">Model quotas</div>
-                        <div className="mt-2 grid gap-2">
-                          {quota.models.map((modelQuota) => {
-                            const expired = modelQuota.expires_at_unix_ms <= Date.now();
-                            return (
-                              <div
-                                key={modelQuota.model_id}
-                                className="rounded-md bg-black/[0.025] px-2.5 py-2 text-xs text-text-muted dark:bg-white/[0.04]"
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="break-all font-mono text-text">
-                                    {modelQuota.model_id}
-                                  </span>
-                                  <span
-                                    className={
-                                      expired
-                                        ? "text-feedback-warning-foreground"
-                                        : modelQuota.limit_reached
-                                          ? "text-feedback-danger-foreground"
-                                          : "text-feedback-success-foreground"
-                                    }
-                                  >
-                                    {expired
-                                      ? "Expired"
-                                      : modelQuota.limit_reached
-                                        ? "Limit reached"
-                                        : "Current"}
-                                  </span>
-                                </div>
-                                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                                  {modelQuota.session && (
-                                    <span>
-                                      Session {quotaPercent(modelQuota.session.remaining_percent)}
-                                    </span>
-                                  )}
-                                  {modelQuota.weekly && (
-                                    <span>
-                                      Weekly {quotaPercent(modelQuota.weekly.remaining_percent)}
-                                    </span>
-                                  )}
-                                  <span>
-                                    Valid until {quotaDate(modelQuota.expires_at_unix_ms)}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {quotaRefreshCategory && quotaRefreshCategory !== "refreshed" && (
-                      <p className="mt-2 text-xs text-feedback-warning-foreground" role="status">
-                        Latest refresh: {quotaRefreshCategory.replaceAll("_", " ")}. The last valid
-                        snapshot was preserved.
-                      </p>
-                    )}
-                    {canRefreshQuota && provider.enabled && (
-                      <div className="mt-3">
-                        <Button
-                          variant="secondary"
-                          loading={refreshingQuotaProviderId === provider.id}
-                          disabled={
-                            refreshingQuotaProviderId !== null &&
-                            refreshingQuotaProviderId !== provider.id
-                          }
-                          onClick={() => void refreshQuota(provider)}
-                        >
-                          Refresh quota
-                        </Button>
-                      </div>
+                    {quota && (
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs ${
+                          quotaExpired
+                            ? "bg-feedback-warning-surface text-feedback-warning-foreground"
+                            : quota.limit_reached
+                              ? "bg-feedback-danger-surface text-feedback-danger-foreground"
+                              : "bg-feedback-success-surface text-feedback-success-foreground"
+                        }`}
+                      >
+                        {quotaExpired
+                          ? "Expired"
+                          : quota.limit_reached
+                            ? "Limit reached"
+                            : "Current"}
+                      </span>
                     )}
                   </div>
-                )}
+                  {quota?.models && quota.models.length > 0 && (
+                    <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                      <div className="text-xs font-medium text-text">Model quotas</div>
+                      <div className="mt-2 grid gap-2">
+                        {quota.models.map((modelQuota) => {
+                          const expired = modelQuota.expires_at_unix_ms <= Date.now();
+                          return (
+                            <div
+                              key={modelQuota.model_id}
+                              className="rounded-md bg-black/[0.025] px-2.5 py-2 text-xs text-text-muted dark:bg-white/[0.04]"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="break-all font-mono text-text">
+                                  {modelQuota.model_id}
+                                </span>
+                                <span
+                                  className={
+                                    expired
+                                      ? "text-feedback-warning-foreground"
+                                      : modelQuota.limit_reached
+                                        ? "text-feedback-danger-foreground"
+                                        : "text-feedback-success-foreground"
+                                  }
+                                >
+                                  {expired
+                                    ? "Expired"
+                                    : modelQuota.limit_reached
+                                      ? "Limit reached"
+                                      : "Current"}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                                {modelQuota.session && (
+                                  <span>
+                                    Session {quotaPercent(modelQuota.session.remaining_percent)}
+                                  </span>
+                                )}
+                                {modelQuota.weekly && (
+                                  <span>
+                                    Weekly {quotaPercent(modelQuota.weekly.remaining_percent)}
+                                  </span>
+                                )}
+                                <span>Valid until {quotaDate(modelQuota.expires_at_unix_ms)}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {quotaRefreshCategory && quotaRefreshCategory !== "refreshed" && (
+                    <p className="mt-2 text-xs text-feedback-warning-foreground" role="status">
+                      Latest refresh: {quotaRefreshCategory.replaceAll("_", " ")}. The last valid
+                      snapshot was preserved.
+                    </p>
+                  )}
+                  {canRefreshQuota && provider.enabled && (
+                    <div className="mt-3">
+                      <Button
+                        variant="secondary"
+                        loading={refreshingQuotaProviderId === provider.id}
+                        disabled={
+                          refreshingQuotaProviderId !== null &&
+                          refreshingQuotaProviderId !== provider.id
+                        }
+                        onClick={() => void refreshQuota(provider)}
+                      >
+                        Refresh quota
+                      </Button>
+                    </div>
+                  )}
+                  <details className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                    <summary className="cursor-pointer text-xs font-medium text-text">
+                      Manual quota override
+                    </summary>
+                    <p className="mt-2 text-xs text-text-muted">
+                      Replaces the current provider and model quota snapshot until it expires or an
+                      automatic refresh succeeds.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className={labelClass}>
+                        Session remaining (%)
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={quotaDraft.sessionRemainingPercent}
+                          aria-label={`Session quota remaining for ${provider.label}`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: {
+                                ...quotaDraft,
+                                sessionRemainingPercent: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        Session reset (optional)
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={quotaDraft.sessionResetAt}
+                          aria-label={`Session quota reset for ${provider.label}`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: {
+                                ...quotaDraft,
+                                sessionResetAt: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        Weekly remaining (%)
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          value={quotaDraft.weeklyRemainingPercent}
+                          aria-label={`Weekly quota remaining for ${provider.label}`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: {
+                                ...quotaDraft,
+                                weeklyRemainingPercent: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        Weekly reset (optional)
+                        <input
+                          className={inputClass}
+                          type="datetime-local"
+                          value={quotaDraft.weeklyResetAt}
+                          aria-label={`Weekly quota reset for ${provider.label}`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: {
+                                ...quotaDraft,
+                                weeklyResetAt: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        Snapshot TTL (seconds)
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={1}
+                          max={86400}
+                          step={1}
+                          value={quotaDraft.ttlSeconds}
+                          aria-label={`Quota TTL for ${provider.label}`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: { ...quotaDraft, ttlSeconds: event.target.value },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 self-end rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/10">
+                        <input
+                          type="checkbox"
+                          checked={quotaDraft.limitReached}
+                          aria-label={`Mark ${provider.label} quota as exhausted`}
+                          onChange={(event) =>
+                            setQuotaDrafts((current) => ({
+                              ...current,
+                              [provider.id]: {
+                                ...quotaDraft,
+                                limitReached: event.target.checked,
+                              },
+                            }))
+                          }
+                        />
+                        Limit reached
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        loading={updatingQuotaProviderId === provider.id}
+                        disabled={
+                          updatingQuotaProviderId !== null &&
+                          updatingQuotaProviderId !== provider.id
+                        }
+                        onClick={() => void configureQuota(provider)}
+                      >
+                        Save manual quota
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={!quota || updatingQuotaProviderId !== null}
+                        onClick={() => void clearQuota(provider)}
+                      >
+                        Clear quota
+                      </Button>
+                    </div>
+                  </details>
+                </div>
                 {provider.enabled && (
                   <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
                     <div className="flex flex-col gap-2 sm:flex-row">
