@@ -231,7 +231,10 @@ function quotaDraftFromQuota(quota?: RustProviderQuota): QuotaDraft {
     weeklyResetAt: localDateTimeMs(quota.weekly?.reset_at_unix_ms),
     limitReached: quota.limit_reached,
     ttlSeconds: String(
-      Math.max(1, Math.min(86_400, Math.round((quota.expires_at_unix_ms - Date.now()) / 1_000)))
+      Math.max(
+        1,
+        Math.min(86_400, Math.round((quota.expires_at_unix_ms - quota.observed_at_unix_ms) / 1_000))
+      )
     ),
   };
 }
@@ -258,6 +261,7 @@ export default function RustProvidersPageClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
@@ -342,6 +346,11 @@ export default function RustProvidersPageClient() {
       .catch((cause) => setError(errorMessage(cause)))
       .finally(() => setLoading(false));
   }, [reload]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTimeMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const enabledCount = useMemo(
     () => providers.filter((provider) => provider.enabled).length,
@@ -1007,7 +1016,7 @@ export default function RustProvidersPageClient() {
             const quotaDraft = quotaDrafts[provider.id] ?? quotaDraftFromQuota(quota);
             const health = providerHealth[provider.id];
             const healthDraft = healthDrafts[provider.id];
-            const quotaExpired = quota ? quota.expires_at_unix_ms <= Date.now() : false;
+            const quotaExpired = quota ? quota.expires_at_unix_ms <= currentTimeMs : false;
             const canRefreshQuota = supportsQuotaRefresh(provider);
             const quotaRefreshCategory = quotaRefreshCategories[provider.id];
             const unhealthy = Boolean(
@@ -1286,7 +1295,7 @@ export default function RustProvidersPageClient() {
                       <div className="text-xs font-medium text-text">Model quotas</div>
                       <div className="mt-2 grid gap-2">
                         {quota.models.map((modelQuota) => {
-                          const expired = modelQuota.expires_at_unix_ms <= Date.now();
+                          const expired = modelQuota.expires_at_unix_ms <= currentTimeMs;
                           return (
                             <div
                               key={modelQuota.model_id}
