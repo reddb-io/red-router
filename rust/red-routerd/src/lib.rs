@@ -1874,6 +1874,10 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_provider).delete(control_plane::delete_provider),
         )
         .route(
+            "/api/admin/providers/{id}/purge",
+            delete(control_plane::purge_provider),
+        )
+        .route(
             "/api/admin/providers/{id}/test",
             post(control_plane::diagnose_provider),
         )

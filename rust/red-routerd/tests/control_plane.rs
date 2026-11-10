@@ -7353,13 +7353,64 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
 
     assert_eq!(
         client
+            .put(format!("{base}/api/admin/combos/removable-provider-guard"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"second","model":"fixture-model"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/providers/second/purge"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+
+    assert_eq!(
+        client
             .delete(format!("{base}/api/admin/providers/second"))
             .bearer_auth(ADMIN_KEY)
             .send()
             .await
             .unwrap()
             .status(),
-        204
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/combos/removable-provider-guard"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/providers/second"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
     );
     let provider_disable_audit = client
         .get(format!(
@@ -7381,6 +7432,54 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let provider_disable_details = provider_disable_audit[0]["details"].to_string();
     assert!(!provider_disable_details.contains("second-provider-secret"));
     assert!(!provider_disable_details.contains("upstream_url"));
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/providers/second/purge"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let provider_delete_audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider.delete&target=second"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(provider_delete_audit.status(), StatusCode::OK);
+    let provider_delete_audit: serde_json::Value = provider_delete_audit.json().await.unwrap();
+    assert_eq!(provider_delete_audit.as_array().unwrap().len(), 1);
+    assert!(provider_delete_audit[0]["details"]["after"].is_null());
+    let providers_after_delete: serde_json::Value = client
+        .get(format!("{base}/api/admin/providers"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(providers_after_delete["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|provider| provider["id"] != "second"));
+    assert!(database
+        .provider_auth()
+        .await
+        .unwrap()
+        .iter()
+        .all(|auth| auth.provider_id != "second"));
+    assert!(database
+        .provider_resilience()
+        .await
+        .unwrap()
+        .iter()
+        .all(|resilience| resilience.provider_id != "second"));
     assert_eq!(chat(&client, &base, RUST_CLIENT_KEY).await.status(), 403);
     assert_eq!(
         client

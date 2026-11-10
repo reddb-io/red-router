@@ -14,9 +14,12 @@ const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciph
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
+const DELETE_PROVIDER: &str = "DELETE FROM redrouter_control_providers WHERE id = $1";
 const CREATE_PROVIDER_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_ownership (provider_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDER_OWNERSHIP: &str = "SELECT provider_id, tenant_id, revision FROM redrouter_control_provider_ownership ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_OWNERSHIP: &str = "INSERT INTO redrouter_control_provider_ownership (provider_id, tenant_id, revision) VALUES ($1,$2,$3) ON CONFLICT (provider_id) DO UPDATE SET tenant_id = $2, revision = $3";
+const DELETE_PROVIDER_OWNERSHIP: &str =
+    "DELETE FROM redrouter_control_provider_ownership WHERE provider_id = $1";
 const CREATE_PROVIDER_AUTH: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_auth (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, auth_scheme TEXT NOT NULL, label TEXT NOT NULL, account_email TEXT NOT NULL, expires_at_unix BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDER_AUTH: &str = "SELECT provider_id, auth_scheme, label, account_email, expires_at_unix, revision FROM redrouter_control_provider_auth ORDER BY provider_id ASC, revision DESC";
 const UPSERT_PROVIDER_AUTH: &str = "INSERT INTO redrouter_control_provider_auth (record_id, provider_id, auth_scheme, label, account_email, expires_at_unix, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (record_id) DO UPDATE SET auth_scheme = $3, label = $4, account_email = $5, expires_at_unix = $6";
@@ -144,6 +147,8 @@ const READ_THOUGHT_SIGNATURE: &str = "SELECT signature FROM redrouter_antigravit
 const UPSERT_THOUGHT_SIGNATURE: &str = "INSERT INTO redrouter_antigravity_thought_signatures (record_id, provider_id, tool_call_id, signature, created_at_unix_ms, expires_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (record_id) DO UPDATE SET signature = $4, created_at_unix_ms = $5, expires_at_unix_ms = $6";
 const DELETE_EXPIRED_THOUGHT_SIGNATURES: &str =
     "DELETE FROM redrouter_antigravity_thought_signatures WHERE expires_at_unix_ms <= $1";
+const DELETE_PROVIDER_THOUGHT_SIGNATURES: &str =
+    "DELETE FROM redrouter_antigravity_thought_signatures WHERE provider_id = $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -932,6 +937,51 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot disable provider")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Permanently remove the disabled provider row and its ownership record.
+    /// Callers delete provider-scoped auxiliary state first; deleting the
+    /// provider row before ownership keeps a retry-safe orphan if the second
+    /// statement fails on a backend without multi-statement transactions.
+    pub async fn delete_provider(&self, id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                let mut transaction = pool
+                    .begin()
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
+                sqlx::query(DELETE_PROVIDER)
+                    .bind(id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
+                sqlx::query(DELETE_PROVIDER_OWNERSHIP)
+                    .bind(id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER, &params()).await?;
+                self.remote_query(DELETE_PROVIDER_OWNERSHIP, &params())
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER, params())
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
+                db.query_with(DELETE_PROVIDER_OWNERSHIP, params())
+                    .await
+                    .map_err(|_| "cannot delete provider configuration")?;
             }
         }
         Ok(())
@@ -3519,6 +3569,38 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot prune Antigravity thought signatures")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_thought_signatures(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_THOUGHT_SIGNATURES)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete Antigravity thought signatures")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_PROVIDER_THOUGHT_SIGNATURES,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_PROVIDER_THOUGHT_SIGNATURES,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot delete Antigravity thought signatures")?;
             }
         }
         Ok(())

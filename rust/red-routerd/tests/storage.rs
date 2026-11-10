@@ -129,6 +129,8 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(db.active_provider().await.unwrap(), Some(second.clone()));
     db.disable_provider("second", 4).await.unwrap();
     assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
+    db.delete_provider("second").await.unwrap();
+    assert_eq!(db.providers().await.unwrap(), vec![first.clone()]);
     let provider_session = StoredProviderSession {
         provider_id: "first".into(),
         provider: "codex".into(),

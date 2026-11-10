@@ -6,6 +6,7 @@ import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
   disableRustProvider,
+  deleteRustProvider,
   listRustProviderQuotas,
   listRustProviders,
   readRustCatalogProvider,
@@ -290,6 +291,31 @@ export default function RustProvidersPageClient() {
     setError(null);
     try {
       await disableRustProvider(provider.id);
+      if (editingId === provider.id) reset();
+      await reload();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (provider: RustProvider) => {
+    if (provider.enabled) {
+      setError("Disable the provider before permanently removing it");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Permanently remove provider connection “${provider.id}”? Usage and audit history are retained, but encrypted credentials and provider runtime state are deleted.`
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteRustProvider(provider.id);
       if (editingId === provider.id) reset();
       await reload();
     } catch (cause) {
@@ -976,6 +1002,15 @@ export default function RustProvidersPageClient() {
                       onClick={() => void disable(provider)}
                     >
                       Disable
+                    </Button>
+                  )}
+                  {!provider.enabled && (
+                    <Button
+                      variant="danger"
+                      disabled={saving}
+                      onClick={() => void remove(provider)}
+                    >
+                      Remove permanently
                     </Button>
                   )}
                 </div>

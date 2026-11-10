@@ -987,6 +987,16 @@ export async function disableRustProvider(id: string): Promise<void> {
   }
 }
 
+export async function deleteRustProvider(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/providers/${encodeURIComponent(id)}/purge`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    throw new Error(rustAdminError(value, response.status));
+  }
+}
+
 export async function rotateRustProviderOAuth(
   id: string,
   input: RustProviderOAuthRotationInput

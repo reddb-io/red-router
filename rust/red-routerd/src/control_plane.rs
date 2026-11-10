@@ -4836,6 +4836,31 @@ impl ControlPlane {
         self.disable_as(id, "bootstrap-admin", None).await
     }
 
+    async fn ensure_provider_not_in_enabled_combo(
+        &self,
+        id: &str,
+        tenant_id: &str,
+    ) -> Result<(), &'static str> {
+        for combo in self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .filter(|combo| combo.enabled && combo.tenant_id == tenant_id)
+        {
+            if combo.targets_json.len() > 256 * 1024 {
+                return Err("invalid combo targets");
+            }
+            let targets = serde_json::from_str::<Vec<ComboTarget>>(&combo.targets_json)
+                .map_err(|_| "invalid combo targets")?;
+            if targets.iter().any(|target| target.provider_id == id) {
+                return Err("provider is referenced by an enabled combo");
+            }
+        }
+        Ok(())
+    }
+
     async fn disable_as(
         &self,
         id: &str,
@@ -4856,6 +4881,8 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        self.ensure_provider_not_in_enabled_combo(id, &provider.tenant_id)
+            .await?;
         let scope = self
             .resilience_settings()
             .await?
@@ -4939,6 +4966,99 @@ impl ControlPlane {
             return Err(error);
         }
         self.availability_for(id).await.reset().await?;
+        Ok(())
+    }
+
+    async fn purge_provider_as(
+        &self,
+        id: &str,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(), &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        let _mutation = self.0.mutation.lock().await;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
+            return Err("provider tenant is unavailable");
+        }
+        if provider.enabled {
+            return Err("provider must be disabled before removal");
+        }
+        self.ensure_provider_not_in_enabled_combo(id, &provider.tenant_id)
+            .await?;
+        for pin in self
+            .0
+            .database
+            .route_pins()
+            .await?
+            .into_iter()
+            .filter(|pin| pin.provider_id == id)
+        {
+            self.0.database.delete_route_pin(&pin.combo_id).await?;
+        }
+
+        self.0.database.delete_provider_auth(id).await?;
+        self.0.database.delete_provider_oauth(id).await?;
+        self.0.database.delete_provider_session(id).await?;
+        self.0.database.delete_provider_oauth_status(id).await?;
+        self.0.database.delete_provider_quota(id).await?;
+        self.0
+            .database
+            .replace_provider_model_quotas(id, &[])
+            .await?;
+        self.0.database.delete_breaker(id).await?;
+        self.0.database.delete_provider_availability(id).await?;
+        self.0.database.delete_provider_resilience(id).await?;
+        self.0
+            .database
+            .delete_provider_thought_signatures(id)
+            .await?;
+        self.0.database.delete_provider(id).await?;
+
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.delete",
+                actor,
+                tenant_id: &provider.tenant_id,
+                target: id,
+                resource_type: "provider",
+            },
+            Some(&provider_audit_snapshot(&provider)),
+            None,
+        )
+        .await;
+        if let Err(error) = self.refresh().await {
+            *self.0.current.write().await = None;
+            return Err(error);
+        }
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        if let Some(quota) = self.0.quotas.write().await.remove(id) {
+            quota.clear();
+        }
+        self.replace_model_quota_states(id, &[]).await;
+        self.0
+            .model_quotas
+            .write()
+            .await
+            .retain(|(provider_id, _), _| provider_id != id);
+        self.0.breakers.write().await.remove(id);
+        self.0.availability.write().await.remove(id);
+        self.0
+            .thought_signatures
+            .lock()
+            .map_err(|_| "Antigravity thought signature cache unavailable")?
+            .retain(|(provider_id, _), _| provider_id != id);
         Ok(())
     }
 
@@ -10923,11 +11043,45 @@ pub async fn delete_provider(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err("provider is referenced by an enabled combo") => {
+            api_error(StatusCode::CONFLICT, "Provider is still in use")
+        }
         Err(error) if is_runtime_error(error) || error == "cannot disable provider" => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Provider storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider identifier"),
+    }
+}
+
+pub async fn purge_provider(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .purge_provider_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err("provider configuration not found") => {
+            api_error(StatusCode::NOT_FOUND, "Provider configuration not found")
+        }
+        Err(
+            "provider must be disabled before removal"
+            | "provider is referenced by an enabled combo",
+        ) => api_error(StatusCode::CONFLICT, "Provider is still in use"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider removal request"),
     }
 }
 
