@@ -29,7 +29,7 @@ use axum::{
     extract::{Path, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use futures_util::{stream, stream::BoxStream, StreamExt};
