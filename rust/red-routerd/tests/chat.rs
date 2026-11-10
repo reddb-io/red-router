@@ -204,7 +204,7 @@ async fn openai_to_antigravity_streams_text_tools_and_usage() {
                 "weather"
             );
             let event = concat!(
-                "data: {\"response\":{\"responseId\":\"agy-stream-1\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thought\":true,\"text\":\"checking\"},{\"text\":\"Calling weather\"},{\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":4,\"totalTokenCount\":9,\"thoughtsTokenCount\":1}}}\n\n"
+                "data: {\"response\":{\"responseId\":\"agy-stream-1\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thought\":true,\"text\":\"checking\"},{\"text\":\"Calling weather\"},{\"thoughtSignature\":\"opaque-stream-signature\",\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":4,\"totalTokenCount\":9,\"thoughtsTokenCount\":1}}}\n\n"
             );
             let pieces: Vec<_> = event
                 .as_bytes()
@@ -268,7 +268,8 @@ async fn openai_to_antigravity_streams_text_tools_and_usage() {
     let output = response.text().await.unwrap();
     assert!(output.contains("Calling weather"));
     assert!(output.contains("reasoning_content"));
-    assert!(output.contains("call_agy_0"));
+    assert!(output.contains("call_agy_"));
+    assert!(!output.contains("opaque-stream-signature"));
     assert!(output.contains("\"total_tokens\":9"));
     assert!(output.ends_with("data: [DONE]\n\n"));
     proxy_task.abort();

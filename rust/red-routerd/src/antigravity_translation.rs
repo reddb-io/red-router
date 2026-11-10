@@ -3,7 +3,10 @@
 //! The translator intentionally rejects fields and event shapes it cannot
 //! preserve. Antigravity uploads are finite JSON, while responses are always
 //! Cloud Code SSE even for a non-streaming OpenAI caller.
-use crate::{accounting::ChatUsage, usage_stream::UsageContext, ProviderLoadGuard, HEADER_TIMEOUT};
+use crate::{
+    accounting::ChatUsage, control_plane::ControlPlane, usage_stream::UsageContext,
+    ProviderLoadGuard, HEADER_TIMEOUT,
+};
 use axum::body::{Body, Bytes};
 use futures_util::{stream, Stream, StreamExt};
 use serde_json::{json, Map, Value};
@@ -16,9 +19,43 @@ use std::{
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
 const MAX_BUFFER: usize = 2 * 1024 * 1024;
-const MAX_TOOL_CALLS: usize = 128;
+pub(crate) const MAX_TOOL_CALLS: usize = 128;
+const SIGNATURE_BYPASS: &str = "skip_thought_signature_validator";
 const DEFAULT_SYSTEM: &str = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.\nYou are pair programming with a USER to solve their coding task.\n**Absolute paths only**\n**Proactiveness**";
 type Source = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
+
+#[derive(Clone)]
+pub(crate) struct SignatureContext {
+    control: ControlPlane,
+    provider_id: String,
+}
+
+impl SignatureContext {
+    pub(crate) fn new(control: ControlPlane, provider_id: String) -> Self {
+        Self {
+            control,
+            provider_id,
+        }
+    }
+
+    pub(crate) fn control(&self) -> &ControlPlane {
+        &self.control
+    }
+
+    pub(crate) fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    async fn store(&self, signatures: &[(String, String)]) -> Result<(), ()> {
+        if signatures.is_empty() {
+            return Ok(());
+        }
+        self.control
+            .store_antigravity_thought_signatures(&self.provider_id, signatures)
+            .await
+            .map_err(|_| ())
+    }
+}
 
 fn invalid() -> io::Error {
     io::Error::new(
@@ -231,7 +268,51 @@ fn tool_config(source: &Map<String, Value>) -> Result<Option<Value>, ()> {
     Ok(Some(json!({"functionCallingConfig":config})))
 }
 
-pub(crate) fn request(input: &Value, model: &str, project: Option<&str>) -> Result<Value, ()> {
+pub(crate) fn historical_tool_call_ids(input: &Value) -> Result<Vec<String>, ()> {
+    let source = object(
+        input,
+        &[
+            "model",
+            "messages",
+            "max_tokens",
+            "max_completion_tokens",
+            "temperature",
+            "top_p",
+            "stream",
+            "stream_options",
+            "tools",
+            "tool_choice",
+            "parallel_tool_calls",
+            "stop",
+        ],
+    )?;
+    let messages = source.get("messages").and_then(Value::as_array).ok_or(())?;
+    let mut ids = Vec::new();
+    for message in messages {
+        let Some(calls) = message.get("tool_calls") else {
+            continue;
+        };
+        for call in calls.as_array().ok_or(())? {
+            let id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty() && id.len() <= 512 && !id.chars().any(char::is_control))
+                .ok_or(())?;
+            if ids.len() >= MAX_TOOL_CALLS || ids.iter().any(|existing| existing == id) {
+                return Err(());
+            }
+            ids.push(id.to_owned());
+        }
+    }
+    Ok(ids)
+}
+
+pub(crate) fn request(
+    input: &Value,
+    model: &str,
+    project: Option<&str>,
+    signatures: Option<&HashMap<String, String>>,
+) -> Result<Value, ()> {
     let source = object(
         input,
         &[
@@ -312,6 +393,9 @@ pub(crate) fn request(input: &Value, model: &str, project: Option<&str>) -> Resu
                             return Err(());
                         }
                         let id = required_string(call, "id")?;
+                        if id.len() > 512 || id.chars().any(char::is_control) {
+                            return Err(());
+                        }
                         let function =
                             object(call.get("function").ok_or(())?, &["name", "arguments"])?;
                         let name = required_string(function, "name")?;
@@ -323,7 +407,18 @@ pub(crate) fn request(input: &Value, model: &str, project: Option<&str>) -> Resu
                         {
                             return Err(());
                         }
-                        parts.push(json!({"functionCall":{"name":name,"args":arguments}}));
+                        let mut part = json!({"functionCall":{"name":name,"args":arguments}});
+                        if let Some(signatures) = signatures {
+                            let signature = signatures
+                                .get(id)
+                                .filter(|signature| {
+                                    !signature.is_empty() && signature.len() <= 65_536
+                                })
+                                .map(String::as_str)
+                                .unwrap_or(SIGNATURE_BYPASS);
+                            part["thoughtSignature"] = Value::String(signature.to_owned());
+                        }
+                        parts.push(part);
                     }
                 }
                 if parts.is_empty() {
@@ -442,7 +537,33 @@ fn finish_reason(value: &str, has_tools: bool) -> Result<&'static str, ()> {
     }
 }
 
-pub(crate) fn response(bytes: &[u8], model: &str) -> Result<Value, ()> {
+pub(crate) struct CollectedResponse {
+    pub(crate) value: Value,
+    signatures: Vec<(String, String)>,
+}
+
+impl CollectedResponse {
+    pub(crate) async fn persist(self, context: Option<&SignatureContext>) -> Result<Value, ()> {
+        if let Some(context) = context {
+            context.store(&self.signatures).await?;
+        }
+        Ok(self.value)
+    }
+}
+
+fn part_signature(part: &Map<String, Value>) -> Result<Option<String>, ()> {
+    part.get("thoughtSignature")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty() && value.len() <= 65_536)
+                .map(str::to_owned)
+                .ok_or(())
+        })
+        .transpose()
+}
+
+pub(crate) fn response(bytes: &[u8], model: &str) -> Result<CollectedResponse, ()> {
     if bytes.is_empty() || bytes.len() > MAX_BUFFER {
         return Err(());
     }
@@ -474,6 +595,9 @@ pub(crate) fn response(bytes: &[u8], model: &str) -> Result<Value, ()> {
     let mut content = String::new();
     let mut reasoning = String::new();
     let mut calls = Vec::new();
+    let mut signatures = Vec::new();
+    let mut pending_signature = None;
+    let call_prefix = random_hex(8)?;
     let mut finish = None;
     let mut final_usage = None;
     for event in events {
@@ -499,6 +623,9 @@ pub(crate) fn response(bytes: &[u8], model: &str) -> Result<Value, ()> {
                     .ok_or(())?;
                 for part in parts {
                     let part = part.as_object().ok_or(())?;
+                    if let Some(signature) = part_signature(part)? {
+                        pending_signature = Some(signature);
+                    }
                     if let Some(text) = part.get("text").and_then(Value::as_str) {
                         if part.get("thought").and_then(Value::as_bool) == Some(true) {
                             reasoning.push_str(text);
@@ -517,8 +644,14 @@ pub(crate) fn response(bytes: &[u8], model: &str) -> Result<Value, ()> {
                             .ok_or(())?;
                         let args = call.get("args").filter(|args| args.is_object()).ok_or(())?;
                         let index = calls.len();
+                        let call_id = format!("call_agy_{call_prefix}_{index}");
+                        if let Some(signature) =
+                            part_signature(part)?.or_else(|| pending_signature.clone())
+                        {
+                            signatures.push((call_id.clone(), signature));
+                        }
                         calls.push(json!({
-                            "id":format!("call_agy_{index}"),
+                            "id":call_id,
                             "type":"function",
                             "function":{"name":name,"arguments":serde_json::to_string(args).map_err(|_| ())?}
                         }));
@@ -554,14 +687,17 @@ pub(crate) fn response(bytes: &[u8], model: &str) -> Result<Value, ()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| ())?
         .as_secs();
-    Ok(json!({
-        "id":id,
-        "object":"chat.completion",
-        "created":created,
-        "model":model,
-        "choices":[{"index":0,"message":message,"finish_reason":finish}],
-        "usage":usage
-    }))
+    Ok(CollectedResponse {
+        value: json!({
+            "id":id,
+            "object":"chat.completion",
+            "created":created,
+            "model":model,
+            "choices":[{"index":0,"message":message,"finish_reason":finish}],
+            "usage":usage
+        }),
+        signatures,
+    })
 }
 
 struct State {
@@ -573,6 +709,10 @@ struct State {
     model: String,
     created: u64,
     next_tool: usize,
+    call_prefix: String,
+    pending_signature: Option<String>,
+    signatures: Vec<(String, String)>,
+    signature_context: Option<SignatureContext>,
     include_usage: bool,
     started: bool,
     finished: bool,
@@ -617,6 +757,9 @@ impl State {
                     .ok_or_else(invalid)?;
                 for part in parts {
                     let part = part.as_object().ok_or_else(invalid)?;
+                    if let Some(signature) = part_signature(part).map_err(|_| invalid())? {
+                        self.pending_signature = Some(signature);
+                    }
                     if let Some(text) = part.get("text").and_then(Value::as_str) {
                         if !text.is_empty() {
                             if part.get("thought").and_then(Value::as_bool) == Some(true) {
@@ -641,7 +784,13 @@ impl State {
                         }
                         let index = self.next_tool;
                         self.next_tool += 1;
-                        let id = format!("call_agy_{index}");
+                        let id = format!("call_agy_{}_{index}", self.call_prefix);
+                        if let Some(signature) = part_signature(part)
+                            .map_err(|_| invalid())?
+                            .or_else(|| self.pending_signature.clone())
+                        {
+                            self.signatures.push((id.clone(), signature));
+                        }
                         let arguments = serde_json::to_string(args).map_err(|_| invalid())?;
                         self.chunk(json!({"tool_calls":[{"index":index,"id":id,"type":"function","function":{"name":name,"arguments":arguments}}]}), None);
                         has_tools = true;
@@ -672,12 +821,27 @@ impl State {
         }
         Ok(())
     }
+
+    async fn persist_signatures(&mut self) -> io::Result<()> {
+        if self.signatures.is_empty() {
+            return Ok(());
+        }
+        let signatures = std::mem::take(&mut self.signatures);
+        let Some(context) = self.signature_context.as_ref() else {
+            return Ok(());
+        };
+        context
+            .store(&signatures)
+            .await
+            .map_err(|_| io::Error::other("Antigravity thought signature persistence unavailable"))
+    }
 }
 
 pub(crate) fn translate(
     response: reqwest::Response,
     model: String,
     include_usage: bool,
+    signature_context: Option<SignatureContext>,
 ) -> impl Stream<Item = io::Result<Bytes>> {
     let id = format!(
         "chatcmpl-agy-{}",
@@ -694,6 +858,10 @@ pub(crate) fn translate(
             .duration_since(UNIX_EPOCH)
             .map_or(0, |time| time.as_secs()),
         next_tool: 0,
+        call_prefix: random_hex(8).unwrap_or_else(|_| "unavailable".to_owned()),
+        pending_signature: None,
+        signatures: Vec::new(),
+        signature_context,
         include_usage,
         started: false,
         finished: false,
@@ -718,6 +886,7 @@ pub(crate) fn translate(
                             serde_json::from_str(&state.data).map_err(|_| invalid())?;
                         state.data.clear();
                         state.event(&event)?;
+                        state.persist_signatures().await?;
                     }
                 } else if let Some(data) = line.strip_prefix("data:") {
                     let data = data.strip_prefix(' ').unwrap_or(data);
@@ -760,6 +929,7 @@ pub(crate) fn forward_accounted(
     usage_context: UsageContext,
     permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
     provider_load: Option<ProviderLoadGuard>,
+    signature_context: Option<SignatureContext>,
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
@@ -784,6 +954,10 @@ pub(crate) fn forward_accounted(
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |time| time.as_secs()),
             next_tool: 0,
+            call_prefix: random_hex(8).unwrap_or_else(|_| "unavailable".to_owned()),
+            pending_signature: None,
+            signatures: Vec::new(),
+            signature_context,
             include_usage,
             started: false,
             finished: false,
@@ -831,6 +1005,9 @@ pub(crate) fn forward_accounted(
                 if state.event(&event).is_err() {
                     break 'source;
                 }
+                if state.persist_signatures().await.is_err() {
+                    break 'source;
+                }
                 if let Some(usage) = terminal_usage {
                     let Some(context) = usage_context.take() else {
                         break 'source;
@@ -869,6 +1046,7 @@ mod tests {
 
     #[test]
     fn request_maps_tools_and_preserves_project_boundary() {
+        let signatures = HashMap::from([("call_1".to_owned(), "opaque-signature".to_owned())]);
         let request = request(
             &json!({
                 "model":"alias",
@@ -885,6 +1063,7 @@ mod tests {
             }),
             "gemini-2.5-pro",
             Some("project-1"),
+            Some(&signatures),
         )
         .unwrap();
         assert_eq!(request["project"], "project-1");
@@ -899,6 +1078,10 @@ mod tests {
             "weather"
         );
         assert_eq!(
+            request["request"]["contents"][1]["parts"][0]["thoughtSignature"],
+            "opaque-signature"
+        );
+        assert_eq!(
             request["request"]["contents"][2]["parts"][0]["functionResponse"]["name"],
             "weather"
         );
@@ -910,13 +1093,50 @@ mod tests {
             &json!({"model":"alias","messages":[{"role":"user","content":"hi"}],"n":2}),
             "gemini-2.5-pro",
             None,
+            None,
         )
         .is_err());
         assert!(request(
             &json!({"model":"alias","messages":[{"role":"tool","tool_call_id":"missing","content":"value"}]}),
             "gemini-2.5-pro",
             None,
+            None,
         )
         .is_err());
+    }
+
+    #[test]
+    fn response_keeps_thought_signatures_server_side() {
+        let event = json!({
+            "response": {
+                "responseId": "response-1",
+                "candidates": [{
+                    "content": {"parts": [{
+                        "thoughtSignature": "opaque-upstream-signature",
+                        "functionCall": {"name": "weather", "args": {"city": "SP"}}
+                    }]},
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {
+                    "promptTokenCount": 2,
+                    "candidatesTokenCount": 3,
+                    "totalTokenCount": 5
+                }
+            }
+        });
+        let bytes = format!("data: {event}\n\n");
+        let collected = response(bytes.as_bytes(), "gemini-3-pro").unwrap();
+        let call_id = collected.value["choices"][0]["message"]["tool_calls"][0]["id"]
+            .as_str()
+            .unwrap();
+        assert!(call_id.starts_with("call_agy_"));
+        assert!(!collected
+            .value
+            .to_string()
+            .contains("opaque-upstream-signature"));
+        assert_eq!(
+            collected.signatures,
+            vec![(call_id.to_owned(), "opaque-upstream-signature".to_owned())]
+        );
     }
 }

@@ -133,6 +133,12 @@ const READ_MODEL_CATALOG: &str =
 const READ_MODEL_CATALOG_REVISION: &str =
     "SELECT revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
 const UPSERT_MODEL_CATALOG: &str = "INSERT INTO redrouter_model_catalog_snapshot (id, snapshot_json, revision) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET snapshot_json = $1, revision = $2";
+const CREATE_THOUGHT_SIGNATURES: &str = "CREATE TABLE IF NOT EXISTS redrouter_antigravity_thought_signatures (provider_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, signature TEXT NOT NULL, created_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (provider_id, tool_call_id))";
+const CREATE_THOUGHT_SIGNATURE_EXPIRY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_antigravity_thought_signatures_expiry ON redrouter_antigravity_thought_signatures (expires_at_unix_ms)";
+const READ_THOUGHT_SIGNATURE: &str = "SELECT signature FROM redrouter_antigravity_thought_signatures WHERE provider_id = $1 AND tool_call_id = $2 AND expires_at_unix_ms > $3";
+const UPSERT_THOUGHT_SIGNATURE: &str = "INSERT INTO redrouter_antigravity_thought_signatures (provider_id, tool_call_id, signature, created_at_unix_ms, expires_at_unix_ms) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id, tool_call_id) DO UPDATE SET signature = $3, created_at_unix_ms = $4, expires_at_unix_ms = $5";
+const DELETE_EXPIRED_THOUGHT_SIGNATURES: &str =
+    "DELETE FROM redrouter_antigravity_thought_signatures WHERE expires_at_unix_ms <= $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -547,6 +553,8 @@ impl Database {
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
                         CREATE_MODEL_CATALOG,
+                        CREATE_THOUGHT_SIGNATURES,
+                        CREATE_THOUGHT_SIGNATURE_EXPIRY_INDEX,
                     ] {
                         db.query(statement)
                             .await
@@ -663,6 +671,9 @@ impl Database {
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 db.remote_schema_query(CREATE_MODEL_CATALOG).await?;
+                db.remote_schema_query(CREATE_THOUGHT_SIGNATURES).await?;
+                db.remote_schema_query(CREATE_THOUGHT_SIGNATURE_EXPIRY_INDEX)
+                    .await?;
                 db.remote_query(SEED_DEFAULT_TENANT, &[]).await?;
                 Ok(db)
             }
@@ -718,6 +729,8 @@ impl Database {
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
                     CREATE_MODEL_CATALOG,
+                    CREATE_THOUGHT_SIGNATURES,
+                    CREATE_THOUGHT_SIGNATURE_EXPIRY_INDEX,
                 ] {
                     sqlx::query(statement)
                         .execute(&pool)
@@ -3257,6 +3270,126 @@ impl Database {
         Ok(())
     }
 
+    pub async fn antigravity_thought_signature(
+        &self,
+        provider_id: &str,
+        tool_call_id: &str,
+        now_unix_ms: i64,
+    ) -> Result<Option<String>, &'static str> {
+        let params = || {
+            vec![
+                reddb_client::Value::Text(provider_id.to_owned()),
+                reddb_client::Value::Text(tool_call_id.to_owned()),
+                reddb_client::Value::Int(now_unix_ms),
+            ]
+        };
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_THOUGHT_SIGNATURE)
+                .bind(provider_id)
+                .bind(tool_call_id)
+                .bind(now_unix_ms)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read Antigravity thought signature")?
+                .map(|row| {
+                    row.try_get("signature")
+                        .map_err(|_| "invalid Antigravity thought signature")
+                })
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_THOUGHT_SIGNATURE, &params())
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_thought_signature)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query_with(READ_THOUGHT_SIGNATURE, params())
+                .await
+                .map_err(|_| "cannot read Antigravity thought signature")?
+                .rows
+                .first()
+                .map(read_reddb_thought_signature)
+                .transpose(),
+        }
+    }
+
+    pub async fn upsert_antigravity_thought_signature(
+        &self,
+        provider_id: &str,
+        tool_call_id: &str,
+        signature: &str,
+        created_at_unix_ms: i64,
+        expires_at_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let params = || {
+            vec![
+                reddb_client::Value::Text(provider_id.to_owned()),
+                reddb_client::Value::Text(tool_call_id.to_owned()),
+                reddb_client::Value::Text(signature.to_owned()),
+                reddb_client::Value::Int(created_at_unix_ms),
+                reddb_client::Value::Int(expires_at_unix_ms),
+            ]
+        };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_THOUGHT_SIGNATURE)
+                    .bind(provider_id)
+                    .bind(tool_call_id)
+                    .bind(signature)
+                    .bind(created_at_unix_ms)
+                    .bind(expires_at_unix_ms)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write Antigravity thought signature")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_THOUGHT_SIGNATURE, &params())
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_THOUGHT_SIGNATURE, params())
+                    .await
+                    .map_err(|_| "cannot write Antigravity thought signature")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_expired_antigravity_thought_signatures(
+        &self,
+        now_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_EXPIRED_THOUGHT_SIGNATURES)
+                    .bind(now_unix_ms)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot prune Antigravity thought signatures")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_EXPIRED_THOUGHT_SIGNATURES,
+                    &[reddb_client::Value::Int(now_unix_ms)],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_EXPIRED_THOUGHT_SIGNATURES,
+                    vec![reddb_client::Value::Int(now_unix_ms)],
+                )
+                .await
+                .map_err(|_| "cannot prune Antigravity thought signatures")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Insert only when no configuration exists. The existing authority wins.
     pub async fn seed(&self, value: &str) -> Result<(), &'static str> {
         self.write(SEED, value).await
@@ -5001,6 +5134,16 @@ fn read_reddb_model_catalog_revision(row: &reddb_client::Row) -> Result<i64, &'s
     {
         Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
         _ => Err("invalid model catalog revision"),
+    }
+}
+
+fn read_reddb_thought_signature(row: &reddb_client::Row) -> Result<String, &'static str> {
+    match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("signature"))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid Antigravity thought signature"),
     }
 }
 

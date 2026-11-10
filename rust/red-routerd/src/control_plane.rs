@@ -35,7 +35,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     io::{Cursor, Read},
     path::Path as FilePath,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
@@ -69,6 +69,9 @@ const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/boo
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const PROVIDER_OAUTH_FLOW_SECONDS: u64 = 10 * 60;
+const THOUGHT_SIGNATURE_MEMORY_TTL_MS: i64 = 60 * 60 * 1_000;
+const THOUGHT_SIGNATURE_PERSISTED_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+const MAX_THOUGHT_SIGNATURES_IN_MEMORY: usize = 1_000;
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -111,6 +114,7 @@ struct Inner {
     oauth_refresh_client: reqwest::Client,
     oauth_refresh: OAuthRefreshConfig,
     native_usage: RwLock<Option<crate::native_usage::NativeUsage>>,
+    thought_signatures: StdMutex<HashMap<(String, String), (String, i64)>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -1463,6 +1467,7 @@ impl ControlPlane {
             oauth_refresh_client,
             oauth_refresh: oauth_refresh_config,
             native_usage: RwLock::new(native_usage),
+            thought_signatures: StdMutex::new(HashMap::new()),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -2375,6 +2380,134 @@ impl ControlPlane {
             .active_provider()
             .await
             .map(|row| row.is_some())
+    }
+
+    pub(crate) async fn antigravity_thought_signatures(
+        &self,
+        provider_id: &str,
+        tool_call_ids: &[String],
+    ) -> Result<HashMap<String, String>, &'static str> {
+        if provider_id.is_empty()
+            || provider_id.len() > 512
+            || tool_call_ids.len() > crate::antigravity_translation::MAX_TOOL_CALLS
+            || tool_call_ids
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 512 || id.chars().any(char::is_control))
+        {
+            return Err("invalid Antigravity thought signature key");
+        }
+        let now = unix_time_ms()?;
+        let mut resolved = HashMap::new();
+        let mut misses = Vec::new();
+        {
+            let mut cache = self
+                .0
+                .thought_signatures
+                .lock()
+                .map_err(|_| "Antigravity thought signature cache unavailable")?;
+            cache.retain(|_, (_, expires)| *expires > now);
+            for id in tool_call_ids {
+                let key = (provider_id.to_owned(), id.clone());
+                if let Some((signature, _)) = cache.get(&key) {
+                    resolved.insert(id.clone(), signature.clone());
+                } else {
+                    misses.push(id.clone());
+                }
+            }
+        }
+        for id in misses {
+            if let Some(signature) = self
+                .0
+                .database
+                .antigravity_thought_signature(provider_id, &id, now)
+                .await?
+            {
+                if signature.is_empty() || signature.len() > 65_536 {
+                    return Err("invalid persisted Antigravity thought signature");
+                }
+                resolved.insert(id.clone(), signature.clone());
+                self.cache_antigravity_thought_signature(
+                    provider_id,
+                    &id,
+                    signature,
+                    now + THOUGHT_SIGNATURE_MEMORY_TTL_MS,
+                )?;
+            }
+        }
+        Ok(resolved)
+    }
+
+    pub(crate) async fn store_antigravity_thought_signatures(
+        &self,
+        provider_id: &str,
+        signatures: &[(String, String)],
+    ) -> Result<(), &'static str> {
+        if provider_id.is_empty()
+            || provider_id.len() > 512
+            || signatures.len() > crate::antigravity_translation::MAX_TOOL_CALLS
+        {
+            return Err("invalid Antigravity thought signatures");
+        }
+        let now = unix_time_ms()?;
+        let persisted_expiry = now
+            .checked_add(THOUGHT_SIGNATURE_PERSISTED_TTL_MS)
+            .ok_or("invalid Antigravity thought signature expiry")?;
+        for (tool_call_id, signature) in signatures {
+            if tool_call_id.is_empty()
+                || tool_call_id.len() > 512
+                || tool_call_id.chars().any(char::is_control)
+                || signature.is_empty()
+                || signature.len() > 65_536
+            {
+                return Err("invalid Antigravity thought signature");
+            }
+            self.0
+                .database
+                .upsert_antigravity_thought_signature(
+                    provider_id,
+                    tool_call_id,
+                    signature,
+                    now,
+                    persisted_expiry,
+                )
+                .await?;
+            self.cache_antigravity_thought_signature(
+                provider_id,
+                tool_call_id,
+                signature.clone(),
+                now + THOUGHT_SIGNATURE_MEMORY_TTL_MS,
+            )?;
+        }
+        self.0
+            .database
+            .delete_expired_antigravity_thought_signatures(now)
+            .await
+    }
+
+    fn cache_antigravity_thought_signature(
+        &self,
+        provider_id: &str,
+        tool_call_id: &str,
+        signature: String,
+        expires_at_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let mut cache = self
+            .0
+            .thought_signatures
+            .lock()
+            .map_err(|_| "Antigravity thought signature cache unavailable")?;
+        let key = (provider_id.to_owned(), tool_call_id.to_owned());
+        if !cache.contains_key(&key) && cache.len() >= MAX_THOUGHT_SIGNATURES_IN_MEMORY {
+            let oldest = cache
+                .iter()
+                .min_by_key(|(_, (_, expires))| *expires)
+                .map(|(key, _)| key.clone());
+            if let Some(oldest) = oldest {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(key, (signature, expires_at_unix_ms));
+        Ok(())
     }
 
     pub(crate) async fn ready(&self) -> bool {

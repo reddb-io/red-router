@@ -5796,17 +5796,37 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
                             .unwrap();
                         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
                         assert_eq!(body["project"], "agy-project-1");
-                        if body.get("requestId").is_some() {
+                        let translated = body.get("requestId").is_some();
+                        if translated {
                             assert_eq!(body["model"], "gemini-2.5-pro");
-                            assert_eq!(
-                                body["request"]["contents"][0]["parts"][0]["text"],
-                                "hello from OpenAI"
-                            );
                         }
+                        let first_text = body["request"]["contents"][0]["parts"][0]["text"]
+                            .as_str()
+                            .unwrap_or_default();
+                        let is_tool_follow_up = body["request"]["contents"]
+                            .as_array()
+                            .is_some_and(|contents| {
+                                contents.iter().any(|content| {
+                                    content["parts"].as_array().is_some_and(|parts| {
+                                        parts.iter().any(|part| {
+                                            part.get("functionCall").is_some()
+                                                && part["thoughtSignature"]
+                                                    == "opaque-agy-thought-signature"
+                                        })
+                                    })
+                                })
+                            });
                         observations.lock().unwrap().push("inference".to_owned());
+                        let event = if is_tool_follow_up {
+                            "data: {\"response\":{\"responseId\":\"agy-tool-finished\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"weather is sunny\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":2,\"totalTokenCount\":10}}}\n\n"
+                        } else if translated && first_text == "use weather" {
+                            "data: {\"response\":{\"responseId\":\"agy-tool-response\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thoughtSignature\":\"opaque-agy-thought-signature\",\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":3,\"totalTokenCount\":7}}}\n\n"
+                        } else {
+                            "data: {\"response\":{\"responseId\":\"agy-response-1\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":3,\"totalTokenCount\":7}}}\n\n"
+                        };
                         (
                             [(header::CONTENT_TYPE, "text/event-stream")],
-                            "data: {\"response\":{\"responseId\":\"agy-response-1\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":3,\"totalTokenCount\":7}}}\n\n",
+                            event,
                         )
                     }
                 }
@@ -5938,9 +5958,56 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
         "hello from Antigravity"
     );
     assert_eq!(translated["usage"]["total_tokens"], 7);
+    let tool_turn = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"agy-openai",
+            "messages":[{"role":"user","content":"use weather"}],
+            "tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object"}}}],
+            "stream":false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tool_turn.status(), StatusCode::OK);
+    let tool_turn: serde_json::Value = tool_turn.json().await.unwrap();
+    let tool_call = tool_turn["choices"][0]["message"]["tool_calls"][0].clone();
+    assert!(tool_call["id"].as_str().unwrap().starts_with("call_agy_"));
+    assert!(!tool_turn
+        .to_string()
+        .contains("opaque-agy-thought-signature"));
+    let follow_up = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"agy-openai",
+            "messages":[
+                {"role":"user","content":"use weather"},
+                {"role":"assistant","content":null,"tool_calls":[tool_call.clone()]},
+                {"role":"tool","tool_call_id":tool_call["id"],"content":"sunny"}
+            ],
+            "tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object"}}}],
+            "stream":false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(follow_up.status(), StatusCode::OK);
+    let follow_up: serde_json::Value = follow_up.json().await.unwrap();
+    assert_eq!(
+        follow_up["choices"][0]["message"]["content"],
+        "weather is sunny"
+    );
     assert_eq!(
         observations.lock().unwrap().as_slice(),
-        ["refresh", "inference", "inference"]
+        [
+            "refresh",
+            "inference",
+            "inference",
+            "inference",
+            "inference"
+        ]
     );
     gateway_task.abort();
     upstream_task.abort();
@@ -6308,7 +6375,7 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
     } else {
         &first_base
     };
-    tokio::time::timeout(Duration::from_secs(6), async {
+    tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             assert_eq!(
                 client

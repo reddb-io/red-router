@@ -293,6 +293,22 @@ async fn exercise(backend: Backend, url: &str) {
         Some(catalog.clone())
     );
     assert_eq!(db.model_catalog_revision().await.unwrap(), Some(14));
+    db.upsert_antigravity_thought_signature(
+        "first",
+        "call_agy_fixture_0",
+        "opaque-thought-signature",
+        100,
+        1_000,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        db.antigravity_thought_signature("first", "call_agy_fixture_0", 200)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("opaque-thought-signature")
+    );
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -337,6 +353,25 @@ async fn exercise(backend: Backend, url: &str) {
         Some(catalog)
     );
     assert_eq!(reopened.model_catalog_revision().await.unwrap(), Some(14));
+    assert_eq!(
+        reopened
+            .antigravity_thought_signature("first", "call_agy_fixture_0", 200)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("opaque-thought-signature")
+    );
+    reopened
+        .delete_expired_antigravity_thought_signatures(1_000)
+        .await
+        .unwrap();
+    assert_eq!(
+        reopened
+            .antigravity_thought_signature("first", "call_agy_fixture_0", 1_000)
+            .await
+            .unwrap(),
+        None
+    );
     reopened.delete_oidc_browser().await.unwrap();
     assert_eq!(reopened.oidc_browser_config().await.unwrap(), None);
     reopened.delete_oidc().await.unwrap();

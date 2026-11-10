@@ -3211,12 +3211,22 @@ async fn proxy_request(
     let translate_antigravity_route = eligible
         .iter()
         .any(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity);
+    let mut antigravity_history_ids = Vec::new();
     if translate_antigravity_route {
         let target = eligible
             .iter()
             .find(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity)
             .expect("checked Antigravity translation target");
-        if antigravity_translation::request(&parsed, &target.model, None).is_err() {
+        antigravity_history_ids = match antigravity_translation::historical_tool_call_ids(&parsed) {
+            Ok(ids) => ids,
+            Err(_) => {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    "Unsupported OpenAI tool history for Antigravity translation",
+                )
+            }
+        };
+        if antigravity_translation::request(&parsed, &target.model, None, None).is_err() {
             return error(
                 StatusCode::BAD_REQUEST,
                 "Unsupported OpenAI request for Antigravity translation",
@@ -3254,6 +3264,7 @@ async fn proxy_request(
     let mut final_accounting = None;
     let mut final_served_model = None;
     let mut final_load_guard = None;
+    let mut final_signature_context = None;
     let mut last_retry_load_guard = None;
     let mut saw_open_circuit = false;
     let mut closest_circuit_retry_ms: Option<u64> = None;
@@ -3514,6 +3525,45 @@ async fn proxy_request(
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
         let translate_antigravity =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity);
+        let attempt_signature_context = if translate_antigravity {
+            match (
+                state.control_plane.as_ref(),
+                target.and_then(|target| target.provider_id.as_deref()),
+            ) {
+                (Some(control), Some(provider_id)) => {
+                    Some(antigravity_translation::SignatureContext::new(
+                        control.clone(),
+                        provider_id.to_owned(),
+                    ))
+                }
+                (Some(_), None) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Antigravity provider identity unavailable",
+                    )
+                }
+                (None, _) => None,
+            }
+        } else {
+            None
+        };
+        let attempt_signatures = if let Some(context) = attempt_signature_context.as_ref() {
+            match context
+                .control()
+                .antigravity_thought_signatures(context.provider_id(), &antigravity_history_ids)
+                .await
+            {
+                Ok(signatures) => Some(signatures),
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Antigravity thought signature storage unavailable",
+                    )
+                }
+            }
+        } else {
+            translate_antigravity.then(HashMap::new)
+        };
         let attempt_protocol = target.map_or(protocol, |target| target.protocol);
         let attempt_antigravity = matches!(
             attempt_protocol,
@@ -3531,6 +3581,7 @@ async fn proxy_request(
                         &parsed,
                         &target.model,
                         target.antigravity_project.as_deref(),
+                        attempt_signatures.as_ref(),
                     )
                     .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
                 } else if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
@@ -3953,6 +4004,7 @@ async fn proxy_request(
             .flatten();
         final_response = Some(response);
         final_load_guard = load_guard;
+        final_signature_context = attempt_signature_context;
         break;
     }
     let (response, provider_load_guard) = if let Some(response) = final_response {
@@ -3983,6 +4035,7 @@ async fn proxy_request(
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
     if final_antigravity_translated && response.status().is_success() {
+        let signature_context = final_signature_context;
         let Some(response) = response.into_streaming() else {
             return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
         };
@@ -4024,15 +4077,19 @@ async fn proxy_request(
                     context,
                     (permit, client_permit),
                     provider_load_guard,
+                    signature_context,
                 )
             } else {
-                let stream =
-                    antigravity_translation::translate(response, model.clone(), include_usage).map(
-                        move |chunk| {
-                            let _keep_alive = (&permit, &client_permit, &provider_load_guard);
-                            chunk
-                        },
-                    );
+                let stream = antigravity_translation::translate(
+                    response,
+                    model.clone(),
+                    include_usage,
+                    signature_context,
+                )
+                .map(move |chunk| {
+                    let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                    chunk
+                });
                 Body::from_stream(stream)
             };
             let mut result = Response::new(body);
@@ -4059,7 +4116,8 @@ async fn proxy_request(
                 }
                 bytes.extend_from_slice(&chunk);
             }
-            antigravity_translation::response(&bytes, &model)
+            let response = antigravity_translation::response(&bytes, &model)?;
+            response.persist(signature_context.as_ref()).await
         };
         let value = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
             Ok(Ok(value)) => value,
