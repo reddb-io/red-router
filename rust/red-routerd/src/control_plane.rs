@@ -949,8 +949,12 @@ impl OAuthRefreshConfig {
     }
 
     fn testing(codex_endpoint: reqwest::Url, claude_endpoint: reqwest::Url) -> Self {
+        let mut codex_provider_endpoint = codex_endpoint.clone();
+        codex_provider_endpoint.set_path("/responses");
+        codex_provider_endpoint.set_query(None);
+        codex_provider_endpoint.set_fragment(None);
         Self {
-            codex_provider_endpoint: codex_endpoint.clone(),
+            codex_provider_endpoint,
             codex_endpoint,
             codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
             claude_endpoint,
