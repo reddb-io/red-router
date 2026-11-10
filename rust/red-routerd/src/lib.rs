@@ -1,6 +1,7 @@
 //! RedRouter's Rust proxy and production-backend migration target.
 pub mod accounting;
 mod anthropic_stream;
+mod antigravity_translation;
 pub mod audit_export;
 mod availability;
 pub mod catalog;
@@ -220,6 +221,55 @@ enum UsageAttempt {
     },
 }
 
+impl UsageAttempt {
+    fn into_context(
+        self,
+        access: Option<&product::ProductAccess>,
+    ) -> Result<usage_stream::UsageContext, &'static str> {
+        match self {
+            Self::Product {
+                connection,
+                model,
+                prices,
+                event_id,
+            } => {
+                let access = access.ok_or("usage accounting unavailable")?;
+                Ok(usage_stream::UsageContext::Product {
+                    connection,
+                    event_id,
+                    key: access.key_id.clone(),
+                    model,
+                    prices,
+                    usage_attributes: access.usage_attributes.clone(),
+                })
+            }
+            Self::Native {
+                control,
+                identity,
+                provider,
+                model,
+                prices,
+                event_id,
+            } => Ok(usage_stream::UsageContext::Native {
+                control,
+                identity,
+                provider,
+                model,
+                prices,
+                event_id,
+            }),
+        }
+    }
+
+    async fn record(
+        self,
+        access: Option<&product::ProductAccess>,
+        usage: &accounting::ChatUsage,
+    ) -> Result<(), &'static str> {
+        self.into_context(access)?.record(usage).await
+    }
+}
+
 pub(crate) struct ProviderLoadGuard {
     counter: Arc<AtomicUsize>,
 }
@@ -365,6 +415,7 @@ pub(crate) enum ProviderProtocol {
     CohereRerank,
     Anthropic,
     OpenAiToAnthropic,
+    OpenAiToAntigravity,
     Gemini,
     Antigravity,
 }
@@ -997,8 +1048,10 @@ impl ProxyState {
                 ProviderProtocol::OpenAiEmbeddings => "/embeddings",
                 ProviderProtocol::CohereRerank => "/rerank",
                 ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => "/messages",
+                ProviderProtocol::OpenAiToAntigravity | ProviderProtocol::Antigravity => {
+                    "/v1internal:streamGenerateContent"
+                }
                 ProviderProtocol::Gemini => "/models",
-                ProviderProtocol::Antigravity => "/v1internal:streamGenerateContent",
             })
         {
             return Err("upstream must be a credential-free HTTPS protocol endpoint (HTTP is allowed for literal loopback only)");
@@ -1107,6 +1160,7 @@ impl ProxyState {
 
     pub(crate) fn control_target(
         provider: &LiveProvider,
+        protocol: ProviderProtocol,
         model: String,
         weight: u32,
         input_cost_per_million: Option<f64>,
@@ -1119,7 +1173,7 @@ impl ProxyState {
             upstream: provider.upstream.clone(),
             provider_key: provider.provider_key.clone(),
             model,
-            protocol: provider.protocol,
+            protocol,
             auth_scheme: provider.auth_scheme,
             credential_expires_at_unix: provider.credential_expires_at_unix,
             product_connection: None,
@@ -1312,6 +1366,9 @@ impl ProxyState {
                 Some(value) if value.as_str() == Some("openai-to-anthropic") => {
                     ProviderProtocol::OpenAiToAnthropic
                 }
+                Some(value) if value.as_str() == Some("openai-to-antigravity") => {
+                    ProviderProtocol::OpenAiToAntigravity
+                }
                 Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
                 Some(value) if value.as_str() == Some("antigravity") => {
                     ProviderProtocol::Antigravity
@@ -1320,7 +1377,9 @@ impl ProxyState {
             };
             if matches!(
                 protocol,
-                ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+                ProviderProtocol::Gemini
+                    | ProviderProtocol::Antigravity
+                    | ProviderProtocol::OpenAiToAntigravity
             ) && !valid_gemini_model(alias)
             {
                 return Err("invalid Google route model");
@@ -1399,11 +1458,19 @@ impl ProxyState {
                     {
                         ProviderProtocol::OpenAiToAnthropic
                     }
+                    Some(value)
+                        if protocol == ProviderProtocol::OpenAi
+                            && value.as_str() == Some("openai-to-antigravity") =>
+                    {
+                        ProviderProtocol::OpenAiToAntigravity
+                    }
                     _ => return Err("unsupported target protocol for route"),
                 };
                 if matches!(
-                    protocol,
-                    ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+                    target_protocol,
+                    ProviderProtocol::Gemini
+                        | ProviderProtocol::Antigravity
+                        | ProviderProtocol::OpenAiToAntigravity
                 ) && !valid_gemini_model(model)
                 {
                     return Err("invalid Google target model");
@@ -1478,6 +1545,12 @@ impl ProxyState {
                             target_protocol,
                             ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
                         ) && value.as_str() == Some("bearer") =>
+                    {
+                        ProviderAuthScheme::Bearer
+                    }
+                    Some(value)
+                        if target_protocol == ProviderProtocol::OpenAiToAntigravity
+                            && value.as_str() == Some("bearer") =>
                     {
                         ProviderAuthScheme::Bearer
                     }
@@ -1557,6 +1630,8 @@ impl ProviderProtocol {
             "openai-embeddings" => Ok(Self::OpenAiEmbeddings),
             "cohere-rerank" => Ok(Self::CohereRerank),
             "anthropic" => Ok(Self::Anthropic),
+            "openai-to-anthropic" => Ok(Self::OpenAiToAnthropic),
+            "openai-to-antigravity" => Ok(Self::OpenAiToAntigravity),
             "gemini" => Ok(Self::Gemini),
             "antigravity" => Ok(Self::Antigravity),
             _ => Err("unsupported combo protocol"),
@@ -1583,6 +1658,15 @@ impl ProviderProtocol {
         } else {
             Err("unsupported provider endpoint protocol")
         }
+    }
+
+    pub(crate) fn accepts_provider(self, provider: Self) -> bool {
+        self == provider
+            || matches!(
+                (self, provider),
+                (Self::OpenAiToAnthropic, Self::Anthropic)
+                    | (Self::OpenAiToAntigravity, Self::Antigravity)
+            )
     }
 }
 
@@ -1614,17 +1698,19 @@ impl ProviderAuthScheme {
             (Self::Auto, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
             (Self::Auto, _) => Ok(Self::Bearer),
             (Self::XGoogApiKey, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
-            (Self::XGoogApiKey, ProviderProtocol::Antigravity) => {
-                Err("Antigravity endpoints require bearer authentication")
-            }
+            (
+                Self::XGoogApiKey,
+                ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity,
+            ) => Err("Antigravity endpoints require bearer authentication"),
             (Self::XGoogApiKey, _) => Err("x-goog-api-key requires a Gemini endpoint"),
             (Self::Bearer, _) => Ok(Self::Bearer),
             (Self::XApiKey, ProviderProtocol::Gemini) => {
                 Err("Gemini endpoints require bearer or x-goog-api-key authentication")
             }
-            (Self::XApiKey, ProviderProtocol::Antigravity) => {
-                Err("Antigravity endpoints require bearer authentication")
-            }
+            (
+                Self::XApiKey,
+                ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity,
+            ) => Err("Antigravity endpoints require bearer authentication"),
             (Self::XApiKey, _) => Ok(Self::XApiKey),
         }
     }
@@ -3046,7 +3132,10 @@ async fn proxy_request(
         || route.is_some_and(|route| {
             route.protocol != protocol
                 && !(protocol == ProviderProtocol::OpenAi
-                    && route.protocol == ProviderProtocol::OpenAiToAnthropic)
+                    && matches!(
+                        route.protocol,
+                        ProviderProtocol::OpenAiToAnthropic | ProviderProtocol::OpenAiToAntigravity
+                    ))
         })
     {
         return error(StatusCode::NOT_FOUND, "Unknown model route");
@@ -3115,6 +3204,21 @@ async fn proxy_request(
     } else {
         None
     };
+    let translate_antigravity_route = eligible
+        .iter()
+        .any(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity);
+    if translate_antigravity_route {
+        let target = eligible
+            .iter()
+            .find(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity)
+            .expect("checked Antigravity translation target");
+        if antigravity_translation::request(&parsed, &target.model, None).is_err() {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "Unsupported OpenAI request for Antigravity translation",
+            );
+        }
+    }
     if !policy.allow_request() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
     }
@@ -3142,6 +3246,7 @@ async fn proxy_request(
     let mut final_response = None;
     let mut last_retry_response = None;
     let mut final_translated = false;
+    let mut final_antigravity_translated = false;
     let mut final_accounting = None;
     let mut final_served_model = None;
     let mut final_load_guard = None;
@@ -3403,23 +3508,36 @@ async fn proxy_request(
         };
         let translate_anthropic =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
+        let translate_antigravity =
+            target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity);
+        let attempt_protocol = target.map_or(protocol, |target| target.protocol);
+        let attempt_antigravity = matches!(
+            attempt_protocol,
+            ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity
+        );
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
-                if protocol == ProviderProtocol::Antigravity {
+                if attempt_protocol == ProviderProtocol::Antigravity {
                     if let Some(project) = target.antigravity_project.as_deref() {
                         parsed["project"] = serde_json::Value::String(project.to_owned());
                     }
                 }
-                let encoded =
-                    if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
-                        value["model"] = serde_json::Value::String(target.model.clone());
-                        serde_json::to_vec(value)
-                    } else {
-                        if protocol != ProviderProtocol::Gemini {
-                            parsed["model"] = serde_json::Value::String(target.model.clone());
-                        }
-                        serde_json::to_vec(&parsed)
-                    };
+                let encoded = if translate_antigravity {
+                    antigravity_translation::request(
+                        &parsed,
+                        &target.model,
+                        target.antigravity_project.as_deref(),
+                    )
+                    .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
+                } else if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
+                    value["model"] = serde_json::Value::String(target.model.clone());
+                    serde_json::to_vec(value).map_err(|_| ())
+                } else {
+                    if protocol != ProviderProtocol::Gemini {
+                        parsed["model"] = serde_json::Value::String(target.model.clone());
+                    }
+                    serde_json::to_vec(&parsed).map_err(|_| ())
+                };
                 let payload = match encoded {
                     Ok(value) => value,
                     Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
@@ -3481,7 +3599,7 @@ async fn proxy_request(
                 target_url.set_query(Some("alt=sse"));
             }
         }
-        if protocol == ProviderProtocol::Antigravity {
+        if attempt_antigravity {
             target_url.set_query(Some("alt=sse"));
         }
         let auth_scheme = target
@@ -3489,14 +3607,14 @@ async fn proxy_request(
             .or_else(|| live_provider.as_ref().map(|provider| provider.auth_scheme))
             .unwrap_or_else(|| {
                 ProviderAuthScheme::Auto
-                    .resolve(protocol)
+                    .resolve(attempt_protocol)
                     .expect("built-in authentication must resolve")
             });
-        let antigravity_project = (protocol == ProviderProtocol::Antigravity)
+        let antigravity_project = attempt_antigravity
             .then(|| {
-                parsed
-                    .get("project")
-                    .and_then(serde_json::Value::as_str)
+                target
+                    .and_then(|target| target.antigravity_project.as_deref())
+                    .or_else(|| parsed.get("project").and_then(serde_json::Value::as_str))
                     .filter(|value| {
                         !value.is_empty()
                             && value.len() <= 256
@@ -3538,7 +3656,7 @@ async fn proxy_request(
                 }
                 None => {}
             }
-            if protocol == ProviderProtocol::Antigravity {
+            if attempt_antigravity {
                 upstream = upstream
                     .header(header::ACCEPT, "text/event-stream")
                     .header(
@@ -3822,6 +3940,7 @@ async fn proxy_request(
             continue;
         }
         final_translated = translate_anthropic;
+        final_antigravity_translated = translate_antigravity;
         final_accounting = accounting_attempt;
         final_served_model = response
             .status()
@@ -3858,6 +3977,114 @@ async fn proxy_request(
     // Redirects are intentionally not followed or relayed to the client.
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
+    }
+    if final_antigravity_translated && response.status().is_success() {
+        let Some(response) = response.into_streaming() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
+        let event_stream = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .is_some_and(|media| media.trim().eq_ignore_ascii_case("text/event-stream"))
+            });
+        if !event_stream {
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "Invalid Antigravity stream content type",
+            );
+        }
+        if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+            let include_usage = parsed
+                .pointer("/stream_options/include_usage")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let body = if let Some(accounting) = final_accounting {
+                let context = match accounting.into_context(product_access.as_ref()) {
+                    Ok(context) => context,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        )
+                    }
+                };
+                antigravity_translation::forward_accounted(
+                    response,
+                    model.clone(),
+                    include_usage,
+                    context,
+                    (permit, client_permit),
+                    provider_load_guard,
+                )
+            } else {
+                let stream =
+                    antigravity_translation::translate(response, model.clone(), include_usage).map(
+                        move |chunk| {
+                            let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                            chunk
+                        },
+                    );
+                Body::from_stream(stream)
+            };
+            let mut result = Response::new(body);
+            result.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream"),
+            );
+            result
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            result
+                .headers_mut()
+                .insert("x-accel-buffering", HeaderValue::from_static("no"));
+            attach_served_model(&mut result, final_served_model.as_ref());
+            return result;
+        }
+        let read = async {
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            antigravity_translation::response(&bytes, &model)
+        };
+        let value = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+            Ok(Ok(value)) => value,
+            _ => return error(StatusCode::BAD_GATEWAY, "Invalid Antigravity response"),
+        };
+        if let Some(accounting) = final_accounting {
+            let usage = match accounting::ChatUsage::from_response(&value) {
+                Ok(usage) => usage,
+                Err(_) => {
+                    return error(
+                        StatusCode::BAD_GATEWAY,
+                        "Provider response is missing valid token usage",
+                    )
+                }
+            };
+            if accounting
+                .record(product_access.as_ref(), &usage)
+                .await
+                .is_err()
+            {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting unavailable",
+                );
+            }
+        }
+        let mut result = (StatusCode::OK, Json(value)).into_response();
+        attach_served_model(&mut result, final_served_model.as_ref());
+        return result;
     }
     if final_translated && response.status().is_success() {
         let Some(response) = response.into_streaming() else {

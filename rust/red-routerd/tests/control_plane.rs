@@ -5796,10 +5796,17 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
                             .unwrap();
                         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
                         assert_eq!(body["project"], "agy-project-1");
+                        if body.get("requestId").is_some() {
+                            assert_eq!(body["model"], "gemini-2.5-pro");
+                            assert_eq!(
+                                body["request"]["contents"][0]["parts"][0]["text"],
+                                "hello from OpenAI"
+                            );
+                        }
                         observations.lock().unwrap().push("inference".to_owned());
                         (
                             [(header::CONTENT_TYPE, "text/event-stream")],
-                            "data: {\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}]}}\n\n",
+                            "data: {\"response\":{\"responseId\":\"agy-response-1\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":3,\"totalTokenCount\":7}}}\n\n",
                         )
                     }
                 }
@@ -5897,9 +5904,43 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
         .unwrap();
     assert_eq!(inference.status(), StatusCode::OK);
     assert!(inference.text().await.unwrap().contains("finishReason"));
+    let translated_combo = client
+        .put(format!("{base}/api/admin/combos/agy-openai"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "protocol":"openai-to-antigravity",
+            "strategy":"priority",
+            "fallback":true,
+            "targets":[{"provider_id":provider_id,"model":"gemini-2.5-pro"}],
+            "enabled":true
+        }))
+        .send()
+        .await
+        .unwrap();
+    if translated_combo.status() != StatusCode::OK {
+        panic!("{}", translated_combo.text().await.unwrap());
+    }
+    let translated = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"agy-openai",
+            "messages":[{"role":"user","content":"hello from OpenAI"}],
+            "stream":false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(translated.status(), StatusCode::OK);
+    let translated: serde_json::Value = translated.json().await.unwrap();
+    assert_eq!(
+        translated["choices"][0]["message"]["content"],
+        "hello from Antigravity"
+    );
+    assert_eq!(translated["usage"]["total_tokens"], 7);
     assert_eq!(
         observations.lock().unwrap().as_slice(),
-        ["refresh", "inference"]
+        ["refresh", "inference", "inference"]
     );
     gateway_task.abort();
     upstream_task.abort();

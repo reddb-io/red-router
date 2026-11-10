@@ -183,6 +183,99 @@ async fn antigravity_retries_project_scoped_forbidden_without_billing_header() {
 }
 
 #[tokio::test]
+async fn openai_to_antigravity_streams_text_tools_and_usage() {
+    let provider = Router::new().route(
+        "/v1internal:streamGenerateContent",
+        post(|headers: HeaderMap, body: String| async move {
+            assert_eq!(
+                headers[header::AUTHORIZATION],
+                "Bearer antigravity-access-token"
+            );
+            assert!(headers.get("x-goog-user-project").is_none());
+            let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(body["model"], "gemini-2.5-pro");
+            assert_eq!(body["project"], "");
+            assert_eq!(
+                body["request"]["contents"][0]["parts"][0]["text"],
+                "Use tools."
+            );
+            assert_eq!(
+                body["request"]["tools"][0]["functionDeclarations"][0]["name"],
+                "weather"
+            );
+            let event = concat!(
+                "data: {\"response\":{\"responseId\":\"agy-stream-1\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thought\":true,\"text\":\"checking\"},{\"text\":\"Calling weather\"},{\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":4,\"totalTokenCount\":9,\"thoughtsTokenCount\":1}}}\n\n"
+            );
+            let pieces: Vec<_> = event
+                .as_bytes()
+                .chunks(2)
+                .map(|bytes| Ok::<_, io::Error>(Bytes::copy_from_slice(bytes)))
+                .collect();
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(stream::iter(pieces)),
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{
+        "model":"agy-openai",
+        "protocol":"openai-to-antigravity",
+        "targets":[{
+            "url":format!("http://{address}/v1internal:streamGenerateContent"),
+            "model":"gemini-2.5-pro",
+            "api_key_env":"ANTIGRAVITY_TOKEN"
+        }]
+    }])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("antigravity-access-token".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("client-key-12345678")
+        .json(&serde_json::json!({
+            "model":"agy-openai",
+            "messages":[
+                {"role":"system","content":"Use tools."},
+                {"role":"user","content":"weather in SP"}
+            ],
+            "tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object"}}}],
+            "stream":true,
+            "stream_options":{"include_usage":true}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let output = response.text().await.unwrap();
+    assert!(output.contains("Calling weather"));
+    assert!(output.contains("reasoning_content"));
+    assert!(output.contains("call_agy_0"));
+    assert!(output.contains("\"total_tokens\":9"));
+    assert!(output.ends_with("data: [DONE]\n\n"));
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn anthropic_native_route_can_use_bearer_provider_authentication() {
     let provider = Router::new().route(
         "/v1/messages",

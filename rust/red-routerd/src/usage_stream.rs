@@ -31,7 +31,7 @@ pub(crate) enum UsageContext {
 }
 
 impl UsageContext {
-    async fn record(self, usage: &ChatUsage) -> Result<(), &'static str> {
+    pub(crate) async fn record(self, usage: &ChatUsage) -> Result<(), &'static str> {
         match self {
             Self::Product {
                 connection,

@@ -4156,7 +4156,7 @@ impl ControlPlane {
                     .and_then(|provider| {
                         ProviderProtocol::from_upstream(&provider.upstream_url).ok()
                     })
-                    == Some(protocol)
+                    .is_some_and(|provider| protocol.accepts_provider(provider))
             }) {
                 return Err("combo targets require enabled providers with the same protocol");
             }
@@ -5620,13 +5620,14 @@ impl ControlPlane {
                 }
                 if live
                     .get(&provider.id)
-                    .is_none_or(|provider| provider.protocol != protocol)
+                    .is_none_or(|provider| !protocol.accepts_provider(provider.protocol))
                 {
                     return Err("combo provider protocol changed");
                 }
                 let quota = self.quota_state(&provider.id).await;
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
+                    protocol,
                     target.model,
                     target.weight.unwrap_or(1),
                     target.input_cost_per_million,
@@ -6526,7 +6527,7 @@ async fn probe_provider(
         ProviderProtocol::Antigravity => {
             return Err("Antigravity diagnostics require persisted project metadata")
         }
-        ProviderProtocol::OpenAiToAnthropic => {
+        ProviderProtocol::OpenAiToAnthropic | ProviderProtocol::OpenAiToAntigravity => {
             return Err("translated providers cannot be diagnosed directly")
         }
     };
@@ -7220,7 +7221,9 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             || target.model.chars().any(char::is_control)
             || (matches!(
                 protocol,
-                ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+                ProviderProtocol::Gemini
+                    | ProviderProtocol::Antigravity
+                    | ProviderProtocol::OpenAiToAntigravity
             ) && !crate::valid_gemini_model(&target.model))
         {
             return Err("invalid combo target model");
