@@ -172,7 +172,7 @@ describe("Rust provider models.dev catalog", () => {
 
     expect(api.authorizeRustProviderOAuth).toHaveBeenCalledWith(
       "agy",
-      "http://127.0.0.1:20128/callback"
+      `http://127.0.0.1:${window.location.port || "20128"}/callback`
     );
     expect(container.textContent).toContain("Connect Antigravity");
     const callback = container.querySelector("textarea") as HTMLTextAreaElement;
