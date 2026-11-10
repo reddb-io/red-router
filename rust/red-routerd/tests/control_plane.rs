@@ -7508,7 +7508,18 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
             .put(format!("{base}/api/admin/client-keys/agent-fleet"))
             .bearer_auth(ADMIN_KEY)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
-            .body(update_key("first", None))
+            .body(
+                serde_json::json!({
+                    "label":"Agent fleet",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["removable-provider-guard"],
+                    "allowed_provider_ids":["first"],
+                    "max_concurrent_requests":32,
+                    "max_requests_per_minute":600
+                })
+                .to_string(),
+            )
             .send()
             .await
             .unwrap()
@@ -7516,7 +7527,12 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         200
     );
     assert_eq!(
-        chat(&client, &base, RUST_CLIENT_KEY)
+        chat_model(
+            &client,
+            &base,
+            RUST_CLIENT_KEY,
+            "removable-provider-guard",
+        )
             .await
             .text()
             .await
@@ -7530,7 +7546,12 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         .unwrap();
     let (restarted_base, restarted_task) = gateway(restarted).await;
     assert_eq!(
-        chat(&client, &restarted_base, RUST_CLIENT_KEY)
+        chat_model(
+            &client,
+            &restarted_base,
+            RUST_CLIENT_KEY,
+            "removable-provider-guard",
+        )
             .await
             .text()
             .await
