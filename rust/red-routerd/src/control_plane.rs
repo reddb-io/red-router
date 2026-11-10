@@ -20,7 +20,8 @@ use aes_gcm::{
     AesGcm, Nonce,
 };
 use axum::{
-    extract::{Path, Query, State},
+    body::to_bytes,
+    extract::{Path, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -32,6 +33,8 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    io::{Cursor, Read},
+    path::Path as FilePath,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -58,6 +61,11 @@ const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/boo
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const AUTH_ZIP_BODY_LIMIT_BYTES: usize = 11 * 1024 * 1024;
+const AUTH_ZIP_MAX_ENTRIES: usize = 1_024;
+const AUTH_ZIP_MAX_JSON_FILES: usize = 50;
+const AUTH_ZIP_MAX_FILE_BYTES: usize = 256 * 1024;
+const AUTH_ZIP_MAX_TOTAL_BYTES: usize = 10 * 1024 * 1024;
 const SQLITE_CONTROL_MARKER: &str = "SELECT kind, record_id, revision, generation FROM (
 SELECT 'provider' AS kind, id AS record_id, revision, 0 AS generation FROM redrouter_control_providers
 UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_control_provider_ownership
@@ -392,6 +400,45 @@ struct ParsedClaudeAuth {
     access_token: Zeroizing<String>,
     refresh_token: Zeroizing<String>,
     expires_at_unix: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct AuthZipEntry {
+    name: String,
+    json: Option<serde_json::Value>,
+    #[serde(rename = "parseError")]
+    parse_error: Option<&'static str>,
+}
+
+#[derive(Debug)]
+enum AuthZipError {
+    InvalidArchive,
+    TooManyEntries,
+    NoJsonFiles,
+    TooManyJsonFiles,
+    UnsafeEntry,
+    UnsupportedEntry,
+    EncryptedEntry,
+    FileTooLarge,
+    TotalTooLarge,
+}
+
+impl AuthZipError {
+    fn message(&self) -> &'static str {
+        match self {
+            Self::InvalidArchive => {
+                "Could not parse ZIP archive - file may be corrupt or not a valid ZIP"
+            }
+            Self::TooManyEntries => "ZIP archive contains too many entries",
+            Self::NoJsonFiles => "ZIP archive contains no .json files",
+            Self::TooManyJsonFiles => "ZIP archive contains more than 50 .json files",
+            Self::UnsafeEntry => "ZIP archive contains an unsafe entry path",
+            Self::UnsupportedEntry => "ZIP archive contains an unsupported non-file entry",
+            Self::EncryptedEntry => "Encrypted ZIP entries are not supported",
+            Self::FileTooLarge => "ZIP entry exceeds the 256 KB size limit",
+            Self::TotalTooLarge => "ZIP archive total uncompressed size exceeds the 10 MB limit",
+        }
+    }
 }
 
 struct ClaudeBootstrapIdentity {
@@ -6644,6 +6691,95 @@ fn parse_claude_expiry(value: Option<&serde_json::Value>) -> Result<u64, &'stati
     Ok(seconds)
 }
 
+fn unsafe_auth_zip_entry_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    name.is_empty()
+        || name.contains("..")
+        || name.contains('\\')
+        || name.chars().any(char::is_control)
+        || name.starts_with('/')
+        || bytes.get(1) == Some(&b':')
+}
+
+fn extract_auth_zip(body: Vec<u8>) -> Result<Vec<AuthZipEntry>, AuthZipError> {
+    let reader = Cursor::new(body);
+    let mut archive = zip::ZipArchive::new(reader).map_err(|_| AuthZipError::InvalidArchive)?;
+    if archive.len() > AUTH_ZIP_MAX_ENTRIES {
+        return Err(AuthZipError::TooManyEntries);
+    }
+
+    let mut entries = Vec::new();
+    let mut total_bytes = 0usize;
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|_| AuthZipError::InvalidArchive)?;
+        let raw_name = file
+            .name()
+            .map_err(|_| AuthZipError::UnsafeEntry)?
+            .into_owned();
+        if !raw_name.to_ascii_lowercase().ends_with(".json") {
+            continue;
+        }
+        if entries.len() >= AUTH_ZIP_MAX_JSON_FILES {
+            return Err(AuthZipError::TooManyJsonFiles);
+        }
+        if unsafe_auth_zip_entry_name(&raw_name) || file.enclosed_name().is_none() {
+            return Err(AuthZipError::UnsafeEntry);
+        }
+        if !file.is_file() {
+            return Err(AuthZipError::UnsupportedEntry);
+        }
+        if file.encrypted() {
+            return Err(AuthZipError::EncryptedEntry);
+        }
+        if file.size() > AUTH_ZIP_MAX_FILE_BYTES as u64 {
+            return Err(AuthZipError::FileTooLarge);
+        }
+        let declared_size = usize::try_from(file.size()).map_err(|_| AuthZipError::FileTooLarge)?;
+        if total_bytes
+            .checked_add(declared_size)
+            .is_none_or(|size| size > AUTH_ZIP_MAX_TOTAL_BYTES)
+        {
+            return Err(AuthZipError::TotalTooLarge);
+        }
+        let base_name = FilePath::new(&raw_name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .ok_or(AuthZipError::UnsafeEntry)?
+            .to_owned();
+        let mut content = Vec::with_capacity(declared_size.min(AUTH_ZIP_MAX_FILE_BYTES));
+        file.by_ref()
+            .take((AUTH_ZIP_MAX_FILE_BYTES + 1) as u64)
+            .read_to_end(&mut content)
+            .map_err(|_| AuthZipError::InvalidArchive)?;
+        if content.len() > AUTH_ZIP_MAX_FILE_BYTES {
+            return Err(AuthZipError::FileTooLarge);
+        }
+        total_bytes = total_bytes
+            .checked_add(content.len())
+            .filter(|size| *size <= AUTH_ZIP_MAX_TOTAL_BYTES)
+            .ok_or(AuthZipError::TotalTooLarge)?;
+        match serde_json::from_slice(&content) {
+            Ok(json) => entries.push(AuthZipEntry {
+                name: base_name,
+                json: Some(json),
+                parse_error: None,
+            }),
+            Err(_) => entries.push(AuthZipEntry {
+                name: base_name,
+                json: None,
+                parse_error: Some("Not valid JSON"),
+            }),
+        }
+    }
+    if entries.is_empty() {
+        return Err(AuthZipError::NoJsonFiles);
+    }
+    Ok(entries)
+}
+
 fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
     value
         .and_then(serde_json::Value::as_str)
@@ -7766,6 +7902,66 @@ pub async fn put_provider(
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration"),
     }
+}
+
+async fn extract_auth_zip_response(state: ProxyState, request: Request) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if control.management_scope(request.headers()).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|size| size > AUTH_ZIP_BODY_LIMIT_BYTES)
+    {
+        return api_error_code(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "ZIP file exceeds the 10 MB size limit",
+            "file_too_large",
+        );
+    }
+    let body = match to_bytes(request.into_body(), AUTH_ZIP_BODY_LIMIT_BYTES).await {
+        Ok(body) => body.to_vec(),
+        Err(_) => {
+            return api_error_code(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "ZIP file exceeds the 10 MB size limit",
+                "file_too_large",
+            )
+        }
+    };
+    match tokio::task::spawn_blocking(move || extract_auth_zip(body)).await {
+        Ok(Ok(entries)) => {
+            let mut response = Json(serde_json::json!({"entries":entries})).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Ok(Err(error)) => {
+            api_error_code(StatusCode::BAD_REQUEST, error.message(), "extract_failed")
+        }
+        Err(_) => api_error_code(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to extract ZIP",
+            "extract_failed",
+        ),
+    }
+}
+
+pub async fn extract_codex_auth_zip(State(state): State<ProxyState>, request: Request) -> Response {
+    extract_auth_zip_response(state, request).await
+}
+
+pub async fn extract_claude_auth_zip(
+    State(state): State<ProxyState>,
+    request: Request,
+) -> Response {
+    extract_auth_zip_response(state, request).await
 }
 
 pub async fn import_codex_auth(

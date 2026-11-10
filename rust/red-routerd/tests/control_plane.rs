@@ -16,6 +16,7 @@ use red_routerd::{
 };
 use sha2::{Digest, Sha256};
 use std::{
+    io::{Cursor, Write},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -29,6 +30,18 @@ const ADMIN_KEY: &str = "fixture-admin-key-1234567890-abcdef";
 const CLIENT_KEY: &str = "fixture-client-key-1234567890";
 const RUST_CLIENT_KEY: &str = "rust-owned-client-key-1234567890";
 const STORAGE_KEY: &str = "fixture-storage-key-1234567890";
+
+fn auth_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, content) in entries {
+        writer.start_file(*name, options).unwrap();
+        writer.write_all(content).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
 const OIDC_PRIVATE_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWTFfCGljY6aw3Hrt
 kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
@@ -5041,6 +5054,108 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
 
     gateway_task.abort();
     token_task.abort();
+}
+
+#[tokio::test]
+async fn rust_extracts_auth_zip_for_codex_and_claude_with_bounded_safe_entries() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("auth-zip.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let archive = auth_zip(&[
+        (
+            "accounts/primary.json",
+            br#"{"tokens":{"access_token":"secret"}}"#,
+        ),
+        ("broken.JSON", b"not-json"),
+        ("ignored.txt", b"ignored"),
+    ]);
+
+    let unauthorized = client
+        .post(format!("{base}/api/providers/codex-auth/zip-extract"))
+        .body(archive.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    for provider in ["codex", "claude"] {
+        let response = client
+            .post(format!("{base}/api/providers/{provider}-auth/zip-extract"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/zip")
+            .body(archive.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            HeaderValue::from_static("no-store")
+        );
+        let response: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(response["entries"].as_array().unwrap().len(), 2);
+        assert_eq!(response["entries"][0]["name"], "primary.json");
+        assert_eq!(
+            response["entries"][0]["json"]["tokens"]["access_token"],
+            "secret"
+        );
+        assert_eq!(
+            response["entries"][0]["parseError"],
+            serde_json::Value::Null
+        );
+        assert_eq!(response["entries"][1]["name"], "broken.JSON");
+        assert_eq!(response["entries"][1]["json"], serde_json::Value::Null);
+        assert_eq!(response["entries"][1]["parseError"], "Not valid JSON");
+    }
+
+    let traversal = auth_zip(&[("../escape.json", br#"{"ok":true}"#)]);
+    let rejected = client
+        .post(format!("{base}/api/providers/codex-auth/zip-extract"))
+        .bearer_auth(ADMIN_KEY)
+        .body(traversal)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+    let rejected: serde_json::Value =
+        serde_json::from_str(&rejected.text().await.unwrap()).unwrap();
+    assert_eq!(rejected["code"], "extract_failed");
+    assert_eq!(
+        rejected["error"],
+        "ZIP archive contains an unsafe entry path"
+    );
+
+    let many_entries = (0..=50)
+        .map(|index| (format!("account-{index}.json"), b"{}".to_vec()))
+        .collect::<Vec<_>>();
+    let many_entry_refs = many_entries
+        .iter()
+        .map(|(name, content)| (name.as_str(), content.as_slice()))
+        .collect::<Vec<_>>();
+    let rejected = client
+        .post(format!("{base}/api/providers/claude-auth/zip-extract"))
+        .bearer_auth(ADMIN_KEY)
+        .body(auth_zip(&many_entry_refs))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+    let rejected: serde_json::Value =
+        serde_json::from_str(&rejected.text().await.unwrap()).unwrap();
+    assert_eq!(rejected["code"], "extract_failed");
+    assert_eq!(
+        rejected["error"],
+        "ZIP archive contains more than 50 .json files"
+    );
+
+    gateway_task.abort();
 }
 
 #[tokio::test]

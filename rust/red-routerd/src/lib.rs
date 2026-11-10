@@ -1709,12 +1709,20 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::import_codex_auth_bulk),
         )
         .route(
+            "/api/providers/codex-auth/zip-extract",
+            post(control_plane::extract_codex_auth_zip),
+        )
+        .route(
             "/api/providers/claude-auth/import",
             post(control_plane::import_claude_auth),
         )
         .route(
             "/api/providers/claude-auth/import-bulk",
             post(control_plane::import_claude_auth_bulk),
+        )
+        .route(
+            "/api/providers/claude-auth/zip-extract",
+            post(control_plane::extract_claude_auth_zip),
         )
         .route(
             "/api/admin/client-keys",
