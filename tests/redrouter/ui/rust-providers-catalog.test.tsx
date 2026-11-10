@@ -164,6 +164,17 @@ describe("Rust provider models.dev catalog", () => {
     };
     const initialQuota = {
       provider_id: provider.id,
+      models: [
+        {
+          model_id: "gemini-3-pro",
+          session: { remaining_percent: 35 },
+          weekly: { remaining_percent: 61 },
+          limit_reached: false,
+          observed_at_unix_ms: now,
+          expires_at_unix_ms: now + 180_000,
+          revision: "model-quota-revision-1",
+        },
+      ],
       session: { remaining_percent: 72.5, reset_at_unix_ms: now + 3_600_000 },
       weekly: { remaining_percent: 48 },
       limit_reached: false,
@@ -194,6 +205,10 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("Provider quota");
     expect(container.textContent).toContain("72.5% remaining");
     expect(container.textContent).toContain("48% remaining");
+    expect(container.textContent).toContain("Model quotas");
+    expect(container.textContent).toContain("gemini-3-pro");
+    expect(container.textContent).toContain("35% remaining");
+    expect(container.textContent).toContain("61% remaining");
     expect(container.textContent).toContain("Current");
 
     const refresh = [...container.querySelectorAll("button")].find(

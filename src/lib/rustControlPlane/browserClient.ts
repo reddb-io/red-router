@@ -209,8 +209,19 @@ export interface RustProviderQuotaWindow {
   reset_at_unix_ms?: number;
 }
 
+export interface RustProviderModelQuota {
+  model_id: string;
+  session?: RustProviderQuotaWindow;
+  weekly?: RustProviderQuotaWindow;
+  limit_reached: boolean;
+  observed_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  revision: string;
+}
+
 export interface RustProviderQuota {
   provider_id: string;
+  models?: RustProviderModelQuota[];
   session?: RustProviderQuotaWindow;
   weekly?: RustProviderQuotaWindow;
   limit_reached: boolean;
@@ -642,12 +653,39 @@ function isRustProviderQuotaWindow(value: unknown): value is RustProviderQuotaWi
   );
 }
 
+function isRustProviderModelQuota(value: unknown): value is RustProviderModelQuota {
+  if (!value || typeof value !== "object") return false;
+  const quota = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(quota, [
+      "model_id",
+      "session",
+      "weekly",
+      "limit_reached",
+      "observed_at_unix_ms",
+      "expires_at_unix_ms",
+      "revision",
+    ]) &&
+    typeof quota.model_id === "string" &&
+    quota.model_id.length > 0 &&
+    (quota.session === undefined || isRustProviderQuotaWindow(quota.session)) &&
+    (quota.weekly === undefined || isRustProviderQuotaWindow(quota.weekly)) &&
+    (quota.session !== undefined || quota.weekly !== undefined) &&
+    typeof quota.limit_reached === "boolean" &&
+    isNonNegativeInteger(quota.observed_at_unix_ms) &&
+    isNonNegativeInteger(quota.expires_at_unix_ms) &&
+    quota.expires_at_unix_ms >= quota.observed_at_unix_ms &&
+    typeof quota.revision === "string"
+  );
+}
+
 function isRustProviderQuota(value: unknown): value is RustProviderQuota {
   if (!value || typeof value !== "object") return false;
   const quota = value as Record<string, unknown>;
   return (
     hasOnlyKeys(quota, [
       "provider_id",
+      "models",
       "session",
       "weekly",
       "limit_reached",
@@ -656,9 +694,13 @@ function isRustProviderQuota(value: unknown): value is RustProviderQuota {
       "revision",
     ]) &&
     typeof quota.provider_id === "string" &&
+    (quota.models === undefined ||
+      (Array.isArray(quota.models) && quota.models.every(isRustProviderModelQuota))) &&
     (quota.session === undefined || isRustProviderQuotaWindow(quota.session)) &&
     (quota.weekly === undefined || isRustProviderQuotaWindow(quota.weekly)) &&
-    (quota.session !== undefined || quota.weekly !== undefined) &&
+    (quota.session !== undefined ||
+      quota.weekly !== undefined ||
+      (Array.isArray(quota.models) && quota.models.length > 0)) &&
     typeof quota.limit_reached === "boolean" &&
     isNonNegativeInteger(quota.observed_at_unix_ms) &&
     isNonNegativeInteger(quota.expires_at_unix_ms) &&

@@ -86,6 +86,24 @@ const providerQuota: RustProviderQuota = {
   revision: "1700000000000000004",
 };
 
+const modelScopedQuota: RustProviderQuota = {
+  provider_id: "codex-team",
+  models: [
+    {
+      model_id: "gpt-5.3-codex",
+      weekly: { remaining_percent: 64, reset_at_unix_ms: 1_900_000_000_000 },
+      limit_reached: false,
+      observed_at_unix_ms: 1_800_000_000_000,
+      expires_at_unix_ms: 1_800_000_180_000,
+      revision: "1700000000000000005",
+    },
+  ],
+  limit_reached: false,
+  observed_at_unix_ms: 1_800_000_000_000,
+  expires_at_unix_ms: 1_800_000_180_000,
+  revision: "1700000000000000006",
+};
+
 const catalogManifest = {
   schemaVersion: 1,
   transformVersion: 3,
@@ -451,7 +469,7 @@ describe("Rust control-plane browser client", () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ provider_quotas: [providerQuota] }))
+      .mockResolvedValueOnce(Response.json({ provider_quotas: [providerQuota, modelScopedQuota] }))
       .mockResolvedValueOnce(
         Response.json({
           refresh: {
@@ -469,7 +487,7 @@ describe("Rust control-plane browser client", () => {
       );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustProviderQuotas()).resolves.toEqual([providerQuota]);
+    await expect(listRustProviderQuotas()).resolves.toEqual([providerQuota, modelScopedQuota]);
     await expect(refreshRustProviderQuota(providerQuota.provider_id)).resolves.toMatchObject({
       refreshed: true,
       quota: providerQuota,

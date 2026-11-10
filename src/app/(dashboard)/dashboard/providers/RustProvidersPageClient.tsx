@@ -889,6 +889,58 @@ export default function RustProvidersPageClient() {
                         </span>
                       )}
                     </div>
+                    {quota?.models && quota.models.length > 0 && (
+                      <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                        <div className="text-xs font-medium text-text">Model quotas</div>
+                        <div className="mt-2 grid gap-2">
+                          {quota.models.map((modelQuota) => {
+                            const expired = modelQuota.expires_at_unix_ms <= Date.now();
+                            return (
+                              <div
+                                key={modelQuota.model_id}
+                                className="rounded-md bg-black/[0.025] px-2.5 py-2 text-xs text-text-muted dark:bg-white/[0.04]"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="break-all font-mono text-text">
+                                    {modelQuota.model_id}
+                                  </span>
+                                  <span
+                                    className={
+                                      expired
+                                        ? "text-feedback-warning-foreground"
+                                        : modelQuota.limit_reached
+                                          ? "text-feedback-danger-foreground"
+                                          : "text-feedback-success-foreground"
+                                    }
+                                  >
+                                    {expired
+                                      ? "Expired"
+                                      : modelQuota.limit_reached
+                                        ? "Limit reached"
+                                        : "Current"}
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                                  {modelQuota.session && (
+                                    <span>
+                                      Session {quotaPercent(modelQuota.session.remaining_percent)}
+                                    </span>
+                                  )}
+                                  {modelQuota.weekly && (
+                                    <span>
+                                      Weekly {quotaPercent(modelQuota.weekly.remaining_percent)}
+                                    </span>
+                                  )}
+                                  <span>
+                                    Valid until {quotaDate(modelQuota.expires_at_unix_ms)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {quotaRefreshCategory && quotaRefreshCategory !== "refreshed" && (
                       <p className="mt-2 text-xs text-feedback-warning-foreground" role="status">
                         Latest refresh: {quotaRefreshCategory.replaceAll("_", " ")}. The last valid
