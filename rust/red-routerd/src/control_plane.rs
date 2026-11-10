@@ -2455,14 +2455,17 @@ impl ControlPlane {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ACCEPT, "application/json")
                 .header("anthropic-beta", "oauth-2025-04-20")
-                .json(&serde_json::json!({
-                    "code":code,
-                    "state":state,
-                    "grant_type":"authorization_code",
-                    "client_id":client_id,
-                    "redirect_uri":redirect_uri,
-                    "code_verifier":code_verifier,
-                }))
+                .body(
+                    serde_json::json!({
+                        "code":code,
+                        "state":state,
+                        "grant_type":"authorization_code",
+                        "client_id":client_id,
+                        "redirect_uri":redirect_uri,
+                        "code_verifier":code_verifier,
+                    })
+                    .to_string(),
+                )
         };
         let response = request
             .send()
