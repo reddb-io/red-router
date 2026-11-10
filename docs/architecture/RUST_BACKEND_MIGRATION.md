@@ -141,12 +141,14 @@ project metadata through fixed redirect-free Google endpoints, encrypts the refr
 revision-coupled session metadata, and uses the same tenant-scoped overwrite and audit rules. The
 native `/v1/antigravity` transport preserves the Cloud Code envelope and SSE response, pins the
 runtime endpoint, applies the official CLI identity and project header, and participates in combo
-selection and token accounting without Next.js. Its `agy`/`antigravity` provider names resolve
+selection and token accounting without Next.js. A project-scoped `403` is retried exactly once
+without `x-goog-user-project`, matching the CLI behavior for valid consumer sessions that cannot
+bill the bootstrapped project. Its `agy`/`antigravity` provider names resolve
 model context, capability and price metadata from the validated `models.dev` Google namespace.
 Google refresh is coordinated by the same
 cross-replica lease and generation CAS; deployments must provide
 `ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` for refresh. Browser OAuth,
-OpenAI-to-Antigravity translation and advanced credits/retry policy remain follow-up work. The
+OpenAI-to-Antigravity translation and credits-aware retry policy remain follow-up work. The
 remaining provider import formats are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider

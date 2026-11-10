@@ -7,7 +7,14 @@ use axum::{
 };
 use futures_util::{stream, StreamExt};
 use red_routerd::{router, ProxyState};
-use std::{io, sync::Arc, time::Duration};
+use std::{
+    io,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
@@ -89,6 +96,87 @@ async fn antigravity_native_route_preserves_envelope_and_official_cli_identity()
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.text().await.unwrap().contains("usageMetadata"));
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
+async fn antigravity_retries_project_scoped_forbidden_without_billing_header() {
+    use axum::extract::Request;
+
+    let sends = Arc::new(AtomicUsize::new(0));
+    let provider_sends = sends.clone();
+    let provider = Router::new().route(
+        "/v1internal:streamGenerateContent",
+        post(move |request: Request| {
+            let sends = provider_sends.clone();
+            async move {
+                assert_eq!(
+                    request.headers()[header::AUTHORIZATION],
+                    "Bearer antigravity-access-token"
+                );
+                let send = sends.fetch_add(1, Ordering::SeqCst);
+                if send == 0 {
+                    assert_eq!(
+                        request.headers()["x-goog-user-project"],
+                        "forbidden-project"
+                    );
+                    return StatusCode::FORBIDDEN.into_response();
+                }
+                assert!(request.headers().get("x-goog-user-project").is_none());
+                (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    "data: {\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}}\n\n",
+                )
+                    .into_response()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{
+        "model":"antigravity-route",
+        "protocol":"antigravity",
+        "targets":[{
+            "url":format!("http://{address}/v1internal:streamGenerateContent"),
+            "model":"gemini-2.5-pro",
+            "api_key_env":"ANTIGRAVITY_TOKEN"
+        }]
+    }])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("antigravity-access-token".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{base}/v1/antigravity"))
+        .bearer_auth("client-key-12345678")
+        .json(&serde_json::json!({
+            "model":"antigravity-route",
+            "project":"forbidden-project",
+            "request":{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sends.load(Ordering::SeqCst), 2);
     assert!(response.text().await.unwrap().contains("usageMetadata"));
     proxy_task.abort();
     provider_task.abort();

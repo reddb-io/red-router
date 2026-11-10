@@ -3484,10 +3484,6 @@ async fn proxy_request(
         if protocol == ProviderProtocol::Antigravity {
             target_url.set_query(Some("alt=sse"));
         }
-        let mut upstream = client
-            .post(target_url)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(payload);
         let auth_scheme = target
             .map(|target| target.auth_scheme)
             .or_else(|| live_provider.as_ref().map(|provider| provider.auth_scheme))
@@ -3496,52 +3492,69 @@ async fn proxy_request(
                     .resolve(protocol)
                     .expect("built-in authentication must resolve")
             });
-        upstream = match auth_scheme {
-            ProviderAuthScheme::Bearer => {
-                upstream.header(header::AUTHORIZATION, provider_key.clone())
-            }
-            ProviderAuthScheme::XApiKey => upstream.header("x-api-key", provider_key.clone()),
-            ProviderAuthScheme::XGoogApiKey => {
-                upstream.header("x-goog-api-key", provider_key.clone())
-            }
-            ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
-        };
-        match &anthropic_headers {
-            Some((version, beta)) => {
-                upstream = upstream.header("anthropic-version", version.clone());
-                if let Some(beta) = beta {
-                    upstream = upstream.header("anthropic-beta", beta.clone());
+        let antigravity_project = (protocol == ProviderProtocol::Antigravity)
+            .then(|| {
+                parsed
+                    .get("project")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value.len() <= 256
+                            && !value.chars().any(char::is_control)
+                            && *value != "test-project"
+                            && *value != "project-id"
+                    })
+                    .map(str::to_owned)
+            })
+            .flatten();
+        // Keep the finite JSON upload replayable. Antigravity's official CLI
+        // retries a project-scoped 403 once without x-goog-user-project because
+        // consumer accounts can have a valid session but no permission to bill
+        // the bootstrapped project.
+        let build_upstream = |include_antigravity_project: bool| {
+            let mut upstream = client
+                .post(target_url.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(payload.clone());
+            upstream = match auth_scheme {
+                ProviderAuthScheme::Bearer => {
+                    upstream.header(header::AUTHORIZATION, provider_key.clone())
                 }
+                ProviderAuthScheme::XApiKey => upstream.header("x-api-key", provider_key.clone()),
+                ProviderAuthScheme::XGoogApiKey => {
+                    upstream.header("x-goog-api-key", provider_key.clone())
+                }
+                ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
+            };
+            match &anthropic_headers {
+                Some((version, beta)) => {
+                    upstream = upstream.header("anthropic-version", version.clone());
+                    if let Some(beta) = beta {
+                        upstream = upstream.header("anthropic-beta", beta.clone());
+                    }
+                }
+                None if translate_anthropic => {
+                    upstream = upstream.header("anthropic-version", "2023-06-01");
+                }
+                None => {}
             }
-            None if translate_anthropic => {
-                upstream = upstream.header("anthropic-version", "2023-06-01");
+            if protocol == ProviderProtocol::Antigravity {
+                upstream = upstream
+                    .header(header::ACCEPT, "text/event-stream")
+                    .header(
+                        header::USER_AGENT,
+                        "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
+                    );
+                if include_antigravity_project {
+                    if let Some(project) = antigravity_project.as_deref() {
+                        upstream = upstream.header("x-goog-user-project", project);
+                    }
+                }
+            } else if let Some(accept) = &accept {
+                upstream = upstream.header(header::ACCEPT, accept.clone());
             }
-            None => {}
-        }
-        if protocol == ProviderProtocol::Antigravity {
-            upstream = upstream.header(header::ACCEPT, "text/event-stream");
-        } else if let Some(accept) = &accept {
-            upstream = upstream.header(header::ACCEPT, accept.clone());
-        }
-        if protocol == ProviderProtocol::Antigravity {
-            upstream = upstream.header(
-                header::USER_AGENT,
-                "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
-            );
-            if let Some(project) = parsed
-                .get("project")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| {
-                    !value.is_empty()
-                        && value.len() <= 256
-                        && !value.chars().any(char::is_control)
-                        && *value != "test-project"
-                        && *value != "project-id"
-                })
-            {
-                upstream = upstream.header("x-goog-user-project", project);
-            }
-        }
+            upstream
+        };
         let circuit = target
             .and_then(|target| target.circuit.as_ref())
             .or_else(|| {
@@ -3589,9 +3602,27 @@ async fn proxy_request(
                     .map(|provider| provider.in_flight.clone())
             })
             .map(ProviderLoadGuard::new);
-        let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(_)) => {
+        let response = match tokio::time::timeout(HEADER_TIMEOUT, build_upstream(true).send()).await
+        {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err(false),
+            Err(_) => Err(true),
+        };
+        let response = match response {
+            Ok(response)
+                if response.status() == StatusCode::FORBIDDEN && antigravity_project.is_some() =>
+            {
+                match tokio::time::timeout(HEADER_TIMEOUT, build_upstream(false).send()).await {
+                    Ok(Ok(response)) => Ok(response),
+                    Ok(Err(_)) => Err(false),
+                    Err(_) => Err(true),
+                }
+            }
+            response => response,
+        };
+        let response = match response {
+            Ok(response) => response,
+            Err(false) => {
                 if let Some(target) = target {
                     record_route_outcome(
                         &state,
@@ -3616,7 +3647,7 @@ async fn proxy_request(
                 }
                 return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
             }
-            Err(_) => {
+            Err(true) => {
                 if let Some(target) = target {
                     record_route_outcome(
                         &state,
