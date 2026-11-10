@@ -122,66 +122,40 @@ async fn oidc_jwks() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) 
 async fn oidc_token_server(
     nonce: Arc<tokio::sync::RwLock<String>>,
 ) -> (String, tokio::task::JoinHandle<()>) {
-    let app = Router::new()
-        .route(
-            "/bootstrap",
-            get(|headers: HeaderMap| async move {
-                let token = headers[header::AUTHORIZATION]
-                    .to_str()
-                    .unwrap()
-                    .strip_prefix("Bearer claude-access-")
-                    .unwrap();
-                assert_eq!(headers["anthropic-version"].to_str().unwrap(), "2023-06-01");
+    let app = Router::new().route(
+        "/token",
+        post(move |headers: HeaderMap, body: String| {
+            let nonce = nonce.clone();
+            async move {
                 assert_eq!(
-                    headers["anthropic-beta"].to_str().unwrap(),
-                    "oauth-2025-04-20"
+                    headers[header::CONTENT_TYPE].to_str().unwrap(),
+                    "application/x-www-form-urlencoded"
                 );
-                if token == "unverified" {
-                    StatusCode::UNAUTHORIZED.into_response()
-                } else {
-                    Json(serde_json::json!({
-                        "account_uuid":format!("claude-account-{token}"),
-                        "account_email":format!("claude-{token}@example.com"),
-                        "organization_uuid":"claude-organization-fixture"
-                    }))
-                    .into_response()
-                }
-            }),
-        )
-        .route(
-            "/token",
-            post(move |headers: HeaderMap, body: String| {
-                let nonce = nonce.clone();
-                async move {
-                    assert_eq!(
-                        headers[header::CONTENT_TYPE].to_str().unwrap(),
-                        "application/x-www-form-urlencoded"
-                    );
-                    let fields: std::collections::HashMap<_, _> =
-                        url::form_urlencoded::parse(body.as_bytes())
-                            .into_owned()
-                            .collect();
-                    assert_eq!(
-                        fields.get("grant_type").map(String::as_str),
-                        Some("authorization_code")
-                    );
-                    assert_eq!(fields.get("code").map(String::as_str), Some("fixture-code"));
-                    assert_eq!(
-                        fields.get("client_id").map(String::as_str),
-                        Some("red-router-dashboard")
-                    );
-                    assert_eq!(
-                        fields.get("client_secret").map(String::as_str),
-                        Some("browser-secret")
-                    );
-                    assert!(fields
-                        .get("code_verifier")
-                        .is_some_and(|value| value.len() >= 43));
-                    let nonce = nonce.read().await.clone();
-                    Json(serde_json::json!({"id_token":oidc_browser_token(&nonce)}))
-                }
-            }),
-        );
+                let fields: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect();
+                assert_eq!(
+                    fields.get("grant_type").map(String::as_str),
+                    Some("authorization_code")
+                );
+                assert_eq!(fields.get("code").map(String::as_str), Some("fixture-code"));
+                assert_eq!(
+                    fields.get("client_id").map(String::as_str),
+                    Some("red-router-dashboard")
+                );
+                assert_eq!(
+                    fields.get("client_secret").map(String::as_str),
+                    Some("browser-secret")
+                );
+                assert!(fields
+                    .get("code_verifier")
+                    .is_some_and(|value| value.len() >= 43));
+                let nonce = nonce.read().await.clone();
+                Json(serde_json::json!({"id_token":oidc_browser_token(&nonce)}))
+            }
+        }),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -748,56 +722,82 @@ async fn claude_oauth_refresh_server() -> (
     let observed_requests = requests.clone();
     let observed_mode = mode.clone();
     let observed_tokens = refresh_tokens.clone();
-    let app = Router::new().route(
-        "/token",
-        post(move |headers: HeaderMap, body: String| {
-            let observed_requests = observed_requests.clone();
-            let observed_mode = observed_mode.clone();
-            let observed_tokens = observed_tokens.clone();
-            async move {
-                observed_requests.fetch_add(1, Ordering::SeqCst);
-                assert_eq!(
-                    headers[header::CONTENT_TYPE].to_str().unwrap(),
-                    "application/x-www-form-urlencoded"
-                );
+    let app = Router::new()
+        .route(
+            "/bootstrap",
+            get(|headers: HeaderMap| async move {
+                let token = headers[header::AUTHORIZATION]
+                    .to_str()
+                    .unwrap()
+                    .strip_prefix("Bearer claude-access-")
+                    .unwrap();
+                assert_eq!(headers["anthropic-version"].to_str().unwrap(), "2023-06-01");
                 assert_eq!(
                     headers["anthropic-beta"].to_str().unwrap(),
                     "oauth-2025-04-20"
                 );
-                let fields: std::collections::HashMap<_, _> =
-                    url::form_urlencoded::parse(body.as_bytes())
-                        .into_owned()
-                        .collect();
-                assert_eq!(
-                    fields.get("grant_type").map(String::as_str),
-                    Some("refresh_token")
-                );
-                assert_eq!(
-                    fields.get("client_id").map(String::as_str),
-                    Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e")
-                );
-                observed_tokens
-                    .lock()
-                    .unwrap()
-                    .push(fields["refresh_token"].clone());
-                tokio::time::sleep(Duration::from_millis(150)).await;
-                if observed_mode.load(Ordering::SeqCst) == 0 {
+                if token == "unverified" {
+                    StatusCode::UNAUTHORIZED.into_response()
+                } else {
                     Json(serde_json::json!({
-                        "access_token":"server-refreshed-access-token",
-                        "refresh_token":"server-refreshed-refresh-token",
-                        "expires_in":3600
+                        "account_uuid":format!("claude-account-{token}"),
+                        "account_email":format!("claude-{token}@example.com"),
+                        "organization_uuid":"claude-organization-fixture"
                     }))
                     .into_response()
-                } else {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({"error":"invalid_grant"})),
-                    )
-                        .into_response()
                 }
-            }
-        }),
-    );
+            }),
+        )
+        .route(
+            "/token",
+            post(move |headers: HeaderMap, body: String| {
+                let observed_requests = observed_requests.clone();
+                let observed_mode = observed_mode.clone();
+                let observed_tokens = observed_tokens.clone();
+                async move {
+                    observed_requests.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    assert_eq!(
+                        headers["anthropic-beta"].to_str().unwrap(),
+                        "oauth-2025-04-20"
+                    );
+                    let fields: std::collections::HashMap<_, _> =
+                        url::form_urlencoded::parse(body.as_bytes())
+                            .into_owned()
+                            .collect();
+                    assert_eq!(
+                        fields.get("grant_type").map(String::as_str),
+                        Some("refresh_token")
+                    );
+                    assert_eq!(
+                        fields.get("client_id").map(String::as_str),
+                        Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+                    );
+                    observed_tokens
+                        .lock()
+                        .unwrap()
+                        .push(fields["refresh_token"].clone());
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    if observed_mode.load(Ordering::SeqCst) == 0 {
+                        Json(serde_json::json!({
+                            "access_token":"server-refreshed-access-token",
+                            "refresh_token":"server-refreshed-refresh-token",
+                            "expires_in":3600
+                        }))
+                        .into_response()
+                    } else {
+                        (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({"error":"invalid_grant"})),
+                        )
+                            .into_response()
+                    }
+                }
+            }),
+        );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
