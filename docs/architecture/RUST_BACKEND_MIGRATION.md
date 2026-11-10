@@ -76,6 +76,14 @@ must run as explicit local companions or later Rust modules rather than keeping 
 TypeScript persistence backend alive. They are tracked after the server cutover and may
 not receive direct access to the Rust storage database.
 
+The executable cutover ledger is `config/migration/rust-backend-cutover.json`. It records
+the reviewed disposition and exact count of every top-level Next API route family, the five
+operator gates above and the Rust routes that already support them. `npm run
+check:rust-cutover` is a required pull-request check: a new or removed Next route cannot
+silently change the inventory. `npm run check:rust-cutover-ready` is intentionally red
+until every gate is marked ready with no remaining blocker; release cutover must use that
+strict mode rather than inferring completion from route counts.
+
 The closure sequence is therefore provider lifecycle, traffic/policy parity, SPA
 packaging, legacy import, then upgrade/cutover validation. New compatibility work that
 does not close one of these gates must not displace this sequence.

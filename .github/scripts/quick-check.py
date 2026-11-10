@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fast repository sanity and the on-demand Actions cost policy."""
 import json
+import subprocess
 from pathlib import Path
 import tomllib
 import yaml
@@ -37,4 +38,9 @@ for path in sorted((root / ".github/workflows").glob("*.y*ml")):
         push = events["push"] or {}
         if not isinstance(push, dict) or not push.get("tags") or push.get("branches"):
             raise SystemExit(f"{path}: only intentional release-tag pushes are automatic")
+subprocess.run(
+    ["node", "scripts/check/check-rust-cutover.mjs"],
+    cwd=root,
+    check=True,
+)
 print("Workflow syntax, manifests and on-demand CI policy passed.")

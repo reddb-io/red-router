@@ -191,6 +191,8 @@
     "check:file-size": "node scripts/check/check-file-size.mjs",
     "check:duplication": "node scripts/check/check-duplication.mjs",
     "check:tracked-artifacts": "node scripts/check/check-tracked-artifacts.mjs",
+    "check:rust-cutover": "node scripts/check/check-rust-cutover.mjs",
+    "check:rust-cutover-ready": "node scripts/check/check-rust-cutover.mjs --require-ready",
     "check:ai-attribution": "node scripts/check/check-ai-attribution.mjs",
     "check:test-masking": "node scripts/check/check-test-masking.mjs",
     "check:test-runner-api": "node scripts/check/check-test-runner-api.mjs",

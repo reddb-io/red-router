@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-10",
+  "target": {
+    "server": "red-routerd",
+    "frontend": "static-spa",
+    "defaultStorage": "sqlite",
+    "nodeRequiredAtRuntime": false,
+    "typescriptDurableWritesAllowed": false
+  },
+  "dispositions": {
+    "cutover-server": "Must move to red-routerd or be retired before the shipped Next.js server can be disabled.",
+    "local-companion": "May remain TypeScript only in an explicit local companion with no direct durable-store access.",
+    "post-cutover-companion": "Does not block the core server cutover, but must run as an explicit companion until it is migrated.",
+    "retire": "Legacy compatibility surface to remove from the shipped server instead of porting."
+  },
+  "nextRouteInventory": {
+    "expectedTotal": 806,
+    "families": {
+      "[...omnirouteApiCatchAll]": { "routeCount": 1, "disposition": "retire" },
+      "a2a": { "routeCount": 5, "disposition": "post-cutover-companion" },
+      "access": { "routeCount": 1, "disposition": "cutover-server" },
+      "acp": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "admin": { "routeCount": 2, "disposition": "cutover-server" },
+      "agent-skills": { "routeCount": 5, "disposition": "post-cutover-companion" },
+      "analytics": { "routeCount": 3, "disposition": "cutover-server" },
+      "assess": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "auth": { "routeCount": 15, "disposition": "cutover-server" },
+      "batches": { "routeCount": 2, "disposition": "cutover-server" },
+      "branding": { "routeCount": 1, "disposition": "cutover-server" },
+      "budgets": { "routeCount": 3, "disposition": "cutover-server" },
+      "cache": { "routeCount": 5, "disposition": "cutover-server" },
+      "chaos": { "routeCount": 2, "disposition": "post-cutover-companion" },
+      "cli": { "routeCount": 4, "disposition": "local-companion" },
+      "cli-tools": { "routeCount": 32, "disposition": "local-companion" },
+      "cloud": { "routeCount": 4, "disposition": "post-cutover-companion" },
+      "codex": { "routeCount": 1, "disposition": "local-companion" },
+      "combos": { "routeCount": 11, "disposition": "cutover-server" },
+      "compliance": { "routeCount": 1, "disposition": "cutover-server" },
+      "compression": { "routeCount": 7, "disposition": "cutover-server" },
+      "conductor": { "routeCount": 5, "disposition": "post-cutover-companion" },
+      "context": { "routeCount": 14, "disposition": "post-cutover-companion" },
+      "conversations": { "routeCount": 3, "disposition": "post-cutover-companion" },
+      "copilot": { "routeCount": 1, "disposition": "local-companion" },
+      "cursor-cli": { "routeCount": 1, "disposition": "local-companion" },
+      "dahl": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "db": { "routeCount": 1, "disposition": "cutover-server" },
+      "db-backups": { "routeCount": 4, "disposition": "cutover-server" },
+      "discovery": { "routeCount": 4, "disposition": "cutover-server" },
+      "docs": { "routeCount": 2, "disposition": "cutover-server" },
+      "evals": { "routeCount": 4, "disposition": "post-cutover-companion" },
+      "fallback": { "routeCount": 1, "disposition": "cutover-server" },
+      "files": { "routeCount": 2, "disposition": "cutover-server" },
+      "free-models": { "routeCount": 1, "disposition": "cutover-server" },
+      "free-provider-rankings": { "routeCount": 1, "disposition": "cutover-server" },
+      "free-tier": { "routeCount": 1, "disposition": "cutover-server" },
+      "github-skills": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "guardrails": { "routeCount": 3, "disposition": "cutover-server" },
+      "headroom": { "routeCount": 3, "disposition": "cutover-server" },
+      "health": { "routeCount": 3, "disposition": "cutover-server" },
+      "init": { "routeCount": 1, "disposition": "cutover-server" },
+      "intelligence": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "internal": { "routeCount": 1, "disposition": "local-companion" },
+      "issue-agent": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "jobs": { "routeCount": 5, "disposition": "cutover-server" },
+      "keys": { "routeCount": 11, "disposition": "cutover-server" },
+      "local": { "routeCount": 4, "disposition": "local-companion" },
+      "log-export": { "routeCount": 7, "disposition": "cutover-server" },
+      "logs": { "routeCount": 5, "disposition": "cutover-server" },
+      "mcp": { "routeCount": 7, "disposition": "post-cutover-companion" },
+      "memory": { "routeCount": 9, "disposition": "post-cutover-companion" },
+      "metrics": { "routeCount": 2, "disposition": "cutover-server" },
+      "middleware": { "routeCount": 2, "disposition": "cutover-server" },
+      "modality-bridge": { "routeCount": 4, "disposition": "cutover-server" },
+      "model-capability-overrides": { "routeCount": 1, "disposition": "cutover-server" },
+      "model-combo-mappings": { "routeCount": 2, "disposition": "cutover-server" },
+      "models": { "routeCount": 6, "disposition": "cutover-server" },
+      "monitoring": { "routeCount": 2, "disposition": "cutover-server" },
+      "network": { "routeCount": 1, "disposition": "cutover-server" },
+      "oauth": { "routeCount": 21, "disposition": "cutover-server" },
+      "omniroute": { "routeCount": 2, "disposition": "retire" },
+      "openapi": { "routeCount": 2, "disposition": "cutover-server" },
+      "playground": { "routeCount": 5, "disposition": "post-cutover-companion" },
+      "plugins": { "routeCount": 8, "disposition": "post-cutover-companion" },
+      "policies": { "routeCount": 1, "disposition": "cutover-server" },
+      "pricing": { "routeCount": 4, "disposition": "cutover-server" },
+      "provider-metrics": { "routeCount": 1, "disposition": "cutover-server" },
+      "provider-models": { "routeCount": 1, "disposition": "cutover-server" },
+      "provider-nodes": { "routeCount": 3, "disposition": "cutover-server" },
+      "provider-stats": { "routeCount": 1, "disposition": "cutover-server" },
+      "providers": { "routeCount": 59, "disposition": "cutover-server" },
+      "proxy-fallback": { "routeCount": 1, "disposition": "cutover-server" },
+      "quota": { "routeCount": 11, "disposition": "cutover-server" },
+      "radar": { "routeCount": 11, "disposition": "post-cutover-companion" },
+      "rate-limit": { "routeCount": 1, "disposition": "cutover-server" },
+      "rate-limits": { "routeCount": 1, "disposition": "cutover-server" },
+      "relay": { "routeCount": 2, "disposition": "cutover-server" },
+      "resilience": { "routeCount": 4, "disposition": "cutover-server" },
+      "restart": { "routeCount": 1, "disposition": "local-companion" },
+      "routing": { "routeCount": 5, "disposition": "cutover-server" },
+      "search": { "routeCount": 2, "disposition": "post-cutover-companion" },
+      "services": { "routeCount": 59, "disposition": "local-companion" },
+      "session-pools": { "routeCount": 2, "disposition": "cutover-server" },
+      "sessions": { "routeCount": 1, "disposition": "cutover-server" },
+      "settings": { "routeCount": 91, "disposition": "cutover-server" },
+      "setup": { "routeCount": 1, "disposition": "cutover-server" },
+      "shutdown": { "routeCount": 1, "disposition": "local-companion" },
+      "skills": { "routeCount": 11, "disposition": "post-cutover-companion" },
+      "storage": { "routeCount": 1, "disposition": "cutover-server" },
+      "sync": { "routeCount": 5, "disposition": "cutover-server" },
+      "synced-available-models": { "routeCount": 1, "disposition": "cutover-server" },
+      "system": { "routeCount": 4, "disposition": "cutover-server" },
+      "tags": { "routeCount": 1, "disposition": "cutover-server" },
+      "telegram": { "routeCount": 1, "disposition": "post-cutover-companion" },
+      "telemetry": { "routeCount": 1, "disposition": "cutover-server" },
+      "tenant": { "routeCount": 5, "disposition": "cutover-server" },
+      "tenants": { "routeCount": 12, "disposition": "cutover-server" },
+      "token-health": { "routeCount": 1, "disposition": "cutover-server" },
+      "tools": { "routeCount": 36, "disposition": "post-cutover-companion" },
+      "translator": { "routeCount": 5, "disposition": "cutover-server" },
+      "tunnels": { "routeCount": 18, "disposition": "local-companion" },
+      "upstream-proxy": { "routeCount": 1, "disposition": "cutover-server" },
+      "usage": { "routeCount": 31, "disposition": "cutover-server" },
+      "usage-sinks": { "routeCount": 6, "disposition": "cutover-server" },
+      "v1": { "routeCount": 114, "disposition": "cutover-server" },
+      "v1beta": { "routeCount": 2, "disposition": "cutover-server" },
+      "version-manager": { "routeCount": 6, "disposition": "local-companion" },
+      "vnc-session": { "routeCount": 2, "disposition": "local-companion" },
+      "webhooks": { "routeCount": 5, "disposition": "cutover-server" }
+    }
+  },
+  "cutoverGates": [
+    {
+      "id": "provider-lifecycle",
+      "state": "partial",
+      "requiredRustRoutes": [
+        "/api/admin/providers",
+        "/api/admin/providers/{id}",
+        "/api/admin/providers/{id}/test",
+        "/api/oauth/{provider}/authorize",
+        "/api/oauth/{provider}/exchange",
+        "/api/providers/codex-auth/import",
+        "/api/providers/claude-auth/import",
+        "/api/providers/agy-auth/import"
+      ],
+      "blockers": [
+        "Classify and migrate the remaining dashboard-exposed provider authorization and import flows.",
+        "Move host CLI file application behind an explicit local companion."
+      ]
+    },
+    {
+      "id": "traffic-policy-parity",
+      "state": "partial",
+      "requiredRustRoutes": [
+        "/v1/chat/completions",
+        "/v1/responses",
+        "/v1/embeddings",
+        "/v1/rerank",
+        "/v1/messages",
+        "/v1/antigravity",
+        "/v1beta/models/{model_action}"
+      ],
+      "blockers": [
+        "Finish protocol, translated-stream, cancellation and error parity fixtures.",
+        "Migrate remaining versioned policy, budget, schedule and resilience settings.",
+        "Persist and route provider quota observations at model or model-family scope."
+      ]
+    },
+    {
+      "id": "identity-tenancy-spa",
+      "state": "partial",
+      "requiredRustRoutes": [
+        "/api/auth/config",
+        "/api/auth/oidc/login",
+        "/api/auth/oidc/callback",
+        "/api/auth/logout",
+        "/api/admin/tenants"
+      ],
+      "blockers": [
+        "Finish production SPA wiring with no legacy API fallback.",
+        "Add provider-specific OIDC diagnostics and a Node-free operator-journey smoke."
+      ]
+    },
+    {
+      "id": "legacy-installation-upgrade",
+      "state": "pending",
+      "requiredRustRoutes": [],
+      "blockers": [
+        "Implement maintenance-mode legacy SQLite import with dry-run verification, backup and rollback marker."
+      ]
+    },
+    {
+      "id": "packaging-operations-cutover",
+      "state": "partial",
+      "requiredRustRoutes": ["/healthz", "/readyz"],
+      "blockers": [
+        "Build and package the production static SPA with red-routerd.",
+        "Exercise clean install, upgrade, backup and restore without Node at runtime."
+      ]
+    }
+  ]
+}
