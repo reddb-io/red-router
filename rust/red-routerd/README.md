@@ -68,6 +68,13 @@ those environment secrets.
   Claude CLI token pair when `oauth_provider`, `refresh_token`, a future expiry and Bearer
   authentication are supplied. Both tokens are write-only and encrypted independently;
   only the OAuth provider and string-encoded rotation generation are returned.
+- `POST /api/providers/codex-auth/import` and `/import-bulk` preserve the existing dashboard
+  JSON contracts for Codex CLI `auth.json` files without a Next.js backend. The importer bounds
+  text payloads, validates the expected token shape and expiry, derives a tenant-scoped stable
+  connection ID from workspace plus user identity, and requires `overwriteExisting` before
+  replacing that account. The response contains only the redacted provider view; access, ID and
+  refresh tokens never appear in the response or audit event. Bulk import accepts at most 50
+  entries and reports individual failures without aborting successful entries.
 - `POST /api/admin/providers/{id}/oauth/rotate` replaces an imported access/refresh-token
   pair and expiry. The caller supplies the last observed `expected_generation`; SQLite uses
   `BEGIN IMMEDIATE` plus a generation CAS to update both ciphertexts and expiry atomically,

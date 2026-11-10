@@ -87,17 +87,25 @@ shows the active validated snapshot and revision, offers its provider namespace 
 inspects provider model metadata without downloading upstream data in the browser. The broad
 Browser authorization and most CLI import formats remain compatibility features to migrate
 as separate vertical slices; they are not silently backed by the Next database in Rust mode.
+Codex CLI `auth.json` import is now Rust-owned for both the dashboard's single and bulk JSON
+contracts. It derives a tenant-scoped stable connection identity from the workspace and user
+claims, so two members of one ChatGPT workspace do not collide, and requires explicit overwrite
+for the same account. Access and refresh tokens use the normal encrypted provider/OAuth
+repositories, responses are redacted and non-cacheable, and the import is audit logged. ZIP
+extraction, export back to a local CLI and the remaining provider import formats are still
+compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one
 `BEGIN IMMEDIATE` transaction guarded by generation CAS. This prevents a stale persistence
-writer from restoring a consumed refresh token; pre-refresh serialization and the actual
-provider token exchange remain the next slice. Rust also owns a generic protocol-native
+writer from restoring a consumed refresh token. Proactive refresh, cross-replica leasing,
+generation-CAS rotation and durable reauthentication state for Codex and Claude are Rust-owned.
+Rust also owns a generic protocol-native
 connection diagnostic for configured
 API-key or access-token providers: it uses the encrypted credential and pinned runtime
 transport, bounds time and response bytes, and returns only a stable redacted result. OAuth
-authorization, provider refresh calls, account-specific quota probes and CLI-owned session
-lifecycle remain follow-up work.
+authorization, account-specific quota probes and the remaining CLI-owned session lifecycle
+remain follow-up work.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
 production dashboard export/packaging pipeline and provider-specific diagnostics rather
