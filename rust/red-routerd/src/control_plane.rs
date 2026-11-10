@@ -111,7 +111,7 @@ UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrou
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'provider-quota', provider_id, revision, 0 FROM redrouter_provider_quotas
-UNION ALL SELECT 'provider-model-quota', provider_id || ':' || model_id, revision, 0 FROM redrouter_provider_model_quotas
+UNION ALL SELECT 'provider-model-quota', record_id, revision, 0 FROM redrouter_provider_model_quotas
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
 UNION ALL SELECT 'combo-ownership', combo_id, revision, 0 FROM redrouter_control_combo_ownership
 UNION ALL SELECT 'route-pin', combo_id, revision, 0 FROM redrouter_route_pins
