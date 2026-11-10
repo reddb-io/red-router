@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card } from "@/shared/components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
+import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
   disableRustProvider,
   listRustProviders,
@@ -176,6 +177,7 @@ export default function RustProvidersPageClient() {
     provider: RustProviderOAuthKind;
     connectionId?: string;
   } | null>(null);
+  const [sessionImportOpen, setSessionImportOpen] = useState(false);
 
   const reload = useCallback(async () => {
     const [providerResult, catalogResult] = await Promise.allSettled([
@@ -394,6 +396,9 @@ export default function RustProvidersPageClient() {
           </Button>
           <Button variant="secondary" onClick={() => setOauthDialog({ provider: "agy" })}>
             Connect Antigravity
+          </Button>
+          <Button variant="secondary" onClick={() => setSessionImportOpen(true)}>
+            Import existing CLI sessions
           </Button>
         </div>
         <p className="mt-3 text-xs text-text-muted">
@@ -817,6 +822,18 @@ export default function RustProvidersPageClient() {
           onClose={() => setOauthDialog(null)}
           onSuccess={async () => {
             setOauthDialog(null);
+            try {
+              await reload();
+            } catch (cause) {
+              setError(errorMessage(cause));
+            }
+          }}
+        />
+      )}
+      {sessionImportOpen && (
+        <RustProviderSessionImportModal
+          onClose={() => setSessionImportOpen(false)}
+          onImported={async () => {
             try {
               await reload();
             } catch (cause) {

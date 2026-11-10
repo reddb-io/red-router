@@ -5,6 +5,9 @@ import {
   deleteRustClientKey,
   disableRustProvider,
   exchangeRustProviderOAuth,
+  extractRustProviderSessionZip,
+  importRustProviderSession,
+  importRustProviderSessionsBulk,
   issueRustClientKey,
   listRustClientKeys,
   listRustProviders,
@@ -20,6 +23,7 @@ import {
   rotateRustProviderOAuth,
   rustAdminFetch,
   rustProviderOAuthFetch,
+  rustProviderSessionFetch,
   rustUsageSinkFetch,
   testRustProvider,
   type RustClientKey,
@@ -215,6 +219,68 @@ describe("Rust control-plane browser client", () => {
     await expect(rustProviderOAuthFetch("/api/oauth/unknown/authorize")).rejects.toThrow(
       "supported same-origin"
     );
+  });
+
+  it("imports provider sessions through the authenticated Rust authority", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const importedProvider: RustProvider = {
+      ...provider,
+      id: "codex-account",
+      provider: "codex",
+      credential_type: "oauth",
+      oauth_provider: "codex",
+      oauth_generation: "1",
+      refreshable: true,
+      oauth_refresh_state: "ready",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ connection: importedProvider, created: true }, { status: 201 })
+      )
+      .mockResolvedValueOnce(Response.json({ success: 2, failed: 0, total: 2, errors: [] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          entries: [{ name: "auth.json", json: { tokens: {} }, parseError: null }],
+        })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      importRustProviderSession(
+        "codex",
+        { json: { tokens: { access_token: "write-only" } }, name: "Work" },
+        false
+      )
+    ).resolves.toMatchObject({ created: true, connection: { id: "codex-account" } });
+    await expect(
+      importRustProviderSessionsBulk(
+        "claude",
+        [{ json: { claudeAiOauth: {} } }, { json: { claudeAiOauth: {} } }],
+        true
+      )
+    ).resolves.toMatchObject({ success: 2, total: 2 });
+    await expect(extractRustProviderSessionZip("agy", new Blob(["zip-fixture"]))).resolves.toEqual([
+      { name: "auth.json", json: { tokens: {} }, parseError: null },
+    ]);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/providers/codex-auth/import",
+      "/api/providers/claude-auth/import-bulk",
+      "/api/providers/agy-auth/zip-extract",
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      source: { kind: "json", json: { tokens: { access_token: "write-only" } } },
+      name: "Work",
+      overwriteExisting: false,
+    });
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(init.credentials).toBe("same-origin");
+      expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
+    }
+    await expect(
+      rustProviderSessionFetch("https://attacker.example/api/providers/codex-auth/import")
+    ).rejects.toThrow("same-origin");
   });
 
   it("uses the Rust key authority for list, issue, replacement and revocation", async () => {

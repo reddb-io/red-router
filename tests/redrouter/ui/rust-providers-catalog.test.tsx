@@ -12,6 +12,9 @@ const api = vi.hoisted(() => ({
   authorizeRustProviderOAuth: vi.fn(),
   disableRustProvider: vi.fn(),
   exchangeRustProviderOAuth: vi.fn(),
+  extractRustProviderSessionZip: vi.fn(),
+  importRustProviderSession: vi.fn(),
+  importRustProviderSessionsBulk: vi.fn(),
   listRustProviders: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
@@ -199,6 +202,48 @@ describe("Rust provider models.dev catalog", () => {
       redirectUri: "http://127.0.0.1:20128/callback",
       codeVerifier: "v".repeat(43),
     });
+    expect(api.listRustProviders).toHaveBeenCalledTimes(2);
+  });
+
+  it("imports an existing CLI session through Rust and reloads providers", async () => {
+    api.listRustProviders.mockResolvedValue([]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-09T00:00:00.000Z" },
+      providers: [],
+      snapshot: { source: "bundled", revision: null },
+    });
+    api.importRustProviderSession.mockResolvedValue({
+      created: true,
+      connection: { id: "codex-account" },
+    });
+
+    const container = await mount();
+    const open = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Import existing CLI sessions"
+    );
+    await act(async () => {
+      open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, '{"tokens":{"access_token":"fixture"}}');
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const submit = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Import sessions"
+    );
+    await act(async () => {
+      submit?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.importRustProviderSession).toHaveBeenCalledWith(
+      "codex",
+      { json: { tokens: { access_token: "fixture" } } },
+      false
+    );
     expect(api.listRustProviders).toHaveBeenCalledTimes(2);
   });
 });

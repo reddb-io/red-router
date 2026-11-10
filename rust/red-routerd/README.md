@@ -340,9 +340,15 @@ storage and are never returned. Supported client policy fields are `enabled`,
 `max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
 unknown or disabled aliases do not fall through to the active provider. Target
-routing metadata and provider quota observations are durable; automatic quota polling,
-catalog pricing, token/spend quotas and
-the remaining dashboard settings still need migration.
+routing metadata and provider quota observations are durable; automatic provider quota polling
+and the remaining dashboard settings still need migration.
+
+The Rust provider dashboard can start browser OAuth for Codex, Claude Code and Antigravity, or
+import one to fifty existing JSON sessions (including bounded ZIP extraction). These browser
+requests use the same OIDC session, same-origin checks and double-submit CSRF boundary as other
+management writes. Browser OAuth reauthentication is bound to the existing deterministic
+connection ID so signing in with another account is rejected before persistence. Imported and
+exchanged credentials are write-only after the request completes.
 
 Rust-owned providers share durable circuit breakers across aliases and live route
 snapshots. Network failures and `408`, `500`, `502`, `503` and `504` count as

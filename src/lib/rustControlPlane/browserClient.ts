@@ -127,6 +127,30 @@ export interface RustProviderOAuthConnection {
   displayName: string;
 }
 
+export interface RustProviderSessionImportEntry {
+  json: unknown;
+  name?: string;
+  email?: string;
+}
+
+export interface RustProviderSessionImportResult {
+  connection: RustProvider;
+  created: boolean;
+}
+
+export interface RustProviderSessionBulkResult {
+  success: number;
+  failed: number;
+  total: number;
+  errors: Array<{ index?: number; name?: string; message?: string }>;
+}
+
+export interface RustProviderSessionZipEntry {
+  name: string;
+  json: unknown | null;
+  parseError: string | null;
+}
+
 export interface RustProviderOAuthRotationInput {
   expected_generation: string;
   access_token: string;
@@ -312,6 +336,29 @@ export async function rustProviderOAuthFetch(
   });
 }
 
+/** Authenticated import surface for Rust-owned CLI provider sessions. */
+export async function rustProviderSessionFetch(
+  path: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  if (
+    !/^\/api\/providers\/(?:codex|claude|agy)-auth\/(?:import|import-bulk|zip-extract)$/.test(path)
+  ) {
+    throw new TypeError("Rust provider session requests must use a supported same-origin path");
+  }
+  const csrf = readRustAdminCsrfCookie();
+  if (!csrf) throw new Error("Rust admin session is unavailable");
+  const headers = new Headers(init.headers);
+  headers.set(CSRF_HEADER, csrf);
+  headers.set("Accept", "application/json");
+  return fetch(path, {
+    ...init,
+    cache: init.cache ?? "no-store",
+    credentials: "same-origin",
+    headers,
+  });
+}
+
 /** Same authenticated browser session, limited to the Rust-owned usage-sink surface. */
 export async function rustUsageSinkFetch(path: string, init: RequestInit = {}): Promise<Response> {
   if (!path.startsWith("/api/usage-sinks")) {
@@ -483,6 +530,28 @@ function isRustProviderOAuthConnection(value: unknown): value is RustProviderOAu
       connection.provider === "agy") &&
     (connection.email === undefined || isOptionalString(connection.email)) &&
     typeof connection.displayName === "string"
+  );
+}
+
+function isRustProviderSessionImportError(
+  value: unknown
+): value is RustProviderSessionBulkResult["errors"][number] {
+  if (!value || typeof value !== "object") return false;
+  const error = value as Record<string, unknown>;
+  return (
+    (error.index === undefined || isNonNegativeInteger(error.index)) &&
+    (error.name === undefined || typeof error.name === "string") &&
+    (error.message === undefined || typeof error.message === "string")
+  );
+}
+
+function isRustProviderSessionZipEntry(value: unknown): value is RustProviderSessionZipEntry {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.name === "string" &&
+    (entry.json === null || entry.json === undefined || typeof entry.json === "object") &&
+    (entry.parseError === null || typeof entry.parseError === "string")
   );
 }
 
@@ -703,6 +772,85 @@ export async function exchangeRustProviderOAuth(
     throw new Error("Invalid Rust provider OAuth exchange response");
   }
   return connection;
+}
+
+export async function importRustProviderSession(
+  provider: RustProviderOAuthKind,
+  entry: RustProviderSessionImportEntry,
+  overwriteExisting: boolean
+): Promise<RustProviderSessionImportResult> {
+  const response = await rustProviderSessionFetch(
+    `/api/providers/${provider}-auth/import`,
+    jsonRequest("POST", {
+      source: { kind: "json", json: entry.json },
+      ...(entry.name ? { name: entry.name } : {}),
+      ...(entry.email ? { email: entry.email } : {}),
+      overwriteExisting,
+    })
+  );
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !isRustProvider((value as { connection?: unknown }).connection) ||
+    typeof (value as { created?: unknown }).created !== "boolean"
+  ) {
+    throw new Error("Invalid Rust provider session import response");
+  }
+  return value as RustProviderSessionImportResult;
+}
+
+export async function importRustProviderSessionsBulk(
+  provider: RustProviderOAuthKind,
+  entries: RustProviderSessionImportEntry[],
+  overwriteExisting: boolean
+): Promise<RustProviderSessionBulkResult> {
+  const response = await rustProviderSessionFetch(
+    `/api/providers/${provider}-auth/import-bulk`,
+    jsonRequest("POST", { entries, overwriteExisting })
+  );
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid Rust provider bulk import response");
+  }
+  const result = value as Record<string, unknown>;
+  if (
+    !isNonNegativeInteger(result.success) ||
+    !isNonNegativeInteger(result.failed) ||
+    !isNonNegativeInteger(result.total) ||
+    result.success + result.failed !== result.total ||
+    !Array.isArray(result.errors) ||
+    !result.errors.every(isRustProviderSessionImportError)
+  ) {
+    throw new Error("Invalid Rust provider bulk import response");
+  }
+  return {
+    success: result.success,
+    failed: result.failed,
+    total: result.total,
+    errors: result.errors,
+  };
+}
+
+export async function extractRustProviderSessionZip(
+  provider: RustProviderOAuthKind,
+  file: Blob
+): Promise<RustProviderSessionZipEntry[]> {
+  const response = await rustProviderSessionFetch(`/api/providers/${provider}-auth/zip-extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: file,
+  });
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  const entries =
+    value && typeof value === "object" ? (value as { entries?: unknown }).entries : undefined;
+  if (!Array.isArray(entries) || !entries.every(isRustProviderSessionZipEntry)) {
+    throw new Error("Invalid Rust provider ZIP response");
+  }
+  return entries;
 }
 
 export async function replaceRustProvider(
