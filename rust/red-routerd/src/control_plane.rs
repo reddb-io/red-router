@@ -55,9 +55,14 @@ const OAUTH_REFRESH_SETTLE_MS: i64 = 2_000;
 const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
+const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
+const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/bootstrap";
+const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
+const PROVIDER_OAUTH_FLOW_SECONDS: u64 = 10 * 60;
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -347,6 +352,35 @@ pub struct ProviderAuthImportInput {
     pub email: Option<String>,
     #[serde(default, rename = "overwriteExisting")]
     pub overwrite_existing: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ProviderOAuthAuthorizeQuery {
+    pub redirect_uri: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderOAuthExchangeInput {
+    pub code: String,
+    #[serde(rename = "redirectUri")]
+    pub redirect_uri: String,
+    #[serde(rename = "codeVerifier")]
+    pub code_verifier: String,
+    pub state: Option<String>,
+    #[serde(rename = "connectionId")]
+    pub connection_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProviderOAuthFlowState {
+    provider: String,
+    redirect_uri: String,
+    verifier_hash: String,
+    actor: String,
+    tenant_id: String,
+    expires_at: u64,
+    nonce: String,
 }
 
 #[derive(Deserialize)]
@@ -2273,6 +2307,313 @@ impl ControlPlane {
     ) -> Result<ProviderView, &'static str> {
         self.configure_provider_as(id, input, "bootstrap-admin", None)
             .await
+    }
+
+    fn start_provider_oauth_as(
+        &self,
+        provider: &str,
+        requested_redirect_uri: Option<&str>,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<serde_json::Value, &'static str> {
+        validate_actor(actor)?;
+        let tenant_id = enforced_tenant.unwrap_or("red");
+        validate_id(tenant_id)?;
+        let redirect_uri = match provider {
+            "codex" => {
+                if requested_redirect_uri
+                    .is_some_and(|value| value.trim() != CODEX_OAUTH_REDIRECT_URI)
+                {
+                    return Err("invalid Codex OAuth redirect URI");
+                }
+                CODEX_OAUTH_REDIRECT_URI
+            }
+            "claude" => CLAUDE_OAUTH_REDIRECT_URI,
+            _ => return Err("unsupported browser OAuth provider"),
+        };
+        if requested_redirect_uri.is_some_and(|value| {
+            value.len() > 2048 || value.is_empty() || value.chars().any(char::is_control)
+        }) {
+            return Err("invalid provider OAuth redirect URI");
+        }
+        let code_verifier = random_token(32)?;
+        let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
+        let now = unix_time_seconds()?;
+        let flow = ProviderOAuthFlowState {
+            provider: provider.to_owned(),
+            redirect_uri: redirect_uri.to_owned(),
+            verifier_hash: hex::encode(Sha256::digest(code_verifier.as_bytes())),
+            actor: actor.to_owned(),
+            tenant_id: tenant_id.to_owned(),
+            expires_at: now
+                .checked_add(PROVIDER_OAUTH_FLOW_SECONDS)
+                .ok_or("system clock is out of range")?,
+            nonce: random_token(16)?,
+        };
+        let flow =
+            serde_json::to_string(&flow).map_err(|_| "cannot encode provider OAuth state")?;
+        let state = encrypt(
+            &flow,
+            "provider-oauth-browser-flow",
+            self.0.encryption_key.as_str(),
+        )?;
+        let (authorize_url, client_id) = match provider {
+            "codex" => (
+                CODEX_OAUTH_AUTHORIZE_URL,
+                self.0.oauth_refresh.codex_client_id.as_str(),
+            ),
+            "claude" => (
+                CLAUDE_OAUTH_AUTHORIZE_URL,
+                self.0.oauth_refresh.claude_client_id.as_str(),
+            ),
+            _ => return Err("unsupported browser OAuth provider"),
+        };
+        let mut auth_url = reqwest::Url::parse(authorize_url)
+            .map_err(|_| "invalid provider OAuth authorization URL")?;
+        {
+            let mut query = auth_url.query_pairs_mut();
+            query
+                .append_pair("response_type", "code")
+                .append_pair("client_id", client_id)
+                .append_pair("redirect_uri", redirect_uri)
+                .append_pair("code_challenge", &code_challenge)
+                .append_pair("code_challenge_method", "S256")
+                .append_pair("state", &state)
+                .append_pair("prompt", "login");
+            if provider == "codex" {
+                query
+                    .append_pair("scope", "openid profile email offline_access")
+                    .append_pair("id_token_add_organizations", "true")
+                    .append_pair("codex_cli_simplified_flow", "true")
+                    .append_pair("originator", "codex_cli_rs");
+            } else {
+                query.append_pair(
+                    "scope",
+                    "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
+                );
+            }
+        }
+        let mut view = serde_json::json!({
+            "authUrl":auth_url.to_string(),
+            "state":state,
+            "codeVerifier":code_verifier,
+            "codeChallenge":code_challenge,
+            "redirectUri":redirect_uri,
+            "flowType":"authorization_code_pkce",
+            "callbackPath":if provider == "codex" { "/auth/callback" } else { "/callback" },
+            "callbackHost":"localhost"
+        });
+        if provider == "codex" {
+            view["fixedPort"] = serde_json::json!(1455);
+        }
+        Ok(view)
+    }
+
+    async fn exchange_provider_browser_tokens(
+        &self,
+        provider: &str,
+        code: &str,
+        redirect_uri: &str,
+        code_verifier: &str,
+        state: &str,
+    ) -> Result<serde_json::Value, &'static str> {
+        let (endpoint, client_id) = match provider {
+            "codex" => (
+                &self.0.oauth_refresh.codex_endpoint,
+                self.0.oauth_refresh.codex_client_id.as_str(),
+            ),
+            "claude" => (
+                &self.0.oauth_refresh.claude_endpoint,
+                self.0.oauth_refresh.claude_client_id.as_str(),
+            ),
+            _ => return Err("unsupported browser OAuth provider"),
+        };
+        let request = if provider == "codex" {
+            let form = {
+                let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+                serializer
+                    .append_pair("grant_type", "authorization_code")
+                    .append_pair("client_id", client_id)
+                    .append_pair("code", code)
+                    .append_pair("redirect_uri", redirect_uri)
+                    .append_pair("code_verifier", code_verifier);
+                serializer.finish()
+            };
+            self.0
+                .oauth_refresh_client
+                .post(endpoint.clone())
+                .header(
+                    header::CONTENT_TYPE.as_str(),
+                    "application/x-www-form-urlencoded",
+                )
+                .header(header::ACCEPT, "application/json")
+                .body(form)
+        } else {
+            self.0
+                .oauth_refresh_client
+                .post(endpoint.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCEPT, "application/json")
+                .header("anthropic-beta", "oauth-2025-04-20")
+                .json(&serde_json::json!({
+                    "code":code,
+                    "state":state,
+                    "grant_type":"authorization_code",
+                    "client_id":client_id,
+                    "redirect_uri":redirect_uri,
+                    "code_verifier":code_verifier,
+                }))
+        };
+        let response = request
+            .send()
+            .await
+            .map_err(|_| "provider OAuth exchange unavailable")?;
+        let success = response.status().is_success();
+        let body = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES)
+            .await
+            .map_err(|_| "provider OAuth response is invalid")?;
+        if !success {
+            return Err("provider OAuth exchange rejected");
+        }
+        serde_json::from_slice(&body).map_err(|_| "provider OAuth response is invalid")
+    }
+
+    async fn finish_provider_oauth_as(
+        &self,
+        provider: &str,
+        input: ProviderOAuthExchangeInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderAuthImportView, &'static str> {
+        validate_actor(actor)?;
+        let tenant_id = enforced_tenant.unwrap_or("red");
+        validate_id(tenant_id)?;
+        if !(1..=8192).contains(&input.code.len())
+            || input.code.chars().any(char::is_control)
+            || !(43..=128).contains(&input.code_verifier.len())
+            || input.code_verifier.chars().any(char::is_control)
+            || !(1..=2048).contains(&input.redirect_uri.len())
+            || input.redirect_uri.chars().any(char::is_control)
+            || input.connection_id.as_deref().is_some_and(|value| {
+                value.is_empty() || value.len() > 512 || value.chars().any(char::is_control)
+            })
+        {
+            return Err("invalid provider OAuth exchange");
+        }
+        let (code, embedded_state) = if provider == "claude" {
+            input
+                .code
+                .split_once('#')
+                .map_or((input.code.as_str(), None), |(code, state)| {
+                    (code, Some(state))
+                })
+        } else {
+            (input.code.as_str(), None)
+        };
+        if code.is_empty() || embedded_state.is_some_and(str::is_empty) {
+            return Err("invalid provider OAuth exchange");
+        }
+        if embedded_state
+            .zip(input.state.as_deref())
+            .is_some_and(|(embedded, supplied)| embedded != supplied)
+        {
+            return Err("invalid provider OAuth state");
+        }
+        let returned_state = embedded_state
+            .or(input.state.as_deref())
+            .filter(|value| !value.is_empty() && value.len() <= 8192)
+            .ok_or("invalid provider OAuth state")?;
+        let flow = decrypt(
+            returned_state,
+            "provider-oauth-browser-flow",
+            self.0.encryption_key.as_str(),
+        )
+        .map_err(|_| "invalid provider OAuth state")?;
+        let flow: ProviderOAuthFlowState =
+            serde_json::from_str(&flow).map_err(|_| "invalid provider OAuth state")?;
+        let verifier_hash = hex::encode(Sha256::digest(input.code_verifier.as_bytes()));
+        let now = unix_time_seconds()?;
+        if flow.provider != provider
+            || flow.redirect_uri != input.redirect_uri
+            || flow.verifier_hash.len() != verifier_hash.len()
+            || !bool::from(
+                flow.verifier_hash
+                    .as_bytes()
+                    .ct_eq(verifier_hash.as_bytes()),
+            )
+            || flow.actor != actor
+            || flow.tenant_id != tenant_id
+            || flow.expires_at < now
+            || flow.nonce.len() != 22
+        {
+            return Err("invalid provider OAuth state");
+        }
+        let token_data = self
+            .exchange_provider_browser_tokens(
+                provider,
+                code,
+                &input.redirect_uri,
+                &input.code_verifier,
+                returned_state,
+            )
+            .await?;
+        let access_token = browser_oauth_token_field(&token_data, "access_token")?;
+        let refresh_token = browser_oauth_token_field(&token_data, "refresh_token")?;
+        let expires_in = token_data
+            .get("expires_in")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| (1..=2_678_400).contains(value))
+            .ok_or("provider OAuth response is invalid")?;
+        let expires_at = now
+            .checked_add(expires_in)
+            .ok_or("provider OAuth response is invalid")?;
+        match provider {
+            "codex" => {
+                let id_token = browser_oauth_token_field(&token_data, "id_token")?;
+                self.import_codex_auth_as(
+                    ProviderAuthImportInput {
+                        source: ProviderAuthImportSource::Json {
+                            json: serde_json::json!({
+                                "auth_mode":"chatgpt",
+                                "tokens":{
+                                    "id_token":id_token,
+                                    "access_token":access_token,
+                                    "refresh_token":refresh_token
+                                }
+                            }),
+                        },
+                        name: None,
+                        email: None,
+                        overwrite_existing: true,
+                    },
+                    actor,
+                    enforced_tenant,
+                )
+                .await
+            }
+            "claude" => {
+                self.import_claude_auth_as(
+                    ProviderAuthImportInput {
+                        source: ProviderAuthImportSource::Json {
+                            json: serde_json::json!({
+                                "claudeAiOauth":{
+                                    "accessToken":access_token,
+                                    "refreshToken":refresh_token,
+                                    "expiresAt":expires_at.saturating_mul(1_000)
+                                }
+                            }),
+                        },
+                        name: None,
+                        email: None,
+                        overwrite_existing: true,
+                    },
+                    actor,
+                    enforced_tenant,
+                )
+                .await
+            }
+            _ => Err("unsupported browser OAuth provider"),
+        }
     }
 
     async fn import_codex_auth_as(
@@ -6787,6 +7128,16 @@ fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+fn browser_oauth_token_field(
+    value: &serde_json::Value,
+    field: &str,
+) -> Result<String, &'static str> {
+    json_non_empty_string(value.get(field))
+        .filter(|token| token.len() <= 8192 && !token.chars().any(char::is_control))
+        .map(str::to_owned)
+        .ok_or("provider OAuth response is invalid")
+}
+
 fn decode_unverified_jwt_payload(
     token: &str,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
@@ -7901,6 +8252,94 @@ pub async fn put_provider(
             "Provider storage or runtime unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration"),
+    }
+}
+
+pub async fn authorize_provider_oauth(
+    State(state): State<ProxyState>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<ProviderOAuthAuthorizeQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.start_provider_oauth_as(
+        &provider,
+        query.redirect_uri.as_deref(),
+        &scope.actor,
+        scope.tenant_id.as_deref(),
+    ) {
+        Ok(view) => {
+            let mut response = Json(view).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(_) => api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Invalid or unsupported provider OAuth authorization request",
+            "invalid_oauth_flow",
+        ),
+    }
+}
+
+pub async fn exchange_provider_oauth(
+    State(state): State<ProxyState>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderOAuthExchangeInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .finish_provider_oauth_as(&provider, input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(imported) => {
+            let mut response = Json(serde_json::json!({
+                "success":true,
+                "connection":{
+                    "id":imported.connection.id,
+                    "provider":imported.connection.provider,
+                    "email":imported.connection.account_email,
+                    "displayName":imported.connection.label,
+                }
+            }))
+            .into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(error)
+            if error.starts_with("invalid provider OAuth")
+                || error == "unsupported browser OAuth provider"
+                || error.ends_with("OAuth redirect URI") =>
+        {
+            api_error_code(
+                StatusCode::BAD_REQUEST,
+                "Invalid provider OAuth exchange",
+                "invalid_oauth_flow",
+            )
+        }
+        Err(_) => api_error_code(
+            StatusCode::BAD_GATEWAY,
+            "Provider OAuth token exchange failed",
+            "oauth_exchange_failed",
+        ),
     }
 }
 

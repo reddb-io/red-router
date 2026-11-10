@@ -1673,6 +1673,14 @@ pub fn router(state: ProxyState) -> Router {
         .route("/api/auth/oidc/login", get(control_plane::oidc_login))
         .route("/api/auth/oidc/callback", get(control_plane::oidc_callback))
         .route("/api/auth/logout", post(control_plane::oidc_logout))
+        .route(
+            "/api/oauth/{provider}/authorize",
+            get(control_plane::authorize_provider_oauth),
+        )
+        .route(
+            "/api/oauth/{provider}/exchange",
+            post(control_plane::exchange_provider_oauth),
+        )
         .route("/api/admin/providers", get(control_plane::list))
         .route(
             "/api/admin/oidc",

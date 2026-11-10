@@ -823,6 +823,118 @@ async fn claude_oauth_refresh_server() -> (
     )
 }
 
+async fn provider_browser_oauth_server() -> (
+    Url,
+    Url,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    let codex_requests = Arc::new(AtomicUsize::new(0));
+    let claude_requests = Arc::new(AtomicUsize::new(0));
+    let observed_codex = codex_requests.clone();
+    let observed_claude = claude_requests.clone();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    let codex_id_token = unverified_jwt(serde_json::json!({
+        "email":"browser-codex@example.com",
+        "sub":"browser-codex-user",
+        "exp":expiry,
+        "https://api.openai.com/auth":{
+            "chatgpt_account_id":"browser-codex-workspace",
+            "chatgpt_user_id":"browser-codex-user"
+        }
+    }));
+    let codex_access_token = unverified_jwt(serde_json::json!({"exp":expiry}));
+    let app = Router::new()
+        .route(
+            "/codex-token",
+            post(move |headers: HeaderMap, body: String| {
+                let observed = observed_codex.clone();
+                let id_token = codex_id_token.clone();
+                let access_token = codex_access_token.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    let fields: std::collections::HashMap<_, _> =
+                        url::form_urlencoded::parse(body.as_bytes())
+                            .into_owned()
+                            .collect();
+                    assert_eq!(fields["grant_type"], "authorization_code");
+                    assert_eq!(fields["code"], "codex-browser-code");
+                    assert_eq!(
+                        fields["redirect_uri"],
+                        "http://localhost:1455/auth/callback"
+                    );
+                    assert_eq!(fields["code_verifier"].len(), 43);
+                    Json(serde_json::json!({
+                        "access_token":access_token,
+                        "refresh_token":"codex-browser-refresh",
+                        "id_token":id_token,
+                        "expires_in":3600
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/claude-token",
+            post(
+                move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                    let observed = observed_claude.clone();
+                    async move {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(
+                            headers["anthropic-beta"].to_str().unwrap(),
+                            "oauth-2025-04-20"
+                        );
+                        assert_eq!(body["grant_type"], "authorization_code");
+                        assert_eq!(body["code"], "claude-browser-code");
+                        assert_eq!(
+                            body["redirect_uri"],
+                            "https://platform.claude.com/oauth/code/callback"
+                        );
+                        assert_eq!(body["code_verifier"].as_str().unwrap().len(), 43);
+                        assert!(body["state"].as_str().unwrap().starts_with("rr:v1:"));
+                        Json(serde_json::json!({
+                            "access_token":"claude-access-browser",
+                            "refresh_token":"claude-browser-refresh",
+                            "expires_in":3600
+                        }))
+                    }
+                },
+            ),
+        )
+        .route(
+            "/bootstrap",
+            get(|headers: HeaderMap| async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    "Bearer claude-access-browser"
+                );
+                Json(serde_json::json!({
+                    "account_uuid":"claude-browser-account",
+                    "account_email":"browser-claude@example.com"
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        Url::parse(&format!("http://{address}/codex-token")).unwrap(),
+        Url::parse(&format!("http://{address}/claude-token")).unwrap(),
+        codex_requests,
+        claude_requests,
+        task,
+    )
+}
+
 async fn gemini_usage_provider(
     expected_key: &'static str,
 ) -> (String, tokio::task::JoinHandle<()>) {
@@ -5156,6 +5268,189 @@ async fn rust_extracts_auth_zip_for_codex_and_claude_with_bounded_safe_entries()
     );
 
     gateway_task.abort();
+}
+
+#[tokio::test]
+async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("browser-oauth.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (codex_endpoint, claude_endpoint, codex_requests, claude_requests, oauth_task) =
+        provider_browser_oauth_server().await;
+    let first = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        codex_endpoint.clone(),
+        claude_endpoint.clone(),
+    )
+    .await
+    .unwrap();
+    let second = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        codex_endpoint,
+        claude_endpoint,
+    )
+    .await
+    .unwrap();
+    let (first_base, first_task) = gateway(first).await;
+    let (second_base, second_task) = gateway(second).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    let unauthorized = client
+        .get(format!("{first_base}/api/oauth/codex/authorize"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let codex_authorize = client
+        .get(format!("{first_base}/api/oauth/codex/authorize"))
+        .bearer_auth(ADMIN_KEY)
+        .query(&[("redirect_uri", "http://localhost:1455/auth/callback")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(codex_authorize.status(), StatusCode::OK);
+    assert_eq!(
+        codex_authorize.headers()[header::CACHE_CONTROL],
+        HeaderValue::from_static("no-store")
+    );
+    let codex_authorize: serde_json::Value =
+        serde_json::from_str(&codex_authorize.text().await.unwrap()).unwrap();
+    assert_eq!(
+        codex_authorize["redirectUri"],
+        "http://localhost:1455/auth/callback"
+    );
+    assert_eq!(codex_authorize["fixedPort"], 1455);
+    assert_eq!(codex_authorize["codeVerifier"].as_str().unwrap().len(), 43);
+    assert_eq!(codex_authorize["codeChallenge"].as_str().unwrap().len(), 43);
+    let codex_state = codex_authorize["state"].as_str().unwrap().to_owned();
+    let codex_verifier = codex_authorize["codeVerifier"].as_str().unwrap().to_owned();
+    assert!(!codex_state.contains(&codex_verifier));
+    let codex_url = Url::parse(codex_authorize["authUrl"].as_str().unwrap()).unwrap();
+    let codex_query: std::collections::HashMap<_, _> =
+        codex_url.query_pairs().into_owned().collect();
+    assert_eq!(codex_query["state"], codex_state);
+    assert_eq!(
+        codex_query["code_challenge"],
+        codex_authorize["codeChallenge"]
+    );
+    assert_eq!(codex_query["prompt"], "login");
+
+    let mut wrong_verifier = codex_verifier.clone();
+    wrong_verifier.replace_range(
+        42..43,
+        if wrong_verifier.ends_with('A') {
+            "B"
+        } else {
+            "A"
+        },
+    );
+    let rejected = client
+        .post(format!("{second_base}/api/oauth/codex/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"codex-browser-code",
+            "redirectUri":"http://localhost:1455/auth/callback",
+            "codeVerifier":wrong_verifier,
+            "state":codex_state
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(codex_requests.load(Ordering::SeqCst), 0);
+
+    let codex_exchange = client
+        .post(format!("{second_base}/api/oauth/codex/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"codex-browser-code",
+            "redirectUri":"http://localhost:1455/auth/callback",
+            "codeVerifier":codex_verifier,
+            "state":codex_state
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(codex_exchange.status(), StatusCode::OK);
+    assert_eq!(
+        codex_exchange.headers()[header::CACHE_CONTROL],
+        HeaderValue::from_static("no-store")
+    );
+    let codex_exchange: serde_json::Value =
+        serde_json::from_str(&codex_exchange.text().await.unwrap()).unwrap();
+    assert_eq!(codex_exchange["success"], true);
+    assert_eq!(codex_exchange["connection"]["provider"], "codex");
+    assert_eq!(
+        codex_exchange["connection"]["email"],
+        "browser-codex@example.com"
+    );
+    assert!(!codex_exchange.to_string().contains("browser-refresh"));
+    assert_eq!(codex_requests.load(Ordering::SeqCst), 1);
+
+    let claude_authorize = client
+        .get(format!("{first_base}/api/oauth/claude/authorize"))
+        .bearer_auth(ADMIN_KEY)
+        .query(&[("redirect_uri", "https://router.example/callback")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(claude_authorize.status(), StatusCode::OK);
+    let claude_authorize: serde_json::Value =
+        serde_json::from_str(&claude_authorize.text().await.unwrap()).unwrap();
+    assert_eq!(
+        claude_authorize["redirectUri"],
+        "https://platform.claude.com/oauth/code/callback"
+    );
+    let claude_state = claude_authorize["state"].as_str().unwrap().to_owned();
+    let claude_verifier = claude_authorize["codeVerifier"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let claude_exchange = client
+        .post(format!("{second_base}/api/oauth/claude/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":format!("claude-browser-code#{claude_state}"),
+            "redirectUri":"https://platform.claude.com/oauth/code/callback",
+            "codeVerifier":claude_verifier
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(claude_exchange.status(), StatusCode::OK);
+    let claude_exchange: serde_json::Value =
+        serde_json::from_str(&claude_exchange.text().await.unwrap()).unwrap();
+    assert_eq!(claude_exchange["success"], true);
+    assert_eq!(claude_exchange["connection"]["provider"], "claude");
+    assert_eq!(
+        claude_exchange["connection"]["email"],
+        "browser-claude@example.com"
+    );
+    assert!(!claude_exchange.to_string().contains("browser-refresh"));
+    assert_eq!(claude_requests.load(Ordering::SeqCst), 1);
+
+    let providers = database.providers().await.unwrap();
+    assert_eq!(providers.len(), 2);
+    let oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(oauth.len(), 2);
+    assert!(oauth
+        .iter()
+        .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));
+    assert!(oauth
+        .iter()
+        .all(|record| !record.refresh_token_ciphertext.contains("browser-refresh")));
+
+    first_task.abort();
+    second_task.abort();
+    oauth_task.abort();
 }
 
 #[tokio::test]
