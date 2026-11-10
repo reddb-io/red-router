@@ -7486,6 +7486,25 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     );
     assert_eq!(
         client
+            .put(format!("{base}/api/admin/combos/removable-provider-guard"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"first","model":"fixture-model"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
             .put(format!("{base}/api/admin/client-keys/agent-fleet"))
             .bearer_auth(ADMIN_KEY)
             .header(header::CONTENT_TYPE.as_str(), "application/json")
