@@ -452,6 +452,15 @@ pub(crate) struct ModelTarget {
     in_flight: Arc<AtomicUsize>,
 }
 
+pub(crate) struct ControlTargetConfig {
+    pub(crate) protocol: ProviderProtocol,
+    pub(crate) model: String,
+    pub(crate) weight: u32,
+    pub(crate) input_cost_per_million: Option<f64>,
+    pub(crate) output_cost_per_million: Option<f64>,
+    pub(crate) context_window_tokens: Option<u64>,
+}
+
 #[derive(serde::Serialize)]
 struct ModelListResponse {
     object: &'static str,
@@ -1160,20 +1169,15 @@ impl ProxyState {
 
     pub(crate) fn control_target(
         provider: &LiveProvider,
-        protocol: ProviderProtocol,
-        model: String,
-        weight: u32,
-        input_cost_per_million: Option<f64>,
-        output_cost_per_million: Option<f64>,
-        context_window_tokens: Option<u64>,
+        config: ControlTargetConfig,
         quota: Arc<TargetQuota>,
     ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
             upstream: provider.upstream.clone(),
             provider_key: provider.provider_key.clone(),
-            model,
-            protocol,
+            model: config.model,
+            protocol: config.protocol,
             auth_scheme: provider.auth_scheme,
             credential_expires_at_unix: provider.credential_expires_at_unix,
             product_connection: None,
@@ -1182,10 +1186,10 @@ impl ProxyState {
             provider_name: provider.provider_name.clone(),
             antigravity_project: provider.antigravity_project.clone(),
             rate_limit_scope: provider.rate_limit_scope,
-            weight,
-            input_cost_per_million,
-            output_cost_per_million,
-            context_window_tokens,
+            weight: config.weight,
+            input_cost_per_million: config.input_cost_per_million,
+            output_cost_per_million: config.output_cost_per_million,
+            context_window_tokens: config.context_window_tokens,
             quota: Some(quota),
             circuit: provider.circuit.clone(),
             availability: provider.availability.clone(),

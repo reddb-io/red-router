@@ -5627,12 +5627,14 @@ impl ControlPlane {
                 let quota = self.quota_state(&provider.id).await;
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
-                    protocol,
-                    target.model,
-                    target.weight.unwrap_or(1),
-                    target.input_cost_per_million,
-                    target.output_cost_per_million,
-                    target.context_window_tokens,
+                    crate::ControlTargetConfig {
+                        protocol,
+                        model: target.model,
+                        weight: target.weight.unwrap_or(1),
+                        input_cost_per_million: target.input_cost_per_million,
+                        output_cost_per_million: target.output_cost_per_million,
+                        context_window_tokens: target.context_window_tokens,
+                    },
                     quota,
                 ));
             }
