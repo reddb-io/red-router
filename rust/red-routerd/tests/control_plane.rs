@@ -7527,12 +7527,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         200
     );
     assert_eq!(
-        chat_model(
-            &client,
-            &base,
-            RUST_CLIENT_KEY,
-            "removable-provider-guard",
-        )
+        chat_model(&client, &base, RUST_CLIENT_KEY, "removable-provider-guard",)
             .await
             .text()
             .await
@@ -7552,10 +7547,10 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
             RUST_CLIENT_KEY,
             "removable-provider-guard",
         )
-            .await
-            .text()
-            .await
-            .unwrap(),
+        .await
+        .text()
+        .await
+        .unwrap(),
         "first"
     );
     let identity = client
