@@ -168,9 +168,12 @@ impl SqliteChangeWatcher {
         if version == self.version {
             return Ok(false);
         }
-        self.version = version;
         let control_marker = sqlite_control_marker(&self.pool).await?;
         let changed = control_marker != self.control_marker;
+        // A failed marker read must not acknowledge the new data version. The
+        // next poll then retries the same durable change instead of silently
+        // stranding an older in-memory snapshot.
+        self.version = version;
         self.control_marker = control_marker;
         Ok(changed)
     }
@@ -1526,12 +1529,10 @@ impl ControlPlane {
                 match plane.control_snapshot_changed().await {
                     Ok(true) => {}
                     Ok(false) => continue,
-                    Err(_) => {
-                        *plane.0.current.write().await = None;
-                        *plane.0.routes.write().await = RouteSnapshot::Unavailable;
-                        plane.clear_oidc_runtime().await;
-                        continue;
-                    }
+                    // The watcher has not acknowledged this data version, so a
+                    // transient SQLite read failure will be retried next tick.
+                    // Keep the last complete snapshot available meanwhile.
+                    Err(_) => continue,
                 }
                 plane.sync_provider_snapshot().await;
                 plane.sync_oidc_snapshot().await;
@@ -3690,16 +3691,30 @@ impl ControlPlane {
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
-        let verifier = self.0.oidc.read().await.clone()?;
-        let browser = self.0.oidc_browser.read().await.clone();
+        let (verifier, browser) = self.oidc_runtime_snapshot().await;
+        let verifier = verifier?;
         Some(oidc_view(verifier.policy(), browser.as_deref()))
     }
 
     async fn oidc_browser_enabled(&self) -> bool {
-        let verifier = self.0.oidc.read().await.clone();
-        let browser = self.0.oidc_browser.read().await.clone();
+        let (verifier, browser) = self.oidc_runtime_snapshot().await;
         matches!((verifier, browser), (Some(verifier), Some(browser))
             if verifier.policy().enabled && verifier.policy().revision == browser.revision)
+    }
+
+    async fn oidc_runtime_snapshot(
+        &self,
+    ) -> (
+        Option<Arc<crate::oidc::OidcVerifier>>,
+        Option<Arc<crate::oidc::OidcBrowserConfig>>,
+    ) {
+        // Writers publish the verifier and confidential browser client while
+        // holding this mutex. Readers take the same mutex so they can never
+        // observe the deliberate browser=None transition between revisions.
+        let _mutation = self.0.mutation.lock().await;
+        let verifier = self.0.oidc.read().await.clone();
+        let browser = self.0.oidc_browser.read().await.clone();
+        (verifier, browser)
     }
 
     pub async fn configure_oidc(&self, mut input: OidcInput) -> Result<OidcView, &'static str> {
@@ -3822,14 +3837,9 @@ impl ControlPlane {
     }
 
     async fn start_oidc_login(&self, test: bool) -> Result<BrowserLogin, &'static str> {
-        let verifier = self.0.oidc.read().await.clone().ok_or("OIDC is disabled")?;
-        let browser = self
-            .0
-            .oidc_browser
-            .read()
-            .await
-            .clone()
-            .ok_or("OIDC browser login is disabled")?;
+        let (verifier, browser) = self.oidc_runtime_snapshot().await;
+        let verifier = verifier.ok_or("OIDC is disabled")?;
+        let browser = browser.ok_or("OIDC browser login is disabled")?;
         if !verifier.policy().enabled || browser.revision != verifier.policy().revision {
             return Err("OIDC browser login is disabled");
         }
@@ -3895,14 +3905,9 @@ impl ControlPlane {
         {
             return Err("invalid OIDC login state");
         }
-        let verifier = self.0.oidc.read().await.clone().ok_or("OIDC is disabled")?;
-        let browser = self
-            .0
-            .oidc_browser
-            .read()
-            .await
-            .clone()
-            .ok_or("OIDC browser login is disabled")?;
+        let (verifier, browser) = self.oidc_runtime_snapshot().await;
+        let verifier = verifier.ok_or("OIDC is disabled")?;
+        let browser = browser.ok_or("OIDC browser login is disabled")?;
         if !verifier.policy().enabled
             || flow.revision != verifier.policy().revision
             || flow.revision != browser.revision
@@ -6356,7 +6361,7 @@ impl ControlPlane {
                     return Some(AuthenticatedActor::bound("bootstrap-admin".to_owned()));
                 }
             }
-            let verifier = self.0.oidc.read().await.clone();
+            let (verifier, _) = self.oidc_runtime_snapshot().await;
             return match verifier {
                 Some(verifier) => {
                     verifier
@@ -6390,8 +6395,7 @@ impl ControlPlane {
         {
             return None;
         }
-        let browser = self.0.oidc_browser.read().await.clone();
-        let verifier = self.0.oidc.read().await.clone();
+        let (verifier, browser) = self.oidc_runtime_snapshot().await;
         let (Some(browser), Some(verifier)) = (browser, verifier) else {
             return None;
         };
