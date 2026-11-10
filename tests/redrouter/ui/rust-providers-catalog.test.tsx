@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   authorizeRustProviderOAuth: vi.fn(),
+  configureRustProviderHealth: vi.fn(),
   disableRustProvider: vi.fn(),
   exchangeRustProviderOAuth: vi.fn(),
   extractRustProviderSessionZip: vi.fn(),
@@ -234,6 +235,19 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("61% remaining");
     expect(container.textContent).toContain("Runtime health");
     expect(container.textContent).toContain("Healthy");
+    const saveBreaker = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save breaker policy"
+    );
+    await act(async () => {
+      saveBreaker?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.configureRustProviderHealth).toHaveBeenCalledWith(provider.id, {
+      failure_threshold: 5,
+      degradation_threshold: 3,
+      reset_timeout_ms: 30_000,
+    });
     expect(container.textContent).toContain("Current");
 
     const refresh = [...container.querySelectorAll("button")].find(

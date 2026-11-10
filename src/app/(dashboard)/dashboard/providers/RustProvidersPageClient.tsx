@@ -5,6 +5,7 @@ import { Button, Card } from "@/shared/components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
+  configureRustProviderHealth,
   disableRustProvider,
   deleteRustProvider,
   listRustProviderHealth,
@@ -45,6 +46,12 @@ type Draft = {
   credentialType: "static" | "oauth";
   oauthProvider: RustProviderOAuthKind;
   refreshToken: string;
+};
+
+type HealthDraft = {
+  failureThreshold: string;
+  degradationThreshold: string;
+  resetTimeoutMs: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -199,6 +206,7 @@ export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
   const [providerHealth, setProviderHealth] = useState<Record<string, RustProviderHealth>>({});
+  const [healthDrafts, setHealthDrafts] = useState<Record<string, HealthDraft>>({});
   const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
   const [catalogProvider, setCatalogProvider] = useState<RustCatalogProvider | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -219,6 +227,9 @@ export default function RustProvidersPageClient() {
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   const [refreshingQuotaProviderId, setRefreshingQuotaProviderId] = useState<string | null>(null);
   const [resettingHealthProviderId, setResettingHealthProviderId] = useState<string | null>(null);
+  const [configuringHealthProviderId, setConfiguringHealthProviderId] = useState<string | null>(
+    null
+  );
   const [oauthDialog, setOauthDialog] = useState<{
     provider: RustProviderOAuthKind;
     connectionId?: string;
@@ -249,6 +260,18 @@ export default function RustProvidersPageClient() {
     if (healthResult.status === "fulfilled") {
       setProviderHealth(
         Object.fromEntries(healthResult.value.map((health) => [health.provider_id, health]))
+      );
+      setHealthDrafts((current) =>
+        Object.fromEntries(
+          healthResult.value.map((health) => [
+            health.provider_id,
+            current[health.provider_id] ?? {
+              failureThreshold: String(health.failure_threshold),
+              degradationThreshold: String(health.degradation_threshold),
+              resetTimeoutMs: String(health.reset_timeout_ms),
+            },
+          ])
+        )
       );
       setHealthError(null);
     } else {
@@ -432,6 +455,44 @@ export default function RustProvidersPageClient() {
       setHealthError(errorMessage(cause));
     } finally {
       setResettingHealthProviderId(null);
+    }
+  };
+
+  const configureHealth = async (provider: RustProvider) => {
+    const draft = healthDrafts[provider.id];
+    if (!draft) return;
+    const failureThreshold = Number(draft.failureThreshold);
+    const degradationThreshold = Number(draft.degradationThreshold);
+    const resetTimeoutMs = Number(draft.resetTimeoutMs);
+    if (
+      !Number.isSafeInteger(failureThreshold) ||
+      failureThreshold < 1 ||
+      failureThreshold > 1_000 ||
+      !Number.isSafeInteger(degradationThreshold) ||
+      degradationThreshold < 1 ||
+      degradationThreshold > failureThreshold ||
+      !Number.isSafeInteger(resetTimeoutMs) ||
+      resetTimeoutMs < 1_000 ||
+      resetTimeoutMs > 86_400_000
+    ) {
+      setHealthError(
+        "Circuit thresholds must be integers from 1 to 1000, degradation cannot exceed failure, and reset timeout must be 1000–86400000 ms."
+      );
+      return;
+    }
+    setConfiguringHealthProviderId(provider.id);
+    setHealthError(null);
+    try {
+      await configureRustProviderHealth(provider.id, {
+        failure_threshold: failureThreshold,
+        degradation_threshold: degradationThreshold,
+        reset_timeout_ms: resetTimeoutMs,
+      });
+      await reload();
+    } catch (cause) {
+      setHealthError(errorMessage(cause));
+    } finally {
+      setConfiguringHealthProviderId(null);
     }
   };
 
@@ -800,6 +861,7 @@ export default function RustProvidersPageClient() {
           providers.map((provider) => {
             const quota = providerQuotas[provider.id];
             const health = providerHealth[provider.id];
+            const healthDraft = healthDrafts[provider.id];
             const quotaExpired = quota ? quota.expires_at_unix_ms <= Date.now() : false;
             const canRefreshQuota = supportsQuotaRefresh(provider);
             const quotaRefreshCategory = quotaRefreshCategories[provider.id];
@@ -943,6 +1005,82 @@ export default function RustProvidersPageClient() {
                             {lockout.retry_after_ms} ms
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {healthDraft && (
+                      <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <label className={labelClass}>
+                            Failure threshold
+                            <input
+                              className={inputClass}
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={healthDraft.failureThreshold}
+                              onChange={(event) =>
+                                setHealthDrafts((current) => ({
+                                  ...current,
+                                  [provider.id]: {
+                                    ...healthDraft,
+                                    failureThreshold: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className={labelClass}>
+                            Degradation threshold
+                            <input
+                              className={inputClass}
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={healthDraft.degradationThreshold}
+                              onChange={(event) =>
+                                setHealthDrafts((current) => ({
+                                  ...current,
+                                  [provider.id]: {
+                                    ...healthDraft,
+                                    degradationThreshold: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className={labelClass}>
+                            Reset timeout (ms)
+                            <input
+                              className={inputClass}
+                              type="number"
+                              min={1000}
+                              max={86400000}
+                              value={healthDraft.resetTimeoutMs}
+                              onChange={(event) =>
+                                setHealthDrafts((current) => ({
+                                  ...current,
+                                  [provider.id]: {
+                                    ...healthDraft,
+                                    resetTimeoutMs: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-2">
+                          <Button
+                            variant="secondary"
+                            loading={configuringHealthProviderId === provider.id}
+                            disabled={
+                              configuringHealthProviderId !== null &&
+                              configuringHealthProviderId !== provider.id
+                            }
+                            onClick={() => void configureHealth(provider)}
+                          >
+                            Save breaker policy
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

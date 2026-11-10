@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   authorizeRustProviderOAuth,
+  configureRustProviderHealth,
   deleteRustClientKey,
   disableRustProvider,
   exchangeRustProviderOAuth,
@@ -536,16 +537,33 @@ describe("Rust control-plane browser client", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ provider_health: [health] }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(Response.json({ provider_health: health }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(listRustProviderHealth()).resolves.toEqual([health]);
     await expect(resetRustProviderHealth(health.provider_id)).resolves.toBeUndefined();
+    await expect(
+      configureRustProviderHealth(health.provider_id, {
+        failure_threshold: 8,
+        degradation_threshold: 4,
+        reset_timeout_ms: 45_000,
+      })
+    ).resolves.toBeUndefined();
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/provider-health",
       "/api/admin/provider-health/claude-team",
+      "/api/admin/provider-health/claude-team",
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({
+      method: "PUT",
+      body: JSON.stringify({
+        failure_threshold: 8,
+        degradation_threshold: 4,
+        reset_timeout_ms: 45_000,
+      }),
+    });
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {

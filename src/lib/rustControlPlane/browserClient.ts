@@ -280,6 +280,12 @@ export interface RustProviderHealth {
   model_lockouts: RustProviderModelLockout[];
 }
 
+export interface RustProviderHealthInput {
+  failure_threshold: number;
+  degradation_threshold: number;
+  reset_timeout_ms: number;
+}
+
 export interface RustCatalogManifest {
   schemaVersion: number;
   transformVersion: number;
@@ -1193,6 +1199,16 @@ export async function resetRustProviderHealth(id: string): Promise<void> {
     method: "DELETE",
   });
   if (response.status !== 204) await rustError(response);
+}
+
+export async function configureRustProviderHealth(
+  id: string,
+  input: RustProviderHealthInput
+): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/provider-health/${encodeURIComponent(id)}`, {
+    ...jsonRequest("PUT", input),
+  });
+  if (!response.ok) await rustError(response);
 }
 
 export async function refreshRustProviderQuota(id: string): Promise<RustProviderQuotaRefresh> {
