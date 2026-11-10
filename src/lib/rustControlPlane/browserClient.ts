@@ -204,6 +204,44 @@ export interface RustProviderDiagnostic {
   latency_ms: number;
 }
 
+export interface RustProviderQuotaWindow {
+  remaining_percent: number;
+  reset_at_unix_ms?: number;
+}
+
+export interface RustProviderQuota {
+  provider_id: string;
+  session?: RustProviderQuotaWindow;
+  weekly?: RustProviderQuotaWindow;
+  limit_reached: boolean;
+  observed_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  revision: string;
+}
+
+export type RustProviderQuotaRefreshCategory =
+  | "refreshed"
+  | "refresh_in_progress"
+  | "unsupported_provider"
+  | "credential_expired"
+  | "credential_unavailable"
+  | "session_unavailable"
+  | "superseded"
+  | "rate_limited"
+  | "authorization_failed"
+  | "request_rejected"
+  | "upstream_error"
+  | "unavailable"
+  | "timeout"
+  | "invalid_response";
+
+export interface RustProviderQuotaRefresh {
+  provider_id: string;
+  refreshed: boolean;
+  category: RustProviderQuotaRefreshCategory;
+  quota?: RustProviderQuota;
+}
+
 export interface RustCatalogManifest {
   schemaVersion: number;
   transformVersion: number;
@@ -391,6 +429,11 @@ function isOptionalString(value: unknown): value is string | null | undefined {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const keys = new Set(allowed);
+  return Object.keys(value).every((key) => keys.has(key));
 }
 
 function isRustCatalogLimit(value: unknown): boolean {
@@ -583,6 +626,73 @@ function isRustProviderDiagnostic(value: unknown): value is RustProviderDiagnost
     (diagnostic.upstream_status === undefined ||
       (isNonNegativeInteger(diagnostic.upstream_status) && diagnostic.upstream_status <= 599)) &&
     isNonNegativeInteger(diagnostic.latency_ms)
+  );
+}
+
+function isRustProviderQuotaWindow(value: unknown): value is RustProviderQuotaWindow {
+  if (!value || typeof value !== "object") return false;
+  const window = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(window, ["remaining_percent", "reset_at_unix_ms"]) &&
+    typeof window.remaining_percent === "number" &&
+    Number.isFinite(window.remaining_percent) &&
+    window.remaining_percent >= 0 &&
+    window.remaining_percent <= 100 &&
+    (window.reset_at_unix_ms === undefined || isNonNegativeInteger(window.reset_at_unix_ms))
+  );
+}
+
+function isRustProviderQuota(value: unknown): value is RustProviderQuota {
+  if (!value || typeof value !== "object") return false;
+  const quota = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(quota, [
+      "provider_id",
+      "session",
+      "weekly",
+      "limit_reached",
+      "observed_at_unix_ms",
+      "expires_at_unix_ms",
+      "revision",
+    ]) &&
+    typeof quota.provider_id === "string" &&
+    (quota.session === undefined || isRustProviderQuotaWindow(quota.session)) &&
+    (quota.weekly === undefined || isRustProviderQuotaWindow(quota.weekly)) &&
+    (quota.session !== undefined || quota.weekly !== undefined) &&
+    typeof quota.limit_reached === "boolean" &&
+    isNonNegativeInteger(quota.observed_at_unix_ms) &&
+    isNonNegativeInteger(quota.expires_at_unix_ms) &&
+    quota.expires_at_unix_ms >= quota.observed_at_unix_ms &&
+    typeof quota.revision === "string"
+  );
+}
+
+function isRustProviderQuotaRefresh(value: unknown): value is RustProviderQuotaRefresh {
+  if (!value || typeof value !== "object") return false;
+  const refresh = value as Record<string, unknown>;
+  const categories: RustProviderQuotaRefreshCategory[] = [
+    "refreshed",
+    "refresh_in_progress",
+    "unsupported_provider",
+    "credential_expired",
+    "credential_unavailable",
+    "session_unavailable",
+    "superseded",
+    "rate_limited",
+    "authorization_failed",
+    "request_rejected",
+    "upstream_error",
+    "unavailable",
+    "timeout",
+    "invalid_response",
+  ];
+  return (
+    hasOnlyKeys(refresh, ["provider_id", "refreshed", "category", "quota"]) &&
+    typeof refresh.provider_id === "string" &&
+    typeof refresh.refreshed === "boolean" &&
+    typeof refresh.category === "string" &&
+    categories.includes(refresh.category as RustProviderQuotaRefreshCategory) &&
+    (refresh.quota === undefined || isRustProviderQuota(refresh.quota))
   );
 }
 
@@ -900,6 +1010,33 @@ export async function refreshRustProviderOAuth(id: string): Promise<RustProvider
     value && typeof value === "object" ? (value as { refresh?: unknown }).refresh : undefined;
   if (!isRustProviderOAuthRefresh(refresh)) {
     throw new Error("Invalid Rust provider OAuth refresh response");
+  }
+  return refresh;
+}
+
+export async function listRustProviderQuotas(): Promise<RustProviderQuota[]> {
+  const value = await rustAdminJson("/api/admin/provider-quotas");
+  const quotas =
+    value && typeof value === "object"
+      ? (value as { provider_quotas?: unknown }).provider_quotas
+      : undefined;
+  if (!Array.isArray(quotas) || !quotas.every(isRustProviderQuota)) {
+    throw new Error("Invalid Rust provider quota response");
+  }
+  return quotas;
+}
+
+export async function refreshRustProviderQuota(id: string): Promise<RustProviderQuotaRefresh> {
+  const value = await rustAdminJson(
+    `/api/admin/provider-quotas/${encodeURIComponent(id)}/refresh`,
+    {
+      method: "POST",
+    }
+  );
+  const refresh =
+    value && typeof value === "object" ? (value as { refresh?: unknown }).refresh : undefined;
+  if (!isRustProviderQuotaRefresh(refresh) || refresh.provider_id !== id) {
+    throw new Error("Invalid Rust provider quota refresh response");
   }
   return refresh;
 }

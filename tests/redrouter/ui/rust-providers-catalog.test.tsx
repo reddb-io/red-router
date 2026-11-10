@@ -2,7 +2,7 @@
 
 import React, { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -15,11 +15,13 @@ const api = vi.hoisted(() => ({
   extractRustProviderSessionZip: vi.fn(),
   importRustProviderSession: vi.fn(),
   importRustProviderSessionsBulk: vi.fn(),
+  listRustProviderQuotas: vi.fn(),
   listRustProviders: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
   refreshRustModelCatalog: vi.fn(),
   refreshRustProviderOAuth: vi.fn(),
+  refreshRustProviderQuota: vi.fn(),
   replaceRustProvider: vi.fn(),
   testRustProvider: vi.fn(),
 }));
@@ -60,6 +62,10 @@ const { default: RustProvidersPageClient } =
   await import("@/app/(dashboard)/dashboard/providers/RustProvidersPageClient");
 
 const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElement }> = [];
+
+beforeEach(() => {
+  api.listRustProviderQuotas.mockResolvedValue([]);
+});
 
 afterEach(() => {
   for (const { root, container } of roots.splice(0)) {
@@ -133,6 +139,75 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("OpenAI: 1 models");
     expect(container.textContent).toContain("gpt-5");
     expect(container.textContent).toContain("context");
+  });
+
+  it("shows durable provider quota and refreshes it separately from OAuth", async () => {
+    const now = Date.now();
+    const provider = {
+      id: "codex-team",
+      tenant_id: "red",
+      provider: "codex",
+      upstream_url: "https://chatgpt.com/backend-api/codex/responses",
+      enabled: true,
+      revision: "provider-revision",
+      has_credential: true,
+      rate_limit_scope: "connection",
+      auth_scheme: "bearer",
+      label: "Codex team",
+      credential_expired: false,
+      credential_type: "oauth",
+      oauth_provider: "codex",
+      oauth_generation: "4",
+      refreshable: true,
+      oauth_refresh_state: "ready",
+      reauth_required: false,
+    };
+    const initialQuota = {
+      provider_id: provider.id,
+      session: { remaining_percent: 72.5, reset_at_unix_ms: now + 3_600_000 },
+      weekly: { remaining_percent: 48 },
+      limit_reached: false,
+      observed_at_unix_ms: now,
+      expires_at_unix_ms: now + 180_000,
+      revision: "quota-revision-1",
+    };
+    const refreshedQuota = {
+      ...initialQuota,
+      weekly: { remaining_percent: 59 },
+      revision: "quota-revision-2",
+    };
+    api.listRustProviders.mockResolvedValue([provider]);
+    api.listRustProviderQuotas.mockResolvedValue([initialQuota]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 1, providerModels: 1, fetchedAt: "2026-11-09T00:00:00.000Z" },
+      providers: [{ id: "codex", name: "OpenAI Codex" }],
+      snapshot: { source: "persisted", revision: "catalog-revision" },
+    });
+    api.refreshRustProviderQuota.mockResolvedValue({
+      provider_id: provider.id,
+      refreshed: true,
+      category: "refreshed",
+      quota: refreshedQuota,
+    });
+
+    const container = await mount();
+    expect(container.textContent).toContain("Provider quota");
+    expect(container.textContent).toContain("72.5% remaining");
+    expect(container.textContent).toContain("48% remaining");
+    expect(container.textContent).toContain("Current");
+
+    const refresh = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Refresh quota"
+    );
+    await act(async () => {
+      refresh?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.refreshRustProviderQuota).toHaveBeenCalledWith(provider.id);
+    expect(api.refreshRustProviderOAuth).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("59% remaining");
   });
 
   it("completes Antigravity browser OAuth through the Rust control plane", async () => {

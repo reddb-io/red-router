@@ -6,11 +6,13 @@ import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
   disableRustProvider,
+  listRustProviderQuotas,
   listRustProviders,
   readRustCatalogProvider,
   readRustModelCatalog,
   refreshRustModelCatalog,
   refreshRustProviderOAuth,
+  refreshRustProviderQuota,
   replaceRustProvider,
   testRustProvider,
   type RustCatalogProvider,
@@ -20,6 +22,8 @@ import {
   type RustProviderAuthScheme,
   type RustProviderInput,
   type RustProviderOAuthKind,
+  type RustProviderQuota,
+  type RustProviderQuotaRefreshCategory,
   type RustRateLimitScope,
 } from "@/lib/rustControlPlane/browserClient";
 
@@ -158,8 +162,25 @@ function catalogDate(value: string): string {
   return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
 }
 
+function quotaDate(value: number): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Unknown";
+}
+
+function quotaPercent(value: number): string {
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}% remaining`;
+}
+
+function supportsQuotaRefresh(provider: RustProvider): boolean {
+  return (
+    provider.credential_type === "oauth" &&
+    (provider.oauth_provider === "codex" || provider.oauth_provider === "claude")
+  );
+}
+
 export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
+  const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
   const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
   const [catalogProvider, setCatalogProvider] = useState<RustCatalogProvider | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -169,10 +190,15 @@ export default function RustProvidersPageClient() {
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [quotaRefreshCategories, setQuotaRefreshCategories] = useState<
+    Record<string, RustProviderQuotaRefreshCategory>
+  >({});
   const [diagnosticModels, setDiagnosticModels] = useState<Record<string, string>>({});
   const [diagnostics, setDiagnostics] = useState<Record<string, RustProviderDiagnostic>>({});
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
+  const [refreshingQuotaProviderId, setRefreshingQuotaProviderId] = useState<string | null>(null);
   const [oauthDialog, setOauthDialog] = useState<{
     provider: RustProviderOAuthKind;
     connectionId?: string;
@@ -180,15 +206,24 @@ export default function RustProvidersPageClient() {
   const [sessionImportOpen, setSessionImportOpen] = useState(false);
 
   const reload = useCallback(async () => {
-    const [providerResult, catalogResult] = await Promise.allSettled([
+    const [providerResult, catalogResult, quotaResult] = await Promise.allSettled([
       listRustProviders(),
       readRustModelCatalog(),
+      listRustProviderQuotas(),
     ]);
     if (catalogResult.status === "fulfilled") {
       setCatalog(catalogResult.value);
       setCatalogError(null);
     } else {
       setCatalogError(errorMessage(catalogResult.reason));
+    }
+    if (quotaResult.status === "fulfilled") {
+      setProviderQuotas(
+        Object.fromEntries(quotaResult.value.map((quota) => [quota.provider_id, quota]))
+      );
+      setQuotaError(null);
+    } else {
+      setQuotaError(errorMessage(quotaResult.reason));
     }
     if (providerResult.status === "rejected") throw providerResult.reason;
     setProviders(providerResult.value);
@@ -313,6 +348,26 @@ export default function RustProvidersPageClient() {
     }
   };
 
+  const refreshQuota = async (provider: RustProvider) => {
+    setRefreshingQuotaProviderId(provider.id);
+    setQuotaError(null);
+    try {
+      const result = await refreshRustProviderQuota(provider.id);
+      setQuotaRefreshCategories((current) => ({
+        ...current,
+        [provider.id]: result.category,
+      }));
+      const quota = result.quota;
+      if (quota) {
+        setProviderQuotas((current) => ({ ...current, [provider.id]: quota }));
+      }
+    } catch (cause) {
+      setQuotaError(errorMessage(cause));
+    } finally {
+      setRefreshingQuotaProviderId(null);
+    }
+  };
+
   const set = <K extends keyof Draft>(name: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [name]: value }));
 
@@ -337,6 +392,16 @@ export default function RustProvidersPageClient() {
           role="alert"
         >
           {error}
+        </div>
+      )}
+
+      {quotaError && (
+        <div
+          className="rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-3 text-sm text-feedback-warning-foreground"
+          role="status"
+        >
+          Provider quota telemetry is temporarily unavailable: {quotaError}. Existing routing and
+          the last valid backend snapshot remain active.
         </div>
       )}
 
@@ -651,168 +716,255 @@ export default function RustProvidersPageClient() {
             <p className="text-sm text-text-muted">No provider connections configured in Rust.</p>
           </Card>
         ) : (
-          providers.map((provider) => (
-            <Card
-              key={provider.id}
-              title={provider.label}
-              subtitle={`${provider.id} · ${catalogNames.get(provider.provider) ?? provider.provider} · tenant ${provider.tenant_id}`}
-              action={
-                <span
-                  className={`rounded-full px-2 py-1 text-xs ${
-                    provider.enabled
-                      ? "bg-feedback-success-surface text-feedback-success-foreground"
-                      : "bg-black/5 text-text-muted dark:bg-white/5"
-                  }`}
-                >
-                  {provider.enabled ? "Enabled" : "Disabled"}
-                </span>
-              }
-            >
-              <dl className="grid gap-2 text-xs text-text-muted sm:grid-cols-2">
-                <div>
-                  <dt className="font-medium">Upstream</dt>
-                  <dd className="break-all">{provider.upstream_url}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Rate limits</dt>
-                  <dd>{provider.rate_limit_scope}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Credential</dt>
-                  <dd>
-                    {provider.credential_expired
-                      ? "Expired"
-                      : provider.has_credential
-                        ? provider.credential_type === "oauth"
-                          ? `${provider.oauth_provider} OAuth · generation ${provider.oauth_generation}`
-                          : "Encrypted and present"
-                        : "Missing"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Authentication</dt>
-                  <dd>{provider.auth_scheme}</dd>
-                </div>
-                {provider.account_email && (
+          providers.map((provider) => {
+            const quota = providerQuotas[provider.id];
+            const quotaExpired = quota ? quota.expires_at_unix_ms <= Date.now() : false;
+            const canRefreshQuota = supportsQuotaRefresh(provider);
+            const quotaRefreshCategory = quotaRefreshCategories[provider.id];
+            return (
+              <Card
+                key={provider.id}
+                title={provider.label}
+                subtitle={`${provider.id} · ${catalogNames.get(provider.provider) ?? provider.provider} · tenant ${provider.tenant_id}`}
+                action={
+                  <span
+                    className={`rounded-full px-2 py-1 text-xs ${
+                      provider.enabled
+                        ? "bg-feedback-success-surface text-feedback-success-foreground"
+                        : "bg-black/5 text-text-muted dark:bg-white/5"
+                    }`}
+                  >
+                    {provider.enabled ? "Enabled" : "Disabled"}
+                  </span>
+                }
+              >
+                <dl className="grid gap-2 text-xs text-text-muted sm:grid-cols-2">
                   <div>
-                    <dt className="font-medium">Provider account</dt>
-                    <dd className="break-all">{provider.account_email}</dd>
+                    <dt className="font-medium">Upstream</dt>
+                    <dd className="break-all">{provider.upstream_url}</dd>
                   </div>
-                )}
-                {provider.expires_at_unix && (
                   <div>
-                    <dt className="font-medium">Credential expiry</dt>
-                    <dd>{new Date(provider.expires_at_unix * 1_000).toLocaleString()}</dd>
+                    <dt className="font-medium">Rate limits</dt>
+                    <dd>{provider.rate_limit_scope}</dd>
                   </div>
-                )}
-                {provider.refreshable && (
                   <div>
-                    <dt className="font-medium">OAuth refresh</dt>
-                    <dd
-                      className={
-                        provider.reauth_required ? "text-feedback-danger-foreground" : undefined
-                      }
-                    >
-                      {provider.reauth_required
-                        ? `Sign-in required${provider.oauth_error_code ? ` · ${provider.oauth_error_code}` : ""}`
-                        : "Ready · automatic before expiry"}
+                    <dt className="font-medium">Credential</dt>
+                    <dd>
+                      {provider.credential_expired
+                        ? "Expired"
+                        : provider.has_credential
+                          ? provider.credential_type === "oauth"
+                            ? `${provider.oauth_provider} OAuth · generation ${provider.oauth_generation}`
+                            : "Encrypted and present"
+                          : "Missing"}
                     </dd>
                   </div>
+                  <div>
+                    <dt className="font-medium">Authentication</dt>
+                    <dd>{provider.auth_scheme}</dd>
+                  </div>
+                  {provider.account_email && (
+                    <div>
+                      <dt className="font-medium">Provider account</dt>
+                      <dd className="break-all">{provider.account_email}</dd>
+                    </div>
+                  )}
+                  {provider.expires_at_unix && (
+                    <div>
+                      <dt className="font-medium">Credential expiry</dt>
+                      <dd>{new Date(provider.expires_at_unix * 1_000).toLocaleString()}</dd>
+                    </div>
+                  )}
+                  {provider.refreshable && (
+                    <div>
+                      <dt className="font-medium">OAuth refresh</dt>
+                      <dd
+                        className={
+                          provider.reauth_required ? "text-feedback-danger-foreground" : undefined
+                        }
+                      >
+                        {provider.reauth_required
+                          ? `Sign-in required${provider.oauth_error_code ? ` · ${provider.oauth_error_code}` : ""}`
+                          : "Ready · automatic before expiry"}
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt className="font-medium">Revision</dt>
+                    <dd className="truncate font-mono">{provider.revision}</dd>
+                  </div>
+                </dl>
+                {(quota || canRefreshQuota) && (
+                  <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium text-text">Provider quota</div>
+                        {quota ? (
+                          <div className="mt-2 grid gap-2 text-xs text-text-muted sm:grid-cols-2">
+                            {quota.session && (
+                              <div>
+                                <span className="font-medium text-text">Session: </span>
+                                {quotaPercent(quota.session.remaining_percent)}
+                                {quota.session.reset_at_unix_ms
+                                  ? ` · resets ${quotaDate(quota.session.reset_at_unix_ms)}`
+                                  : ""}
+                              </div>
+                            )}
+                            {quota.weekly && (
+                              <div>
+                                <span className="font-medium text-text">Weekly: </span>
+                                {quotaPercent(quota.weekly.remaining_percent)}
+                                {quota.weekly.reset_at_unix_ms
+                                  ? ` · resets ${quotaDate(quota.weekly.reset_at_unix_ms)}`
+                                  : ""}
+                              </div>
+                            )}
+                            <div>Observed {quotaDate(quota.observed_at_unix_ms)}</div>
+                            <div>Valid until {quotaDate(quota.expires_at_unix_ms)}</div>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-xs text-text-muted">
+                            No quota snapshot collected yet.
+                          </p>
+                        )}
+                      </div>
+                      {quota && (
+                        <span
+                          className={`rounded-full px-2 py-1 text-xs ${
+                            quotaExpired
+                              ? "bg-feedback-warning-surface text-feedback-warning-foreground"
+                              : quota.limit_reached
+                                ? "bg-feedback-danger-surface text-feedback-danger-foreground"
+                                : "bg-feedback-success-surface text-feedback-success-foreground"
+                          }`}
+                        >
+                          {quotaExpired
+                            ? "Expired"
+                            : quota.limit_reached
+                              ? "Limit reached"
+                              : "Current"}
+                        </span>
+                      )}
+                    </div>
+                    {quotaRefreshCategory && quotaRefreshCategory !== "refreshed" && (
+                      <p className="mt-2 text-xs text-feedback-warning-foreground" role="status">
+                        Latest refresh: {quotaRefreshCategory.replaceAll("_", " ")}. The last valid
+                        snapshot was preserved.
+                      </p>
+                    )}
+                    {canRefreshQuota && provider.enabled && (
+                      <div className="mt-3">
+                        <Button
+                          variant="secondary"
+                          loading={refreshingQuotaProviderId === provider.id}
+                          disabled={
+                            refreshingQuotaProviderId !== null &&
+                            refreshingQuotaProviderId !== provider.id
+                          }
+                          onClick={() => void refreshQuota(provider)}
+                        >
+                          Refresh quota
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 )}
-                <div>
-                  <dt className="font-medium">Revision</dt>
-                  <dd className="truncate font-mono">{provider.revision}</dd>
-                </div>
-              </dl>
-              {provider.enabled && (
-                <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      className={inputClass}
-                      value={diagnosticModels[provider.id] ?? ""}
-                      placeholder="Exact provider model ID"
-                      maxLength={256}
-                      disabled={testingProviderId === provider.id}
-                      aria-label={`Model used to test ${provider.label}`}
-                      onChange={(event) =>
-                        setDiagnosticModels((current) => ({
-                          ...current,
-                          [provider.id]: event.target.value,
-                        }))
-                      }
-                    />
+                {provider.enabled && (
+                  <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        className={inputClass}
+                        value={diagnosticModels[provider.id] ?? ""}
+                        placeholder="Exact provider model ID"
+                        maxLength={256}
+                        disabled={testingProviderId === provider.id}
+                        aria-label={`Model used to test ${provider.label}`}
+                        onChange={(event) =>
+                          setDiagnosticModels((current) => ({
+                            ...current,
+                            [provider.id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <Button
+                        variant="secondary"
+                        loading={testingProviderId === provider.id}
+                        disabled={testingProviderId !== null && testingProviderId !== provider.id}
+                        onClick={() => void testConnection(provider)}
+                      >
+                        Test connection
+                      </Button>
+                    </div>
+                    {diagnostics[provider.id] && (
+                      <p
+                        className={`mt-2 text-xs ${
+                          diagnostics[provider.id].ok
+                            ? "text-feedback-success-foreground"
+                            : "text-feedback-warning-foreground"
+                        }`}
+                        role="status"
+                      >
+                        {diagnostics[provider.id].ok ? "Connected" : "Test failed"}:{" "}
+                        {diagnostics[provider.id].category.replaceAll("_", " ")}
+                        {diagnostics[provider.id].upstream_status
+                          ? ` · HTTP ${diagnostics[provider.id].upstream_status}`
+                          : ""}
+                        {` · ${diagnostics[provider.id].latency_ms} ms`}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {provider.credential_type === "oauth" && provider.oauth_provider && (
                     <Button
                       variant="secondary"
-                      loading={testingProviderId === provider.id}
-                      disabled={testingProviderId !== null && testingProviderId !== provider.id}
-                      onClick={() => void testConnection(provider)}
+                      disabled={saving}
+                      onClick={() =>
+                        setOauthDialog({
+                          provider: provider.oauth_provider as RustProviderOAuthKind,
+                          connectionId: provider.id,
+                        })
+                      }
                     >
-                      Test connection
+                      Sign in again
                     </Button>
-                  </div>
-                  {diagnostics[provider.id] && (
-                    <p
-                      className={`mt-2 text-xs ${
-                        diagnostics[provider.id].ok
-                          ? "text-feedback-success-foreground"
-                          : "text-feedback-warning-foreground"
-                      }`}
-                      role="status"
-                    >
-                      {diagnostics[provider.id].ok ? "Connected" : "Test failed"}:{" "}
-                      {diagnostics[provider.id].category.replaceAll("_", " ")}
-                      {diagnostics[provider.id].upstream_status
-                        ? ` · HTTP ${diagnostics[provider.id].upstream_status}`
-                        : ""}
-                      {` · ${diagnostics[provider.id].latency_ms} ms`}
-                    </p>
                   )}
-                </div>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {provider.credential_type === "oauth" && provider.oauth_provider && (
+                  {provider.enabled && provider.refreshable && (
+                    <Button
+                      variant="secondary"
+                      loading={refreshingProviderId === provider.id}
+                      disabled={
+                        refreshingProviderId !== null && refreshingProviderId !== provider.id
+                      }
+                      onClick={() => void refreshOAuth(provider)}
+                    >
+                      Refresh OAuth
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     disabled={saving}
-                    onClick={() =>
-                      setOauthDialog({
-                        provider: provider.oauth_provider as RustProviderOAuthKind,
-                        connectionId: provider.id,
-                      })
-                    }
+                    onClick={() => {
+                      setEditingId(provider.id);
+                      setDraft(providerDraft(provider));
+                      setError(null);
+                    }}
                   >
-                    Sign in again
+                    Replace
                   </Button>
-                )}
-                {provider.enabled && provider.refreshable && (
-                  <Button
-                    variant="secondary"
-                    loading={refreshingProviderId === provider.id}
-                    disabled={refreshingProviderId !== null && refreshingProviderId !== provider.id}
-                    onClick={() => void refreshOAuth(provider)}
-                  >
-                    Refresh OAuth
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  disabled={saving}
-                  onClick={() => {
-                    setEditingId(provider.id);
-                    setDraft(providerDraft(provider));
-                    setError(null);
-                  }}
-                >
-                  Replace
-                </Button>
-                {provider.enabled && (
-                  <Button variant="danger" disabled={saving} onClick={() => void disable(provider)}>
-                    Disable
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))
+                  {provider.enabled && (
+                    <Button
+                      variant="danger"
+                      disabled={saving}
+                      onClick={() => void disable(provider)}
+                    >
+                      Disable
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })
         )}
       </div>
       {oauthDialog && (

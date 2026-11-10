@@ -1898,10 +1898,14 @@ impl ControlPlane {
             &provider.credential_ciphertext,
             &provider.id,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .map_err(|_| "credential_unavailable")?;
         let request = match oauth.oauth_provider.as_str() {
             "codex" => {
-                let account_id = self.codex_quota_account_id(provider).await?;
+                let account_id = self
+                    .codex_quota_account_id(provider)
+                    .await
+                    .map_err(|_| "session_unavailable")?;
                 self.0
                     .oauth_refresh_client
                     .get(self.0.oauth_refresh.codex_quota_endpoint.clone())

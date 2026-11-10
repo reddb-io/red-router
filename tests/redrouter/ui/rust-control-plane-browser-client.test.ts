@@ -10,6 +10,7 @@ import {
   importRustProviderSessionsBulk,
   issueRustClientKey,
   listRustClientKeys,
+  listRustProviderQuotas,
   listRustProviders,
   readRustCatalogProvider,
   readRustModelCatalog,
@@ -20,6 +21,7 @@ import {
   replaceRustProvider,
   refreshRustModelCatalog,
   refreshRustProviderOAuth,
+  refreshRustProviderQuota,
   rotateRustProviderOAuth,
   rustAdminFetch,
   rustProviderOAuthFetch,
@@ -28,6 +30,7 @@ import {
   testRustProvider,
   type RustClientKey,
   type RustProvider,
+  type RustProviderQuota,
 } from "@/lib/rustControlPlane/browserClient";
 
 const clientKey: RustClientKey = {
@@ -71,6 +74,16 @@ const provider: RustProvider = {
   credential_type: "static",
   refreshable: false,
   reauth_required: false,
+};
+
+const providerQuota: RustProviderQuota = {
+  provider_id: "claude-team",
+  session: { remaining_percent: 72.5, reset_at_unix_ms: 1_900_000_000_000 },
+  weekly: { remaining_percent: 48 },
+  limit_reached: false,
+  observed_at_unix_ms: 1_800_000_000_000,
+  expires_at_unix_ms: 1_800_000_180_000,
+  revision: "1700000000000000004",
 };
 
 const catalogManifest = {
@@ -432,6 +445,44 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/providers/claude-team/oauth/refresh");
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: "{}" });
     expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain("token");
+  });
+
+  it("reads and refreshes provider quota snapshots without accepting credential fields", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ provider_quotas: [providerQuota] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          refresh: {
+            provider_id: providerQuota.provider_id,
+            refreshed: true,
+            category: "refreshed",
+            quota: providerQuota,
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          provider_quotas: [{ ...providerQuota, access_token: "must-not-leak" }],
+        })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustProviderQuotas()).resolves.toEqual([providerQuota]);
+    await expect(refreshRustProviderQuota(providerQuota.provider_id)).resolves.toMatchObject({
+      refreshed: true,
+      quota: providerQuota,
+    });
+    await expect(listRustProviderQuotas()).rejects.toThrow("Invalid Rust provider quota response");
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/provider-quotas",
+      "/api/admin/provider-quotas/claude-team/refresh",
+      "/api/admin/provider-quotas",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetch.mock.calls[1]?.[1]?.body).toBeUndefined();
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {
