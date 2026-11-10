@@ -57,6 +57,7 @@ const RED_ROUTER_CATALOG_VERSION: &str = "x-redrouter-catalog-version";
 const RED_ROUTER_SERVED_MODEL: &str = "x-redrouter-served-model";
 const ROUTING_STRATEGIES: &[&str] = &[
     "priority",
+    "auto",
     "fill-first",
     "round-robin",
     "weighted",
@@ -433,6 +434,7 @@ pub(crate) struct ModelRoute {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RouteStrategy {
     Priority,
+    Auto,
     RoundRobin,
     Weighted,
     Random,
@@ -591,7 +593,8 @@ impl ModelRoute {
                     first
                 }
             }
-            RouteStrategy::StrictRandom
+            RouteStrategy::Auto
+            | RouteStrategy::StrictRandom
             | RouteStrategy::CostOptimized
             | RouteStrategy::ContextOptimized
             | RouteStrategy::CacheOptimized
@@ -671,7 +674,8 @@ impl ModelRoute {
         }
         if matches!(
             self.strategy,
-            RouteStrategy::CostOptimized
+            RouteStrategy::Auto
+                | RouteStrategy::CostOptimized
                 | RouteStrategy::ContextOptimized
                 | RouteStrategy::ResetAware
                 | RouteStrategy::ResetWindow
@@ -716,6 +720,9 @@ impl ModelRoute {
         now_unix_ms: i64,
     ) -> bool {
         match self.strategy {
+            RouteStrategy::Auto => {
+                auto_route_score(candidate, now_unix_ms) > auto_route_score(current, now_unix_ms)
+            }
             RouteStrategy::CostOptimized => {
                 let candidate_cost = candidate.input_cost_per_million.unwrap_or(f64::INFINITY)
                     + candidate.output_cost_per_million.unwrap_or(f64::INFINITY);
@@ -998,6 +1005,32 @@ fn quota_reset(target: &ModelTarget, now_unix_ms: i64) -> i64 {
     } else {
         i64::MAX
     }
+}
+
+fn auto_route_score(target: &ModelTarget, now_unix_ms: i64) -> f64 {
+    let quota = quota_score(target, now_unix_ms);
+    if !quota.is_finite() {
+        return f64::NEG_INFINITY;
+    }
+    let cost = match (
+        target.input_cost_per_million,
+        target.output_cost_per_million,
+    ) {
+        (Some(input), Some(output)) => 1.0 / (1.0 + input + output),
+        _ => 0.5,
+    };
+    let context = target.context_window_tokens.map_or(0.5, |tokens| {
+        (tokens as f64).ln_1p() / 10_000_000_f64.ln_1p()
+    });
+    let load = 1.0 / (1.0 + target.in_flight.load(Ordering::Acquire) as f64);
+
+    // Health and availability are hard gates before ordering. The remaining
+    // score is deliberately small and allocation-free: quota/capacity, cost,
+    // usable context and live load cover the signals the Rust snapshot owns.
+    0.30 * quota.clamp(0.0, 1.0)
+        + 0.25 * cost.clamp(0.0, 1.0)
+        + 0.15 * context.clamp(0.0, 1.0)
+        + 0.30 * load
 }
 
 fn pseudo_random(counter: usize) -> usize {
@@ -1545,6 +1578,7 @@ impl ProxyState {
             let strategy = match object.get("strategy") {
                 None => RouteStrategy::Priority,
                 Some(v) if v.as_str() == Some("priority") => RouteStrategy::Priority,
+                Some(v) if v.as_str() == Some("auto") => RouteStrategy::Auto,
                 Some(v) if v.as_str() == Some("round-robin") => RouteStrategy::RoundRobin,
                 Some(v) if v.as_str() == Some("weighted") => RouteStrategy::Weighted,
                 Some(v) if v.as_str() == Some("random") => RouteStrategy::Random,

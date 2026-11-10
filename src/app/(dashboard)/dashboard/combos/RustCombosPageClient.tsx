@@ -54,6 +54,7 @@ const PROTOCOLS: Array<{ value: RustComboProtocol; label: string }> = [
 
 const STRATEGIES: Array<{ value: RustComboStrategy; label: string }> = [
   { value: "priority", label: "Priority" },
+  { value: "auto", label: "Auto balanced" },
   { value: "fill-first", label: "Fill first" },
   { value: "round-robin", label: "Round robin" },
   { value: "weighted", label: "Weighted" },

@@ -306,6 +306,7 @@ export type RustComboProtocol =
 
 export type RustComboStrategy =
   | "priority"
+  | "auto"
   | "round-robin"
   | "weighted"
   | "random"
@@ -649,6 +650,7 @@ const RUST_COMBO_PROTOCOLS: RustComboProtocol[] = [
 
 const RUST_COMBO_STRATEGIES: RustComboStrategy[] = [
   "priority",
+  "auto",
   "round-robin",
   "weighted",
   "random",

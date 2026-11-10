@@ -342,6 +342,10 @@ startup and live reload discard pins whose combo, strategy or target no longer e
 Prompt-cache affinity (`cache-optimized`) is Rust-owned and uses rendezvous hashing over
 an explicit `prompt_cache_key` (including metadata) or a reusable system/tool/assistant
 prefix. This preserves account locality without a per-conversation database lookup.
+The Rust-owned `auto` strategy ranks the already-authorized, healthy target snapshot by
+quota capacity, catalog-enriched cost and context, and current in-flight load. Selection
+is allocation-free after the fixed eight-target deck is built and performs no storage or
+network reads in the request path.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

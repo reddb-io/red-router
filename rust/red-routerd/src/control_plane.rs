@@ -6652,6 +6652,7 @@ impl ControlPlane {
             }
             let strategy = match record.strategy.as_str() {
                 "priority" => RouteStrategy::Priority,
+                "auto" => RouteStrategy::Auto,
                 "round-robin" => RouteStrategy::RoundRobin,
                 "weighted" => RouteStrategy::Weighted,
                 "random" => RouteStrategy::Random,
@@ -8398,6 +8399,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
     if !matches!(
         input.strategy.as_str(),
         "priority"
+            | "auto"
             | "round-robin"
             | "weighted"
             | "random"
