@@ -148,8 +148,13 @@ those environment secrets.
   API-key scope, cursor lease and live supervisor. Service-account JSON is accepted write-only,
   encrypted with `STORAGE_ENCRYPTION_KEY`, and returned only as `__stored__`. Updates are adopted
   without restart and revision-bound workers stop before another delivery when a sink is changed,
-  disabled or deleted. The dashboard exposes only `instant` mode for this cursor-based BigQuery
-  transport; window aggregation and per-attempt delivery history remain legacy-only features.
+  disabled or deleted. The dashboard exposes only `instant` mode for these cursor-based
+  transports. Signed HTTPS webhooks are also native: every event carries a stable `webhook-id`,
+  `webhook-timestamp` and Standard Webhooks-compatible HMAC-SHA256 `webhook-signature`. The
+  write-only signing secret is encrypted independently, DNS is resolved and pinned to public
+  addresses, redirects are refused, and a cursor advances only after every selected event is
+  accepted. Window aggregation, SQS, Kafka, RedDB queue and per-attempt delivery history remain
+  legacy-only features.
 - `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
   requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
   can safely repeat the same stable key ID and secret without the router retaining plaintext.

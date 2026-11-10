@@ -419,6 +419,8 @@ pub struct UsageReportQuery {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UsageExportConfigInput {
+    pub url: Option<String>,
+    pub secret: Option<String>,
     pub project_id: Option<String>,
     pub dataset_id: Option<String>,
     pub table_id: Option<String>,
@@ -3626,6 +3628,8 @@ impl ControlPlane {
                 .map_err(|_| "invalid usage export key filters")?,
         };
         let config = input.config.unwrap_or(UsageExportConfigInput {
+            url: None,
+            secret: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -3691,11 +3695,11 @@ impl ControlPlane {
         if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
             return Err("invalid usage export name");
         }
-        if export_type != "bigquery" {
+        if !matches!(export_type.as_str(), "bigquery" | "webhook") {
             return Err("unsupported usage export type");
         }
         if mode != "instant" || window_sec.is_some_and(|value| value != 0) {
-            return Err("BigQuery usage export currently supports instant mode only");
+            return Err("Rust usage exports currently support instant mode only");
         }
         if api_key_ids.len() > 200 {
             return Err("too many usage export key filters");
@@ -3719,61 +3723,140 @@ impl ControlPlane {
         }) {
             return Err("usage export key filter is unavailable");
         }
-        let project_id = config
-            .project_id
-            .or_else(|| current.map(|value| value.project_id.clone()))
-            .ok_or("BigQuery project ID is required")?;
-        let dataset_id = config
-            .dataset_id
-            .or_else(|| current.map(|value| value.dataset_id.clone()))
-            .ok_or("BigQuery dataset ID is required")?;
-        let table_id = config
-            .table_id
-            .or_else(|| current.map(|value| value.table_id.clone()))
-            .ok_or("BigQuery table ID is required")?;
-        let batch_size = match config.batch_size {
-            Some(value) => {
-                usize::try_from(value.value()?).map_err(|_| "invalid BigQuery batch size")?
-            }
-            None => current
-                .and_then(|value| usize::try_from(value.batch_size).ok())
-                .unwrap_or(500),
-        };
-        let interval_seconds = match config.interval_seconds {
-            Some(value) => value.value()?,
-            None => current
-                .and_then(|value| u64::try_from(value.interval_seconds).ok())
-                .unwrap_or(10),
-        };
-        let aad = format!("usage-export:{id}:service-account");
-        let (service_account_ciphertext, service_account_json) = match config.service_account_json {
-            Some(value) if value != "__stored__" => {
-                let secret = Zeroizing::new(value);
-                let ciphertext = encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
-                (ciphertext, secret)
-            }
-            _ => {
-                let stored = current.ok_or("BigQuery service account JSON is required")?;
-                let secret = decrypt(
-                    &stored.service_account_ciphertext,
-                    &aad,
-                    self.0.encryption_key.as_str(),
-                )?;
-                (stored.service_account_ciphertext.clone(), secret)
-            }
-        };
-        let runtime = crate::audit_export::BigQueryAuditConfig {
-            sink_id: format!("managed-{id}"),
-            project_id: project_id.clone(),
-            dataset_id: dataset_id.clone(),
-            table_id: table_id.clone(),
-            service_account_json,
+        let (
+            project_id,
+            dataset_id,
+            table_id,
+            service_account_ciphertext,
+            config_json,
+            secret_ciphertext,
             batch_size,
-            interval: Duration::from_secs(interval_seconds),
-            tenant_id: Some(tenant_id.clone()),
-            api_key_ids: api_key_ids.clone(),
+            interval_seconds,
+        ) = match export_type.as_str() {
+            "bigquery" => {
+                if config.url.is_some() || config.secret.is_some() {
+                    return Err("invalid BigQuery usage export fields");
+                }
+                let project_id = config
+                    .project_id
+                    .or_else(|| current.map(|value| value.project_id.clone()))
+                    .ok_or("BigQuery project ID is required")?;
+                let dataset_id = config
+                    .dataset_id
+                    .or_else(|| current.map(|value| value.dataset_id.clone()))
+                    .ok_or("BigQuery dataset ID is required")?;
+                let table_id = config
+                    .table_id
+                    .or_else(|| current.map(|value| value.table_id.clone()))
+                    .ok_or("BigQuery table ID is required")?;
+                let batch_size = match config.batch_size {
+                    Some(value) => usize::try_from(value.value()?)
+                        .map_err(|_| "invalid BigQuery batch size")?,
+                    None => current
+                        .and_then(|value| usize::try_from(value.batch_size).ok())
+                        .unwrap_or(500),
+                };
+                let interval_seconds = match config.interval_seconds {
+                    Some(value) => value.value()?,
+                    None => current
+                        .and_then(|value| u64::try_from(value.interval_seconds).ok())
+                        .unwrap_or(10),
+                };
+                let aad = format!("usage-export:{id}:service-account");
+                let (ciphertext, service_account_json) = match config.service_account_json {
+                    Some(value) if value != "__stored__" => {
+                        let secret = Zeroizing::new(value);
+                        let ciphertext =
+                            encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
+                        (ciphertext, secret)
+                    }
+                    _ => {
+                        let stored = current.ok_or("BigQuery service account JSON is required")?;
+                        let secret = decrypt(
+                            &stored.service_account_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )?;
+                        (stored.service_account_ciphertext.clone(), secret)
+                    }
+                };
+                let runtime = crate::audit_export::BigQueryAuditConfig {
+                    sink_id: format!("managed-{id}"),
+                    project_id: project_id.clone(),
+                    dataset_id: dataset_id.clone(),
+                    table_id: table_id.clone(),
+                    service_account_json,
+                    batch_size,
+                    interval: Duration::from_secs(interval_seconds),
+                    tenant_id: Some(tenant_id.clone()),
+                    api_key_ids: api_key_ids.clone(),
+                };
+                crate::audit_export::BigQueryAuditSink::new(runtime)?;
+                (
+                    project_id,
+                    dataset_id,
+                    table_id,
+                    ciphertext,
+                    "{}".to_owned(),
+                    String::new(),
+                    batch_size,
+                    interval_seconds,
+                )
+            }
+            "webhook" => {
+                if config.project_id.is_some()
+                    || config.dataset_id.is_some()
+                    || config.table_id.is_some()
+                    || config.service_account_json.is_some()
+                    || config.batch_size.is_some()
+                    || config.interval_seconds.is_some()
+                {
+                    return Err("invalid webhook usage export fields");
+                }
+                let stored_url = current
+                    .map(|value| webhook_usage_url(&value.config_json))
+                    .transpose()?;
+                let url = config.url.or(stored_url).ok_or("Webhook URL is required")?;
+                let aad = format!("usage-export:{id}:secret");
+                let (secret_ciphertext, secret) = match config.secret {
+                    Some(value) if value != "__stored__" => {
+                        let secret = Zeroizing::new(value);
+                        if !(16..=1024).contains(&secret.len()) {
+                            return Err("Webhook secret is invalid");
+                        }
+                        let ciphertext =
+                            encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
+                        (ciphertext, secret)
+                    }
+                    _ => {
+                        let stored = current.ok_or("Webhook secret is required")?;
+                        if stored.secret_ciphertext.is_empty() {
+                            return Err("Webhook secret is required");
+                        }
+                        let secret = decrypt(
+                            &stored.secret_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )?;
+                        (stored.secret_ciphertext.clone(), secret)
+                    }
+                };
+                let url =
+                    crate::audit_export::validate_usage_webhook(&url, secret.as_str()).await?;
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    serde_json::to_string(&serde_json::json!({"url": url}))
+                        .map_err(|_| "cannot encode webhook configuration")?,
+                    secret_ciphertext,
+                    100,
+                    1,
+                )
+            }
+            _ => unreachable!("usage export type was validated"),
         };
-        crate::audit_export::BigQueryAuditSink::new(runtime)?;
         Ok(StoredUsageExport {
             id: id.to_owned(),
             tenant_id,
@@ -3787,9 +3870,11 @@ impl ControlPlane {
             dataset_id,
             table_id,
             service_account_ciphertext,
-            batch_size: i64::try_from(batch_size).map_err(|_| "invalid BigQuery batch size")?,
+            config_json,
+            secret_ciphertext,
+            batch_size: i64::try_from(batch_size).map_err(|_| "invalid usage export batch size")?,
             interval_seconds: i64::try_from(interval_seconds)
-                .map_err(|_| "invalid BigQuery interval")?,
+                .map_err(|_| "invalid usage export interval")?,
             enabled,
             revision: revision()?,
         })
@@ -3860,6 +3945,8 @@ impl ControlPlane {
                 .map_err(|_| "invalid usage export key filters")?,
         };
         let config = input.config.unwrap_or(UsageExportConfigInput {
+            url: None,
+            secret: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -3881,35 +3968,12 @@ impl ControlPlane {
                 Some(&current),
             )
             .await?;
-        let aad = format!("usage-export:{id}:service-account");
-        let service_account_json = decrypt(
-            &record.service_account_ciphertext,
-            &aad,
-            self.0.encryption_key.as_str(),
-        )?;
-        let sink = crate::audit_export::BigQueryAuditSink::new(
-            crate::audit_export::BigQueryAuditConfig {
-                sink_id: format!("managed-{id}"),
-                project_id: record.project_id,
-                dataset_id: record.dataset_id,
-                table_id: record.table_id,
-                service_account_json,
-                batch_size: usize::try_from(record.batch_size)
-                    .map_err(|_| "invalid BigQuery batch size")?,
-                interval: Duration::from_secs(
-                    u64::try_from(record.interval_seconds)
-                        .map_err(|_| "invalid BigQuery interval")?,
-                ),
-                tenant_id: Some(record.tenant_id.clone()),
-                api_key_ids: Vec::new(),
-            },
-        )?;
         let started = Instant::now();
         let now = unix_time_ms()?;
-        sink.send_usage(&[crate::storage::StoredUsageExportEvent {
+        let event = crate::storage::StoredUsageExportEvent {
             event_id: format!("test-{}", random_token(12)?),
             created_at_unix_ms: now,
-            tenant_id: record.tenant_id,
+            tenant_id: record.tenant_id.clone(),
             key_id: "test".to_owned(),
             key_name: "Red Router destination test".to_owned(),
             provider: "red-router".to_owned(),
@@ -3922,8 +3986,52 @@ impl ControlPlane {
             amount_microusd: 0,
             pricing_known: false,
             pricing_snapshot: None,
-        }])
-        .await?;
+        };
+        match record.export_type.as_str() {
+            "bigquery" => {
+                let aad = format!("usage-export:{id}:service-account");
+                let service_account_json = decrypt(
+                    &record.service_account_ciphertext,
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                let sink = crate::audit_export::BigQueryAuditSink::new(
+                    crate::audit_export::BigQueryAuditConfig {
+                        sink_id: format!("managed-{id}"),
+                        project_id: record.project_id,
+                        dataset_id: record.dataset_id,
+                        table_id: record.table_id,
+                        service_account_json,
+                        batch_size: usize::try_from(record.batch_size)
+                            .map_err(|_| "invalid BigQuery batch size")?,
+                        interval: Duration::from_secs(
+                            u64::try_from(record.interval_seconds)
+                                .map_err(|_| "invalid BigQuery interval")?,
+                        ),
+                        tenant_id: Some(record.tenant_id),
+                        api_key_ids: Vec::new(),
+                    },
+                )?;
+                sink.send_usage(&[event]).await?;
+            }
+            "webhook" => {
+                let aad = format!("usage-export:{id}:secret");
+                let secret = decrypt(
+                    &record.secret_ciphertext,
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                crate::audit_export::send_usage_webhook_test(
+                    id,
+                    &record.name,
+                    &webhook_usage_url(&record.config_json)?,
+                    secret.as_str(),
+                    &event,
+                )
+                .await?;
+            }
+            _ => return Err("unsupported usage export type"),
+        }
         Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
     }
 
@@ -5444,25 +5552,44 @@ fn usage_export_view(
                 )
         })
         .collect::<Vec<_>>();
+    let (type_label, config, summary) = match record.export_type.as_str() {
+        "bigquery" => (
+            "Google BigQuery",
+            serde_json::json!({
+                "projectId": record.project_id,
+                "datasetId": record.dataset_id,
+                "tableId": record.table_id,
+                "serviceAccountJson": "__stored__",
+                "batchSize": record.batch_size,
+                "intervalSeconds": record.interval_seconds,
+            }),
+            format!(
+                "{}.{}.{}",
+                record.project_id, record.dataset_id, record.table_id
+            ),
+        ),
+        "webhook" => {
+            let url = webhook_usage_url(&record.config_json)?;
+            (
+                "Webhook (HTTPS POST, signed)",
+                serde_json::json!({"url": url, "secret": "__stored__"}),
+                format!("POST {url}"),
+            )
+        }
+        _ => return Err("invalid usage export configuration"),
+    };
     Ok(serde_json::json!({
         "id": record.id,
         "tenantId": record.tenant_id,
         "name": record.name,
         "type": record.export_type,
-        "typeLabel": "Google BigQuery",
+        "typeLabel": type_label,
         "mode": record.mode,
         "windowSec": if record.window_sec == 0 { serde_json::Value::Null } else { serde_json::json!(record.window_sec) },
         "apiKeyIds": api_key_ids,
         "filterKeys": filter_keys,
-        "config": {
-            "projectId": record.project_id,
-            "datasetId": record.dataset_id,
-            "tableId": record.table_id,
-            "serviceAccountJson": "__stored__",
-            "batchSize": record.batch_size,
-            "intervalSeconds": record.interval_seconds,
-        },
-        "summary": format!("{}.{}.{}", record.project_id, record.dataset_id, record.table_id),
+        "config": config,
+        "summary": summary,
         "enabled": record.enabled,
         "cursorId": 0,
         "nextWindowEnd": null,
@@ -5473,6 +5600,22 @@ fn usage_export_view(
         "deliveries": {"pending": 0, "delivered": 0, "dead": 0},
         "deliveryHistory": false,
     }))
+}
+
+fn webhook_usage_url(config_json: &str) -> Result<String, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid webhook configuration");
+    }
+    serde_json::from_str::<serde_json::Value>(config_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .filter(|url| !url.is_empty() && url.len() <= 2048)
+        .ok_or("invalid webhook configuration")
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -6572,20 +6715,32 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     Json(serde_json::json!({
-        "types": [{
-            "type": "bigquery",
-            "label": "Google BigQuery",
-            "description": "Exports attributed token and spend reports from the Rust usage ledger.",
-            "modes": ["instant"],
-            "fields": [
-                {"key":"projectId","labelFallback":"Project ID","type":"text","required":true},
-                {"key":"datasetId","labelFallback":"Dataset ID","type":"text","required":true},
-                {"key":"tableId","labelFallback":"Table ID","type":"text","required":true},
-                {"key":"serviceAccountJson","labelFallback":"Service account JSON","type":"textarea","required":true,"secret":true,"helpFallback":"Write-only; the credential is encrypted at rest."},
-                {"key":"batchSize","labelFallback":"Batch size","type":"number","placeholder":"500"},
-                {"key":"intervalSeconds","labelFallback":"Interval (seconds)","type":"number","placeholder":"10"}
-            ]
-        }],
+        "types": [
+            {
+                "type": "webhook",
+                "label": "Webhook (HTTPS POST, signed)",
+                "description": "Sends each attributed usage event with a stable ID and Standard Webhooks HMAC signature.",
+                "modes": ["instant"],
+                "fields": [
+                    {"key":"url","labelFallback":"Webhook URL","type":"text","required":true,"placeholder":"https://billing.example.com/hooks/redrouter","helpFallback":"Public HTTPS only; credentials, query strings, redirects and private addresses are refused."},
+                    {"key":"secret","labelFallback":"Signing secret","type":"password","required":true,"secret":true,"placeholder":"whsec_...","helpFallback":"Write-only and encrypted at rest. Used for webhook-signature HMAC-SHA256."}
+                ]
+            },
+            {
+                "type": "bigquery",
+                "label": "Google BigQuery",
+                "description": "Exports attributed token and spend reports from the Rust usage ledger.",
+                "modes": ["instant"],
+                "fields": [
+                    {"key":"projectId","labelFallback":"Project ID","type":"text","required":true},
+                    {"key":"datasetId","labelFallback":"Dataset ID","type":"text","required":true},
+                    {"key":"tableId","labelFallback":"Table ID","type":"text","required":true},
+                    {"key":"serviceAccountJson","labelFallback":"Service account JSON","type":"textarea","required":true,"secret":true,"helpFallback":"Write-only; the credential is encrypted at rest."},
+                    {"key":"batchSize","labelFallback":"Batch size","type":"number","placeholder":"500"},
+                    {"key":"intervalSeconds","labelFallback":"Interval (seconds)","type":"number","placeholder":"10"}
+                ]
+            }
+        ],
         "windowSizesSec": []
     }))
     .into_response()
@@ -7577,6 +7732,8 @@ mod tests {
             dataset_id: "billing".to_owned(),
             table_id: "usage".to_owned(),
             service_account_ciphertext: "rrenc1:secret-ciphertext".to_owned(),
+            config_json: "{}".to_owned(),
+            secret_ciphertext: String::new(),
             batch_size: 500,
             interval_seconds: 10,
             enabled: true,
@@ -7586,6 +7743,34 @@ mod tests {
         let encoded = view.to_string();
         assert_eq!(view["config"]["serviceAccountJson"], "__stored__");
         assert!(!encoded.contains("secret-ciphertext"));
+    }
+
+    #[test]
+    fn usage_webhook_views_expose_only_the_secret_placeholder() {
+        let record = StoredUsageExport {
+            id: "usage-hook".to_owned(),
+            tenant_id: "red".to_owned(),
+            name: "Billing webhook".to_owned(),
+            export_type: "webhook".to_owned(),
+            mode: "instant".to_owned(),
+            window_sec: 0,
+            api_key_ids_json: "[]".to_owned(),
+            project_id: String::new(),
+            dataset_id: String::new(),
+            table_id: String::new(),
+            service_account_ciphertext: String::new(),
+            config_json: r#"{"url":"https://billing.example.com/usage"}"#.to_owned(),
+            secret_ciphertext: "rrenc1:webhook-secret-ciphertext".to_owned(),
+            batch_size: 100,
+            interval_seconds: 1,
+            enabled: true,
+            revision: 1_700_000_000_000_000_000,
+        };
+        let view = usage_export_view(&record, &[]).unwrap();
+        let encoded = view.to_string();
+        assert_eq!(view["config"]["secret"], "__stored__");
+        assert_eq!(view["config"]["url"], "https://billing.example.com/usage");
+        assert!(!encoded.contains("webhook-secret-ciphertext"));
     }
 
     #[test]

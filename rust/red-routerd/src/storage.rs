@@ -78,10 +78,10 @@ const CREATE_USAGE_LEDGER_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redro
 const CREATE_USAGE_LEDGER_TENANT_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_tenant_key_time ON redrouter_usage_ledger (tenant_id, key_id, created_at_unix_ms DESC, event_id DESC)";
 // MODE is a RedDB keyword. Keep the dashboard contract's field name, but quote the
 // durable column so the same schema is accepted by SQLite, PostgreSQL and RedDB.
-const CREATE_USAGE_EXPORTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_usage_exports (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, export_type TEXT NOT NULL, \"mode\" TEXT NOT NULL, window_sec BIGINT NOT NULL, api_key_ids_json TEXT NOT NULL, project_id TEXT NOT NULL, dataset_id TEXT NOT NULL, table_id TEXT NOT NULL, service_account_ciphertext TEXT NOT NULL, batch_size BIGINT NOT NULL, interval_seconds BIGINT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
-const LIST_USAGE_EXPORTS: &str = "SELECT id, tenant_id, name, export_type, \"mode\", window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, batch_size, interval_seconds, enabled, revision FROM redrouter_control_usage_exports ORDER BY revision DESC, id ASC";
-const UPSERT_USAGE_EXPORT: &str = "INSERT INTO redrouter_control_usage_exports (id, tenant_id, name, export_type, \"mode\", window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, batch_size, interval_seconds, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO NOTHING";
-const UPDATE_USAGE_EXPORT: &str = "UPDATE redrouter_control_usage_exports SET name = $3, export_type = $4, \"mode\" = $5, window_sec = $6, api_key_ids_json = $7, project_id = $8, dataset_id = $9, table_id = $10, service_account_ciphertext = $11, batch_size = $12, interval_seconds = $13, enabled = $14, revision = $15 WHERE id = $1 AND tenant_id = $2 AND revision = $16";
+const CREATE_USAGE_EXPORTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_usage_exports (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, export_type TEXT NOT NULL, \"mode\" TEXT NOT NULL, window_sec BIGINT NOT NULL, api_key_ids_json TEXT NOT NULL, project_id TEXT NOT NULL, dataset_id TEXT NOT NULL, table_id TEXT NOT NULL, service_account_ciphertext TEXT NOT NULL, config_json TEXT NOT NULL, secret_ciphertext TEXT NOT NULL, batch_size BIGINT NOT NULL, interval_seconds BIGINT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_USAGE_EXPORTS: &str = "SELECT id, tenant_id, name, export_type, \"mode\", window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, config_json, secret_ciphertext, batch_size, interval_seconds, enabled, revision FROM redrouter_control_usage_exports ORDER BY revision DESC, id ASC";
+const UPSERT_USAGE_EXPORT: &str = "INSERT INTO redrouter_control_usage_exports (id, tenant_id, name, export_type, \"mode\", window_sec, api_key_ids_json, project_id, dataset_id, table_id, service_account_ciphertext, config_json, secret_ciphertext, batch_size, interval_seconds, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (id) DO NOTHING";
+const UPDATE_USAGE_EXPORT: &str = "UPDATE redrouter_control_usage_exports SET name = $3, export_type = $4, \"mode\" = $5, window_sec = $6, api_key_ids_json = $7, project_id = $8, dataset_id = $9, table_id = $10, service_account_ciphertext = $11, config_json = $12, secret_ciphertext = $13, batch_size = $14, interval_seconds = $15, enabled = $16, revision = $17 WHERE id = $1 AND tenant_id = $2 AND revision = $18";
 const DELETE_USAGE_EXPORT: &str =
     "DELETE FROM redrouter_control_usage_exports WHERE id = $1 AND revision = $2";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
@@ -313,6 +313,10 @@ pub struct StoredUsageExport {
     pub dataset_id: String,
     pub table_id: String,
     pub service_account_ciphertext: String,
+    /// Non-secret transport fields. Secret material must never be stored here.
+    pub config_json: String,
+    /// One authenticated ciphertext containing the transport's secret object.
+    pub secret_ciphertext: String,
     pub batch_size: i64,
     pub interval_seconds: i64,
     pub enabled: bool,
@@ -1806,6 +1810,8 @@ impl Database {
                     .bind(&export.dataset_id)
                     .bind(&export.table_id)
                     .bind(&export.service_account_ciphertext)
+                    .bind(&export.config_json)
+                    .bind(&export.secret_ciphertext)
                     .bind(export.batch_size)
                     .bind(export.interval_seconds)
                     .bind(enabled)
@@ -1851,6 +1857,8 @@ impl Database {
                     .bind(&export.dataset_id)
                     .bind(&export.table_id)
                     .bind(&export.service_account_ciphertext)
+                    .bind(&export.config_json)
+                    .bind(&export.secret_ciphertext)
                     .bind(export.batch_size)
                     .bind(export.interval_seconds)
                     .bind(enabled)
@@ -3293,6 +3301,34 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
             .await
             .map_err(|_| "cannot migrate usage database")?;
         }
+        let export_config_json: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('redrouter_control_usage_exports') WHERE name = 'config_json'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| "cannot inspect usage database")?;
+        if export_config_json == 0 {
+            sqlx::query(
+                "ALTER TABLE redrouter_control_usage_exports ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}'",
+            )
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot migrate usage database")?;
+        }
+        let export_secret_ciphertext: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('redrouter_control_usage_exports') WHERE name = 'secret_ciphertext'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| "cannot inspect usage database")?;
+        if export_secret_ciphertext == 0 {
+            sqlx::query(
+                "ALTER TABLE redrouter_control_usage_exports ADD COLUMN secret_ciphertext TEXT NOT NULL DEFAULT ''",
+            )
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot migrate usage database")?;
+        }
         sqlx::query("UPDATE redrouter_usage_ledger SET key_name = key_id WHERE key_name = ''")
             .execute(&mut *connection)
             .await
@@ -4189,6 +4225,8 @@ fn read_sql_usage_export(row: &sqlx::any::AnyRow) -> Result<StoredUsageExport, &
         dataset_id: text("dataset_id")?,
         table_id: text("table_id")?,
         service_account_ciphertext: text("service_account_ciphertext")?,
+        config_json: text("config_json")?,
+        secret_ciphertext: text("secret_ciphertext")?,
         batch_size: integer("batch_size")?,
         interval_seconds: integer("interval_seconds")?,
         enabled: enabled == 1,
@@ -4227,6 +4265,8 @@ fn read_reddb_usage_export(row: &reddb_client::Row) -> Result<StoredUsageExport,
         dataset_id: text("dataset_id")?,
         table_id: text("table_id")?,
         service_account_ciphertext: text("service_account_ciphertext")?,
+        config_json: text("config_json")?,
+        secret_ciphertext: text("secret_ciphertext")?,
         batch_size: integer("batch_size")?,
         interval_seconds: integer("interval_seconds")?,
         enabled: enabled == 1,
@@ -4247,6 +4287,8 @@ fn usage_export_params(export: &StoredUsageExport, enabled: i64) -> Vec<reddb_cl
         reddb_client::Value::Text(export.dataset_id.clone()),
         reddb_client::Value::Text(export.table_id.clone()),
         reddb_client::Value::Text(export.service_account_ciphertext.clone()),
+        reddb_client::Value::Text(export.config_json.clone()),
+        reddb_client::Value::Text(export.secret_ciphertext.clone()),
         reddb_client::Value::Int(export.batch_size),
         reddb_client::Value::Int(export.interval_seconds),
         reddb_client::Value::Int(enabled),

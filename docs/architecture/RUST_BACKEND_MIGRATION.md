@@ -70,7 +70,7 @@ their Rust migration state:
 | Signed OIDC claim policies                                 | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected                                                                            | Add parity fixtures for every translating stream path before declaring complete                  |
 | Bound router/cache/log stream retention                    | Rust SSE frames and channels are bounded                                                                       | Audit admin logs, translated streams and future SPA subscriptions under sustained load           |
-| Dashboard-managed usage sinks                              | BigQuery instant export is Rust-owned, tenant/key scoped, encrypted, live-reloaded and SQLite-backed            | Migrate window aggregation plus webhook, SQS, Kafka and RedDB transports                          |
+| Dashboard-managed usage sinks                              | BigQuery and signed HTTPS webhook instant exports are Rust-owned, tenant/key scoped, encrypted, live-reloaded and SQLite-backed | Migrate window aggregation plus SQS, Kafka and RedDB transports                                   |
 
 This table is a migration queue, not a parity claim. The signed-token and browser
 session security boundaries are Rust-owned. The existing dashboard detects the Rust auth

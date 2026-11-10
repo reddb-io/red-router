@@ -2,7 +2,7 @@ use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
     StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
     StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-    StoredResilience, StoredRoutePin, StoredTenant,
+    StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -463,6 +463,27 @@ async fn sqlite_usage_export_preserves_key_and_model_attribution() {
     assert_eq!(events[0].tokens_input, 100);
     assert_eq!(events[0].tokens_output, 40);
     assert_eq!(events[0].amount_microusd, 1234);
+    let webhook = StoredUsageExport {
+        id: "usage-hook".into(),
+        tenant_id: "red".into(),
+        name: "Billing hook".into(),
+        export_type: "webhook".into(),
+        mode: "instant".into(),
+        window_sec: 0,
+        api_key_ids_json: r#"["agent-key"]"#.into(),
+        project_id: String::new(),
+        dataset_id: String::new(),
+        table_id: String::new(),
+        service_account_ciphertext: String::new(),
+        config_json: r#"{"url":"https://billing.example.com/usage"}"#.into(),
+        secret_ciphertext: "rrenc1:ciphertext".into(),
+        batch_size: 100,
+        interval_seconds: 1,
+        enabled: true,
+        revision: 1_700_000_000_000_000_001,
+    };
+    db.upsert_usage_export(&webhook).await.unwrap();
+    assert_eq!(db.usage_exports().await.unwrap(), vec![webhook]);
     db.close().await.unwrap();
 }
 

@@ -1,8 +1,11 @@
-use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExportEvent};
+use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExport, StoredUsageExportEvent};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use futures_util::{StreamExt, TryStreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, sync::Arc, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{collections::HashMap, env, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
@@ -14,6 +17,7 @@ const MAX_BATCH_BYTES: usize = 9 * 1024 * 1024;
 const MAX_BATCH_ROWS: usize = 500;
 const MAX_ATTEMPTS: usize = 3;
 const LEASE_MS: i64 = 120_000;
+const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct BigQueryAuditConfig {
@@ -396,6 +400,338 @@ pub async fn spawn_from_env(database: &Arc<Database>) -> Result<bool, &'static s
     Ok(usage_enabled)
 }
 
+#[derive(Clone)]
+struct UsageWebhookSink {
+    sink_id: String,
+    sink_name: String,
+    url: Url,
+    secret: Zeroizing<Vec<u8>>,
+    client: Client,
+}
+
+enum ManagedUsageTransport {
+    BigQuery(BigQueryAuditSink),
+    Webhook(UsageWebhookSink),
+}
+
+struct ManagedUsageRelay {
+    sink_id: String,
+    tenant_id: String,
+    api_key_ids: Vec<String>,
+    batch_size: usize,
+    interval: Duration,
+    transport: ManagedUsageTransport,
+}
+
+impl ManagedUsageRelay {
+    async fn from_record(
+        record: &StoredUsageExport,
+        encryption_key: &str,
+    ) -> Result<Self, &'static str> {
+        let api_key_ids = serde_json::from_str::<Vec<String>>(&record.api_key_ids_json)
+            .map_err(|_| "invalid usage export key filter")?;
+        let batch_size =
+            usize::try_from(record.batch_size).map_err(|_| "invalid usage export batch size")?;
+        if !(1..=MAX_BATCH_ROWS).contains(&batch_size) {
+            return Err("invalid usage export batch size");
+        }
+        let interval = Duration::from_secs(
+            u64::try_from(record.interval_seconds).map_err(|_| "invalid usage export interval")?,
+        );
+        if interval.is_zero() || interval > Duration::from_secs(3_600) {
+            return Err("invalid usage export interval");
+        }
+        let sink_id = format!("managed-{}", record.id);
+        let transport = match record.export_type.as_str() {
+            "bigquery" => {
+                let aad = format!("usage-export:{}:service-account", record.id);
+                let service_account_json = crate::control_plane::decrypt(
+                    &record.service_account_ciphertext,
+                    &aad,
+                    encryption_key,
+                )?;
+                ManagedUsageTransport::BigQuery(BigQueryAuditSink::new(BigQueryAuditConfig {
+                    sink_id: sink_id.clone(),
+                    project_id: record.project_id.clone(),
+                    dataset_id: record.dataset_id.clone(),
+                    table_id: record.table_id.clone(),
+                    service_account_json,
+                    batch_size,
+                    interval,
+                    tenant_id: Some(record.tenant_id.clone()),
+                    api_key_ids: api_key_ids.clone(),
+                })?)
+            }
+            "webhook" => {
+                let aad = format!("usage-export:{}:secret", record.id);
+                let secret =
+                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                let url = usage_webhook_url(&record.config_json)?;
+                ManagedUsageTransport::Webhook(
+                    UsageWebhookSink::new(&record.id, &record.name, &url, secret.as_str()).await?,
+                )
+            }
+            _ => return Err("unsupported usage export type"),
+        };
+        Ok(Self {
+            sink_id,
+            tenant_id: record.tenant_id.clone(),
+            api_key_ids,
+            batch_size,
+            interval,
+            transport,
+        })
+    }
+
+    async fn send(&self, events: &[StoredUsageExportEvent]) -> Result<(), &'static str> {
+        match &self.transport {
+            ManagedUsageTransport::BigQuery(sink) => sink.send_usage(events).await,
+            ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
+        }
+    }
+}
+
+impl UsageWebhookSink {
+    async fn new(
+        sink_id: &str,
+        sink_name: &str,
+        url: &str,
+        secret: &str,
+    ) -> Result<Self, &'static str> {
+        let (url, client) = pinned_usage_webhook_client(url).await?;
+        let secret = webhook_secret_bytes(secret)?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            sink_name: sink_name.to_owned(),
+            url,
+            secret: Zeroizing::new(secret),
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        futures_util::stream::iter(events.iter())
+            .map(|event| self.send_one(event, test))
+            .buffer_unordered(16)
+            .try_collect::<Vec<_>>()
+            .await
+            .map(|_| ())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let body = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        if body.len() > MAX_RESPONSE_BYTES {
+            return Err("usage webhook payload is too large");
+        }
+        let timestamp = unix_time_ms()?.div_euclid(1_000).to_string();
+        let signature =
+            usage_webhook_signature(&event.event_id, &timestamp, &body, self.secret.as_slice());
+        let response = self
+            .client
+            .post(self.url.clone())
+            .header("content-type", "application/json")
+            .header("user-agent", "RedRouter-UsageSinks/1")
+            .header("webhook-id", &event.event_id)
+            .header("webhook-timestamp", timestamp)
+            .header("webhook-signature", signature)
+            .body(body)
+            .send()
+            .await
+            .map_err(|_| "usage webhook request failed")?;
+        let status = response.status();
+        drop(response);
+        if status.is_success() {
+            Ok(())
+        } else if status == StatusCode::GONE {
+            Err("usage webhook endpoint is gone")
+        } else {
+            Err("usage webhook rejected delivery")
+        }
+    }
+}
+
+pub async fn validate_usage_webhook(url: &str, secret: &str) -> Result<String, &'static str> {
+    let _secret = Zeroizing::new(webhook_secret_bytes(secret)?);
+    pinned_usage_webhook_client(url)
+        .await
+        .map(|(url, _)| url.to_string())
+}
+
+pub async fn send_usage_webhook_test(
+    sink_id: &str,
+    sink_name: &str,
+    url: &str,
+    secret: &str,
+    event: &StoredUsageExportEvent,
+) -> Result<(), &'static str> {
+    UsageWebhookSink::new(sink_id, sink_name, url, secret)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+async fn pinned_usage_webhook_client(url: &str) -> Result<(Url, Client), &'static str> {
+    if url.len() > 2048 {
+        return Err("usage webhook URL is invalid");
+    }
+    let parsed = Url::parse(url).map_err(|_| "usage webhook URL is invalid")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("usage webhook must use a public HTTPS URL");
+    }
+    let host = parsed
+        .host_str()
+        .ok_or("usage webhook URL is invalid")?
+        .to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("usage webhook URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "usage webhook host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), false))
+    {
+        return Err("usage webhook resolved to a forbidden address");
+    }
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create usage webhook client")?;
+    Ok((parsed, client))
+}
+
+fn webhook_secret_bytes(secret: &str) -> Result<Vec<u8>, &'static str> {
+    if !(16..=1024).contains(&secret.len()) || secret.chars().any(char::is_control) {
+        return Err("usage webhook secret is invalid");
+    }
+    if let Some(encoded) = secret.strip_prefix("whsec_") {
+        let bytes = BASE64_STANDARD
+            .decode(encoded)
+            .map_err(|_| "usage webhook secret is invalid")?;
+        if bytes.len() < 16 || bytes.len() > 768 {
+            return Err("usage webhook secret is invalid");
+        }
+        Ok(bytes)
+    } else {
+        Ok(secret.as_bytes().to_vec())
+    }
+}
+
+fn usage_webhook_signature(id: &str, timestamp: &str, body: &[u8], secret: &[u8]) -> String {
+    let mut key = Zeroizing::new([0_u8; 64]);
+    if secret.len() > key.len() {
+        key[..32].copy_from_slice(&Sha256::digest(secret));
+    } else {
+        key[..secret.len()].copy_from_slice(secret);
+    }
+    let mut inner_pad = Zeroizing::new([0x36_u8; 64]);
+    let mut outer_pad = Zeroizing::new([0x5c_u8; 64]);
+    for index in 0..64 {
+        inner_pad[index] ^= key[index];
+        outer_pad[index] ^= key[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad.as_slice());
+    inner.update(id.as_bytes());
+    inner.update(b".");
+    inner.update(timestamp.as_bytes());
+    inner.update(b".");
+    inner.update(body);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad.as_slice());
+    outer.update(inner.finalize());
+    format!("v1,{}", BASE64_STANDARD.encode(outer.finalize()))
+}
+
+fn usage_webhook_payload(
+    sink_id: &str,
+    sink_name: &str,
+    event: &StoredUsageExportEvent,
+    test: bool,
+) -> Result<Vec<u8>, &'static str> {
+    let timestamp = ::time::OffsetDateTime::from_unix_timestamp_nanos(
+        i128::from(event.created_at_unix_ms).saturating_mul(1_000_000),
+    )
+    .map_err(|_| "usage webhook timestamp is invalid")?
+    .format(&::time::format_description::well_known::Rfc3339)
+    .map_err(|_| "usage webhook timestamp is invalid")?;
+    let pricing = event
+        .pricing_snapshot
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .map_err(|_| "usage pricing snapshot is invalid")?;
+    let mut payload = serde_json::json!({
+        "type": "usage.recorded",
+        "version": 1,
+        "id": event.event_id,
+        "source": "redrouter_usage_ledger",
+        "coverage": "verified-terminal-usage",
+        "sink": {"id": sink_id, "name": sink_name},
+        "event": {
+            "usageId": event.event_id,
+            "eventId": event.event_id,
+            "tenantId": event.tenant_id,
+            "attributes": {},
+            "pricingKnown": event.pricing_known,
+            "pricing": pricing,
+            "requestId": event.event_id,
+            "timestamp": timestamp,
+            "apiKey": {"id": event.key_id, "name": event.key_name},
+            "provider": event.provider,
+            "model": event.model,
+            "status": "ok",
+            "tokens": {
+                "promptTokens": event.tokens_input,
+                "completionTokens": event.tokens_output,
+                "cachedTokens": event.tokens_cache_read,
+                "cacheCreationTokens": event.tokens_cache_creation,
+                "reasoningTokens": event.tokens_reasoning,
+            },
+            "cost": event.amount_microusd as f64 / 1_000_000.0,
+        }
+    });
+    if test {
+        payload["test"] = serde_json::Value::Bool(true);
+    }
+    serde_json::to_vec(&payload).map_err(|_| "cannot encode usage webhook payload")
+}
+
+fn usage_webhook_url(config_json: &str) -> Result<String, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid usage webhook configuration");
+    }
+    serde_json::from_str::<serde_json::Value>(config_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .filter(|url| !url.is_empty() && url.len() <= 2048)
+        .ok_or("invalid usage webhook configuration")
+}
+
 /// Watches Rust-owned usage destinations and starts one revision-bound relay per enabled sink.
 /// A relay exits before its next delivery as soon as its record is edited, disabled, or deleted.
 pub fn spawn_persisted_usage(
@@ -403,7 +739,7 @@ pub fn spawn_persisted_usage(
     encryption_key: &str,
 ) -> Result<(), &'static str> {
     if !database.supports_audit_sink_leases() {
-        return Err("managed BigQuery usage export requires SQLite or PostgreSQL");
+        return Err("managed usage export requires SQLite or PostgreSQL");
     }
     let weak = Arc::downgrade(database);
     let encryption_key = Zeroizing::new(encryption_key.to_owned());
@@ -431,46 +767,17 @@ pub fn spawn_persisted_usage(
                     revisions.insert(export.id.clone(), export.revision);
                     continue;
                 }
-                let aad = format!("usage-export:{}:service-account", export.id);
-                let service_account_json = match crate::control_plane::decrypt(
-                    &export.service_account_ciphertext,
-                    &aad,
-                    encryption_key.as_str(),
-                ) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        eprintln!("Rust managed usage export credential failed: {error}");
-                        continue;
-                    }
-                };
-                let api_key_ids =
-                    match serde_json::from_str::<Vec<String>>(&export.api_key_ids_json) {
-                        Ok(value) => value,
-                        Err(_) => {
-                            eprintln!("Rust managed usage export key filter is invalid");
+                let relay =
+                    match ManagedUsageRelay::from_record(&export, encryption_key.as_str()).await {
+                        Ok(relay) => relay,
+                        Err(error) => {
+                            eprintln!("Rust managed usage export configuration failed: {error}");
                             continue;
                         }
                     };
-                let config = BigQueryAuditConfig {
-                    sink_id: format!("managed-{}", export.id),
-                    project_id: export.project_id,
-                    dataset_id: export.dataset_id,
-                    table_id: export.table_id,
-                    service_account_json,
-                    batch_size: match usize::try_from(export.batch_size) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    },
-                    interval: match u64::try_from(export.interval_seconds) {
-                        Ok(value) => Duration::from_secs(value),
-                        Err(_) => continue,
-                    },
-                    tenant_id: Some(export.tenant_id),
-                    api_key_ids,
-                };
-                let export_id = export.id;
+                let export_id = export.id.clone();
                 let export_revision = export.revision;
-                match spawn_managed_usage(&database, config, export_id.clone(), export_revision) {
+                match spawn_managed_usage(&database, relay, export_id.clone(), export_revision) {
                     Ok(()) => {
                         revisions.insert(export_id, export_revision);
                     }
@@ -486,15 +793,15 @@ pub fn spawn_persisted_usage(
 
 fn spawn_managed_usage(
     database: &Arc<Database>,
-    config: BigQueryAuditConfig,
+    relay: ManagedUsageRelay,
     record_id: String,
     revision: i64,
 ) -> Result<(), &'static str> {
-    let sink = Arc::new(BigQueryAuditSink::new(config.clone())?);
+    let relay = Arc::new(relay);
     let weak = Arc::downgrade(database);
     let owner = random_owner()?;
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(config.interval);
+        let mut ticker = tokio::time::interval(relay.interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
@@ -509,7 +816,7 @@ fn spawn_managed_usage(
             if !current.is_some_and(|item| item.enabled && item.revision == revision) {
                 return;
             }
-            if let Err(error) = drain_usage_once(&database, &sink, &owner).await {
+            if let Err(error) = drain_managed_usage_once(&database, &relay, &owner).await {
                 eprintln!("Rust managed usage export failed: {error}");
             }
         }
@@ -660,12 +967,74 @@ async fn drain_usage_once(
     result
 }
 
+async fn drain_managed_usage_once(
+    database: &Database,
+    relay: &ManagedUsageRelay,
+    owner: &str,
+) -> Result<(), &'static str> {
+    let now = unix_time_ms()?;
+    if !database
+        .acquire_audit_sink_lease(&relay.sink_id, owner, now, now.saturating_add(LEASE_MS))
+        .await?
+    {
+        return Ok(());
+    }
+    let result = async {
+        let cursor = database.audit_sink_cursor(&relay.sink_id).await?;
+        let (created_at, event_id) = cursor
+            .as_ref()
+            .map(|cursor| {
+                (
+                    cursor.cursor_created_at_unix_ms,
+                    cursor.cursor_event_id.as_str(),
+                )
+            })
+            .unwrap_or((0, ""));
+        let events = database
+            .usage_export_events(created_at, event_id, relay.batch_size)
+            .await?;
+        if let Some(last) = events.last() {
+            let selected = events
+                .iter()
+                .filter(|event| {
+                    usage_event_selected_for(&relay.tenant_id, &relay.api_key_ids, event)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            relay.send(&selected).await?;
+            database
+                .advance_sink_cursor_position(
+                    &relay.sink_id,
+                    owner,
+                    last.created_at_unix_ms,
+                    &last.event_id,
+                    unix_time_ms()?,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    .await;
+    let _ = database
+        .release_audit_sink_lease(&relay.sink_id, owner, unix_time_ms().unwrap_or(now))
+        .await;
+    result
+}
+
 fn usage_event_selected(config: &BigQueryAuditConfig, event: &StoredUsageExportEvent) -> bool {
     config
         .tenant_id
         .as_ref()
         .is_none_or(|tenant| event.tenant_id == *tenant)
         && (config.api_key_ids.is_empty() || config.api_key_ids.contains(&event.key_id))
+}
+
+fn usage_event_selected_for(
+    tenant_id: &str,
+    api_key_ids: &[String],
+    event: &StoredUsageExportEvent,
+) -> bool {
+    event.tenant_id == tenant_id && (api_key_ids.is_empty() || api_key_ids.contains(&event.key_id))
 }
 
 fn bigquery_chunks(
@@ -973,5 +1342,48 @@ mod tests {
         let mut other_key = allowed;
         other_key.key_id = "other-key".to_owned();
         assert!(!usage_event_selected(&config, &other_key));
+    }
+
+    #[test]
+    fn usage_webhook_signatures_match_standard_webhooks_hmac_shape() {
+        assert_eq!(
+            usage_webhook_signature("evt_1", "1700000000", b"hello", b"0123456789abcdef"),
+            "v1,AxUhS/9Sfwls0U8oEtW1KoPCQDbD0wtqi8M7bVr9g/A="
+        );
+    }
+
+    #[test]
+    fn usage_webhook_payload_preserves_attribution_without_credentials() {
+        let event = usage_event("usage-webhook-one");
+        let encoded = usage_webhook_payload("sink-one", "Billing", &event, true).unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(payload["type"], "usage.recorded");
+        assert_eq!(payload["event"]["apiKey"]["id"], "agent-key");
+        assert_eq!(payload["event"]["apiKey"]["name"], "Agent fleet");
+        assert_eq!(payload["event"]["provider"], "openrouter");
+        assert_eq!(payload["event"]["model"], "openai/gpt-5");
+        assert_eq!(payload["event"]["tokens"]["reasoningTokens"], 10);
+        assert_eq!(payload["test"], true);
+        assert!(!String::from_utf8(encoded).unwrap().contains("whsec_"));
+    }
+
+    #[tokio::test]
+    async fn usage_webhooks_refuse_private_destinations_before_sending() {
+        assert!(
+            validate_usage_webhook("https://127.0.0.1:8443/usage", "0123456789abcdef")
+                .await
+                .is_err()
+        );
+        assert!(
+            validate_usage_webhook("http://billing.example.com/usage", "0123456789abcdef")
+                .await
+                .is_err()
+        );
+        assert!(validate_usage_webhook(
+            "https://billing.example.com/usage?token=secret",
+            "0123456789abcdef"
+        )
+        .await
+        .is_err());
     }
 }
