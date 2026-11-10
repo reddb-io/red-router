@@ -253,6 +253,33 @@ export interface RustProviderQuotaRefresh {
   quota?: RustProviderQuota;
 }
 
+export interface RustProviderModelLockout {
+  model: string;
+  status: number;
+  until_unix_ms: number;
+  retry_after_ms: number;
+  backoff_level: number;
+}
+
+export interface RustProviderHealth {
+  provider_id: string;
+  state: "closed" | "open" | "half_open";
+  failure_count: number;
+  retry_after_ms: number;
+  open_cycle_count: number;
+  failure_threshold: number;
+  degradation_threshold: number;
+  reset_timeout_ms: number;
+  connection_cooldown_until_unix_ms: number;
+  connection_retry_after_ms: number;
+  connection_backoff_level: number;
+  connection_last_status: number | null;
+  terminal_status: "banned" | "expired" | "credits_exhausted" | null;
+  ambiguous_auth_strikes: number;
+  ambiguous_auth_retry_limit: number;
+  model_lockouts: RustProviderModelLockout[];
+}
+
 export interface RustCatalogManifest {
   schemaVersion: number;
   transformVersion: number;
@@ -440,6 +467,12 @@ function isOptionalString(value: unknown): value is string | null | undefined {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isNonNegativeJsonInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0
+  );
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
@@ -735,6 +768,71 @@ function isRustProviderQuotaRefresh(value: unknown): value is RustProviderQuotaR
     typeof refresh.category === "string" &&
     categories.includes(refresh.category as RustProviderQuotaRefreshCategory) &&
     (refresh.quota === undefined || isRustProviderQuota(refresh.quota))
+  );
+}
+
+function isRustProviderModelLockout(value: unknown): value is RustProviderModelLockout {
+  if (!value || typeof value !== "object") return false;
+  const lockout = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(lockout, ["model", "status", "until_unix_ms", "retry_after_ms", "backoff_level"]) &&
+    typeof lockout.model === "string" &&
+    lockout.model.length > 0 &&
+    isNonNegativeInteger(lockout.status) &&
+    lockout.status >= 100 &&
+    lockout.status <= 599 &&
+    isNonNegativeJsonInteger(lockout.until_unix_ms) &&
+    isNonNegativeJsonInteger(lockout.retry_after_ms) &&
+    isNonNegativeInteger(lockout.backoff_level)
+  );
+}
+
+function isRustProviderHealth(value: unknown): value is RustProviderHealth {
+  if (!value || typeof value !== "object") return false;
+  const health = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(health, [
+      "provider_id",
+      "state",
+      "failure_count",
+      "retry_after_ms",
+      "open_cycle_count",
+      "failure_threshold",
+      "degradation_threshold",
+      "reset_timeout_ms",
+      "connection_cooldown_until_unix_ms",
+      "connection_retry_after_ms",
+      "connection_backoff_level",
+      "connection_last_status",
+      "terminal_status",
+      "ambiguous_auth_strikes",
+      "ambiguous_auth_retry_limit",
+      "model_lockouts",
+    ]) &&
+    typeof health.provider_id === "string" &&
+    health.provider_id.length > 0 &&
+    (health.state === "closed" || health.state === "open" || health.state === "half_open") &&
+    isNonNegativeInteger(health.failure_count) &&
+    isNonNegativeInteger(health.retry_after_ms) &&
+    isNonNegativeInteger(health.open_cycle_count) &&
+    isNonNegativeInteger(health.failure_threshold) &&
+    isNonNegativeInteger(health.degradation_threshold) &&
+    isNonNegativeInteger(health.reset_timeout_ms) &&
+    isNonNegativeJsonInteger(health.connection_cooldown_until_unix_ms) &&
+    isNonNegativeJsonInteger(health.connection_retry_after_ms) &&
+    isNonNegativeInteger(health.connection_backoff_level) &&
+    (health.connection_last_status === null ||
+      (isNonNegativeInteger(health.connection_last_status) &&
+        health.connection_last_status >= 100 &&
+        health.connection_last_status <= 599)) &&
+    (health.terminal_status === null ||
+      health.terminal_status === "banned" ||
+      health.terminal_status === "expired" ||
+      health.terminal_status === "credits_exhausted") &&
+    isNonNegativeInteger(health.ambiguous_auth_strikes) &&
+    isNonNegativeInteger(health.ambiguous_auth_retry_limit) &&
+    Array.isArray(health.model_lockouts) &&
+    health.model_lockouts.every(isRustProviderModelLockout)
   );
 }
 
@@ -1076,6 +1174,25 @@ export async function listRustProviderQuotas(): Promise<RustProviderQuota[]> {
     throw new Error("Invalid Rust provider quota response");
   }
   return quotas;
+}
+
+export async function listRustProviderHealth(): Promise<RustProviderHealth[]> {
+  const value = await rustAdminJson("/api/admin/provider-health");
+  const health =
+    value && typeof value === "object"
+      ? (value as { provider_health?: unknown }).provider_health
+      : undefined;
+  if (!Array.isArray(health) || !health.every(isRustProviderHealth)) {
+    throw new Error("Invalid Rust provider health response");
+  }
+  return health;
+}
+
+export async function resetRustProviderHealth(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/provider-health/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (response.status !== 204) await rustError(response);
 }
 
 export async function refreshRustProviderQuota(id: string): Promise<RustProviderQuotaRefresh> {

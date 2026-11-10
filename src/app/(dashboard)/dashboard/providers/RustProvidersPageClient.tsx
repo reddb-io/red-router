@@ -7,6 +7,7 @@ import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
   disableRustProvider,
   deleteRustProvider,
+  listRustProviderHealth,
   listRustProviderQuotas,
   listRustProviders,
   readRustCatalogProvider,
@@ -14,6 +15,7 @@ import {
   refreshRustModelCatalog,
   refreshRustProviderOAuth,
   refreshRustProviderQuota,
+  resetRustProviderHealth,
   replaceRustProvider,
   testRustProvider,
   type RustCatalogProvider,
@@ -21,6 +23,7 @@ import {
   type RustProvider,
   type RustProviderDiagnostic,
   type RustProviderAuthScheme,
+  type RustProviderHealth,
   type RustProviderInput,
   type RustProviderOAuthKind,
   type RustProviderQuota,
@@ -195,6 +198,7 @@ function supportsQuotaRefresh(provider: RustProvider): boolean {
 export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
+  const [providerHealth, setProviderHealth] = useState<Record<string, RustProviderHealth>>({});
   const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
   const [catalogProvider, setCatalogProvider] = useState<RustCatalogProvider | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -205,6 +209,7 @@ export default function RustProvidersPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
   const [quotaRefreshCategories, setQuotaRefreshCategories] = useState<
     Record<string, RustProviderQuotaRefreshCategory>
   >({});
@@ -213,6 +218,7 @@ export default function RustProvidersPageClient() {
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   const [refreshingQuotaProviderId, setRefreshingQuotaProviderId] = useState<string | null>(null);
+  const [resettingHealthProviderId, setResettingHealthProviderId] = useState<string | null>(null);
   const [oauthDialog, setOauthDialog] = useState<{
     provider: RustProviderOAuthKind;
     connectionId?: string;
@@ -220,10 +226,11 @@ export default function RustProvidersPageClient() {
   const [sessionImportOpen, setSessionImportOpen] = useState(false);
 
   const reload = useCallback(async () => {
-    const [providerResult, catalogResult, quotaResult] = await Promise.allSettled([
+    const [providerResult, catalogResult, quotaResult, healthResult] = await Promise.allSettled([
       listRustProviders(),
       readRustModelCatalog(),
       listRustProviderQuotas(),
+      listRustProviderHealth(),
     ]);
     if (catalogResult.status === "fulfilled") {
       setCatalog(catalogResult.value);
@@ -238,6 +245,14 @@ export default function RustProvidersPageClient() {
       setQuotaError(null);
     } else {
       setQuotaError(errorMessage(quotaResult.reason));
+    }
+    if (healthResult.status === "fulfilled") {
+      setProviderHealth(
+        Object.fromEntries(healthResult.value.map((health) => [health.provider_id, health]))
+      );
+      setHealthError(null);
+    } else {
+      setHealthError(errorMessage(healthResult.reason));
     }
     if (providerResult.status === "rejected") throw providerResult.reason;
     setProviders(providerResult.value);
@@ -407,6 +422,19 @@ export default function RustProvidersPageClient() {
     }
   };
 
+  const resetHealth = async (provider: RustProvider) => {
+    setResettingHealthProviderId(provider.id);
+    setHealthError(null);
+    try {
+      await resetRustProviderHealth(provider.id);
+      await reload();
+    } catch (cause) {
+      setHealthError(errorMessage(cause));
+    } finally {
+      setResettingHealthProviderId(null);
+    }
+  };
+
   const set = <K extends keyof Draft>(name: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [name]: value }));
 
@@ -441,6 +469,16 @@ export default function RustProvidersPageClient() {
         >
           Provider quota telemetry is temporarily unavailable: {quotaError}. Existing routing and
           the last valid backend snapshot remain active.
+        </div>
+      )}
+
+      {healthError && (
+        <div
+          className="rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-3 text-sm text-feedback-warning-foreground"
+          role="status"
+        >
+          Provider health telemetry is temporarily unavailable: {healthError}. Routing continues
+          with the last durable breaker state.
         </div>
       )}
 
@@ -761,9 +799,18 @@ export default function RustProvidersPageClient() {
         ) : (
           providers.map((provider) => {
             const quota = providerQuotas[provider.id];
+            const health = providerHealth[provider.id];
             const quotaExpired = quota ? quota.expires_at_unix_ms <= Date.now() : false;
             const canRefreshQuota = supportsQuotaRefresh(provider);
             const quotaRefreshCategory = quotaRefreshCategories[provider.id];
+            const unhealthy = Boolean(
+              health &&
+              (health.state !== "closed" ||
+                health.connection_retry_after_ms > 0 ||
+                health.terminal_status ||
+                health.ambiguous_auth_strikes > 0 ||
+                health.model_lockouts.length > 0)
+            );
             return (
               <Card
                 key={provider.id}
@@ -837,6 +884,69 @@ export default function RustProvidersPageClient() {
                     <dd className="truncate font-mono">{provider.revision}</dd>
                   </div>
                 </dl>
+                {health && (
+                  <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium text-text">Runtime health</div>
+                        <div className="mt-2 grid gap-1 text-xs text-text-muted sm:grid-cols-2">
+                          <div>
+                            Circuit: <span className="font-medium text-text">{health.state}</span>
+                            {health.failure_count > 0
+                              ? " · " + health.failure_count + " failures"
+                              : ""}
+                          </div>
+                          <div>
+                            Cooldown:{" "}
+                            <span className="font-medium text-text">
+                              {health.connection_retry_after_ms > 0
+                                ? health.terminal_status
+                                  ? "blocked"
+                                  : health.connection_retry_after_ms + " ms"
+                                : "ready"}
+                            </span>
+                          </div>
+                          {health.connection_last_status !== null && (
+                            <div>Last upstream status: HTTP {health.connection_last_status}</div>
+                          )}
+                          {health.terminal_status && (
+                            <div className="text-feedback-danger-foreground">
+                              Account state: {health.terminal_status.replaceAll("_", " ")}
+                            </div>
+                          )}
+                          {health.ambiguous_auth_strikes > 0 && (
+                            <div>
+                              Ambiguous auth failures: {health.ambiguous_auth_strikes}/
+                              {health.ambiguous_auth_retry_limit}
+                            </div>
+                          )}
+                          {health.model_lockouts.length > 0 && (
+                            <div>Model lockouts: {health.model_lockouts.length}</div>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          unhealthy
+                            ? "rounded-full bg-feedback-warning-surface px-2 py-1 text-xs text-feedback-warning-foreground"
+                            : "rounded-full bg-feedback-success-surface px-2 py-1 text-xs text-feedback-success-foreground"
+                        }
+                      >
+                        {unhealthy ? "Degraded" : "Healthy"}
+                      </span>
+                    </div>
+                    {health.model_lockouts.length > 0 && (
+                      <div className="mt-2 space-y-1 text-xs text-text-muted">
+                        {health.model_lockouts.map((lockout) => (
+                          <div key={lockout.model} className="break-all font-mono">
+                            {lockout.model} · HTTP {lockout.status} · retry in{" "}
+                            {lockout.retry_after_ms} ms
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {(quota || canRefreshQuota) && (
                   <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1034,6 +1144,19 @@ export default function RustProvidersPageClient() {
                       onClick={() => void refreshOAuth(provider)}
                     >
                       Refresh OAuth
+                    </Button>
+                  )}
+                  {unhealthy && (
+                    <Button
+                      variant="secondary"
+                      loading={resettingHealthProviderId === provider.id}
+                      disabled={
+                        resettingHealthProviderId !== null &&
+                        resettingHealthProviderId !== provider.id
+                      }
+                      onClick={() => void resetHealth(provider)}
+                    >
+                      Reset health
                     </Button>
                   )}
                   <Button

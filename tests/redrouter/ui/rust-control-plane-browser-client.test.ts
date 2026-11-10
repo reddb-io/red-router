@@ -9,6 +9,7 @@ import {
   importRustProviderSession,
   importRustProviderSessionsBulk,
   issueRustClientKey,
+  listRustProviderHealth,
   listRustClientKeys,
   listRustProviderQuotas,
   listRustProviders,
@@ -22,6 +23,7 @@ import {
   refreshRustModelCatalog,
   refreshRustProviderOAuth,
   refreshRustProviderQuota,
+  resetRustProviderHealth,
   rotateRustProviderOAuth,
   rustAdminFetch,
   rustProviderOAuthFetch,
@@ -501,6 +503,49 @@ describe("Rust control-plane browser client", () => {
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[1]?.[1]?.body).toBeUndefined();
+  });
+
+  it("reads and resets durable provider health without exposing credentials", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const health = {
+      provider_id: "claude-team",
+      state: "open",
+      failure_count: 5,
+      retry_after_ms: 12_000,
+      open_cycle_count: 2,
+      failure_threshold: 5,
+      degradation_threshold: 3,
+      reset_timeout_ms: 30_000,
+      connection_cooldown_until_unix_ms: 9_223_372_036_854_776_000,
+      connection_retry_after_ms: 9_223_370_136_854_776_000,
+      connection_backoff_level: 2,
+      connection_last_status: 429,
+      terminal_status: "banned",
+      ambiguous_auth_strikes: 1,
+      ambiguous_auth_retry_limit: 3,
+      model_lockouts: [
+        {
+          model: "claude-opus-4-1",
+          status: 429,
+          until_unix_ms: 1_900_000_000_000,
+          retry_after_ms: 8_000,
+          backoff_level: 2,
+        },
+      ],
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ provider_health: [health] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustProviderHealth()).resolves.toEqual([health]);
+    await expect(resetRustProviderHealth(health.provider_id)).resolves.toBeUndefined();
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/provider-health",
+      "/api/admin/provider-health/claude-team",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
   });
 
   it("reads and refreshes the validated models.dev catalog through Rust", async () => {

@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   extractRustProviderSessionZip: vi.fn(),
   importRustProviderSession: vi.fn(),
   importRustProviderSessionsBulk: vi.fn(),
+  listRustProviderHealth: vi.fn(),
   listRustProviderQuotas: vi.fn(),
   listRustProviders: vi.fn(),
   readRustCatalogProvider: vi.fn(),
@@ -22,6 +23,7 @@ const api = vi.hoisted(() => ({
   refreshRustModelCatalog: vi.fn(),
   refreshRustProviderOAuth: vi.fn(),
   refreshRustProviderQuota: vi.fn(),
+  resetRustProviderHealth: vi.fn(),
   replaceRustProvider: vi.fn(),
   testRustProvider: vi.fn(),
 }));
@@ -64,6 +66,7 @@ const { default: RustProvidersPageClient } =
 const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
+  api.listRustProviderHealth.mockResolvedValue([]);
   api.listRustProviderQuotas.mockResolvedValue([]);
 });
 
@@ -188,6 +191,26 @@ describe("Rust provider models.dev catalog", () => {
       revision: "quota-revision-2",
     };
     api.listRustProviders.mockResolvedValue([provider]);
+    api.listRustProviderHealth.mockResolvedValue([
+      {
+        provider_id: provider.id,
+        state: "closed",
+        failure_count: 0,
+        retry_after_ms: 0,
+        open_cycle_count: 0,
+        failure_threshold: 5,
+        degradation_threshold: 3,
+        reset_timeout_ms: 30_000,
+        connection_cooldown_until_unix_ms: 0,
+        connection_retry_after_ms: 0,
+        connection_backoff_level: 0,
+        connection_last_status: null,
+        terminal_status: null,
+        ambiguous_auth_strikes: 0,
+        ambiguous_auth_retry_limit: 3,
+        model_lockouts: [],
+      },
+    ]);
     api.listRustProviderQuotas.mockResolvedValue([initialQuota]);
     api.readRustModelCatalog.mockResolvedValue({
       manifest: { providers: 1, providerModels: 1, fetchedAt: "2026-11-09T00:00:00.000Z" },
@@ -209,6 +232,8 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("gemini-3-pro");
     expect(container.textContent).toContain("35% remaining");
     expect(container.textContent).toContain("61% remaining");
+    expect(container.textContent).toContain("Runtime health");
+    expect(container.textContent).toContain("Healthy");
     expect(container.textContent).toContain("Current");
 
     const refresh = [...container.querySelectorAll("button")].find(
