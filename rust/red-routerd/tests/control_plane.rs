@@ -7513,7 +7513,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
                     "label":"Agent fleet",
                     "scopes":["inference:chat"],
                     "allowed_endpoints":["chat"],
-                    "allowed_models":["removable-provider-guard"],
+                    "allowed_models":["removable-provider-guard","fixture-model"],
                     "allowed_provider_ids":["first"],
                     "max_concurrent_requests":32,
                     "max_requests_per_minute":600
