@@ -293,6 +293,70 @@ export interface RustProviderHealthInput {
   reset_timeout_ms: number;
 }
 
+export type RustComboProtocol =
+  | "openai"
+  | "openai-responses"
+  | "openai-embeddings"
+  | "cohere-rerank"
+  | "anthropic"
+  | "openai-to-anthropic"
+  | "openai-to-antigravity"
+  | "gemini"
+  | "antigravity";
+
+export type RustComboStrategy =
+  | "priority"
+  | "round-robin"
+  | "weighted"
+  | "random"
+  | "least-used"
+  | "p2c"
+  | "fill-first"
+  | "strict-random"
+  | "cost-optimized"
+  | "context-optimized"
+  | "reset-aware"
+  | "reset-window"
+  | "headroom"
+  | "quota-weighted"
+  | "lkgp";
+
+export interface RustComboTarget {
+  provider_id: string;
+  model: string;
+  weight?: number;
+  input_cost_per_million?: number;
+  output_cost_per_million?: number;
+  context_window_tokens?: number;
+}
+
+export interface RustComboRoutePin {
+  provider_id: string;
+  model: string;
+  revision: string;
+}
+
+export interface RustCombo {
+  id: string;
+  tenant_id: string;
+  protocol: RustComboProtocol;
+  strategy: RustComboStrategy;
+  fallback: boolean;
+  targets: RustComboTarget[];
+  enabled: boolean;
+  revision: string;
+  last_known_good?: RustComboRoutePin;
+}
+
+export interface RustComboInput {
+  tenant_id?: string;
+  protocol: RustComboProtocol;
+  strategy: RustComboStrategy;
+  fallback: boolean;
+  targets: RustComboTarget[];
+  enabled: boolean;
+}
+
 export interface RustCatalogManifest {
   schemaVersion: number;
   transformVersion: number;
@@ -567,6 +631,101 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.rate_limit_scope === "auto" ||
       provider.rate_limit_scope === "connection" ||
       provider.rate_limit_scope === "model")
+  );
+}
+
+const RUST_COMBO_PROTOCOLS: RustComboProtocol[] = [
+  "openai",
+  "openai-responses",
+  "openai-embeddings",
+  "cohere-rerank",
+  "anthropic",
+  "openai-to-anthropic",
+  "openai-to-antigravity",
+  "gemini",
+  "antigravity",
+];
+
+const RUST_COMBO_STRATEGIES: RustComboStrategy[] = [
+  "priority",
+  "round-robin",
+  "weighted",
+  "random",
+  "least-used",
+  "p2c",
+  "fill-first",
+  "strict-random",
+  "cost-optimized",
+  "context-optimized",
+  "reset-aware",
+  "reset-window",
+  "headroom",
+  "quota-weighted",
+  "lkgp",
+];
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isRustComboTarget(value: unknown): value is RustComboTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(target, [
+      "provider_id",
+      "model",
+      "weight",
+      "input_cost_per_million",
+      "output_cost_per_million",
+      "context_window_tokens",
+    ]) &&
+    typeof target.provider_id === "string" &&
+    typeof target.model === "string" &&
+    (target.weight === undefined || isNonNegativeInteger(target.weight)) &&
+    isOptionalFiniteNumber(target.input_cost_per_million) &&
+    isOptionalFiniteNumber(target.output_cost_per_million) &&
+    (target.context_window_tokens === undefined ||
+      isNonNegativeInteger(target.context_window_tokens))
+  );
+}
+
+function isRustComboRoutePin(value: unknown): value is RustComboRoutePin {
+  if (!value || typeof value !== "object") return false;
+  const pin = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(pin, ["provider_id", "model", "revision"]) &&
+    typeof pin.provider_id === "string" &&
+    typeof pin.model === "string" &&
+    typeof pin.revision === "string"
+  );
+}
+
+function isRustCombo(value: unknown): value is RustCombo {
+  if (!value || typeof value !== "object") return false;
+  const combo = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(combo, [
+      "id",
+      "tenant_id",
+      "protocol",
+      "strategy",
+      "fallback",
+      "targets",
+      "enabled",
+      "revision",
+      "last_known_good",
+    ]) &&
+    typeof combo.id === "string" &&
+    typeof combo.tenant_id === "string" &&
+    RUST_COMBO_PROTOCOLS.includes(combo.protocol as RustComboProtocol) &&
+    RUST_COMBO_STRATEGIES.includes(combo.strategy as RustComboStrategy) &&
+    typeof combo.fallback === "boolean" &&
+    Array.isArray(combo.targets) &&
+    combo.targets.every(isRustComboTarget) &&
+    typeof combo.enabled === "boolean" &&
+    typeof combo.revision === "string" &&
+    (combo.last_known_good === undefined || isRustComboRoutePin(combo.last_known_good))
   );
 }
 
@@ -928,6 +1087,11 @@ function rustAdminError(value: unknown, status: number): string {
   return `Rust control-plane request failed (${status})`;
 }
 
+async function rustError(response: Response): Promise<never> {
+  const value: unknown = await response.json().catch(() => null);
+  throw new Error(rustAdminError(value, response.status));
+}
+
 function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
   return {
     method,
@@ -994,6 +1158,41 @@ export async function listRustProviders(): Promise<RustProvider[]> {
     throw new Error("Invalid Rust provider response");
   }
   return providers;
+}
+
+export async function listRustCombos(): Promise<RustCombo[]> {
+  const value = await rustAdminJson("/api/admin/combos");
+  const combos =
+    value && typeof value === "object" ? (value as { combos?: unknown }).combos : undefined;
+  if (!Array.isArray(combos) || !combos.every(isRustCombo)) {
+    throw new Error("Invalid Rust combo response");
+  }
+  return combos;
+}
+
+export async function replaceRustCombo(id: string, input: RustComboInput): Promise<RustCombo> {
+  const value = await rustAdminJson(
+    `/api/admin/combos/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const combo =
+    value && typeof value === "object" ? (value as { combo?: unknown }).combo : undefined;
+  if (!isRustCombo(combo) || combo.id !== id) throw new Error("Invalid Rust combo response");
+  return combo;
+}
+
+export async function disableRustCombo(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/combos/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (response.status !== 204) await rustError(response);
+}
+
+export async function clearRustComboRoutePin(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/combos/${encodeURIComponent(id)}/lkgp`, {
+    method: "DELETE",
+  });
+  if (response.status !== 204) await rustError(response);
 }
 
 export async function authorizeRustProviderOAuth(

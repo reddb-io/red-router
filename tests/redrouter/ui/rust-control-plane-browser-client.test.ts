@@ -2,16 +2,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   authorizeRustProviderOAuth,
+  clearRustComboRoutePin,
   clearRustProviderQuota,
   configureRustProviderHealth,
   configureRustProviderQuota,
   deleteRustClientKey,
+  disableRustCombo,
   disableRustProvider,
   exchangeRustProviderOAuth,
   extractRustProviderSessionZip,
   importRustProviderSession,
   importRustProviderSessionsBulk,
   issueRustClientKey,
+  listRustCombos,
   listRustProviderHealth,
   listRustClientKeys,
   listRustProviderQuotas,
@@ -22,6 +25,7 @@ import {
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   replaceRustClientKey,
+  replaceRustCombo,
   replaceRustProvider,
   refreshRustModelCatalog,
   refreshRustProviderOAuth,
@@ -34,6 +38,7 @@ import {
   rustUsageSinkFetch,
   testRustProvider,
   type RustClientKey,
+  type RustCombo,
   type RustProvider,
   type RustProviderQuota,
 } from "@/lib/rustControlPlane/browserClient";
@@ -79,6 +84,22 @@ const provider: RustProvider = {
   credential_type: "static",
   refreshable: false,
   reauth_required: false,
+};
+
+const combo: RustCombo = {
+  id: "agent-route",
+  tenant_id: "red",
+  protocol: "openai",
+  strategy: "priority",
+  fallback: true,
+  targets: [{ provider_id: provider.id, model: "openai/gpt-5", context_window_tokens: 400_000 }],
+  enabled: true,
+  revision: "1700000000000000003",
+  last_known_good: {
+    provider_id: provider.id,
+    model: "openai/gpt-5",
+    revision: "1700000000000000002",
+  },
 };
 
 const providerQuota: RustProviderQuota = {
@@ -416,6 +437,43 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("manages Rust combos without using the legacy combo persistence routes", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ combos: [combo] }))
+      .mockResolvedValueOnce(Response.json({ combo }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustCombos()).resolves.toEqual([combo]);
+    await expect(
+      replaceRustCombo(combo.id, {
+        protocol: combo.protocol,
+        strategy: combo.strategy,
+        fallback: combo.fallback,
+        targets: combo.targets,
+        enabled: combo.enabled,
+      })
+    ).resolves.toEqual(combo);
+    await expect(clearRustComboRoutePin(combo.id)).resolves.toBeUndefined();
+    await expect(disableRustCombo(combo.id)).resolves.toBeUndefined();
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/combos",
+      "/api/admin/combos/agent-route",
+      "/api/admin/combos/agent-route/lkgp",
+      "/api/admin/combos/agent-route",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetch.mock.calls.map(([path]) => String(path))).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^\/api\/combos(?:\/|$)/)])
+    );
   });
 
   it("rotates OAuth credentials with a generation and keeps both tokens write-only", async () => {
