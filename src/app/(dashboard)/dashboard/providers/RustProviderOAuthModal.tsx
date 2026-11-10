@@ -70,8 +70,6 @@ export default function RustProviderOAuthModal({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
     void authorizeRustProviderOAuth(provider, requestedRedirectUri(provider))
       .then((value) => {
         if (active) setAuthorization(value);
