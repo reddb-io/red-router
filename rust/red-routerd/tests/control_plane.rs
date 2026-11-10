@@ -7592,6 +7592,18 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     );
     assert_eq!(
         client
+            .delete(format!(
+                "{restarted_base}/api/admin/combos/removable-provider-guard"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
             .delete(format!("{restarted_base}/api/admin/providers/first"))
             .bearer_auth(ADMIN_KEY)
             .send()
