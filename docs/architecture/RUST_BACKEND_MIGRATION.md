@@ -63,7 +63,7 @@ criterion. The cutover is gated by the following operator journeys, in this orde
 
 | Gate | Required outcome | Current remaining work | Complexity |
 | --- | --- | --- | --- |
-| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import sessions, test, refresh, disable and delete from the SPA | Migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High |
+| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import Antigravity CLI sessions, test, refresh, disable and delete from the SPA | Finish Antigravity OpenAI translation/browser OAuth, then migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High |
 | 2. Traffic lifecycle | Issue a named client key, restrict it, select a provider/combo, proxy every advertised protocol, account usage and enforce limits | Finish protocol/error/stream parity fixtures; migrate the remaining dashboard policy and versioned resilience settings | High |
 | 3. Identity and tenancy | Password/bootstrap and configured OIDC can administer tenant-owned providers, combos and keys without cross-tenant access | Complete production SPA wiring and provider-specific OIDC diagnostics | Medium |
 | 4. Existing installation | Upgrade an existing RedRouter installation without losing providers, keys, combos, quotas, usage or audit history | Maintenance-mode legacy SQLite importer, dry-run verification report and rollback marker | High |
@@ -134,8 +134,20 @@ derivable from the access/refresh pair (notably Codex `id_token` and Claude scop
 The authenticated tenant-scoped export routes refresh expiring credentials, reconstruct the exact
 Codex/Claude CLI documents, return them with non-cacheable download headers and audit only redacted
 metadata. The central server never writes into a remote host's home directory; applying an export
-to local CLI files belongs to the explicit desktop/companion boundary. The remaining provider import
-formats are still compatibility work.
+to local CLI files belongs to the explicit desktop/companion boundary.
+Antigravity CLI (`agy`) token import is also Rust-owned for single JSON, bulk JSON and bounded
+ZIP extraction. Rust accepts nested and flat CLI formats, resolves account e-mail and Cloud Code
+project metadata through fixed redirect-free Google endpoints, encrypts the refresh token and
+revision-coupled session metadata, and uses the same tenant-scoped overwrite and audit rules. The
+native `/v1/antigravity` transport preserves the Cloud Code envelope and SSE response, pins the
+runtime endpoint, applies the official CLI identity and project header, and participates in combo
+selection and token accounting without Next.js. Its `agy`/`antigravity` provider names resolve
+model context, capability and price metadata from the validated `models.dev` Google namespace.
+Google refresh is coordinated by the same
+cross-replica lease and generation CAS; deployments must provide
+`ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` for refresh. Browser OAuth,
+OpenAI-to-Antigravity translation and advanced credits/retry policy remain follow-up work. The
+remaining provider import formats are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one

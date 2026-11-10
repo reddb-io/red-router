@@ -55,10 +55,16 @@ const OAUTH_REFRESH_SETTLE_MS: i64 = 2_000;
 const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
+const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
+const AGY_PROVIDER_URL: &str =
+    "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent";
+const AGY_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo";
+const AGY_LOAD_CODE_ASSIST_URL: &str =
+    "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/bootstrap";
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
@@ -76,6 +82,7 @@ SELECT 'provider' AS kind, id AS record_id, revision, 0 AS generation FROM redro
 UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_control_provider_ownership
 UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_provider_auth
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
+UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
 UNION ALL SELECT 'combo-ownership', combo_id, revision, 0 FROM redrouter_control_combo_ownership
@@ -116,9 +123,15 @@ struct OAuthRefreshConfig {
     codex_client_id: String,
     claude_endpoint: reqwest::Url,
     claude_client_id: String,
+    agy_endpoint: reqwest::Url,
+    agy_client_id: Option<String>,
+    agy_client_secret: Option<Zeroizing<String>>,
     codex_provider_endpoint: reqwest::Url,
     claude_provider_endpoint: reqwest::Url,
     claude_bootstrap_endpoint: reqwest::Url,
+    agy_provider_endpoint: reqwest::Url,
+    agy_userinfo_endpoint: reqwest::Url,
+    agy_load_code_assist_endpoint: reqwest::Url,
 }
 
 struct OAuthRefreshRuntime {
@@ -415,6 +428,22 @@ pub struct ClaudeAuthBulkImportInput {
     pub overwrite_existing: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgyAuthBulkEntry {
+    pub json: serde_json::Value,
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgyAuthBulkImportInput {
+    pub entries: Vec<AgyAuthBulkEntry>,
+    #[serde(default, rename = "overwriteExisting")]
+    pub overwrite_existing: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct ProviderAuthImportView {
     connection: ProviderView,
@@ -441,6 +470,19 @@ struct ParsedClaudeAuth {
     refresh_token: Zeroizing<String>,
     session_metadata: Zeroizing<String>,
     expires_at_unix: u64,
+}
+
+struct ParsedAgyAuth {
+    access_token: Zeroizing<String>,
+    refresh_token: Zeroizing<String>,
+    session_metadata: Zeroizing<String>,
+    expires_at_unix: u64,
+}
+
+#[derive(Default)]
+struct AgyBootstrapIdentity {
+    email: Option<String>,
+    project_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1054,8 +1096,24 @@ impl OAuthRefreshConfig {
             .unwrap_or_else(|_| CODEX_OAUTH_CLIENT_ID.to_owned());
         let claude_client_id = std::env::var("CLAUDE_OAUTH_CLIENT_ID")
             .unwrap_or_else(|_| CLAUDE_OAUTH_CLIENT_ID.to_owned());
+        let agy_client_id = std::env::var("ANTIGRAVITY_OAUTH_CLIENT_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        let agy_client_secret = std::env::var("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(Zeroizing::new);
         validate_oauth_client_id(&codex_client_id)?;
         validate_oauth_client_id(&claude_client_id)?;
+        if let Some(client_id) = agy_client_id.as_deref() {
+            validate_oauth_client_id(client_id)?;
+        }
+        if agy_client_secret
+            .as_deref()
+            .is_some_and(|secret| secret.len() > 8192 || secret.chars().any(char::is_control))
+        {
+            return Err("invalid Antigravity OAuth client secret");
+        }
         Ok(Self {
             codex_endpoint: reqwest::Url::parse(CODEX_OAUTH_TOKEN_URL)
                 .map_err(|_| "invalid Codex OAuth token URL")?,
@@ -1063,12 +1121,22 @@ impl OAuthRefreshConfig {
             claude_endpoint: reqwest::Url::parse(CLAUDE_OAUTH_TOKEN_URL)
                 .map_err(|_| "invalid Claude OAuth token URL")?,
             claude_client_id,
+            agy_endpoint: reqwest::Url::parse(AGY_OAUTH_TOKEN_URL)
+                .map_err(|_| "invalid Antigravity OAuth token URL")?,
+            agy_client_id,
+            agy_client_secret,
             codex_provider_endpoint: reqwest::Url::parse(CODEX_PROVIDER_URL)
                 .map_err(|_| "invalid Codex provider URL")?,
             claude_provider_endpoint: reqwest::Url::parse(CLAUDE_PROVIDER_URL)
                 .map_err(|_| "invalid Claude provider URL")?,
             claude_bootstrap_endpoint: reqwest::Url::parse(CLAUDE_BOOTSTRAP_URL)
                 .map_err(|_| "invalid Claude bootstrap URL")?,
+            agy_provider_endpoint: reqwest::Url::parse(AGY_PROVIDER_URL)
+                .map_err(|_| "invalid Antigravity provider URL")?,
+            agy_userinfo_endpoint: reqwest::Url::parse(AGY_USERINFO_URL)
+                .map_err(|_| "invalid Antigravity userinfo URL")?,
+            agy_load_code_assist_endpoint: reqwest::Url::parse(AGY_LOAD_CODE_ASSIST_URL)
+                .map_err(|_| "invalid Antigravity bootstrap URL")?,
         })
     }
 
@@ -1085,14 +1153,32 @@ impl OAuthRefreshConfig {
         claude_bootstrap_endpoint.set_path("/bootstrap");
         claude_bootstrap_endpoint.set_query(None);
         claude_bootstrap_endpoint.set_fragment(None);
+        let mut agy_provider_endpoint = codex_endpoint.clone();
+        agy_provider_endpoint.set_path("/v1internal:streamGenerateContent");
+        agy_provider_endpoint.set_query(None);
+        agy_provider_endpoint.set_fragment(None);
+        let mut agy_userinfo_endpoint = codex_endpoint.clone();
+        agy_userinfo_endpoint.set_path("/userinfo");
+        agy_userinfo_endpoint.set_query(None);
+        agy_userinfo_endpoint.set_fragment(None);
+        let mut agy_load_code_assist_endpoint = codex_endpoint.clone();
+        agy_load_code_assist_endpoint.set_path("/load-code-assist");
+        agy_load_code_assist_endpoint.set_query(None);
+        agy_load_code_assist_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
-            codex_endpoint,
+            codex_endpoint: codex_endpoint.clone(),
             codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
             claude_provider_endpoint,
             claude_bootstrap_endpoint,
             claude_endpoint,
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
+            agy_endpoint: codex_endpoint,
+            agy_client_id: Some("test-antigravity-client".to_owned()),
+            agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
+            agy_provider_endpoint,
+            agy_userinfo_endpoint,
+            agy_load_code_assist_endpoint,
         }
     }
 }
@@ -1858,17 +1944,39 @@ impl ControlPlane {
         oauth_provider: &str,
         refresh_token: &str,
     ) -> Result<OAuthTokenPair, OAuthExchangeFailure> {
-        let (endpoint, client_id, claude) = match oauth_provider {
+        let (endpoint, client_id, client_secret, claude) = match oauth_provider {
             "codex" => (
                 &self.0.oauth_refresh.codex_endpoint,
                 self.0.oauth_refresh.codex_client_id.as_str(),
+                None,
                 false,
             ),
             "claude" => (
                 &self.0.oauth_refresh.claude_endpoint,
                 self.0.oauth_refresh.claude_client_id.as_str(),
+                None,
                 true,
             ),
+            "agy" => {
+                let Some(client_id) = self.0.oauth_refresh.agy_client_id.as_deref() else {
+                    return Err(OAuthExchangeFailure::Transient {
+                        category: "oauth_client_unconfigured",
+                        status: None,
+                    });
+                };
+                let Some(client_secret) = self.0.oauth_refresh.agy_client_secret.as_deref() else {
+                    return Err(OAuthExchangeFailure::Transient {
+                        category: "oauth_client_unconfigured",
+                        status: None,
+                    });
+                };
+                (
+                    &self.0.oauth_refresh.agy_endpoint,
+                    client_id,
+                    Some(client_secret),
+                    false,
+                )
+            }
             _ => {
                 return Err(OAuthExchangeFailure::Transient {
                     category: "unsupported_provider",
@@ -1880,6 +1988,9 @@ impl ControlPlane {
             let mut serializer = url::form_urlencoded::Serializer::new(String::new());
             serializer.append_pair("grant_type", "refresh_token");
             serializer.append_pair("client_id", client_id);
+            if let Some(client_secret) = client_secret {
+                serializer.append_pair("client_secret", client_secret);
+            }
             serializer.append_pair("refresh_token", refresh_token);
             serializer.finish()
         };
@@ -2830,6 +2941,119 @@ impl ControlPlane {
         })
     }
 
+    async fn import_agy_auth_as(
+        &self,
+        input: ProviderAuthImportInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderAuthImportView, &'static str> {
+        validate_actor(actor)?;
+        let tenant_id = enforced_tenant.unwrap_or("red");
+        validate_id(tenant_id)?;
+        let raw = match input.source {
+            ProviderAuthImportSource::Json { json } => json,
+            ProviderAuthImportSource::Text { text } => {
+                if text.len() > 256 * 1024 {
+                    return Err("Antigravity auth file is too large");
+                }
+                serde_json::from_str(&text).map_err(|_| "invalid Antigravity auth JSON")?
+            }
+        };
+        let mut parsed = parse_agy_auth(raw)?;
+        let bootstrap = self
+            .agy_bootstrap_identity(parsed.access_token.as_str())
+            .await;
+        let email = input.email.or(bootstrap.email);
+        let identity = email
+            .as_deref()
+            .map(|value| format!("email:{}", value.to_ascii_lowercase()));
+        if identity.is_none() && !input.overwrite_existing {
+            return Err("Antigravity account identity could not be verified");
+        }
+        let identity = identity.unwrap_or_else(|| {
+            let mut digest = Sha256::new();
+            digest.update(parsed.refresh_token.as_bytes());
+            format!("token:{}", hex::encode(digest.finalize()))
+        });
+        let metadata = serde_json::from_str::<serde_json::Value>(parsed.session_metadata.as_str())
+            .map_err(|_| "invalid Antigravity session metadata")?;
+        parsed.session_metadata = Zeroizing::new(
+            serde_json::json!({
+                "clientProfile": "cli",
+                "tokenType": metadata.get("tokenType").cloned().unwrap_or(serde_json::json!("Bearer")),
+                "authMethod": metadata.get("authMethod").cloned().unwrap_or(serde_json::Value::Null),
+                "projectId": bootstrap.project_id,
+            })
+            .to_string(),
+        );
+        let provider_id = provider_import_id("agy", tenant_id, &identity);
+        let existing = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == provider_id);
+        if existing.is_some() && !input.overwrite_existing {
+            return Err("Antigravity account already exists");
+        }
+        if existing
+            .as_ref()
+            .is_some_and(|provider| provider.provider != "agy")
+        {
+            return Err("Antigravity account identifier conflicts with another provider");
+        }
+        let created = existing.is_none();
+        let label = input
+            .name
+            .or_else(|| email.clone())
+            .unwrap_or_else(|| "Antigravity CLI (imported)".to_owned());
+        let connection = self
+            .configure_provider_as(
+                &provider_id,
+                ProviderInput {
+                    tenant_id: Some(tenant_id.to_owned()),
+                    provider: "agy".to_owned(),
+                    upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
+                    api_key: parsed.access_token.to_string(),
+                    enabled: true,
+                    rate_limit_scope: "connection".to_owned(),
+                    auth_scheme: "bearer".to_owned(),
+                    label: Some(label),
+                    account_email: email,
+                    expires_at_unix: Some(parsed.expires_at_unix),
+                    credential_type: "oauth".to_owned(),
+                    oauth_provider: Some("agy".to_owned()),
+                    refresh_token: Some(parsed.refresh_token.to_string()),
+                },
+                Some(parsed.session_metadata),
+                actor,
+                enforced_tenant,
+            )
+            .await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.credentials.imported",
+                actor,
+                tenant_id,
+                target: &provider_id,
+                resource_type: "provider_credentials",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&serde_json::json!({
+                "provider": "agy",
+                "created": created,
+                "has_email": connection.account_email.is_some(),
+                "identity_verified": !identity.starts_with("token:"),
+            })),
+        )
+        .await;
+        Ok(ProviderAuthImportView {
+            connection,
+            created,
+        })
+    }
+
     async fn export_provider_auth_as(
         &self,
         id: &str,
@@ -3013,6 +3237,63 @@ impl ControlPlane {
         ClaudeBootstrapIdentity { account_id, email }
     }
 
+    async fn agy_bootstrap_identity(&self, access_token: &str) -> AgyBootstrapIdentity {
+        let mut identity = AgyBootstrapIdentity::default();
+        let mut userinfo = self.0.oauth_refresh.agy_userinfo_endpoint.clone();
+        userinfo.set_query(Some("alt=json"));
+        let userinfo_request = self
+            .0
+            .oauth_refresh_client
+            .get(userinfo)
+            .bearer_auth(access_token);
+        if let Some(value) = bounded_json_response(userinfo_request).await {
+            identity.email = json_non_empty_string(value.get("email"))
+                .filter(|value| validate_provider_account_email(value).is_ok())
+                .map(str::to_owned);
+        }
+        let platform = if cfg!(target_os = "windows") {
+            5
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            2
+        } else if cfg!(target_os = "macos") {
+            1
+        } else if cfg!(target_arch = "aarch64") {
+            4
+        } else if cfg!(target_os = "linux") {
+            3
+        } else {
+            0
+        };
+        let request = self
+            .0
+            .oauth_refresh_client
+            .post(self.0.oauth_refresh.agy_load_code_assist_endpoint.clone())
+            .bearer_auth(access_token)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::USER_AGENT,
+                "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
+            )
+            .body(
+                serde_json::json!({"metadata":{"ideType":9,"platform":platform,"pluginType":2}})
+                    .to_string(),
+            );
+        if let Some(value) = bounded_json_response(request).await {
+            identity.project_id = match value.get("cloudaicompanionProject") {
+                Some(serde_json::Value::String(value)) => Some(value.as_str()),
+                Some(serde_json::Value::Object(value)) => {
+                    value.get("id").and_then(serde_json::Value::as_str)
+                }
+                _ => None,
+            }
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+            })
+            .map(str::to_owned);
+        }
+        identity
+    }
+
     async fn configure_provider_as(
         &self,
         id: &str,
@@ -3053,7 +3334,7 @@ impl ControlPlane {
                     .oauth_provider
                     .as_deref()
                     .ok_or("OAuth provider is required")?;
-                if !matches!(oauth_provider, "codex" | "claude") {
+                if !matches!(oauth_provider, "codex" | "claude" | "agy") {
                     return Err("unsupported OAuth provider");
                 }
                 if input.provider != oauth_provider {
@@ -5073,7 +5354,7 @@ impl ControlPlane {
 
     async fn provider_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
         let mut digest = Sha256::new();
-        signature_text(&mut digest, "redrouter-provider-runtime-v1");
+        signature_text(&mut digest, "redrouter-provider-runtime-v2");
         for record in self.0.database.providers().await? {
             signature_text(&mut digest, &record.id);
             signature_text(&mut digest, &record.tenant_id);
@@ -5096,6 +5377,12 @@ impl ControlPlane {
             signature_text(&mut digest, &record.oauth_provider);
             signature_text(&mut digest, &record.refresh_token_ciphertext);
             signature_i64(&mut digest, record.generation);
+            signature_i64(&mut digest, record.revision);
+        }
+        for record in self.0.database.provider_sessions().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.provider);
+            signature_text(&mut digest, &record.session_ciphertext);
             signature_i64(&mut digest, record.revision);
         }
         for record in self.0.database.provider_resilience().await? {
@@ -5184,6 +5471,7 @@ impl ControlPlane {
     async fn refresh(&self) -> Result<(), &'static str> {
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
+        let antigravity_projects = self.antigravity_projects().await?;
         let live = match self.0.database.active_provider().await? {
             Some(record) => {
                 let rate_limit_scope = resilience
@@ -5212,6 +5500,9 @@ impl ControlPlane {
                 live.in_flight = circuit.in_flight();
                 live.circuit = Some(circuit);
                 live.availability = Some(self.availability_for(&record.id).await);
+                live.antigravity_project = antigravity_projects
+                    .get(&(record.id.clone(), record.updated_at))
+                    .cloned();
                 live.provider_id = Some(Arc::from(record.id));
                 live.provider_name = Some(Arc::from(record.provider));
                 live.tenant_id = Arc::from(record.tenant_id);
@@ -5263,6 +5554,7 @@ impl ControlPlane {
         let providers = self.0.database.providers().await?;
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
+        let antigravity_projects = self.antigravity_projects().await?;
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -5307,6 +5599,9 @@ impl ControlPlane {
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                    runtime.antigravity_project = antigravity_projects
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .cloned();
                     runtime.tenant_id = Arc::from(provider.tenant_id.clone());
                     runtime.rate_limit_scope = resilience
                         .get(&(provider.id.clone(), provider.updated_at))
@@ -5566,7 +5861,7 @@ impl ControlPlane {
             .await?
             .into_iter()
             .map(|record| {
-                if !matches!(record.oauth_provider.as_str(), "codex" | "claude")
+                if !matches!(record.oauth_provider.as_str(), "codex" | "claude" | "agy")
                     || record.generation < 0
                     || record.refresh_token_ciphertext.is_empty()
                 {
@@ -5575,6 +5870,39 @@ impl ControlPlane {
                 Ok(((record.provider_id.clone(), record.revision), record))
             })
             .collect()
+    }
+
+    async fn antigravity_projects(&self) -> Result<HashMap<(String, i64), Arc<str>>, &'static str> {
+        let mut projects = HashMap::new();
+        for record in self.0.database.provider_sessions().await? {
+            if record.provider != "agy" {
+                continue;
+            }
+            let aad = format!("{}:oauth-session", record.provider_id);
+            let metadata = decrypt(
+                &record.session_ciphertext,
+                &aad,
+                self.0.encryption_key.as_str(),
+            )?;
+            let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
+                .map_err(|_| "invalid Antigravity session metadata")?;
+            let Some(project) = json_non_empty_string(metadata.get("projectId")) else {
+                continue;
+            };
+            if project.len() > 256 || project.chars().any(char::is_control) {
+                return Err("invalid Antigravity project identifier");
+            }
+            if projects
+                .insert(
+                    (record.provider_id, record.revision),
+                    Arc::from(project.to_owned()),
+                )
+                .is_some()
+            {
+                return Err("duplicate Antigravity session metadata");
+            }
+        }
+        Ok(projects)
     }
 
     async fn oauth_status_settings(
@@ -6190,6 +6518,9 @@ async fn probe_provider(
                 "contents":[{"role":"user","parts":[{"text":"Reply with OK."}]}],
                 "generationConfig":{"maxOutputTokens":1}
             })
+        }
+        ProviderProtocol::Antigravity => {
+            return Err("Antigravity diagnostics require persisted project metadata")
         }
         ProviderProtocol::OpenAiToAnthropic => {
             return Err("translated providers cannot be diagnosed directly")
@@ -6883,7 +7214,10 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         if target.model.is_empty()
             || target.model.len() > 256
             || target.model.chars().any(char::is_control)
-            || (protocol == ProviderProtocol::Gemini && !crate::valid_gemini_model(&target.model))
+            || (matches!(
+                protocol,
+                ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+            ) && !crate::valid_gemini_model(&target.model))
         {
             return Err("invalid combo target model");
         }
@@ -7092,6 +7426,7 @@ fn oauth_rotation_group(provider: &str) -> Result<&'static str, &'static str> {
     match provider {
         "codex" => Ok("openai-auth0"),
         "claude" => Ok("anthropic-oauth"),
+        "agy" => Ok("google-antigravity-oauth"),
         _ => Err("unsupported OAuth provider"),
     }
 }
@@ -7266,6 +7601,86 @@ fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'stati
         access_token: Zeroizing::new(access_token.to_owned()),
         refresh_token: Zeroizing::new(refresh_token.to_owned()),
         session_metadata: Zeroizing::new(session_metadata.to_string()),
+        expires_at_unix,
+    })
+}
+
+fn parse_agy_auth(raw: serde_json::Value) -> Result<ParsedAgyAuth, &'static str> {
+    let document = raw.as_object().ok_or("invalid Antigravity auth file")?;
+    let token = document
+        .get("token")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or(document);
+    let access_token = json_non_empty_string(token.get("access_token"))
+        .ok_or("Antigravity access token is missing")?;
+    let refresh_token = json_non_empty_string(token.get("refresh_token"))
+        .ok_or("Antigravity refresh token is missing")?;
+    for value in [access_token, refresh_token] {
+        if value.len() > 8192 || value.chars().any(char::is_control) {
+            return Err("Antigravity auth token is invalid");
+        }
+    }
+    let expiry = token
+        .get("expiry")
+        .or_else(|| token.get("expires_at"))
+        .or_else(|| token.get("expiry_date"))
+        .ok_or("Antigravity token expiry is missing")?;
+    let expires_at_unix = if let Some(raw) = expiry.as_u64() {
+        if raw >= 10_000_000_000 {
+            raw / 1_000
+        } else {
+            raw
+        }
+    } else if let Some(raw) = expiry.as_str() {
+        let raw = raw.trim();
+        if let Ok(value) = raw.parse::<u64>() {
+            if value >= 10_000_000_000 {
+                value / 1_000
+            } else {
+                value
+            }
+        } else {
+            let parsed =
+                time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
+                    .map_err(|_| "Antigravity token expiry is invalid")?;
+            u64::try_from(parsed.unix_timestamp())
+                .map_err(|_| "Antigravity token expiry is invalid")?
+        }
+    } else {
+        return Err("Antigravity token expiry is invalid");
+    };
+    if !(1..=32_503_680_000).contains(&expires_at_unix) {
+        return Err("Antigravity token expiry is invalid");
+    }
+    let optional_text =
+        |value: Option<&serde_json::Value>| -> Result<Option<String>, &'static str> {
+            match value {
+                None | Some(serde_json::Value::Null) => Ok(None),
+                Some(value) => {
+                    let value = json_non_empty_string(Some(value))
+                        .ok_or("Antigravity token metadata is invalid")?;
+                    if value.len() > 256 || value.chars().any(char::is_control) {
+                        return Err("Antigravity token metadata is invalid");
+                    }
+                    Ok(Some(value.to_owned()))
+                }
+            }
+        };
+    let token_type = optional_text(token.get("token_type"))?.unwrap_or_else(|| "Bearer".to_owned());
+    if !token_type.eq_ignore_ascii_case("bearer") {
+        return Err("Antigravity token type is unsupported");
+    }
+    let auth_method = optional_text(
+        document
+            .get("auth_method")
+            .or_else(|| token.get("auth_method")),
+    )?;
+    Ok(ParsedAgyAuth {
+        access_token: Zeroizing::new(access_token.to_owned()),
+        refresh_token: Zeroizing::new(refresh_token.to_owned()),
+        session_metadata: Zeroizing::new(
+            serde_json::json!({"tokenType":token_type,"authMethod":auth_method}).to_string(),
+        ),
         expires_at_unix,
     })
 }
@@ -7496,6 +7911,10 @@ fn oauth_terminal_error(provider: &str, status: u16, code: &str) -> bool {
                 )
         }
         "claude" => matches!(code, "invalid_grant" | "invalid_request"),
+        "agy" => matches!(
+            code,
+            "invalid_grant" | "invalid_client" | "unauthorized_client"
+        ),
         _ => false,
     }
 }
@@ -7514,6 +7933,17 @@ async fn read_bounded_response(
         body.extend_from_slice(&chunk);
     }
     Ok(body)
+}
+
+async fn bounded_json_response(request: reqwest::RequestBuilder) -> Option<serde_json::Value> {
+    let response = request.send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES)
+        .await
+        .ok()?;
+    serde_json::from_slice(&body).ok()
 }
 
 fn signature_text(digest: &mut Sha256, value: &str) {
@@ -8671,6 +9101,10 @@ pub async fn extract_claude_auth_zip(
     extract_auth_zip_response(state, request).await
 }
 
+pub async fn extract_agy_auth_zip(State(state): State<ProxyState>, request: Request) -> Response {
+    extract_auth_zip_response(state, request).await
+}
+
 pub async fn import_codex_auth(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -8819,6 +9253,124 @@ pub async fn import_claude_auth(
             "invalid_auth_file",
         ),
     }
+}
+
+pub async fn import_agy_auth(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderAuthImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .import_agy_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(imported) => {
+            let mut response = Json(imported).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("Antigravity account already exists") => api_error_code(
+            StatusCode::CONFLICT,
+            "An Antigravity CLI connection for this account already exists",
+            "duplicate_account",
+        ),
+        Err("Antigravity account identity could not be verified") => api_error_code(
+            StatusCode::CONFLICT,
+            "Antigravity account identity could not be verified",
+            "identity_unverified",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(_) => api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Invalid Antigravity auth file",
+            "invalid_auth_file",
+        ),
+    }
+}
+
+pub async fn import_agy_auth_bulk(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<AgyAuthBulkImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if input.entries.is_empty() || input.entries.len() > 50 {
+        return api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Antigravity bulk import requires 1-50 entries",
+            "invalid_request",
+        );
+    }
+    let total = input.entries.len();
+    let mut success = 0usize;
+    let mut created = Vec::new();
+    let mut errors = Vec::new();
+    for (index, entry) in input.entries.into_iter().enumerate() {
+        let display_name = entry
+            .name
+            .clone()
+            .or_else(|| entry.email.clone())
+            .unwrap_or_else(|| format!("entry {}", index + 1));
+        match control
+            .import_agy_auth_as(
+                ProviderAuthImportInput {
+                    source: ProviderAuthImportSource::Json { json: entry.json },
+                    name: entry.name,
+                    email: entry.email,
+                    overwrite_existing: input.overwrite_existing,
+                },
+                &scope.actor,
+                scope.tenant_id.as_deref(),
+            )
+            .await
+        {
+            Ok(imported) => {
+                success += 1;
+                created.push(imported.connection);
+            }
+            Err(error) => errors.push(serde_json::json!({
+                "index":index,
+                "name":display_name,
+                "message":if error == "Antigravity account already exists" {
+                    "Account already exists"
+                } else if error == "Antigravity account identity could not be verified" {
+                    "Account identity could not be verified"
+                } else if is_runtime_error(error) {
+                    "Provider storage or runtime unavailable"
+                } else {
+                    "Invalid Antigravity auth file"
+                },
+            })),
+        }
+    }
+    let mut response = Json(serde_json::json!({
+        "success":success,
+        "failed":total-success,
+        "total":total,
+        "created":created,
+        "errors":errors,
+    }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn export_provider_auth_response(
@@ -9144,6 +9696,11 @@ pub async fn refresh_provider_oauth_compat(
             StatusCode::UNAUTHORIZED,
             "Refresh token expired. Please re-authenticate this account.",
             "reauth_required",
+        ),
+        Ok(refresh) if refresh.category == "oauth_client_unconfigured" => api_error_code(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Antigravity OAuth refresh requires configured client credentials.",
+            "oauth_client_unconfigured",
         ),
         Ok(_) => api_error(
             StatusCode::BAD_GATEWAY,
@@ -9534,6 +10091,38 @@ mod tests {
         );
         assert!(decrypt(&encrypted, "other", secret).is_err());
         assert!(decrypt(&encrypted, "first", "wrong-storage-key").is_err());
+    }
+
+    #[test]
+    fn agy_auth_parser_accepts_cli_and_flat_exports_without_exposing_tokens() {
+        let nested = parse_agy_auth(serde_json::json!({
+            "token":{
+                "access_token":"access",
+                "refresh_token":"refresh",
+                "token_type":"Bearer",
+                "expiry":"2099-01-01T00:00:00Z"
+            },
+            "auth_method":"consumer"
+        }))
+        .unwrap();
+        assert_eq!(nested.access_token.as_str(), "access");
+        assert_eq!(nested.refresh_token.as_str(), "refresh");
+        assert!(nested.expires_at_unix > 4_000_000_000);
+        assert!(!nested.session_metadata.contains("access"));
+        assert!(!nested.session_metadata.contains("refresh"));
+
+        let flat = parse_agy_auth(serde_json::json!({
+            "access_token":"flat-access",
+            "refresh_token":"flat-refresh",
+            "expiry_date":4_070_908_800_000_u64
+        }))
+        .unwrap();
+        assert_eq!(flat.expires_at_unix, 4_070_908_800);
+        assert!(parse_agy_auth(serde_json::json!({
+            "access_token":"missing-refresh",
+            "expiry_date":4_070_908_800_000_u64
+        }))
+        .is_err());
     }
 
     #[test]

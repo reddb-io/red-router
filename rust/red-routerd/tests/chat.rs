@@ -11,6 +11,90 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn antigravity_native_route_preserves_envelope_and_official_cli_identity() {
+    use axum::extract::Request;
+
+    let provider = Router::new().route(
+        "/v1internal:streamGenerateContent",
+        post(|request: Request| async move {
+            assert_eq!(
+                request.headers()[header::AUTHORIZATION],
+                "Bearer antigravity-access-token"
+            );
+            assert_eq!(
+                request.headers()[header::ACCEPT],
+                "text/event-stream"
+            );
+            assert_eq!(request.headers()["x-goog-user-project"], "gcp-project-1");
+            assert_eq!(
+                request.headers()[header::USER_AGENT],
+                "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)"
+            );
+            assert_eq!(request.uri().query(), Some("alt=sse"));
+            let body = axum::body::to_bytes(request.into_body(), 16 * 1024)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["model"], "gemini-2.5-pro");
+            assert_eq!(body["project"], "gcp-project-1");
+            assert_eq!(body["request"]["contents"][0]["parts"][0]["text"], "hello");
+            (
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                "data: {\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}}\n\n",
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{
+        "model":"antigravity-route",
+        "protocol":"antigravity",
+        "targets":[{
+            "url":format!("http://{address}/v1internal:streamGenerateContent"),
+            "model":"gemini-2.5-pro",
+            "api_key_env":"ANTIGRAVITY_TOKEN"
+        }]
+    }])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("antigravity-access-token".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{base}/v1/antigravity"))
+        .bearer_auth("client-key-12345678")
+        .json(&serde_json::json!({
+            "model":"antigravity-route",
+            "project":"gcp-project-1",
+            "userAgent":"antigravity",
+            "requestType":"agent",
+            "request":{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.text().await.unwrap().contains("usageMetadata"));
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn anthropic_native_route_can_use_bearer_provider_authentication() {
     let provider = Router::new().route(
         "/v1/messages",

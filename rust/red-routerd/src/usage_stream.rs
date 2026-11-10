@@ -169,6 +169,10 @@ fn classify(frame: &[u8], parser: &mut UsageParser) -> Result<Event, ()> {
         },
         ProviderProtocol::Anthropic => anthropic_event(&value, &mut parser.anthropic),
         ProviderProtocol::Gemini => gemini_event(&value, &mut parser.gemini_complete),
+        ProviderProtocol::Antigravity => gemini_event(
+            value.get("response").unwrap_or(&value),
+            &mut parser.gemini_complete,
+        ),
         _ => Err(()),
     }
 }

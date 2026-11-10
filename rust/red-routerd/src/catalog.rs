@@ -743,7 +743,7 @@ fn normalize_reasoning_option(
 
 fn upstream_provider_aliases(provider: &str) -> &'static [&'static str] {
     match provider {
-        "gemini" => &["google"],
+        "gemini" | "agy" | "antigravity" => &["google"],
         "vertex" => &["google-vertex", "vertex_ai"],
         "vertex-partner" | "vp" => &["google-vertex-anthropic"],
         "together" => &["togetherai", "together_ai"],
@@ -850,6 +850,12 @@ mod tests {
         assert!(summaries
             .iter()
             .any(|provider| provider.id == "openai" && provider.name.as_deref() == Some("OpenAI")));
+    }
+
+    #[test]
+    fn antigravity_uses_the_models_dev_google_namespace() {
+        assert_eq!(upstream_provider_aliases("agy"), &["google"]);
+        assert_eq!(upstream_provider_aliases("antigravity"), &["google"]);
     }
 
     #[test]

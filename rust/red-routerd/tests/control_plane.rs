@@ -5727,6 +5727,185 @@ async fn rust_imports_claude_cli_auth_with_bounded_bootstrap_identity() {
 }
 
 #[tokio::test]
+async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
+    use axum::extract::Request;
+
+    let observations = Arc::new(Mutex::new(Vec::<String>::new()));
+    let app = Router::new()
+        .route(
+            "/token",
+            post({
+                let observations = observations.clone();
+                move |body: String| {
+                    let observations = observations.clone();
+                    async move {
+                        let form = url::form_urlencoded::parse(body.as_bytes())
+                            .into_owned()
+                            .collect::<std::collections::HashMap<_, _>>();
+                        assert_eq!(form.get("grant_type").map(String::as_str), Some("refresh_token"));
+                        assert_eq!(form.get("client_id").map(String::as_str), Some("test-antigravity-client"));
+                        assert_eq!(form.get("client_secret").map(String::as_str), Some("test-antigravity-secret"));
+                        assert_eq!(form.get("refresh_token").map(String::as_str), Some("agy-refresh-initial"));
+                        observations.lock().unwrap().push("refresh".to_owned());
+                        Json(serde_json::json!({
+                            "access_token":"agy-access-rotated",
+                            "expires_in":3600
+                        }))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/userinfo",
+            get(|headers: HeaderMap| async move {
+                assert_eq!(headers[header::AUTHORIZATION], "Bearer agy-access-initial");
+                Json(serde_json::json!({"email":"agy@example.com"}))
+            }),
+        )
+        .route(
+            "/load-code-assist",
+            post(|headers: HeaderMap, body: String| async move {
+                assert_eq!(headers[header::AUTHORIZATION], "Bearer agy-access-initial");
+                assert!(headers[header::USER_AGENT]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("antigravity/cli/"));
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(body["metadata"]["ideType"], 9);
+                assert_eq!(body["metadata"]["pluginType"], 2);
+                Json(serde_json::json!({
+                    "cloudaicompanionProject":{"id":"agy-project-1"}
+                }))
+            }),
+        )
+        .route(
+            "/v1internal:streamGenerateContent",
+            post({
+                let observations = observations.clone();
+                move |request: Request| {
+                    let observations = observations.clone();
+                    async move {
+                        assert_eq!(
+                            request.headers()[header::AUTHORIZATION],
+                            "Bearer agy-access-rotated"
+                        );
+                        assert_eq!(request.headers()["x-goog-user-project"], "agy-project-1");
+                        assert_eq!(request.uri().query(), Some("alt=sse"));
+                        let body = axum::body::to_bytes(request.into_body(), 16 * 1024)
+                            .await
+                            .unwrap();
+                        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                        assert_eq!(body["project"], "agy-project-1");
+                        observations.lock().unwrap().push("inference".to_owned());
+                        (
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            "data: {\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}]}}\n\n",
+                        )
+                    }
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let upstream_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let token_endpoint = Url::parse(&format!("http://{address}/token")).unwrap();
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("agy-import.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expires = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3600;
+    let imported = client
+        .post(format!("{base}/api/providers/agy-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "source":{"kind":"json","json":{"token":{
+                "access_token":"agy-access-initial",
+                "refresh_token":"agy-refresh-initial",
+                "token_type":"Bearer",
+                "expiry_date":expires * 1000
+            },"auth_method":"consumer"}},
+            "name":"Antigravity work account"
+        }))
+        .send()
+        .await
+        .unwrap();
+    if imported.status() != StatusCode::OK {
+        panic!("{}", imported.text().await.unwrap());
+    }
+    let imported: serde_json::Value = imported.json().await.unwrap();
+    let provider_id = imported["connection"]["id"].as_str().unwrap();
+    assert_eq!(imported["connection"]["provider"], "agy");
+    assert_eq!(imported["connection"]["account_email"], "agy@example.com");
+    assert_eq!(imported["connection"]["credential_type"], "oauth");
+    assert!(!imported.to_string().contains("agy-access"));
+    assert!(!imported.to_string().contains("agy-refresh"));
+    let sessions = database.provider_sessions().await.unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].provider, "agy");
+    assert!(!sessions[0].session_ciphertext.contains("agy-project-1"));
+    let refreshed = client
+        .post(format!("{base}/api/providers/{provider_id}/refresh"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value = refreshed.json().await.unwrap();
+    assert_eq!(refreshed["success"], true);
+    let combo = client
+        .put(format!("{base}/api/admin/combos/agy-route"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "protocol":"antigravity",
+            "strategy":"priority",
+            "fallback":true,
+            "targets":[{"provider_id":provider_id,"model":"gemini-2.5-pro"}],
+            "enabled":true
+        }))
+        .send()
+        .await
+        .unwrap();
+    if combo.status() != StatusCode::OK {
+        panic!("{}", combo.text().await.unwrap());
+    }
+    let inference = client
+        .post(format!("{base}/v1/antigravity"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"agy-route",
+            "project":"client-controlled-project",
+            "request":{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(inference.status(), StatusCode::OK);
+    assert!(inference.text().await.unwrap().contains("finishReason"));
+    assert_eq!(
+        observations.lock().unwrap().as_slice(),
+        ["refresh", "inference"]
+    );
+    gateway_task.abort();
+    upstream_task.abort();
+}
+
+#[tokio::test]
 async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("provider-oauth.sqlite")).unwrap();

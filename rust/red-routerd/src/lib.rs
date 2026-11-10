@@ -187,6 +187,7 @@ pub(crate) struct LiveProvider {
     provider_key: HeaderValue,
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
+    antigravity_project: Option<Arc<str>>,
     tenant_id: Arc<str>,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
@@ -365,6 +366,7 @@ pub(crate) enum ProviderProtocol {
     Anthropic,
     OpenAiToAnthropic,
     Gemini,
+    Antigravity,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -387,6 +389,7 @@ pub(crate) struct ModelTarget {
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
+    antigravity_project: Option<Arc<str>>,
     rate_limit_scope: resilience::RateLimitScope,
     weight: u32,
     input_cost_per_million: Option<f64>,
@@ -995,6 +998,7 @@ impl ProxyState {
                 ProviderProtocol::CohereRerank => "/rerank",
                 ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => "/messages",
                 ProviderProtocol::Gemini => "/models",
+                ProviderProtocol::Antigravity => "/v1internal:streamGenerateContent",
             })
         {
             return Err("upstream must be a credential-free HTTPS protocol endpoint (HTTP is allowed for literal loopback only)");
@@ -1089,6 +1093,7 @@ impl ProxyState {
             provider_key: state.provider_key,
             provider_id: None,
             provider_name: None,
+            antigravity_project: None,
             tenant_id: Arc::from("red"),
             protocol,
             auth_scheme: auth_scheme.resolve(protocol)?,
@@ -1121,6 +1126,7 @@ impl ProxyState {
             product_model: None,
             provider_id: provider.provider_id.clone(),
             provider_name: provider.provider_name.clone(),
+            antigravity_project: provider.antigravity_project.clone(),
             rate_limit_scope: provider.rate_limit_scope,
             weight,
             input_cost_per_million,
@@ -1307,10 +1313,17 @@ impl ProxyState {
                     ProviderProtocol::OpenAiToAnthropic
                 }
                 Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
+                Some(value) if value.as_str() == Some("antigravity") => {
+                    ProviderProtocol::Antigravity
+                }
                 _ => return Err("unsupported route protocol"),
             };
-            if protocol == ProviderProtocol::Gemini && !valid_gemini_model(alias) {
-                return Err("invalid Gemini route model");
+            if matches!(
+                protocol,
+                ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+            ) && !valid_gemini_model(alias)
+            {
+                return Err("invalid Google route model");
             }
             let strategy = match object.get("strategy") {
                 None => RouteStrategy::Priority,
@@ -1388,8 +1401,12 @@ impl ProxyState {
                     }
                     _ => return Err("unsupported target protocol for route"),
                 };
-                if protocol == ProviderProtocol::Gemini && !valid_gemini_model(model) {
-                    return Err("invalid Gemini target model");
+                if matches!(
+                    protocol,
+                    ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+                ) && !valid_gemini_model(model)
+                {
+                    return Err("invalid Google target model");
                 }
                 let key_name = target
                     .get("api_key_env")
@@ -1487,6 +1504,7 @@ impl ProxyState {
                     product_model: None,
                     provider_id: None,
                     provider_name: None,
+                    antigravity_project: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
                     weight,
                     input_cost_per_million,
@@ -1540,6 +1558,7 @@ impl ProviderProtocol {
             "cohere-rerank" => Ok(Self::CohereRerank),
             "anthropic" => Ok(Self::Anthropic),
             "gemini" => Ok(Self::Gemini),
+            "antigravity" => Ok(Self::Antigravity),
             _ => Err("unsupported combo protocol"),
         }
     }
@@ -1559,6 +1578,8 @@ impl ProviderProtocol {
             Ok(Self::Anthropic)
         } else if path.ends_with("/models") {
             Ok(Self::Gemini)
+        } else if path.ends_with("/v1internal:streamGenerateContent") {
+            Ok(Self::Antigravity)
         } else {
             Err("unsupported provider endpoint protocol")
         }
@@ -1593,10 +1614,16 @@ impl ProviderAuthScheme {
             (Self::Auto, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
             (Self::Auto, _) => Ok(Self::Bearer),
             (Self::XGoogApiKey, ProviderProtocol::Gemini) => Ok(Self::XGoogApiKey),
+            (Self::XGoogApiKey, ProviderProtocol::Antigravity) => {
+                Err("Antigravity endpoints require bearer authentication")
+            }
             (Self::XGoogApiKey, _) => Err("x-goog-api-key requires a Gemini endpoint"),
             (Self::Bearer, _) => Ok(Self::Bearer),
             (Self::XApiKey, ProviderProtocol::Gemini) => {
                 Err("Gemini endpoints require bearer or x-goog-api-key authentication")
+            }
+            (Self::XApiKey, ProviderProtocol::Antigravity) => {
+                Err("Antigravity endpoints require bearer authentication")
             }
             (Self::XApiKey, _) => Ok(Self::XApiKey),
         }
@@ -1745,6 +1772,18 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::export_claude_auth),
         )
         .route(
+            "/api/providers/agy-auth/import",
+            post(control_plane::import_agy_auth),
+        )
+        .route(
+            "/api/providers/agy-auth/import-bulk",
+            post(control_plane::import_agy_auth_bulk),
+        )
+        .route(
+            "/api/providers/agy-auth/zip-extract",
+            post(control_plane::extract_agy_auth_zip),
+        )
+        .route(
             "/api/admin/client-keys",
             get(control_plane::list_client_keys).post(control_plane::issue_client_key),
         )
@@ -1848,6 +1887,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/rerank", post(rerank))
         .route("/v1/messages", post(messages))
+        .route("/v1/antigravity", post(antigravity))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
 }
@@ -2716,6 +2756,10 @@ async fn rerank(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::CohereRerank, None).await
 }
 
+async fn antigravity(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::Antigravity, None).await
+}
+
 async fn gemini(
     State(state): State<ProxyState>,
     Path(model_action): Path<String>,
@@ -2878,6 +2922,7 @@ async fn proxy_request(
             parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true)
         }
         ProviderProtocol::Gemini => gemini.as_ref().is_some_and(|(_, stream)| *stream),
+        ProviderProtocol::Antigravity => true,
         _ => false,
     };
     if usage_accounting
@@ -2888,6 +2933,7 @@ async fn proxy_request(
                 | ProviderProtocol::OpenAiEmbeddings
                 | ProviderProtocol::Anthropic
                 | ProviderProtocol::Gemini
+                | ProviderProtocol::Antigravity
         ) || (protocol == ProviderProtocol::OpenAi
             && (!matches!(
                 parsed.get("stream"),
@@ -3359,6 +3405,11 @@ async fn proxy_request(
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
+                if protocol == ProviderProtocol::Antigravity {
+                    if let Some(project) = target.antigravity_project.as_deref() {
+                        parsed["project"] = serde_json::Value::String(project.to_owned());
+                    }
+                }
                 let encoded =
                     if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
                         value["model"] = serde_json::Value::String(target.model.clone());
@@ -3381,6 +3432,14 @@ async fn proxy_request(
                 )
             }
             None => {
+                if protocol == ProviderProtocol::Antigravity {
+                    if let Some(project) = live_provider
+                        .as_ref()
+                        .and_then(|provider| provider.antigravity_project.as_deref())
+                    {
+                        parsed["project"] = serde_json::Value::String(project.to_owned());
+                    }
+                }
                 let payload = if state.product_client_keys {
                     match serde_json::to_vec(&parsed) {
                         Ok(payload) => payload,
@@ -3422,6 +3481,9 @@ async fn proxy_request(
                 target_url.set_query(Some("alt=sse"));
             }
         }
+        if protocol == ProviderProtocol::Antigravity {
+            target_url.set_query(Some("alt=sse"));
+        }
         let mut upstream = client
             .post(target_url)
             .header(header::CONTENT_TYPE, "application/json")
@@ -3456,8 +3518,29 @@ async fn proxy_request(
             }
             None => {}
         }
-        if let Some(accept) = &accept {
+        if protocol == ProviderProtocol::Antigravity {
+            upstream = upstream.header(header::ACCEPT, "text/event-stream");
+        } else if let Some(accept) = &accept {
             upstream = upstream.header(header::ACCEPT, accept.clone());
+        }
+        if protocol == ProviderProtocol::Antigravity {
+            upstream = upstream.header(
+                header::USER_AGENT,
+                "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
+            );
+            if let Some(project) = parsed
+                .get("project")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= 256
+                        && !value.chars().any(char::is_control)
+                        && *value != "test-project"
+                        && *value != "project-id"
+                })
+            {
+                upstream = upstream.header("x-goog-user-project", project);
+            }
         }
         let circuit = target
             .and_then(|target| target.circuit.as_ref())
@@ -3926,6 +4009,12 @@ async fn proxy_request(
                         }
                         ProviderProtocol::Gemini => {
                             accounting::ChatUsage::from_gemini_response(&v).ok()
+                        }
+                        ProviderProtocol::Antigravity => {
+                            accounting::ChatUsage::from_gemini_response(
+                                v.get("response").unwrap_or(&v),
+                            )
+                            .ok()
                         }
                         _ => accounting::ChatUsage::from_response(&v).ok(),
                     }
