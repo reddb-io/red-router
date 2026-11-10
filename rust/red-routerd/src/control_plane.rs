@@ -53,6 +53,9 @@ const OAUTH_REFRESH_MAX_BODY_BYTES: usize = 1024 * 1024;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
+const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/bootstrap";
+const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const SQLITE_CONTROL_MARKER: &str = "SELECT kind, record_id, revision, generation FROM (
@@ -101,6 +104,8 @@ struct OAuthRefreshConfig {
     claude_endpoint: reqwest::Url,
     claude_client_id: String,
     codex_provider_endpoint: reqwest::Url,
+    claude_provider_endpoint: reqwest::Url,
+    claude_bootstrap_endpoint: reqwest::Url,
 }
 
 struct OAuthRefreshRuntime {
@@ -352,6 +357,22 @@ pub struct CodexAuthBulkImportInput {
     pub overwrite_existing: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaudeAuthBulkEntry {
+    pub json: serde_json::Value,
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaudeAuthBulkImportInput {
+    pub entries: Vec<ClaudeAuthBulkEntry>,
+    #[serde(default, rename = "overwriteExisting")]
+    pub overwrite_existing: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct ProviderAuthImportView {
     connection: ProviderView,
@@ -365,6 +386,17 @@ struct ParsedCodexAuth {
     user_id: Option<String>,
     email: Option<String>,
     expires_at_unix: u64,
+}
+
+struct ParsedClaudeAuth {
+    access_token: Zeroizing<String>,
+    refresh_token: Zeroizing<String>,
+    expires_at_unix: u64,
+}
+
+struct ClaudeBootstrapIdentity {
+    account_id: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -945,6 +977,10 @@ impl OAuthRefreshConfig {
             claude_client_id,
             codex_provider_endpoint: reqwest::Url::parse(CODEX_PROVIDER_URL)
                 .map_err(|_| "invalid Codex provider URL")?,
+            claude_provider_endpoint: reqwest::Url::parse(CLAUDE_PROVIDER_URL)
+                .map_err(|_| "invalid Claude provider URL")?,
+            claude_bootstrap_endpoint: reqwest::Url::parse(CLAUDE_BOOTSTRAP_URL)
+                .map_err(|_| "invalid Claude bootstrap URL")?,
         })
     }
 
@@ -953,10 +989,20 @@ impl OAuthRefreshConfig {
         codex_provider_endpoint.set_path("/responses");
         codex_provider_endpoint.set_query(None);
         codex_provider_endpoint.set_fragment(None);
+        let mut claude_provider_endpoint = claude_endpoint.clone();
+        claude_provider_endpoint.set_path("/messages");
+        claude_provider_endpoint.set_query(None);
+        claude_provider_endpoint.set_fragment(None);
+        let mut claude_bootstrap_endpoint = claude_endpoint.clone();
+        claude_bootstrap_endpoint.set_path("/bootstrap");
+        claude_bootstrap_endpoint.set_query(None);
+        claude_bootstrap_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
             codex_endpoint,
             codex_client_id: CODEX_OAUTH_CLIENT_ID.to_owned(),
+            claude_provider_endpoint,
+            claude_bootstrap_endpoint,
             claude_endpoint,
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
         }
@@ -2267,6 +2313,155 @@ impl ControlPlane {
             connection,
             created,
         })
+    }
+
+    async fn import_claude_auth_as(
+        &self,
+        input: ProviderAuthImportInput,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<ProviderAuthImportView, &'static str> {
+        validate_actor(actor)?;
+        let tenant_id = enforced_tenant.unwrap_or("red");
+        validate_id(tenant_id)?;
+        let raw = match input.source {
+            ProviderAuthImportSource::Json { json } => json,
+            ProviderAuthImportSource::Text { text } => {
+                if text.len() > 256 * 1024 {
+                    return Err("Claude auth file is too large");
+                }
+                serde_json::from_str(&text).map_err(|_| "invalid Claude auth JSON")?
+            }
+        };
+        let parsed = parse_claude_auth(raw)?;
+        let bootstrap = self
+            .claude_bootstrap_identity(parsed.access_token.as_str())
+            .await;
+        let email = input.email.or(bootstrap.email);
+        let identity = bootstrap
+            .account_id
+            .map(|value| format!("account:{value}"))
+            .or_else(|| {
+                email
+                    .as_deref()
+                    .map(|value| format!("email:{}", value.to_ascii_lowercase()))
+            });
+        if identity.is_none() && !input.overwrite_existing {
+            return Err("Claude account identity could not be verified");
+        }
+        let identity = identity.unwrap_or_else(|| {
+            let mut digest = Sha256::new();
+            digest.update(parsed.refresh_token.as_bytes());
+            format!("token:{}", hex::encode(digest.finalize()))
+        });
+        let provider_id = provider_import_id("claude", tenant_id, &identity);
+        let existing = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == provider_id);
+        if existing.is_some() && !input.overwrite_existing {
+            return Err("Claude account already exists");
+        }
+        if existing
+            .as_ref()
+            .is_some_and(|provider| provider.provider != "claude")
+        {
+            return Err("Claude account identifier conflicts with another provider");
+        }
+        let created = existing.is_none();
+        let label = input
+            .name
+            .or_else(|| email.clone())
+            .unwrap_or_else(|| "Claude (imported)".to_owned());
+        let connection = self
+            .configure_provider_as(
+                &provider_id,
+                ProviderInput {
+                    tenant_id: Some(tenant_id.to_owned()),
+                    provider: "claude".to_owned(),
+                    upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
+                    api_key: parsed.access_token.to_string(),
+                    enabled: true,
+                    rate_limit_scope: "connection".to_owned(),
+                    auth_scheme: "bearer".to_owned(),
+                    label: Some(label),
+                    account_email: email,
+                    expires_at_unix: Some(parsed.expires_at_unix),
+                    credential_type: "oauth".to_owned(),
+                    oauth_provider: Some("claude".to_owned()),
+                    refresh_token: Some(parsed.refresh_token.to_string()),
+                },
+                actor,
+                enforced_tenant,
+            )
+            .await?;
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.credentials.imported",
+                actor,
+                tenant_id,
+                target: &provider_id,
+                resource_type: "provider_credentials",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&serde_json::json!({
+                "provider": "claude",
+                "created": created,
+                "has_email": connection.account_email.is_some(),
+                "identity_verified": !identity.starts_with("token:"),
+            })),
+        )
+        .await;
+        Ok(ProviderAuthImportView {
+            connection,
+            created,
+        })
+    }
+
+    async fn claude_bootstrap_identity(&self, access_token: &str) -> ClaudeBootstrapIdentity {
+        let request = self
+            .0
+            .oauth_refresh_client
+            .get(self.0.oauth_refresh.claude_bootstrap_endpoint.clone())
+            .bearer_auth(access_token)
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .header(header::USER_AGENT, CLAUDE_CLI_USER_AGENT)
+            .header(header::CONTENT_TYPE, "application/json");
+        let Ok(response) = request.send().await else {
+            return ClaudeBootstrapIdentity {
+                account_id: None,
+                email: None,
+            };
+        };
+        if !response.status().is_success() {
+            return ClaudeBootstrapIdentity {
+                account_id: None,
+                email: None,
+            };
+        }
+        let Ok(body) = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES).await else {
+            return ClaudeBootstrapIdentity {
+                account_id: None,
+                email: None,
+            };
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) else {
+            return ClaudeBootstrapIdentity {
+                account_id: None,
+                email: None,
+            };
+        };
+        let account_id = json_non_empty_string(value.get("account_uuid"))
+            .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
+            .map(str::to_owned);
+        let email = json_non_empty_string(value.get("account_email"))
+            .filter(|value| validate_provider_account_email(value).is_ok())
+            .map(str::to_owned);
+        ClaudeBootstrapIdentity { account_id, email }
     }
 
     async fn configure_provider_as(
@@ -6396,6 +6591,59 @@ fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static 
     })
 }
 
+fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'static str> {
+    let document = raw.as_object().ok_or("invalid Claude auth file")?;
+    let oauth = document
+        .get("claudeAiOauth")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("Claude OAuth credentials are missing")?;
+    let access_token =
+        json_non_empty_string(oauth.get("accessToken")).ok_or("Claude access token is missing")?;
+    let refresh_token = json_non_empty_string(oauth.get("refreshToken"))
+        .ok_or("Claude refresh token is missing")?;
+    for token in [access_token, refresh_token] {
+        if token.len() > 8192 || token.chars().any(char::is_control) {
+            return Err("Claude auth token is invalid");
+        }
+    }
+    let expires_at_unix = parse_claude_expiry(oauth.get("expiresAt"))?;
+    Ok(ParsedClaudeAuth {
+        access_token: Zeroizing::new(access_token.to_owned()),
+        refresh_token: Zeroizing::new(refresh_token.to_owned()),
+        expires_at_unix,
+    })
+}
+
+fn parse_claude_expiry(value: Option<&serde_json::Value>) -> Result<u64, &'static str> {
+    let value = value.ok_or("Claude token expiry is missing")?;
+    let raw = if let Some(value) = value.as_u64() {
+        value
+    } else if let Some(value) = value.as_str() {
+        let value = value.trim();
+        if let Ok(epoch) = value.parse::<u64>() {
+            epoch
+        } else {
+            let parsed =
+                time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+                    .map_err(|_| "Claude token expiry is invalid")?;
+            u64::try_from(parsed.unix_timestamp()).map_err(|_| "Claude token expiry is invalid")?
+        }
+    } else {
+        return Err("Claude token expiry is invalid");
+    };
+    // Claude Code writes epoch milliseconds. Accept seconds too for exported
+    // compatibility records, but reject values outside the useful timestamp range.
+    let seconds = if raw >= 10_000_000_000 {
+        raw / 1_000
+    } else {
+        raw
+    };
+    if !(1..=32_503_680_000).contains(&seconds) {
+        return Err("Claude token expiry is invalid");
+    }
+    Ok(seconds)
+}
+
 fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
     value
         .and_then(serde_json::Value::as_str)
@@ -6432,6 +6680,15 @@ fn codex_import_provider_id(tenant_id: &str, account_id: &str, user_id: Option<&
     digest.update(user_id.unwrap_or("").as_bytes());
     let suffix = hex::encode(digest.finalize());
     format!("codex-{}", &suffix[..24])
+}
+
+fn provider_import_id(provider: &str, tenant_id: &str, identity: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(tenant_id.as_bytes());
+    digest.update([0]);
+    digest.update(identity.as_bytes());
+    let suffix = hex::encode(digest.finalize());
+    format!("{provider}-{}", &suffix[..24])
 }
 
 fn oauth_token_field(
@@ -7600,6 +7857,116 @@ pub async fn import_codex_auth_bulk(
                     "Provider storage or runtime unavailable"
                 } else {
                     "Invalid Codex auth file"
+                },
+            })),
+        }
+    }
+    let mut response = Json(serde_json::json!({
+        "success": success,
+        "failed": total - success,
+        "total": total,
+        "errors": errors,
+    }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+pub async fn import_claude_auth(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderAuthImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .import_claude_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(imported) => {
+            let mut response = Json(imported).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("Claude account already exists") => api_error_code(
+            StatusCode::CONFLICT,
+            "A Claude connection for this account already exists",
+            "duplicate_account",
+        ),
+        Err("Claude account identity could not be verified") => api_error_code(
+            StatusCode::CONFLICT,
+            "Claude account identity could not be verified",
+            "identity_unverified",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage or runtime unavailable",
+        ),
+        Err(_) => api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Invalid Claude auth file",
+            "invalid_auth_file",
+        ),
+    }
+}
+
+pub async fn import_claude_auth_bulk(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<ClaudeAuthBulkImportInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if input.entries.is_empty() || input.entries.len() > 50 {
+        return api_error_code(
+            StatusCode::BAD_REQUEST,
+            "Claude bulk import requires 1-50 entries",
+            "invalid_request",
+        );
+    }
+    let total = input.entries.len();
+    let mut success = 0usize;
+    let mut errors = Vec::new();
+    for (index, entry) in input.entries.into_iter().enumerate() {
+        let display_name = entry
+            .name
+            .clone()
+            .or_else(|| entry.email.clone())
+            .unwrap_or_else(|| format!("entry {}", index + 1));
+        let imported = control
+            .import_claude_auth_as(
+                ProviderAuthImportInput {
+                    source: ProviderAuthImportSource::Json { json: entry.json },
+                    name: entry.name,
+                    email: entry.email,
+                    overwrite_existing: input.overwrite_existing,
+                },
+                &scope.actor,
+                scope.tenant_id.as_deref(),
+            )
+            .await;
+        match imported {
+            Ok(_) => success += 1,
+            Err(error) => errors.push(serde_json::json!({
+                "index": index,
+                "name": display_name,
+                "message": match error {
+                    "Claude account already exists" => "Account already exists",
+                    "Claude account identity could not be verified" => "Account identity could not be verified",
+                    error if is_runtime_error(error) => "Provider storage or runtime unavailable",
+                    _ => "Invalid Claude auth file",
                 },
             })),
         }

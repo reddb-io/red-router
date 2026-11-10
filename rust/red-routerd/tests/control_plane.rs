@@ -122,40 +122,66 @@ async fn oidc_jwks() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) 
 async fn oidc_token_server(
     nonce: Arc<tokio::sync::RwLock<String>>,
 ) -> (String, tokio::task::JoinHandle<()>) {
-    let app = Router::new().route(
-        "/token",
-        post(move |headers: HeaderMap, body: String| {
-            let nonce = nonce.clone();
-            async move {
+    let app = Router::new()
+        .route(
+            "/bootstrap",
+            get(|headers: HeaderMap| async move {
+                let token = headers[header::AUTHORIZATION]
+                    .to_str()
+                    .unwrap()
+                    .strip_prefix("Bearer claude-access-")
+                    .unwrap();
+                assert_eq!(headers["anthropic-version"].to_str().unwrap(), "2023-06-01");
                 assert_eq!(
-                    headers[header::CONTENT_TYPE].to_str().unwrap(),
-                    "application/x-www-form-urlencoded"
+                    headers["anthropic-beta"].to_str().unwrap(),
+                    "oauth-2025-04-20"
                 );
-                let fields: std::collections::HashMap<_, _> =
-                    url::form_urlencoded::parse(body.as_bytes())
-                        .into_owned()
-                        .collect();
-                assert_eq!(
-                    fields.get("grant_type").map(String::as_str),
-                    Some("authorization_code")
-                );
-                assert_eq!(fields.get("code").map(String::as_str), Some("fixture-code"));
-                assert_eq!(
-                    fields.get("client_id").map(String::as_str),
-                    Some("red-router-dashboard")
-                );
-                assert_eq!(
-                    fields.get("client_secret").map(String::as_str),
-                    Some("browser-secret")
-                );
-                assert!(fields
-                    .get("code_verifier")
-                    .is_some_and(|value| value.len() >= 43));
-                let nonce = nonce.read().await.clone();
-                Json(serde_json::json!({"id_token":oidc_browser_token(&nonce)}))
-            }
-        }),
-    );
+                if token == "unverified" {
+                    StatusCode::UNAUTHORIZED.into_response()
+                } else {
+                    Json(serde_json::json!({
+                        "account_uuid":format!("claude-account-{token}"),
+                        "account_email":format!("claude-{token}@example.com"),
+                        "organization_uuid":"claude-organization-fixture"
+                    }))
+                    .into_response()
+                }
+            }),
+        )
+        .route(
+            "/token",
+            post(move |headers: HeaderMap, body: String| {
+                let nonce = nonce.clone();
+                async move {
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    let fields: std::collections::HashMap<_, _> =
+                        url::form_urlencoded::parse(body.as_bytes())
+                            .into_owned()
+                            .collect();
+                    assert_eq!(
+                        fields.get("grant_type").map(String::as_str),
+                        Some("authorization_code")
+                    );
+                    assert_eq!(fields.get("code").map(String::as_str), Some("fixture-code"));
+                    assert_eq!(
+                        fields.get("client_id").map(String::as_str),
+                        Some("red-router-dashboard")
+                    );
+                    assert_eq!(
+                        fields.get("client_secret").map(String::as_str),
+                        Some("browser-secret")
+                    );
+                    assert!(fields
+                        .get("code_verifier")
+                        .is_some_and(|value| value.len() >= 43));
+                    let nonce = nonce.read().await.clone();
+                    Json(serde_json::json!({"id_token":oidc_browser_token(&nonce)}))
+                }
+            }),
+        );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -5012,6 +5038,163 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
     let audit: serde_json::Value = serde_json::from_str(&audit.text().await.unwrap()).unwrap();
     assert_eq!(audit.as_array().unwrap().len(), 2);
     assert!(!audit.to_string().contains("refresh-secret"));
+
+    gateway_task.abort();
+    token_task.abort();
+}
+
+#[tokio::test]
+async fn rust_imports_claude_cli_auth_with_bounded_bootstrap_identity() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("claude-import.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (token_endpoint, _, _, _, token_task) = claude_oauth_refresh_server().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry_ms = (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600)
+        * 1_000;
+    let auth_file = serde_json::json!({
+        "claudeAiOauth":{
+            "accessToken":"claude-access-one",
+            "refreshToken":"claude-refresh-one",
+            "expiresAt":expiry_ms,
+            "scopes":["user:inference","user:profile"]
+        }
+    });
+    let imported = client
+        .post(format!("{base}/api/providers/claude-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "source":{"kind":"text","text":auth_file.to_string()},
+                "name":"Primary Claude"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), StatusCode::OK);
+    assert_eq!(
+        imported.headers()[header::CACHE_CONTROL],
+        HeaderValue::from_static("no-store")
+    );
+    let imported: serde_json::Value =
+        serde_json::from_str(&imported.text().await.unwrap()).unwrap();
+    assert_eq!(imported["created"], true);
+    assert_eq!(imported["connection"]["provider"], "claude");
+    assert_eq!(imported["connection"]["label"], "Primary Claude");
+    assert_eq!(
+        imported["connection"]["account_email"],
+        "claude-one@example.com"
+    );
+    assert!(!imported.to_string().contains("claude-access-one"));
+    assert!(!imported.to_string().contains("claude-refresh-one"));
+    let provider_id = imported["connection"]["id"].as_str().unwrap().to_owned();
+
+    let duplicate = client
+        .post(format!("{base}/api/providers/claude-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"source":{"kind":"json","json":auth_file.clone()}}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    let duplicate: serde_json::Value =
+        serde_json::from_str(&duplicate.text().await.unwrap()).unwrap();
+    assert_eq!(duplicate["code"], "duplicate_account");
+
+    let second = serde_json::json!({
+        "claudeAiOauth":{
+            "accessToken":"claude-access-two",
+            "refreshToken":"claude-refresh-two",
+            "expiresAt":expiry_ms.to_string()
+        }
+    });
+    let bulk = client
+        .post(format!("{base}/api/providers/claude-auth/import-bulk"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "entries":[
+                    {"json":second,"name":"Second Claude"},
+                    {"json":{"claudeAiOauth":{}},"name":"Broken"}
+                ]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bulk.status(), StatusCode::OK);
+    let bulk: serde_json::Value = serde_json::from_str(&bulk.text().await.unwrap()).unwrap();
+    assert_eq!(bulk["success"], 1);
+    assert_eq!(bulk["failed"], 1);
+    assert_eq!(bulk["errors"][0]["index"], 1);
+
+    let unverified = serde_json::json!({
+        "claudeAiOauth":{
+            "accessToken":"claude-access-unverified",
+            "refreshToken":"claude-refresh-unverified",
+            "expiresAt":expiry_ms
+        }
+    });
+    let rejected = client
+        .post(format!("{base}/api/providers/claude-auth/import"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"source":{"kind":"json","json":unverified}}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::CONFLICT);
+    let rejected: serde_json::Value =
+        serde_json::from_str(&rejected.text().await.unwrap()).unwrap();
+    assert_eq!(rejected["code"], "identity_unverified");
+
+    let providers = database.providers().await.unwrap();
+    assert_eq!(providers.len(), 2);
+    assert!(providers
+        .iter()
+        .all(|provider| provider.provider == "claude"));
+    let oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(oauth.len(), 2);
+    assert!(oauth
+        .iter()
+        .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));
+    assert!(oauth
+        .iter()
+        .all(|record| !record.refresh_token_ciphertext.contains("claude-refresh")));
+    let audit = client
+        .get(format!(
+            "{base}/api/admin/audit-log?action=provider.credentials.imported&target={provider_id}"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(audit.status(), StatusCode::OK);
+    let audit: serde_json::Value = serde_json::from_str(&audit.text().await.unwrap()).unwrap();
+    assert_eq!(audit.as_array().unwrap().len(), 1);
+    assert!(!audit.to_string().contains("claude-refresh"));
 
     gateway_task.abort();
     token_task.abort();
