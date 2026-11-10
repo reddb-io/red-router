@@ -172,6 +172,26 @@ fn normalized_error_evidence(body: Option<&[u8]>) -> String {
     evidence
 }
 
+pub(crate) fn antigravity_credits_retry_eligible(body: Option<&[u8]>) -> bool {
+    let text = normalized_error_evidence(body);
+    if text.contains("reset after 0s") || text.contains("reset in 0s") {
+        return false;
+    }
+    contains_any(
+        &text,
+        &[
+            "quota_exhausted",
+            "quota exhausted",
+            "quota reached",
+            "enable overages",
+            "individual quota",
+            "free tier",
+            "daily limit",
+            "exhausted your capacity",
+        ],
+    )
+}
+
 fn collect_json_error_evidence(value: &serde_json::Value, depth: usize, output: &mut String) {
     if depth > 4 {
         return;
@@ -323,6 +343,25 @@ fn any_model_exhausted(value: &str) -> bool {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn antigravity_credits_retry_is_limited_to_plan_quota_exhaustion() {
+        assert!(antigravity_credits_retry_eligible(Some(
+            br#"{"error":{"message":"Individual quota reached. Contact your administrator to enable overages."}}"#,
+        )));
+        assert!(antigravity_credits_retry_eligible(Some(
+            br#"{"error":{"code":"quota_exhausted"}}"#,
+        )));
+        assert!(!antigravity_credits_retry_eligible(Some(
+            br#"{"error":{"message":"Exhausted your capacity. Reset after 0s."}}"#,
+        )));
+        assert!(!antigravity_credits_retry_eligible(Some(
+            br#"{"error":{"message":"Too many requests per minute"}}"#,
+        )));
+        assert!(!antigravity_credits_retry_eligible(Some(
+            br#"{"error":{"message":"Insufficient GOOGLE_ONE_AI credit balance"}}"#,
+        )));
+    }
 
     #[test]
     fn explicit_scope_wins_and_auto_is_provider_specific() {

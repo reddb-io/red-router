@@ -50,6 +50,7 @@ const MAX_IN_FLIGHT: usize = 64;
 const MAX_ROUTE_TARGETS: usize = 8;
 const NO_ROUTE_TARGET: usize = usize::MAX;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
+const ANTIGRAVITY_CREDITS_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_ERROR_BODY_TIMEOUT: Duration = Duration::from_secs(2);
 const RED_ROUTER_CATALOG_VERSION: &str = "x-redrouter-catalog-version";
 const RED_ROUTER_SERVED_MODEL: &str = "x-redrouter-served-model";
@@ -70,6 +71,14 @@ const ROUTING_STRATEGIES: &[&str] = &[
     "quota-weighted",
     "lkgp",
 ];
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum AntigravityCreditsMode {
+    #[default]
+    Off,
+    Retry,
+    Always,
+}
 
 struct BufferedProviderResponse {
     status: StatusCode,
@@ -164,6 +173,19 @@ async fn inspect_provider_response(response: reqwest::Response) -> ProviderRespo
     })
 }
 
+fn antigravity_credits_payload(payload: &[u8], enabled: bool) -> Result<Vec<u8>, ()> {
+    let mut value = serde_json::from_slice::<serde_json::Value>(payload).map_err(|_| ())?;
+    let object = value.as_object_mut().ok_or(())?;
+    object.remove("enabledCreditTypes");
+    if enabled {
+        object.insert(
+            "enabledCreditTypes".to_owned(),
+            serde_json::json!(["GOOGLE_ONE_AI"]),
+        );
+    }
+    serde_json::to_vec(&value).map_err(|_| ())
+}
+
 #[derive(Clone)]
 pub struct ProxyState {
     client: reqwest::Client,
@@ -179,6 +201,7 @@ pub struct ProxyState {
     product_combo: Option<product_combo::ProductCombo>,
     control_plane: Option<control_plane::ControlPlane>,
     native_usage_reporting: bool,
+    antigravity_credits_mode: AntigravityCreditsMode,
 }
 
 #[derive(Clone)]
@@ -980,6 +1003,16 @@ fn strict_random_order(
 }
 
 impl ProxyState {
+    pub fn with_antigravity_credits_mode(mut self, mode: &str) -> Result<Self, &'static str> {
+        self.antigravity_credits_mode = match mode.trim().to_ascii_lowercase().as_str() {
+            "" | "off" => AntigravityCreditsMode::Off,
+            "retry" => AntigravityCreditsMode::Retry,
+            "always" => AntigravityCreditsMode::Always,
+            _ => return Err("ANTIGRAVITY_CREDITS must be off, retry or always"),
+        };
+        Ok(self)
+    }
+
     /// Set a process-wide capacity, independent of per-client quotas.
     pub fn with_max_in_flight(mut self, limit: usize) -> Result<Self, &'static str> {
         if limit == 0 || limit > Semaphore::MAX_PERMITS {
@@ -1127,6 +1160,7 @@ impl ProxyState {
             product_combo: None,
             control_plane: None,
             native_usage_reporting: false,
+            antigravity_credits_mode: AntigravityCreditsMode::Off,
         })
     }
 
@@ -3569,7 +3603,7 @@ async fn proxy_request(
             attempt_protocol,
             ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity
         );
-        let (client, url, provider_key, payload) = match target {
+        let (client, url, provider_key, mut payload) = match target {
             Some(target) => {
                 if attempt_protocol == ProviderProtocol::Antigravity {
                     if let Some(project) = target.antigravity_project.as_deref() {
@@ -3633,6 +3667,17 @@ async fn proxy_request(
                 }
             }
         };
+        if attempt_antigravity {
+            payload = match antigravity_credits_payload(
+                &payload,
+                state.antigravity_credits_mode == AntigravityCreditsMode::Always,
+            ) {
+                Ok(payload) => payload,
+                Err(()) => {
+                    return error(StatusCode::BAD_REQUEST, "Invalid Antigravity JSON request")
+                }
+            };
+        }
         let mut target_url = url.clone();
         if direct_product_model && protocol == ProviderProtocol::OpenAiEmbeddings {
             let Some(prefix) = target_url.path().strip_suffix("/chat/completions") else {
@@ -3684,11 +3729,11 @@ async fn proxy_request(
         // retries a project-scoped 403 once without x-goog-user-project because
         // consumer accounts can have a valid session but no permission to bill
         // the bootstrapped project.
-        let build_upstream = |include_antigravity_project: bool| {
+        let build_upstream = |include_antigravity_project: bool, request_payload: &[u8]| {
             let mut upstream = client
                 .post(target_url.clone())
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(payload.clone());
+                .body(request_payload.to_vec());
             upstream = match auth_scheme {
                 ProviderAuthScheme::Bearer => {
                     upstream.header(header::AUTHORIZATION, provider_key.clone())
@@ -3775,7 +3820,12 @@ async fn proxy_request(
                     .map(|provider| provider.in_flight.clone())
             })
             .map(ProviderLoadGuard::new);
-        let response = match tokio::time::timeout(HEADER_TIMEOUT, build_upstream(true).send()).await
+        let mut include_antigravity_project = true;
+        let response = match tokio::time::timeout(
+            HEADER_TIMEOUT,
+            build_upstream(include_antigravity_project, &payload).send(),
+        )
+        .await
         {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => Err(false),
@@ -3785,7 +3835,13 @@ async fn proxy_request(
             Ok(response)
                 if response.status() == StatusCode::FORBIDDEN && antigravity_project.is_some() =>
             {
-                match tokio::time::timeout(HEADER_TIMEOUT, build_upstream(false).send()).await {
+                include_antigravity_project = false;
+                match tokio::time::timeout(
+                    HEADER_TIMEOUT,
+                    build_upstream(include_antigravity_project, &payload).send(),
+                )
+                .await
+                {
                     Ok(Ok(response)) => Ok(response),
                     Ok(Err(_)) => Err(false),
                     Err(_) => Err(true),
@@ -3846,7 +3902,27 @@ async fn proxy_request(
                 return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out");
             }
         };
-        let response = inspect_provider_response(response).await;
+        let mut response = inspect_provider_response(response).await;
+        let credits_retry = attempt_antigravity
+            && state.antigravity_credits_mode == AntigravityCreditsMode::Retry
+            && response.status() == StatusCode::TOO_MANY_REQUESTS
+            && resilience::antigravity_credits_retry_eligible(response.error_body());
+        if credits_retry {
+            let credits_payload = match antigravity_credits_payload(&payload, true) {
+                Ok(payload) => payload,
+                Err(()) => {
+                    return error(StatusCode::BAD_REQUEST, "Invalid Antigravity JSON request")
+                }
+            };
+            if let Ok(Ok(credits_response)) = tokio::time::timeout(
+                ANTIGRAVITY_CREDITS_RETRY_TIMEOUT,
+                build_upstream(include_antigravity_project, &credits_payload).send(),
+            )
+            .await
+            {
+                response = inspect_provider_response(credits_response).await;
+            }
+        }
         if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
             let recorded = if circuit::provider_failure_status(response.status()) {
                 circuit.record_failure(permit).await
@@ -4480,6 +4556,20 @@ mod address_tests {
         assert!(!allowed_address("10.0.0.1".parse().unwrap(), false));
         assert!(allowed_address("10.0.0.1".parse().unwrap(), true));
         assert!(allowed_address("8.8.8.8".parse().unwrap(), false));
+    }
+
+    #[test]
+    fn antigravity_credit_fields_are_owned_by_the_operator_policy() {
+        let supplied = br#"{"model":"m","enabledCreditTypes":["CLIENT_VALUE"]}"#;
+        let off: serde_json::Value =
+            serde_json::from_slice(&antigravity_credits_payload(supplied, false).unwrap()).unwrap();
+        assert!(off.get("enabledCreditTypes").is_none());
+        let always: serde_json::Value =
+            serde_json::from_slice(&antigravity_credits_payload(supplied, true).unwrap()).unwrap();
+        assert_eq!(
+            always["enabledCreditTypes"],
+            serde_json::json!(["GOOGLE_ONE_AI"])
+        );
     }
 
     #[test]

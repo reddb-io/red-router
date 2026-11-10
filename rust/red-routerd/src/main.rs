@@ -187,6 +187,11 @@ async fn run(
         Err(env::VarError::NotPresent) => None,
         Err(_) => return Err("invalid RED_ROUTER_MAX_IN_FLIGHT".into()),
     };
+    let antigravity_credits_mode = match env::var("ANTIGRAVITY_CREDITS") {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) => "off".to_owned(),
+        Err(_) => return Err("ANTIGRAVITY_CREDITS must be valid Unicode".into()),
+    };
     if let Some(path) = env::var_os("RED_ROUTER_PRODUCT_DB_PATH") {
         if command.is_some() {
             return Err("set-upstream is not available with a product connection".into());
@@ -506,8 +511,9 @@ async fn run(
                     .to_string(),
             );
         }
-        let mut state =
-            ProxyState::new(connection.upstream_url(), &client_key, &credential, false).await?;
+        let mut state = ProxyState::new(connection.upstream_url(), &client_key, &credential, false)
+            .await?
+            .with_antigravity_credits_mode(&antigravity_credits_mode)?;
         if let Some(limit) = max_in_flight {
             state = state.with_max_in_flight(limit)?;
         }
@@ -732,7 +738,8 @@ async fn run(
         .with_control_plane(control)
         // SQLite is the current durable usage authority. Keep the ledger complete so a
         // dashboard-managed export can be enabled without losing requests before its first poll.
-        .with_native_usage_reporting(usage_export_enabled || backend == Backend::Sqlite);
+        .with_native_usage_reporting(usage_export_enabled || backend == Backend::Sqlite)
+        .with_antigravity_credits_mode(&antigravity_credits_mode)?;
         if let Some(limit) = max_in_flight {
             state = state.with_max_in_flight(limit)?;
         }
@@ -769,7 +776,9 @@ async fn run(
                 .ok_or("database configuration was not visible after initialization")?
         }
     };
-    let mut state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+    let mut state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private)
+        .await?
+        .with_antigravity_credits_mode(&antigravity_credits_mode)?;
     if let Some(limit) = max_in_flight {
         state = state.with_max_in_flight(limit)?;
     }

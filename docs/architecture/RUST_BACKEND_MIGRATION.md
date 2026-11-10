@@ -158,8 +158,11 @@ client. Browser OAuth is Rust-owned with the same Google scopes and non-PKCE nat
 the proven legacy implementation. Its sealed state remains bound to actor, tenant, redirect and a
 short-lived verifier; loopback HTTP callbacks are accepted, while public HTTPS callbacks must match
 `ANTIGRAVITY_OAUTH_REDIRECT_URI`. Token exchange, identity/project bootstrap and encrypted session
-persistence can complete on another Rust replica. Credits-aware retry policy and the remaining
-provider import formats are still compatibility work.
+persistence can complete on another Rust replica. Rust also owns the `ANTIGRAVITY_CREDITS` policy:
+the default strips client-supplied credit controls, `retry` performs one bounded replay only for a
+classified plan-quota 429, and `always` is explicit operator opt-in. Circuit, availability, fallback
+and quota accounting observe only the final physical attempt. The remaining provider import formats
+are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one

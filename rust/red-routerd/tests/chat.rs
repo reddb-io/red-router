@@ -183,6 +183,96 @@ async fn antigravity_retries_project_scoped_forbidden_without_billing_header() {
 }
 
 #[tokio::test]
+async fn antigravity_credits_retry_is_single_bounded_and_operator_controlled() {
+    use axum::extract::Request;
+
+    let bodies = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let provider_bodies = bodies.clone();
+    let provider = Router::new().route(
+        "/v1internal:streamGenerateContent",
+        post(move |request: Request| {
+            let bodies = provider_bodies.clone();
+            async move {
+                let body = axum::body::to_bytes(request.into_body(), 16 * 1024)
+                    .await
+                    .unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                let mut bodies = bodies.lock().await;
+                bodies.push(body);
+                if bodies.len() == 1 {
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        [(header::CONTENT_TYPE, "application/json")],
+                        r#"{"error":{"message":"Individual quota reached. Contact your administrator to enable overages."}}"#,
+                    )
+                        .into_response();
+                }
+                (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    "data: {\"response\":{\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}}\n\n",
+                )
+                    .into_response()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{
+        "model":"antigravity-route",
+        "protocol":"antigravity",
+        "targets":[{
+            "url":format!("http://{address}/v1internal:streamGenerateContent"),
+            "model":"gemini-2.5-pro",
+            "api_key_env":"ANTIGRAVITY_TOKEN"
+        }]
+    }])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_antigravity_credits_mode("retry")
+    .unwrap()
+    .with_routes(&routes, |_| Some("antigravity-access-token".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{base}/v1/antigravity"))
+        .bearer_auth("client-key-12345678")
+        .json(&serde_json::json!({
+            "model":"antigravity-route",
+            "enabledCreditTypes":["CLIENT_CONTROLLED_VALUE"],
+            "request":{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bodies = bodies.lock().await;
+    assert_eq!(bodies.len(), 2);
+    assert!(bodies[0].get("enabledCreditTypes").is_none());
+    assert_eq!(
+        bodies[1]["enabledCreditTypes"],
+        serde_json::json!(["GOOGLE_ONE_AI"])
+    );
+    drop(bodies);
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn openai_to_antigravity_streams_text_tools_and_usage() {
     let provider = Router::new().route(
         "/v1internal:streamGenerateContent",
