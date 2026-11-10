@@ -96,20 +96,11 @@ pub(crate) fn parse_claude(value: &Value) -> Result<Snapshot, &'static str> {
     })
 }
 
-/// Antigravity exposes quota per model and per weekly model family. Until the
-/// routing snapshot carries model-scoped windows, keep the most constrained
-/// active window as the provider score and only mark the provider exhausted
-/// when every known bucket in either enforced window is empty. This preserves
-/// fallback ordering without turning one exhausted model family into a global
-/// hard stop.
-pub(crate) fn parse_antigravity(
-    user_quota: &Value,
-    quota_summary: Option<&Value>,
-) -> Result<Snapshot, &'static str> {
-    parse_antigravity_observation(user_quota, quota_summary)
-        .map(|observation| observation.aggregate)
-}
-
+/// Antigravity exposes quota per model and per weekly model family. Preserve
+/// those routing scopes while retaining the most constrained active window as
+/// the provider-level score. Only mark the provider exhausted when every known
+/// bucket in an enforced window is empty, so one unavailable model family does
+/// not become a global hard stop.
 pub(crate) fn parse_antigravity_observation(
     user_quota: &Value,
     quota_summary: Option<&Value>,
@@ -508,25 +499,27 @@ mod tests {
 
     #[test]
     fn antigravity_only_marks_a_window_exhausted_when_all_known_buckets_are_empty() {
-        let partial = parse_antigravity(
+        let partial = parse_antigravity_observation(
             &json!({"buckets":[
                 {"modelId":"first","remainingFraction":0},
                 {"modelId":"second","remainingFraction":0.5}
             ]}),
             None,
         )
-        .unwrap();
+        .unwrap()
+        .aggregate;
         assert_eq!(partial.session.unwrap().remaining_percent, 0.0);
         assert!(!partial.limit_reached);
 
-        let exhausted = parse_antigravity(
+        let exhausted = parse_antigravity_observation(
             &json!({"buckets":[
                 {"modelId":"first","remainingFraction":0},
                 {"modelId":"second","remainingFraction":0}
             ]}),
             None,
         )
-        .unwrap();
+        .unwrap()
+        .aggregate;
         assert!(exhausted.limit_reached);
     }
 }
