@@ -74,6 +74,14 @@ const AGY_LOAD_CODE_ASSIST_URL: &str =
 const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/bootstrap";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+const AGY_QUOTA_URLS: [&str; 2] = [
+    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+    "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+];
+const AGY_QUOTA_SUMMARY_URLS: [&str; 2] = [
+    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+];
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const PROVIDER_OAUTH_FLOW_SECONDS: u64 = 10 * 60;
@@ -85,6 +93,8 @@ const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CLAUDE_USAGE_USER_AGENT: &str = "claude-code/2.1.301";
 const CODEX_USAGE_USER_AGENT: &str = "codex_cli_rs/0.163.0";
 const CODEX_USAGE_VERSION: &str = "0.163.0";
+const AGY_QUOTA_USER_AGENT: &str =
+    "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTH_ZIP_BODY_LIMIT_BYTES: usize = 11 * 1024 * 1024;
@@ -149,6 +159,8 @@ struct OAuthRefreshConfig {
     claude_bootstrap_endpoint: reqwest::Url,
     codex_quota_endpoint: reqwest::Url,
     claude_quota_endpoint: reqwest::Url,
+    agy_quota_endpoints: Vec<reqwest::Url>,
+    agy_quota_summary_endpoints: Vec<reqwest::Url>,
     agy_provider_endpoint: reqwest::Url,
     agy_userinfo_endpoint: reqwest::Url,
     agy_load_code_assist_endpoint: reqwest::Url,
@@ -1175,6 +1187,16 @@ impl OAuthRefreshConfig {
                 .map_err(|_| "invalid Codex usage URL")?,
             claude_quota_endpoint: reqwest::Url::parse(CLAUDE_USAGE_URL)
                 .map_err(|_| "invalid Claude usage URL")?,
+            agy_quota_endpoints: AGY_QUOTA_URLS
+                .into_iter()
+                .map(reqwest::Url::parse)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "invalid Antigravity quota URL")?,
+            agy_quota_summary_endpoints: AGY_QUOTA_SUMMARY_URLS
+                .into_iter()
+                .map(reqwest::Url::parse)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "invalid Antigravity quota summary URL")?,
             agy_provider_endpoint: reqwest::Url::parse(AGY_PROVIDER_URL)
                 .map_err(|_| "invalid Antigravity provider URL")?,
             agy_userinfo_endpoint: reqwest::Url::parse(AGY_USERINFO_URL)
@@ -1205,6 +1227,14 @@ impl OAuthRefreshConfig {
         claude_quota_endpoint.set_path("/claude-usage");
         claude_quota_endpoint.set_query(None);
         claude_quota_endpoint.set_fragment(None);
+        let mut agy_quota_endpoint = codex_endpoint.clone();
+        agy_quota_endpoint.set_path("/agy-quota");
+        agy_quota_endpoint.set_query(None);
+        agy_quota_endpoint.set_fragment(None);
+        let mut agy_quota_summary_endpoint = codex_endpoint.clone();
+        agy_quota_summary_endpoint.set_path("/agy-quota-summary");
+        agy_quota_summary_endpoint.set_query(None);
+        agy_quota_summary_endpoint.set_fragment(None);
         let mut agy_provider_endpoint = codex_endpoint.clone();
         agy_provider_endpoint.set_path("/v1internal:streamGenerateContent");
         agy_provider_endpoint.set_query(None);
@@ -1225,6 +1255,8 @@ impl OAuthRefreshConfig {
             claude_bootstrap_endpoint,
             codex_quota_endpoint,
             claude_quota_endpoint,
+            agy_quota_endpoints: vec![agy_quota_endpoint],
+            agy_quota_summary_endpoints: vec![agy_quota_summary_endpoint],
             claude_endpoint,
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
             agy_endpoint: codex_endpoint,
@@ -1783,7 +1815,7 @@ impl ControlPlane {
                         continue;
                     };
                     if !provider.enabled
-                        || !matches!(settings.oauth_provider.as_str(), "codex" | "claude")
+                        || !matches!(settings.oauth_provider.as_str(), "codex" | "claude" | "agy")
                     {
                         continue;
                     }
@@ -1810,7 +1842,7 @@ impl ControlPlane {
             validate_actor(actor)?;
         }
         let (provider, auth, oauth) = self.provider_oauth_records(id, enforced_tenant).await?;
-        if !matches!(oauth.oauth_provider.as_str(), "codex" | "claude") {
+        if !matches!(oauth.oauth_provider.as_str(), "codex" | "claude" | "agy") {
             return Ok(quota_refresh_view(id, false, "unsupported_provider", None));
         }
         let now_seconds =
@@ -1900,6 +1932,9 @@ impl ControlPlane {
             self.0.encryption_key.as_str(),
         )
         .map_err(|_| "credential_unavailable")?;
+        if oauth.oauth_provider == "agy" {
+            return self.fetch_agy_quota(provider, access_token.as_str()).await;
+        }
         let request = match oauth.oauth_provider.as_str() {
             "codex" => {
                 let account_id = self
@@ -1959,6 +1994,130 @@ impl ControlPlane {
             "claude" => crate::provider_quota::parse_claude(&value).map_err(|_| "invalid_response"),
             _ => Err("unsupported_provider"),
         }
+    }
+
+    async fn fetch_agy_quota(
+        &self,
+        provider: &StoredProvider,
+        access_token: &str,
+    ) -> Result<crate::provider_quota::Snapshot, &'static str> {
+        let project = self
+            .agy_quota_project_id(provider)
+            .await
+            .map_err(|_| "session_unavailable")?;
+        let user_quota = self
+            .fetch_agy_quota_value(
+                &self.0.oauth_refresh.agy_quota_endpoints,
+                access_token,
+                &project,
+            )
+            .await?;
+        // The summary RPC is undocumented and absent for some account tiers.
+        // Session telemetry remains useful when this optional weekly source is
+        // unavailable, so do not discard a valid model-bucket observation.
+        let summary = self
+            .fetch_agy_quota_value(
+                &self.0.oauth_refresh.agy_quota_summary_endpoints,
+                access_token,
+                &project,
+            )
+            .await
+            .ok();
+        crate::provider_quota::parse_antigravity(&user_quota, summary.as_ref())
+            .map_err(|_| "invalid_response")
+    }
+
+    async fn fetch_agy_quota_value(
+        &self,
+        endpoints: &[reqwest::Url],
+        access_token: &str,
+        project: &str,
+    ) -> Result<serde_json::Value, &'static str> {
+        let body = serde_json::json!({"project":project}).to_string();
+        let mut last_error = "unavailable";
+        for endpoint in endpoints {
+            let response = self
+                .0
+                .oauth_refresh_client
+                .post(endpoint.clone())
+                .bearer_auth(access_token)
+                .header(header::ACCEPT, "application/json")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::USER_AGENT, AGY_QUOTA_USER_AGENT)
+                .header("x-goog-user-project", project)
+                .body(body.clone())
+                .send()
+                .await;
+            let response = match response {
+                Ok(response) => response,
+                Err(error) => {
+                    last_error = if error.is_timeout() {
+                        "timeout"
+                    } else {
+                        "unavailable"
+                    };
+                    continue;
+                }
+            };
+            let status = response.status();
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                return Err("rate_limited");
+            }
+            if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+                return Err("authorization_failed");
+            }
+            if status.is_server_error() {
+                last_error = "upstream_error";
+                continue;
+            }
+            if !status.is_success() {
+                return Err("request_rejected");
+            }
+            let bytes = match read_bounded_response(response, PROVIDER_QUOTA_MAX_BODY_BYTES).await {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    last_error = "invalid_response";
+                    continue;
+                }
+            };
+            match serde_json::from_slice(&bytes) {
+                Ok(value) => return Ok(value),
+                Err(_) => last_error = "invalid_response",
+            }
+        }
+        Err(last_error)
+    }
+
+    async fn agy_quota_project_id(
+        &self,
+        provider: &StoredProvider,
+    ) -> Result<String, &'static str> {
+        let session = self
+            .0
+            .database
+            .provider_sessions()
+            .await?
+            .into_iter()
+            .find(|session| {
+                session.provider_id == provider.id
+                    && session.revision == provider.updated_at
+                    && session.provider == "agy"
+            })
+            .ok_or("session_unavailable")?;
+        let aad = format!("{}:oauth-session", provider.id);
+        let metadata = decrypt(
+            &session.session_ciphertext,
+            &aad,
+            self.0.encryption_key.as_str(),
+        )?;
+        let metadata: serde_json::Value =
+            serde_json::from_str(metadata.as_str()).map_err(|_| "session_unavailable")?;
+        let project =
+            json_non_empty_string(metadata.get("projectId")).ok_or("session_unavailable")?;
+        if project.len() > 256 || project.chars().any(char::is_control) {
+            return Err("session_unavailable");
+        }
+        Ok(project.to_owned())
     }
 
     async fn codex_quota_account_id(

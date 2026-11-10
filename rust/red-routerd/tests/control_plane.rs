@@ -6061,6 +6061,57 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
             }),
         )
         .route(
+            "/agy-quota",
+            post({
+                let observations = observations.clone();
+                move |headers: HeaderMap, body: String| {
+                    let observations = observations.clone();
+                    async move {
+                        assert_eq!(headers[header::AUTHORIZATION], "Bearer agy-access-initial");
+                        assert_eq!(headers["x-goog-user-project"], "agy-project-1");
+                        assert!(headers[header::USER_AGENT]
+                            .to_str()
+                            .unwrap()
+                            .starts_with("antigravity/cli/"));
+                        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                        assert_eq!(body["project"], "agy-project-1");
+                        observations.lock().unwrap().push("quota".to_owned());
+                        Json(serde_json::json!({"buckets":[
+                            {"modelId":"gemini-3.1-pro","remainingFraction":0.75,"resetTime":"2099-09-10T14:00:00Z"},
+                            {"modelId":"gemini-3.1-flash","remainingFraction":0.25,"resetTime":"2099-09-10T13:00:00Z"}
+                        ]}))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/agy-quota-summary",
+            post({
+                let observations = observations.clone();
+                move |headers: HeaderMap, body: String| {
+                    let observations = observations.clone();
+                    async move {
+                        assert_eq!(headers[header::AUTHORIZATION], "Bearer agy-access-initial");
+                        assert_eq!(headers["x-goog-user-project"], "agy-project-1");
+                        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                        assert_eq!(body["project"], "agy-project-1");
+                        observations
+                            .lock()
+                            .unwrap()
+                            .push("quota-summary".to_owned());
+                        Json(serde_json::json!({"quotaSummary":{"groups":[
+                            {"displayName":"Gemini Models","buckets":[
+                                {"bucketId":"gemini-weekly","displayName":"Weekly","remainingFraction":0.6,"resetTime":"2099-09-16T13:00:00Z"}
+                            ]},
+                            {"displayName":"Claude and GPT models","buckets":[
+                                {"bucketId":"claude-gpt-weekly","remainingFraction":0.4,"resetTime":"2099-09-16T12:00:00Z"}
+                            ]}
+                        ]}}))
+                    }
+                }
+            }),
+        )
+        .route(
             "/v1internal:streamGenerateContent",
             post({
                 let observations = observations.clone();
@@ -6168,6 +6219,31 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].provider, "agy");
     assert!(!sessions[0].session_ciphertext.contains("agy-project-1"));
+    let quota = client
+        .post(format!(
+            "{base}/api/admin/provider-quotas/{provider_id}/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(quota.status(), StatusCode::OK);
+    let quota: serde_json::Value = quota.json().await.unwrap();
+    assert_eq!(quota["refresh"]["refreshed"], true);
+    assert_eq!(
+        quota["refresh"]["quota"]["session"]["remaining_percent"],
+        25.0
+    );
+    assert_eq!(
+        quota["refresh"]["quota"]["weekly"]["remaining_percent"],
+        40.0
+    );
+    assert!(!quota.to_string().contains("agy-access"));
+    assert!(observations.lock().unwrap().contains(&"quota".to_owned()));
+    assert!(observations
+        .lock()
+        .unwrap()
+        .contains(&"quota-summary".to_owned()));
     let refreshed = client
         .post(format!("{base}/api/providers/{provider_id}/refresh"))
         .bearer_auth(ADMIN_KEY)
@@ -6284,6 +6360,8 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
     assert_eq!(
         observations.lock().unwrap().as_slice(),
         [
+            "quota",
+            "quota-summary",
             "refresh",
             "inference",
             "inference",

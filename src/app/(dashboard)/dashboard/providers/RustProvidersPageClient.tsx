@@ -174,7 +174,9 @@ function quotaPercent(value: number): string {
 function supportsQuotaRefresh(provider: RustProvider): boolean {
   return (
     provider.credential_type === "oauth" &&
-    (provider.oauth_provider === "codex" || provider.oauth_provider === "claude")
+    (provider.oauth_provider === "codex" ||
+      provider.oauth_provider === "claude" ||
+      provider.oauth_provider === "agy")
   );
 }
 

@@ -141,22 +141,22 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("context");
   });
 
-  it("shows durable provider quota and refreshes it separately from OAuth", async () => {
+  it("shows durable Antigravity quota and refreshes it separately from OAuth", async () => {
     const now = Date.now();
     const provider = {
-      id: "codex-team",
+      id: "agy-team",
       tenant_id: "red",
-      provider: "codex",
-      upstream_url: "https://chatgpt.com/backend-api/codex/responses",
+      provider: "agy",
+      upstream_url: "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent",
       enabled: true,
       revision: "provider-revision",
       has_credential: true,
       rate_limit_scope: "connection",
       auth_scheme: "bearer",
-      label: "Codex team",
+      label: "Antigravity team",
       credential_expired: false,
       credential_type: "oauth",
-      oauth_provider: "codex",
+      oauth_provider: "agy",
       oauth_generation: "4",
       refreshable: true,
       oauth_refresh_state: "ready",
@@ -180,7 +180,7 @@ describe("Rust provider models.dev catalog", () => {
     api.listRustProviderQuotas.mockResolvedValue([initialQuota]);
     api.readRustModelCatalog.mockResolvedValue({
       manifest: { providers: 1, providerModels: 1, fetchedAt: "2026-11-09T00:00:00.000Z" },
-      providers: [{ id: "codex", name: "OpenAI Codex" }],
+      providers: [{ id: "agy", name: "Antigravity" }],
       snapshot: { source: "persisted", revision: "catalog-revision" },
     });
     api.refreshRustProviderQuota.mockResolvedValue({

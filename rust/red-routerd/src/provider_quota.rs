@@ -84,6 +84,155 @@ pub(crate) fn parse_claude(value: &Value) -> Result<Snapshot, &'static str> {
     })
 }
 
+/// Antigravity exposes quota per model and per weekly model family. Until the
+/// routing snapshot carries model-scoped windows, keep the most constrained
+/// active window as the provider score and only mark the provider exhausted
+/// when every known bucket in either enforced window is empty. This preserves
+/// fallback ordering without turning one exhausted model family into a global
+/// hard stop.
+pub(crate) fn parse_antigravity(
+    user_quota: &Value,
+    quota_summary: Option<&Value>,
+) -> Result<Snapshot, &'static str> {
+    let root = object(user_quota).ok_or("invalid Antigravity quota response")?;
+    let buckets = root
+        .get("buckets")
+        .and_then(Value::as_array)
+        .ok_or("Antigravity quota response has no buckets")?;
+    if buckets.len() > 1_024 {
+        return Err("Antigravity quota response has too many buckets");
+    }
+    let mut session_windows = Vec::new();
+    for value in buckets {
+        let Some(bucket) = object(value) else {
+            continue;
+        };
+        let Some(model_id) = field(bucket, "model_id", "modelId").and_then(Value::as_str) else {
+            continue;
+        };
+        if model_id.is_empty() || model_id.len() > 256 || model_id.chars().any(char::is_control) {
+            continue;
+        }
+        if let Some(window) = antigravity_window(bucket)? {
+            session_windows.push(window);
+        }
+    }
+
+    let mut weekly_windows = Vec::new();
+    let mut summary_session_windows = Vec::new();
+    if let Some(summary) = quota_summary {
+        let summary = object(summary).ok_or("invalid Antigravity quota summary")?;
+        let groups = summary
+            .get("groups")
+            .and_then(Value::as_array)
+            .or_else(|| {
+                summary
+                    .get("quotaSummary")
+                    .and_then(object)
+                    .and_then(|value| value.get("groups"))
+                    .and_then(Value::as_array)
+            })
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if groups.len() > 256 {
+            return Err("Antigravity quota summary has too many groups");
+        }
+        for value in groups {
+            let Some(group) = object(value) else {
+                continue;
+            };
+            let buckets = group
+                .get("buckets")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            if buckets.len() > 256 {
+                return Err("Antigravity quota summary has too many buckets");
+            }
+            for value in buckets {
+                let Some(bucket) = object(value) else {
+                    continue;
+                };
+                let Some(window) = antigravity_window(bucket)? else {
+                    continue;
+                };
+                let label = format!(
+                    "{} {}",
+                    bucket
+                        .get("bucketId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    bucket
+                        .get("displayName")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                );
+                if label
+                    .split(|character: char| !character.is_ascii_alphanumeric())
+                    .any(|part| part.eq_ignore_ascii_case("weekly"))
+                {
+                    weekly_windows.push(window);
+                } else {
+                    summary_session_windows.push(window);
+                }
+            }
+        }
+    }
+    if session_windows.is_empty() {
+        session_windows = summary_session_windows;
+    }
+    if session_windows.is_empty() && weekly_windows.is_empty() {
+        return Err("Antigravity quota response has no supported windows");
+    }
+    let session_exhausted = all_exhausted(&session_windows);
+    let weekly_exhausted = all_exhausted(&weekly_windows);
+    Ok(Snapshot {
+        session: most_constrained(&session_windows),
+        weekly: most_constrained(&weekly_windows),
+        limit_reached: session_exhausted || weekly_exhausted,
+    })
+}
+
+fn antigravity_window(bucket: &Map<String, Value>) -> Result<Option<Window>, &'static str> {
+    if bucket
+        .get("disabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    let Some(value) = field(bucket, "remaining_fraction", "remainingFraction") else {
+        return Ok(None);
+    };
+    let fraction = finite_number(Some(value))?;
+    if !(0.0..=1.0).contains(&fraction) {
+        return Err("Antigravity quota fraction is out of range");
+    }
+    Ok(Some(Window {
+        remaining_percent: fraction * 100.0,
+        reset_at_unix_ms: optional_timestamp(field(bucket, "reset_time", "resetTime"))?,
+    }))
+}
+
+fn most_constrained(windows: &[Window]) -> Option<Window> {
+    windows.iter().copied().min_by(|left, right| {
+        left.remaining_percent
+            .total_cmp(&right.remaining_percent)
+            .then_with(|| {
+                left.reset_at_unix_ms
+                    .unwrap_or(u64::MAX)
+                    .cmp(&right.reset_at_unix_ms.unwrap_or(u64::MAX))
+            })
+    })
+}
+
+fn all_exhausted(windows: &[Window]) -> bool {
+    !windows.is_empty()
+        && windows
+            .iter()
+            .all(|window| window.remaining_percent <= f64::EPSILON)
+}
+
 fn codex_window(window: &Map<String, Value>, now_unix_ms: u64) -> Result<Window, &'static str> {
     let used = finite_number(field(window, "used_percent", "usedPercent"))?;
     let reset_at_unix_ms = if let Some(value) = field(window, "reset_at", "resetAt") {
@@ -239,5 +388,53 @@ mod tests {
         )
         .is_err());
         assert!(parse_claude(&json!({"limits":[]})).is_err());
+    }
+
+    #[test]
+    fn parses_antigravity_model_and_weekly_family_windows() {
+        let snapshot = parse_antigravity(
+            &json!({"buckets":[
+                {"modelId":"gemini-3.1-pro","remainingFraction":0.75,"resetTime":"2099-09-10T14:00:00Z"},
+                {"modelId":"gemini-3.1-flash","remainingFraction":"0.25","resetTime":"2099-09-10T13:00:00Z"},
+                {"modelId":"disabled","remainingFraction":0.0,"disabled":true}
+            ]}),
+            Some(&json!({"quotaSummary":{"groups":[
+                {"displayName":"Gemini Models","buckets":[
+                    {"bucketId":"gemini-5h","remainingFraction":0.8},
+                    {"bucketId":"gemini-weekly","displayName":"Weekly","remainingFraction":0.6,"resetTime":"2099-09-16T13:00:00Z"}
+                ]},
+                {"displayName":"Claude and GPT models","buckets":[
+                    {"bucketId":"claude-gpt-weekly","remainingFraction":0.4,"resetTime":"2099-09-16T12:00:00Z"}
+                ]}
+            ]}})),
+        )
+        .unwrap();
+        assert_eq!(snapshot.session.unwrap().remaining_percent, 25.0);
+        assert_eq!(snapshot.weekly.unwrap().remaining_percent, 40.0);
+        assert!(!snapshot.limit_reached);
+    }
+
+    #[test]
+    fn antigravity_only_marks_a_window_exhausted_when_all_known_buckets_are_empty() {
+        let partial = parse_antigravity(
+            &json!({"buckets":[
+                {"modelId":"first","remainingFraction":0},
+                {"modelId":"second","remainingFraction":0.5}
+            ]}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(partial.session.unwrap().remaining_percent, 0.0);
+        assert!(!partial.limit_reached);
+
+        let exhausted = parse_antigravity(
+            &json!({"buckets":[
+                {"modelId":"first","remainingFraction":0},
+                {"modelId":"second","remainingFraction":0}
+            ]}),
+            None,
+        )
+        .unwrap();
+        assert!(exhausted.limit_reached);
     }
 }
