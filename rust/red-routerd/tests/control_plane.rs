@@ -1104,6 +1104,22 @@ async fn chat_model(
         .unwrap()
 }
 
+async fn chat_model_with_body(
+    client: &reqwest::Client,
+    base: &str,
+    key: &str,
+    body: serde_json::Value,
+) -> reqwest::Response {
+    client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(key)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .unwrap()
+}
+
 async fn set_provider_quota(
     client: &reqwest::Client,
     base: &str,
@@ -4120,6 +4136,137 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .unwrap(),
         "combo-second"
     );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/combo-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["first","second"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"cache-optimized",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"first","model":"upstream-model"},
+                        {"provider_id":"second","model":"upstream-model"}
+                    ]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let stable = chat_model_with_body(
+        &client,
+        &base,
+        RUST_CLIENT_KEY,
+        serde_json::json!({
+            "model":"agent-combo",
+            "messages":[],
+            "prompt_cache_key":"stable-agent-session"
+        }),
+    )
+    .await
+    .text()
+    .await
+    .unwrap();
+    for _ in 0..4 {
+        assert_eq!(
+            chat_model_with_body(
+                &client,
+                &base,
+                RUST_CLIENT_KEY,
+                serde_json::json!({
+                    "model":"agent-combo",
+                    "messages":[],
+                    "metadata":{"prompt_cache_key":"stable-agent-session"}
+                }),
+            )
+            .await
+            .text()
+            .await
+            .unwrap(),
+            stable
+        );
+    }
+    let prefix_first = chat_model_with_body(
+        &client,
+        &base,
+        RUST_CLIENT_KEY,
+        serde_json::json!({
+            "model":"agent-combo",
+            "messages":[
+                {"role":"system","content":"stable tools and instructions"},
+                {"role":"user","content":"first question"}
+            ]
+        }),
+    )
+    .await
+    .text()
+    .await
+    .unwrap();
+    assert_eq!(
+        chat_model_with_body(
+            &client,
+            &base,
+            RUST_CLIENT_KEY,
+            serde_json::json!({
+                "model":"agent-combo",
+                "messages":[
+                    {"role":"system","content":"stable tools and instructions"},
+                    {"role":"user","content":"different question"}
+                ]
+            }),
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        prefix_first
+    );
+    let mut cache_targets = std::collections::HashSet::new();
+    for index in 0..32 {
+        cache_targets.insert(
+            chat_model_with_body(
+                &client,
+                &base,
+                RUST_CLIENT_KEY,
+                serde_json::json!({
+                    "model":"agent-combo",
+                    "messages":[],
+                    "prompt_cache_key":format!("independent-session-{index}")
+                }),
+            )
+            .await
+            .text()
+            .await
+            .unwrap(),
+        );
+    }
+    assert_eq!(cache_targets.len(), 2);
     assert_eq!(
         client
             .put(format!("{base}/api/admin/client-keys/combo-client"))

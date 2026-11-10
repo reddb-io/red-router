@@ -63,6 +63,7 @@ const STRATEGIES: Array<{ value: RustComboStrategy; label: string }> = [
   { value: "p2c", label: "Power of two choices" },
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "context-optimized", label: "Context optimized" },
+  { value: "cache-optimized", label: "Prompt cache affinity" },
   { value: "reset-aware", label: "Reset aware" },
   { value: "reset-window", label: "Reset window" },
   { value: "headroom", label: "Quota headroom" },

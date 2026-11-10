@@ -332,10 +332,16 @@ Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Adm
 updates commit before the shared lock-free provider snapshot changes; route selection
 reads only atomics and never queries SQLite/RedDB/PostgreSQL. Expired observations become
 neutral capacity (stable definition-order ties, or a balanced quota-weighted draw).
-Automatic provider-specific quota polling remains separate work.
+SQLite deployments automatically poll supported OAuth providers (Codex, Claude and
+Antigravity) every minute. A durable lease coalesces refreshes across Rust processes,
+and the resulting aggregate and model-scoped observations update SQLite before the
+lock-free routing snapshot. Manual refresh remains available for operator diagnostics.
 Last-known-good uses an atomic index in the request path and persists target identity only
 when the learned target changes. Retryable failure clears a matching pin before fallback;
 startup and live reload discard pins whose combo, strategy or target no longer exists.
+Prompt-cache affinity (`cache-optimized`) is Rust-owned and uses rendezvous hashing over
+an explicit `prompt_cache_key` (including metadata) or a reusable system/tool/assistant
+prefix. This preserves account locality without a per-conversation database lookup.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

@@ -6661,6 +6661,7 @@ impl ControlPlane {
                 "strict-random" => RouteStrategy::StrictRandom,
                 "cost-optimized" => RouteStrategy::CostOptimized,
                 "context-optimized" => RouteStrategy::ContextOptimized,
+                "cache-optimized" => RouteStrategy::CacheOptimized,
                 "reset-aware" => RouteStrategy::ResetAware,
                 "reset-window" => RouteStrategy::ResetWindow,
                 "headroom" => RouteStrategy::Headroom,
@@ -8406,6 +8407,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "strict-random"
             | "cost-optimized"
             | "context-optimized"
+            | "cache-optimized"
             | "reset-aware"
             | "reset-window"
             | "headroom"

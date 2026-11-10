@@ -66,6 +66,7 @@ const ROUTING_STRATEGIES: &[&str] = &[
     "p2c",
     "cost-optimized",
     "context-optimized",
+    "cache-optimized",
     "reset-aware",
     "reset-window",
     "headroom",
@@ -441,6 +442,7 @@ pub(crate) enum RouteStrategy {
     StrictRandom,
     CostOptimized,
     ContextOptimized,
+    CacheOptimized,
     ResetAware,
     ResetWindow,
     Headroom,
@@ -592,6 +594,7 @@ impl ModelRoute {
             RouteStrategy::StrictRandom
             | RouteStrategy::CostOptimized
             | RouteStrategy::ContextOptimized
+            | RouteStrategy::CacheOptimized
             | RouteStrategy::ResetAware
             | RouteStrategy::ResetWindow
             | RouteStrategy::Headroom
@@ -602,7 +605,11 @@ impl ModelRoute {
         }
     }
 
-    fn attempt_order(&self, eligible: &[&ModelTarget]) -> [usize; MAX_ROUTE_TARGETS] {
+    fn attempt_order(
+        &self,
+        eligible: &[&ModelTarget],
+        cache_affinity_key: Option<&str>,
+    ) -> [usize; MAX_ROUTE_TARGETS] {
         if self.strategy == RouteStrategy::StrictRandom {
             return strict_random_order(
                 eligible.len(),
@@ -633,6 +640,34 @@ impl ModelRoute {
         }
         if self.strategy == RouteStrategy::QuotaWeighted {
             return self.quota_weighted_order(eligible);
+        }
+        if self.strategy == RouteStrategy::CacheOptimized {
+            let Some(key) = cache_affinity_key else {
+                let mut order = [0; MAX_ROUTE_TARGETS];
+                for (index, slot) in order.iter_mut().take(eligible.len()).enumerate() {
+                    *slot = index;
+                }
+                return order;
+            };
+            let mut order = [0; MAX_ROUTE_TARGETS];
+            let mut scores = [[0_u8; 16]; MAX_ROUTE_TARGETS];
+            for (index, target) in eligible.iter().enumerate() {
+                order[index] = index;
+                scores[index] = prompt_cache_rendezvous_score(key, target);
+            }
+            // Rendezvous hashing gives one stable account to the same reusable
+            // prefix without storing per-conversation state. Ties retain the
+            // dashboard order and fallbacks are ordered by the same affinity.
+            for index in 1..eligible.len() {
+                let selected = order[index];
+                let mut position = index;
+                while position > 0 && scores[selected] > scores[order[position - 1]] {
+                    order[position] = order[position - 1];
+                    position -= 1;
+                }
+                order[position] = selected;
+            }
+            return order;
         }
         if matches!(
             self.strategy,
@@ -692,6 +727,7 @@ impl ModelRoute {
                 candidate.context_window_tokens.unwrap_or(0)
                     > current.context_window_tokens.unwrap_or(0)
             }
+            RouteStrategy::CacheOptimized => false,
             RouteStrategy::ResetAware | RouteStrategy::QuotaWeighted => {
                 quota_score(candidate, now_unix_ms) > quota_score(current, now_unix_ms)
             }
@@ -975,6 +1011,65 @@ fn route_seed(value: &str) -> usize {
     value.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     }) as usize
+}
+
+fn prompt_cache_affinity_key(body: &serde_json::Value) -> Option<String> {
+    let explicit = [
+        body.get("prompt_cache_key"),
+        body.pointer("/metadata/prompt_cache_key"),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(serde_json::Value::as_str)
+    .map(str::trim)
+    .find(|value| !value.is_empty() && value.len() <= 4_096);
+    if let Some(explicit) = explicit {
+        return Some(explicit.to_owned());
+    }
+
+    let messages = body
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| body.get("input").and_then(serde_json::Value::as_array))?;
+    let mut prefix = Vec::new();
+    for message in messages {
+        if message.is_string() {
+            break;
+        }
+        let Some(object) = message.as_object() else {
+            continue;
+        };
+        let Some(role) = object.get("role").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if !matches!(role, "system" | "tool" | "assistant") {
+            break;
+        }
+        let content = object.get("content").unwrap_or(&serde_json::Value::Null);
+        prefix.push(match content {
+            serde_json::Value::String(value) => value.clone(),
+            value => serde_json::to_string(value).ok()?,
+        });
+    }
+    if prefix.is_empty() {
+        return None;
+    }
+    let digest = Sha256::digest(prefix.join("\n").as_bytes());
+    Some(format!("omni-{}", hex::encode(&digest[..16])))
+}
+
+fn prompt_cache_rendezvous_score(key: &str, target: &ModelTarget) -> [u8; 16] {
+    let identity = target.provider_id.as_deref().map_or_else(
+        || format!("route:{}\0{}", target.upstream, target.model),
+        |provider_id| format!("connection:{provider_id}"),
+    );
+    let mut digest = Sha256::new();
+    digest.update(key.as_bytes());
+    digest.update([0]);
+    digest.update(identity.as_bytes());
+    digest.finalize()[..16]
+        .try_into()
+        .expect("SHA-256 rendezvous prefix has a fixed size")
 }
 
 fn secure_route_seed(value: &str) -> Result<usize, &'static str> {
@@ -1461,6 +1556,7 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("context-optimized") => {
                     RouteStrategy::ContextOptimized
                 }
+                Some(v) if v.as_str() == Some("cache-optimized") => RouteStrategy::CacheOptimized,
                 Some(v) if v.as_str() == Some("reset-aware") => RouteStrategy::ResetAware,
                 Some(v) if v.as_str() == Some("reset-window") => RouteStrategy::ResetWindow,
                 Some(v) if v.as_str() == Some("headroom") => RouteStrategy::Headroom,
@@ -3317,7 +3413,11 @@ async fn proxy_request(
             }
         }
     }
-    let attempt_order = route.map(|route| route.attempt_order(&eligible));
+    let cache_affinity_key = route
+        .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
+        .and_then(|_| prompt_cache_affinity_key(&parsed));
+    let attempt_order =
+        route.map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
     let attempts = if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {
