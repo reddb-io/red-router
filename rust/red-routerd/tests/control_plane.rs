@@ -4889,10 +4889,14 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
     let imported = client
         .post(format!("{base}/api/providers/codex-auth/import"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "source":{"kind":"json","json":auth_file.clone()},
-            "name":"Primary Codex"
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "source":{"kind":"json","json":auth_file.clone()},
+                "name":"Primary Codex"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -4901,7 +4905,8 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
         imported.headers()[header::CACHE_CONTROL],
         HeaderValue::from_static("no-store")
     );
-    let imported: serde_json::Value = imported.json().await.unwrap();
+    let imported: serde_json::Value =
+        serde_json::from_str(&imported.text().await.unwrap()).unwrap();
     assert_eq!(imported["created"], true);
     assert_eq!(imported["connection"]["provider"], "codex");
     assert_eq!(imported["connection"]["label"], "Primary Codex");
@@ -4913,26 +4918,33 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
     let duplicate = client
         .post(format!("{base}/api/providers/codex-auth/import"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({"source":{"kind":"json","json":auth_file.clone()}}))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"source":{"kind":"json","json":auth_file.clone()}}).to_string())
         .send()
         .await
         .unwrap();
     assert_eq!(duplicate.status(), StatusCode::CONFLICT);
-    let duplicate: serde_json::Value = duplicate.json().await.unwrap();
+    let duplicate: serde_json::Value =
+        serde_json::from_str(&duplicate.text().await.unwrap()).unwrap();
     assert_eq!(duplicate["code"], "duplicate_account");
 
     let overwritten = client
         .post(format!("{base}/api/providers/codex-auth/import"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "source":{"kind":"json","json":auth_file},
-            "overwriteExisting":true
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "source":{"kind":"json","json":auth_file},
+                "overwriteExisting":true
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
     assert_eq!(overwritten.status(), StatusCode::OK);
-    let overwritten: serde_json::Value = overwritten.json().await.unwrap();
+    let overwritten: serde_json::Value =
+        serde_json::from_str(&overwritten.text().await.unwrap()).unwrap();
     assert_eq!(overwritten["created"], false);
     assert_eq!(overwritten["connection"]["id"], provider_id);
 
@@ -4955,17 +4967,21 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
     let bulk = client
         .post(format!("{base}/api/providers/codex-auth/import-bulk"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "entries":[
-                {"json":second_auth,"name":"Second Codex"},
-                {"json":{"tokens":{}},"name":"Broken"}
-            ]
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "entries":[
+                    {"json":second_auth,"name":"Second Codex"},
+                    {"json":{"tokens":{}},"name":"Broken"}
+                ]
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
     assert_eq!(bulk.status(), StatusCode::OK);
-    let bulk: serde_json::Value = bulk.json().await.unwrap();
+    let bulk: serde_json::Value = serde_json::from_str(&bulk.text().await.unwrap()).unwrap();
     assert_eq!(bulk["success"], 1);
     assert_eq!(bulk["failed"], 1);
     assert_eq!(bulk["errors"][0]["index"], 1);
@@ -4993,7 +5009,7 @@ async fn rust_imports_codex_cli_auth_without_nextjs_or_token_disclosure() {
         .await
         .unwrap();
     assert_eq!(audit.status(), StatusCode::OK);
-    let audit: serde_json::Value = audit.json().await.unwrap();
+    let audit: serde_json::Value = serde_json::from_str(&audit.text().await.unwrap()).unwrap();
     assert_eq!(audit.as_array().unwrap().len(), 2);
     assert!(!audit.to_string().contains("refresh-secret"));
 
