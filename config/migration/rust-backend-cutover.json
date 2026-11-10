@@ -162,8 +162,7 @@
       ],
       "blockers": [
         "Finish protocol, translated-stream, cancellation and error parity fixtures.",
-        "Migrate remaining versioned policy, budget, schedule and resilience settings.",
-        "Persist and route provider quota observations at model or model-family scope."
+        "Migrate remaining versioned policy, budget, schedule and resilience settings."
       ]
     },
     {

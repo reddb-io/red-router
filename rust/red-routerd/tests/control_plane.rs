@@ -6238,6 +6238,22 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
         quota["refresh"]["quota"]["weekly"]["remaining_percent"],
         40.0
     );
+    assert_eq!(
+        quota["refresh"]["quota"]["models"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        quota["refresh"]["quota"]["models"][0]["model_id"],
+        "gemini-3.1-pro"
+    );
+    assert_eq!(
+        quota["refresh"]["quota"]["models"][0]["session"]["remaining_percent"],
+        75.0
+    );
+    assert_eq!(database.provider_model_quotas().await.unwrap().len(), 2);
     assert!(!quota.to_string().contains("agy-access"));
     assert!(observations.lock().unwrap().contains(&"quota".to_owned()));
     assert!(observations

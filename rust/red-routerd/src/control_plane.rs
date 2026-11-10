@@ -7,8 +7,9 @@ use crate::{
     storage::{
         StoredAuditEvent, StoredClientKey, StoredCombo, StoredIdentityBinding,
         StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-        StoredProviderAuth, StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota,
-        StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+        StoredProviderAuth, StoredProviderModelQuota, StoredProviderOAuth,
+        StoredProviderOAuthStatus, StoredProviderQuota, StoredProviderSession, StoredResilience,
+        StoredRoutePin, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -110,6 +111,7 @@ UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrou
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'provider-quota', provider_id, revision, 0 FROM redrouter_provider_quotas
+UNION ALL SELECT 'provider-model-quota', provider_id || ':' || model_id, revision, 0 FROM redrouter_provider_model_quotas
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
 UNION ALL SELECT 'combo-ownership', combo_id, revision, 0 FROM redrouter_control_combo_ownership
 UNION ALL SELECT 'route-pin', combo_id, revision, 0 FROM redrouter_route_pins
@@ -123,6 +125,7 @@ struct Inner {
     clients: RwLock<ClientSnapshot>,
     routes: RwLock<RouteSnapshot>,
     quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
+    model_quotas: RwLock<HashMap<(String, String), Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
@@ -1062,6 +1065,21 @@ pub struct QuotaWindowView {
 #[derive(Debug, Serialize)]
 pub struct ProviderQuotaView {
     pub provider_id: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<ProviderModelQuotaView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<QuotaWindowView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly: Option<QuotaWindowView>,
+    pub limit_reached: bool,
+    pub observed_at_unix_ms: u64,
+    pub expires_at_unix_ms: u64,
+    pub revision: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderModelQuotaView {
+    pub model_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<QuotaWindowView>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1462,6 +1480,18 @@ impl ControlPlane {
                 return Err("duplicate provider quota state");
             }
         }
+        let mut model_quotas = HashMap::new();
+        for record in database.provider_model_quotas().await? {
+            validate_stored_model_quota(&record)?;
+            let state = Arc::new(TargetQuota::default());
+            state.update_model(&record);
+            if model_quotas
+                .insert((record.provider_id.clone(), record.model_id.clone()), state)
+                .is_some()
+            {
+                return Err("duplicate provider model quota state");
+            }
+        }
         let mut availability = HashMap::new();
         for record in database.provider_availability().await? {
             let id = record.provider_id.clone();
@@ -1558,6 +1588,7 @@ impl ControlPlane {
             clients: RwLock::new(ClientSnapshot::Unavailable),
             routes: RwLock::new(RouteSnapshot::Unavailable),
             quotas: RwLock::new(quotas),
+            model_quotas: RwLock::new(model_quotas),
             breakers: RwLock::new(breakers),
             availability: RwLock::new(availability),
             oidc: RwLock::new(oidc),
@@ -1872,8 +1903,8 @@ impl ControlPlane {
             .database
             .release_oauth_refresh_lease(&lease_group, &owner, next_allowed)
             .await?;
-        let snapshot = match fetched {
-            Ok(snapshot) => snapshot,
+        let observation = match fetched {
+            Ok(observation) => observation,
             Err(category) => return Ok(quota_refresh_view(id, false, category, None)),
         };
         let _mutation = self.0.mutation.lock().await;
@@ -1891,7 +1922,21 @@ impl ControlPlane {
         let observed_at_unix_ms = unix_time_ms()?;
         let ttl_ms = i64::try_from(PROVIDER_QUOTA_TTL_SECONDS * 1_000)
             .map_err(|_| "provider quota TTL is out of range")?;
-        let record = automatic_quota_record(id, snapshot, observed_at_unix_ms, ttl_ms)?;
+        let record =
+            automatic_quota_record(id, observation.aggregate, observed_at_unix_ms, ttl_ms)?;
+        let model_records = observation
+            .models
+            .into_iter()
+            .map(|model| {
+                automatic_model_quota_record(
+                    id,
+                    &model.model_id,
+                    model.quota,
+                    observed_at_unix_ms,
+                    ttl_ms,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let before = self
             .0
             .database
@@ -1902,8 +1947,17 @@ impl ControlPlane {
             .map(|quota| quota_view(&quota))
             .transpose()?;
         self.0.database.upsert_provider_quota(&record).await?;
+        self.0
+            .database
+            .replace_provider_model_quotas(id, &model_records)
+            .await?;
         self.quota_state(id).await.update(&record);
-        let quota = quota_view(&record)?;
+        self.replace_model_quota_states(id, &model_records).await;
+        let mut quota = quota_view(&record)?;
+        quota.models = model_records
+            .iter()
+            .map(model_quota_view)
+            .collect::<Result<Vec<_>, _>>()?;
         if let Some(actor) = actor {
             self.record_audit_event(
                 AuditContext {
@@ -1925,7 +1979,7 @@ impl ControlPlane {
         &self,
         provider: &StoredProvider,
         oauth: &StoredProviderOAuth,
-    ) -> Result<crate::provider_quota::Snapshot, &'static str> {
+    ) -> Result<crate::provider_quota::Observation, &'static str> {
         let access_token = decrypt(
             &provider.credential_ciphertext,
             &provider.id,
@@ -1985,7 +2039,7 @@ impl ControlPlane {
             .map_err(|_| "invalid_response")?;
         let value: serde_json::Value =
             serde_json::from_slice(&body).map_err(|_| "invalid_response")?;
-        match oauth.oauth_provider.as_str() {
+        let aggregate = match oauth.oauth_provider.as_str() {
             "codex" => crate::provider_quota::parse_codex(
                 &value,
                 u64::try_from(unix_time_ms()?).map_err(|_| "invalid_response")?,
@@ -1993,14 +2047,18 @@ impl ControlPlane {
             .map_err(|_| "invalid_response"),
             "claude" => crate::provider_quota::parse_claude(&value).map_err(|_| "invalid_response"),
             _ => Err("unsupported_provider"),
-        }
+        }?;
+        Ok(crate::provider_quota::Observation {
+            aggregate,
+            models: Vec::new(),
+        })
     }
 
     async fn fetch_agy_quota(
         &self,
         provider: &StoredProvider,
         access_token: &str,
-    ) -> Result<crate::provider_quota::Snapshot, &'static str> {
+    ) -> Result<crate::provider_quota::Observation, &'static str> {
         let project = self
             .agy_quota_project_id(provider)
             .await
@@ -2023,7 +2081,7 @@ impl ControlPlane {
             )
             .await
             .ok();
-        crate::provider_quota::parse_antigravity(&user_quota, summary.as_ref())
+        crate::provider_quota::parse_antigravity_observation(&user_quota, summary.as_ref())
             .map_err(|_| "invalid_response")
     }
 
@@ -5026,6 +5084,11 @@ impl ControlPlane {
             .map(|quota| quota_view(&quota))
             .transpose()?;
         self.0.database.upsert_provider_quota(&record).await?;
+        self.0
+            .database
+            .replace_provider_model_quotas(provider_id, &[])
+            .await?;
+        self.replace_model_quota_states(provider_id, &[]).await;
         self.quota_state(provider_id).await.update(&record);
         let after = quota_view(&record)?;
         self.record_audit_event(
@@ -5082,6 +5145,11 @@ impl ControlPlane {
             .map(|quota| quota_view(&quota))
             .transpose()?;
         self.0.database.delete_provider_quota(provider_id).await?;
+        self.0
+            .database
+            .replace_provider_model_quotas(provider_id, &[])
+            .await?;
+        self.replace_model_quota_states(provider_id, &[]).await;
         self.record_audit_event(
             AuditContext {
                 action: "provider_quota.clear",
@@ -6104,6 +6172,18 @@ impl ControlPlane {
             signature_i64(&mut digest, record.expires_at_unix_ms);
             signature_i64(&mut digest, record.revision);
         }
+        for record in self.0.database.provider_model_quotas().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.model_id);
+            signature_i64(&mut digest, record.session_remaining_ppm);
+            signature_i64(&mut digest, record.session_reset_unix_ms);
+            signature_i64(&mut digest, record.weekly_remaining_ppm);
+            signature_i64(&mut digest, record.weekly_reset_unix_ms);
+            signature_bool(&mut digest, record.limit_reached);
+            signature_i64(&mut digest, record.observed_at_unix_ms);
+            signature_i64(&mut digest, record.expires_at_unix_ms);
+            signature_i64(&mut digest, record.revision);
+        }
         for record in self.0.database.combos().await? {
             signature_text(&mut digest, &record.id);
             signature_text(&mut digest, &record.tenant_id);
@@ -6334,6 +6414,7 @@ impl ControlPlane {
                     return Err("combo provider protocol changed");
                 }
                 let quota = self.quota_state(&provider.id).await;
+                let model_quota = self.model_quota_state(&provider.id, &target.model).await;
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     crate::ControlTargetConfig {
@@ -6345,6 +6426,7 @@ impl ControlPlane {
                         context_window_tokens: target.context_window_tokens,
                     },
                     quota,
+                    model_quota,
                 ));
             }
             if targets.is_empty() {
@@ -6427,6 +6509,25 @@ impl ControlPlane {
         }
         for record in records {
             self.quota_state(&record.provider_id).await.update(&record);
+        }
+        let model_records = self.0.database.provider_model_quotas().await?;
+        for record in &model_records {
+            validate_stored_model_quota(record)?;
+        }
+        let active_models = model_records
+            .iter()
+            .map(|record| (record.provider_id.clone(), record.model_id.clone()))
+            .collect::<HashSet<_>>();
+        let existing_models = self.0.model_quotas.read().await.clone();
+        for (key, state) in existing_models {
+            if !active_models.contains(&key) {
+                state.clear();
+            }
+        }
+        for record in model_records {
+            self.model_quota_state(&record.provider_id, &record.model_id)
+                .await
+                .update_model(&record);
         }
         Ok(())
     }
@@ -6833,13 +6934,26 @@ impl ControlPlane {
             .filter(|provider| tenant_id.is_none_or(|tenant| tenant == provider.tenant_id))
             .map(|provider| provider.id)
             .collect();
+        let mut models = HashMap::<String, Vec<ProviderModelQuotaView>>::new();
+        for record in self.0.database.provider_model_quotas().await? {
+            if providers.contains(&record.provider_id) {
+                models
+                    .entry(record.provider_id.clone())
+                    .or_default()
+                    .push(model_quota_view(&record)?);
+            }
+        }
         self.0
             .database
             .provider_quotas()
             .await?
             .iter()
             .filter(|quota| providers.contains(&quota.provider_id))
-            .map(quota_view)
+            .map(|quota| {
+                let mut view = quota_view(quota)?;
+                view.models = models.remove(&quota.provider_id).unwrap_or_default();
+                Ok(view)
+            })
             .collect()
     }
 
@@ -6852,6 +6966,40 @@ impl ControlPlane {
             .entry(provider_id.to_owned())
             .or_insert_with(|| Arc::new(TargetQuota::default()))
             .clone()
+    }
+
+    async fn model_quota_state(&self, provider_id: &str, model_id: &str) -> Arc<TargetQuota> {
+        let key = (provider_id.to_owned(), model_id.to_owned());
+        if let Some(state) = self.0.model_quotas.read().await.get(&key).cloned() {
+            return state;
+        }
+        let mut quotas = self.0.model_quotas.write().await;
+        quotas
+            .entry(key)
+            .or_insert_with(|| Arc::new(TargetQuota::default()))
+            .clone()
+    }
+
+    async fn replace_model_quota_states(
+        &self,
+        provider_id: &str,
+        records: &[StoredProviderModelQuota],
+    ) {
+        let active = records
+            .iter()
+            .map(|record| record.model_id.as_str())
+            .collect::<HashSet<_>>();
+        let existing = self.0.model_quotas.read().await.clone();
+        for ((owner, model), state) in existing {
+            if owner == provider_id && !active.contains(model.as_str()) {
+                state.clear();
+            }
+        }
+        for record in records {
+            self.model_quota_state(provider_id, &record.model_id)
+                .await
+                .update_model(record);
+        }
     }
 
     async fn breaker_views(
@@ -7716,6 +7864,21 @@ fn validate_stored_quota(record: &StoredProviderQuota) -> Result<(), &'static st
     Ok(())
 }
 
+fn validate_stored_model_quota(record: &StoredProviderModelQuota) -> Result<(), &'static str> {
+    validate_diagnostic_model(&record.model_id)?;
+    validate_stored_quota(&StoredProviderQuota {
+        provider_id: record.provider_id.clone(),
+        session_remaining_ppm: record.session_remaining_ppm,
+        session_reset_unix_ms: record.session_reset_unix_ms,
+        weekly_remaining_ppm: record.weekly_remaining_ppm,
+        weekly_reset_unix_ms: record.weekly_reset_unix_ms,
+        limit_reached: record.limit_reached,
+        observed_at_unix_ms: record.observed_at_unix_ms,
+        expires_at_unix_ms: record.expires_at_unix_ms,
+        revision: record.revision,
+    })
+}
+
 fn quota_remaining_ppm(window: Option<&QuotaWindowInput>) -> i64 {
     window.map_or(-1, |window| {
         (window.remaining_percent * 10_000.0).round() as i64
@@ -7742,6 +7905,22 @@ fn quota_view(record: &StoredProviderQuota) -> Result<ProviderQuotaView, &'stati
     validate_stored_quota(record)?;
     Ok(ProviderQuotaView {
         provider_id: record.provider_id.clone(),
+        models: Vec::new(),
+        session: quota_window_view(record.session_remaining_ppm, record.session_reset_unix_ms),
+        weekly: quota_window_view(record.weekly_remaining_ppm, record.weekly_reset_unix_ms),
+        limit_reached: record.limit_reached,
+        observed_at_unix_ms: record.observed_at_unix_ms as u64,
+        expires_at_unix_ms: record.expires_at_unix_ms as u64,
+        revision: record.revision.to_string(),
+    })
+}
+
+fn model_quota_view(
+    record: &StoredProviderModelQuota,
+) -> Result<ProviderModelQuotaView, &'static str> {
+    validate_stored_model_quota(record)?;
+    Ok(ProviderModelQuotaView {
+        model_id: record.model_id.clone(),
         session: quota_window_view(record.session_remaining_ppm, record.session_reset_unix_ms),
         weekly: quota_window_view(record.weekly_remaining_ppm, record.weekly_reset_unix_ms),
         limit_reached: record.limit_reached,
@@ -7798,6 +7977,30 @@ fn automatic_quota_record(
         revision: revision()?,
     };
     validate_stored_quota(&record)?;
+    Ok(record)
+}
+
+fn automatic_model_quota_record(
+    provider_id: &str,
+    model_id: &str,
+    snapshot: crate::provider_quota::Snapshot,
+    observed_at_unix_ms: i64,
+    ttl_ms: i64,
+) -> Result<StoredProviderModelQuota, &'static str> {
+    let aggregate = automatic_quota_record(provider_id, snapshot, observed_at_unix_ms, ttl_ms)?;
+    let record = StoredProviderModelQuota {
+        provider_id: aggregate.provider_id,
+        model_id: model_id.to_owned(),
+        session_remaining_ppm: aggregate.session_remaining_ppm,
+        session_reset_unix_ms: aggregate.session_reset_unix_ms,
+        weekly_remaining_ppm: aggregate.weekly_remaining_ppm,
+        weekly_reset_unix_ms: aggregate.weekly_reset_unix_ms,
+        limit_reached: aggregate.limit_reached,
+        observed_at_unix_ms: aggregate.observed_at_unix_ms,
+        expires_at_unix_ms: aggregate.expires_at_unix_ms,
+        revision: aggregate.revision,
+    };
+    validate_stored_model_quota(&record)?;
     Ok(record)
 }
 

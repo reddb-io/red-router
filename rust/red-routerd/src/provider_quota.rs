@@ -14,6 +14,18 @@ pub(crate) struct Snapshot {
     pub(crate) limit_reached: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ModelSnapshot {
+    pub(crate) model_id: String,
+    pub(crate) quota: Snapshot,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Observation {
+    pub(crate) aggregate: Snapshot,
+    pub(crate) models: Vec<ModelSnapshot>,
+}
+
 pub(crate) fn parse_codex(value: &Value, now_unix_ms: u64) -> Result<Snapshot, &'static str> {
     let root = object(value).ok_or("invalid Codex quota response")?;
     let rate_limit = field(root, "rate_limit", "rateLimit")
@@ -94,6 +106,14 @@ pub(crate) fn parse_antigravity(
     user_quota: &Value,
     quota_summary: Option<&Value>,
 ) -> Result<Snapshot, &'static str> {
+    parse_antigravity_observation(user_quota, quota_summary)
+        .map(|observation| observation.aggregate)
+}
+
+pub(crate) fn parse_antigravity_observation(
+    user_quota: &Value,
+    quota_summary: Option<&Value>,
+) -> Result<Observation, &'static str> {
     let root = object(user_quota).ok_or("invalid Antigravity quota response")?;
     let buckets = root
         .get("buckets")
@@ -103,6 +123,7 @@ pub(crate) fn parse_antigravity(
         return Err("Antigravity quota response has too many buckets");
     }
     let mut session_windows = Vec::new();
+    let mut model_windows = Vec::new();
     for value in buckets {
         let Some(bucket) = object(value) else {
             continue;
@@ -115,10 +136,12 @@ pub(crate) fn parse_antigravity(
         }
         if let Some(window) = antigravity_window(bucket)? {
             session_windows.push(window);
+            model_windows.push((model_id.to_owned(), window));
         }
     }
 
     let mut weekly_windows = Vec::new();
+    let mut weekly_family_windows = Vec::new();
     let mut summary_session_windows = Vec::new();
     if let Some(summary) = quota_summary {
         let summary = object(summary).ok_or("invalid Antigravity quota summary")?;
@@ -141,6 +164,11 @@ pub(crate) fn parse_antigravity(
             let Some(group) = object(value) else {
                 continue;
             };
+            let group_label = group
+                .get("displayName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             let buckets = group
                 .get("buckets")
                 .and_then(Value::as_array)
@@ -172,6 +200,7 @@ pub(crate) fn parse_antigravity(
                     .any(|part| part.eq_ignore_ascii_case("weekly"))
                 {
                     weekly_windows.push(window);
+                    weekly_family_windows.push((group_label.clone(), window));
                 } else {
                     summary_session_windows.push(window);
                 }
@@ -186,11 +215,47 @@ pub(crate) fn parse_antigravity(
     }
     let session_exhausted = all_exhausted(&session_windows);
     let weekly_exhausted = all_exhausted(&weekly_windows);
-    Ok(Snapshot {
+    let aggregate = Snapshot {
         session: most_constrained(&session_windows),
         weekly: most_constrained(&weekly_windows),
         limit_reached: session_exhausted || weekly_exhausted,
-    })
+    };
+    let models = model_windows
+        .into_iter()
+        .map(|(model_id, session)| {
+            let matching_weekly = weekly_family_windows
+                .iter()
+                .filter_map(|(family, window)| {
+                    family_matches_model(family, &model_id).then_some(*window)
+                })
+                .collect::<Vec<_>>();
+            let weekly = most_constrained(&matching_weekly);
+            ModelSnapshot {
+                model_id,
+                quota: Snapshot {
+                    session: Some(session),
+                    weekly,
+                    limit_reached: exhausted(Some(session)) || exhausted(weekly),
+                },
+            }
+        })
+        .collect();
+    Ok(Observation { aggregate, models })
+}
+
+fn family_matches_model(family: &str, model_id: &str) -> bool {
+    let family = family.to_ascii_lowercase();
+    let model = model_id.to_ascii_lowercase();
+    if model.contains("gemini") {
+        return family.contains("gemini");
+    }
+    if model.contains("claude") {
+        return family.contains("claude");
+    }
+    if model.contains("gpt") || model.contains("openai") || model.contains("codex") {
+        return family.contains("gpt") || family.contains("openai") || family.contains("codex");
+    }
+    false
 }
 
 fn antigravity_window(bucket: &Map<String, Value>) -> Result<Option<Window>, &'static str> {
@@ -392,7 +457,7 @@ mod tests {
 
     #[test]
     fn parses_antigravity_model_and_weekly_family_windows() {
-        let snapshot = parse_antigravity(
+        let observation = parse_antigravity_observation(
             &json!({"buckets":[
                 {"modelId":"gemini-3.1-pro","remainingFraction":0.75,"resetTime":"2099-09-10T14:00:00Z"},
                 {"modelId":"gemini-3.1-flash","remainingFraction":"0.25","resetTime":"2099-09-10T13:00:00Z"},
@@ -409,9 +474,36 @@ mod tests {
             ]}})),
         )
         .unwrap();
+        let snapshot = observation.aggregate;
         assert_eq!(snapshot.session.unwrap().remaining_percent, 25.0);
         assert_eq!(snapshot.weekly.unwrap().remaining_percent, 40.0);
         assert!(!snapshot.limit_reached);
+        assert_eq!(observation.models.len(), 2);
+        assert_eq!(observation.models[0].model_id, "gemini-3.1-pro");
+        assert_eq!(
+            observation.models[0]
+                .quota
+                .session
+                .unwrap()
+                .remaining_percent,
+            75.0
+        );
+        assert_eq!(
+            observation.models[0]
+                .quota
+                .weekly
+                .unwrap()
+                .remaining_percent,
+            60.0
+        );
+        assert_eq!(
+            observation.models[1]
+                .quota
+                .session
+                .unwrap()
+                .remaining_percent,
+            25.0
+        );
     }
 
     #[test]

@@ -106,6 +106,11 @@ const CREATE_PROVIDER_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provi
 const LIST_PROVIDER_QUOTAS: &str = "SELECT provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision FROM redrouter_provider_quotas ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_QUOTA: &str = "INSERT INTO redrouter_provider_quotas (provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET session_remaining_ppm = $2, session_reset_unix_ms = $3, weekly_remaining_ppm = $4, weekly_reset_unix_ms = $5, limit_reached = $6, observed_at_unix_ms = $7, expires_at_unix_ms = $8, revision = $9";
 const DELETE_PROVIDER_QUOTA: &str = "DELETE FROM redrouter_provider_quotas WHERE provider_id = $1";
+const CREATE_PROVIDER_MODEL_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_model_quotas (provider_id TEXT NOT NULL, model_id TEXT NOT NULL, session_remaining_ppm BIGINT NOT NULL, session_reset_unix_ms BIGINT NOT NULL, weekly_remaining_ppm BIGINT NOT NULL, weekly_reset_unix_ms BIGINT NOT NULL, limit_reached BIGINT NOT NULL, observed_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, revision BIGINT NOT NULL, PRIMARY KEY (provider_id, model_id))";
+const LIST_PROVIDER_MODEL_QUOTAS: &str = "SELECT provider_id, model_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision FROM redrouter_provider_model_quotas ORDER BY provider_id ASC, model_id ASC";
+const UPSERT_PROVIDER_MODEL_QUOTA: &str = "INSERT INTO redrouter_provider_model_quotas (provider_id, model_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (provider_id, model_id) DO UPDATE SET session_remaining_ppm = $3, session_reset_unix_ms = $4, weekly_remaining_ppm = $5, weekly_reset_unix_ms = $6, limit_reached = $7, observed_at_unix_ms = $8, expires_at_unix_ms = $9, revision = $10";
+const DELETE_PROVIDER_MODEL_QUOTAS: &str =
+    "DELETE FROM redrouter_provider_model_quotas WHERE provider_id = $1";
 const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_breakers (provider_id TEXT PRIMARY KEY, breaker_state TEXT NOT NULL, failure_count BIGINT NOT NULL, last_failure_unix_ms BIGINT NOT NULL, open_cycle_count BIGINT NOT NULL, failure_threshold BIGINT NOT NULL, degradation_threshold BIGINT NOT NULL, reset_timeout_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
 const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
@@ -385,6 +390,20 @@ pub struct StoredProviderQuota {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderModelQuota {
+    pub provider_id: String,
+    pub model_id: String,
+    pub session_remaining_ppm: i64,
+    pub session_reset_unix_ms: i64,
+    pub weekly_remaining_ppm: i64,
+    pub weekly_reset_unix_ms: i64,
+    pub limit_reached: bool,
+    pub observed_at_unix_ms: i64,
+    pub expires_at_unix_ms: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredBreaker {
     pub provider_id: String,
     pub state: String,
@@ -547,6 +566,7 @@ impl Database {
                         CREATE_COMBO_OWNERSHIP,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
+                        CREATE_PROVIDER_MODEL_QUOTAS,
                         CREATE_BREAKERS,
                         CREATE_AVAILABILITY,
                         CREATE_RESILIENCE,
@@ -665,6 +685,7 @@ impl Database {
                 db.remote_schema_query(CREATE_COMBO_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
+                db.remote_schema_query(CREATE_PROVIDER_MODEL_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
                 db.remote_schema_query(CREATE_AVAILABILITY).await?;
                 db.remote_schema_query(CREATE_RESILIENCE).await?;
@@ -723,6 +744,7 @@ impl Database {
                     CREATE_COMBO_OWNERSHIP,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
+                    CREATE_PROVIDER_MODEL_QUOTAS,
                     CREATE_BREAKERS,
                     CREATE_AVAILABILITY,
                     CREATE_RESILIENCE,
@@ -2740,6 +2762,114 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot delete provider quota state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_model_quotas(
+        &self,
+    ) -> Result<Vec<StoredProviderModelQuota>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_MODEL_QUOTAS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider model quota state")?
+                .iter()
+                .map(read_sql_provider_model_quota)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_MODEL_QUOTAS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_model_quota)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_MODEL_QUOTAS)
+                .await
+                .map_err(|_| "cannot read provider model quota state")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_model_quota)
+                .collect(),
+        }
+    }
+
+    /// Replaces one provider's model observations as one SQLite/PostgreSQL
+    /// transaction. RedDB uses the same single-authority mutation order until
+    /// its client exposes an explicit transaction API.
+    pub async fn replace_provider_model_quotas(
+        &self,
+        provider_id: &str,
+        quotas: &[StoredProviderModelQuota],
+    ) -> Result<(), &'static str> {
+        if quotas.iter().any(|quota| quota.provider_id != provider_id) {
+            return Err("provider model quota owner mismatch");
+        }
+        match self {
+            Self::Sql(pool) => {
+                let mut transaction = pool
+                    .begin()
+                    .await
+                    .map_err(|_| "cannot begin provider model quota update")?;
+                sqlx::query(DELETE_PROVIDER_MODEL_QUOTAS)
+                    .bind(provider_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot replace provider model quota state")?;
+                for quota in quotas {
+                    sqlx::query(UPSERT_PROVIDER_MODEL_QUOTA)
+                        .bind(&quota.provider_id)
+                        .bind(&quota.model_id)
+                        .bind(quota.session_remaining_ppm)
+                        .bind(quota.session_reset_unix_ms)
+                        .bind(quota.weekly_remaining_ppm)
+                        .bind(quota.weekly_reset_unix_ms)
+                        .bind(if quota.limit_reached { 1_i64 } else { 0_i64 })
+                        .bind(quota.observed_at_unix_ms)
+                        .bind(quota.expires_at_unix_ms)
+                        .bind(quota.revision)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| "cannot replace provider model quota state")?;
+                }
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| "cannot commit provider model quota update")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_PROVIDER_MODEL_QUOTAS,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+                for quota in quotas {
+                    self.remote_query(
+                        UPSERT_PROVIDER_MODEL_QUOTA,
+                        &provider_model_quota_params(quota),
+                    )
+                    .await?;
+                }
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_PROVIDER_MODEL_QUOTAS,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot replace provider model quota state")?;
+                for quota in quotas {
+                    db.query_with(
+                        UPSERT_PROVIDER_MODEL_QUOTA,
+                        provider_model_quota_params(quota),
+                    )
+                    .await
+                    .map_err(|_| "cannot replace provider model quota state")?;
+                }
             }
         }
         Ok(())
@@ -4814,6 +4944,77 @@ fn provider_quota_params(
         reddb_client::Value::Int(quota.weekly_remaining_ppm),
         reddb_client::Value::Int(quota.weekly_reset_unix_ms),
         reddb_client::Value::Int(limit_reached),
+        reddb_client::Value::Int(quota.observed_at_unix_ms),
+        reddb_client::Value::Int(quota.expires_at_unix_ms),
+        reddb_client::Value::Int(quota.revision),
+    ]
+}
+
+fn read_sql_provider_model_quota(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredProviderModelQuota, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider model quota record")
+    };
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider model quota record")
+    };
+    Ok(StoredProviderModelQuota {
+        provider_id: text("provider_id")?,
+        model_id: text("model_id")?,
+        session_remaining_ppm: integer("session_remaining_ppm")?,
+        session_reset_unix_ms: integer("session_reset_unix_ms")?,
+        weekly_remaining_ppm: integer("weekly_remaining_ppm")?,
+        weekly_reset_unix_ms: integer("weekly_reset_unix_ms")?,
+        limit_reached: integer("limit_reached")? == 1,
+        observed_at_unix_ms: integer("observed_at_unix_ms")?,
+        expires_at_unix_ms: integer("expires_at_unix_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_provider_model_quota(
+    row: &reddb_client::Row,
+) -> Result<StoredProviderModelQuota, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider model quota record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider model quota record"),
+    };
+    Ok(StoredProviderModelQuota {
+        provider_id: text("provider_id")?,
+        model_id: text("model_id")?,
+        session_remaining_ppm: integer("session_remaining_ppm")?,
+        session_reset_unix_ms: integer("session_reset_unix_ms")?,
+        weekly_remaining_ppm: integer("weekly_remaining_ppm")?,
+        weekly_reset_unix_ms: integer("weekly_reset_unix_ms")?,
+        limit_reached: integer("limit_reached")? == 1,
+        observed_at_unix_ms: integer("observed_at_unix_ms")?,
+        expires_at_unix_ms: integer("expires_at_unix_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn provider_model_quota_params(quota: &StoredProviderModelQuota) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(quota.provider_id.clone()),
+        reddb_client::Value::Text(quota.model_id.clone()),
+        reddb_client::Value::Int(quota.session_remaining_ppm),
+        reddb_client::Value::Int(quota.session_reset_unix_ms),
+        reddb_client::Value::Int(quota.weekly_remaining_ppm),
+        reddb_client::Value::Int(quota.weekly_reset_unix_ms),
+        reddb_client::Value::Int(if quota.limit_reached { 1 } else { 0 }),
         reddb_client::Value::Int(quota.observed_at_unix_ms),
         reddb_client::Value::Int(quota.expires_at_unix_ms),
         reddb_client::Value::Int(quota.revision),

@@ -349,9 +349,11 @@ storage and are never returned. Supported client policy fields are `enabled`,
 `max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
 unknown or disabled aliases do not fall through to the active provider. Target routing metadata
-and provider quota observations are durable. Codex, Claude and Antigravity OAuth quota polling is automatic;
-provider-specific collectors for the remaining account types and the remaining dashboard
-settings still need migration.
+and provider quota observations are durable. Antigravity model buckets and weekly model-family
+windows are persisted as one replaceable snapshot and override the provider aggregate on the
+lock-free routing path; an expired or removed model observation falls back to the provider view.
+Codex, Claude and Antigravity OAuth quota polling is automatic; provider-specific collectors for
+the remaining account types and the remaining dashboard settings still need migration.
 
 The Rust provider dashboard can start browser OAuth for Codex, Claude Code and Antigravity, or
 import one to fifty existing JSON sessions (including bounded ZIP extraction). These browser

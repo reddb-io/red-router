@@ -367,6 +367,23 @@ impl TargetQuota {
         self.sequence.fetch_add(1, Ordering::Release);
     }
 
+    pub(crate) fn update_model(&self, quota: &storage::StoredProviderModelQuota) {
+        self.sequence.fetch_add(1, Ordering::AcqRel);
+        self.session_remaining_ppm
+            .store(quota.session_remaining_ppm, Ordering::Relaxed);
+        self.session_reset_unix_ms
+            .store(quota.session_reset_unix_ms, Ordering::Relaxed);
+        self.weekly_remaining_ppm
+            .store(quota.weekly_remaining_ppm, Ordering::Relaxed);
+        self.weekly_reset_unix_ms
+            .store(quota.weekly_reset_unix_ms, Ordering::Relaxed);
+        self.limit_reached
+            .store(u64::from(quota.limit_reached), Ordering::Relaxed);
+        self.expires_at_unix_ms
+            .store(quota.expires_at_unix_ms, Ordering::Relaxed);
+        self.sequence.fetch_add(1, Ordering::Release);
+    }
+
     pub(crate) fn clear(&self) {
         self.sequence.fetch_add(1, Ordering::AcqRel);
         self.session_remaining_ppm.store(-1, Ordering::Relaxed);
@@ -471,6 +488,7 @@ pub(crate) struct ModelTarget {
     output_cost_per_million: Option<f64>,
     context_window_tokens: Option<u64>,
     quota: Option<Arc<TargetQuota>>,
+    model_quota: Option<Arc<TargetQuota>>,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
@@ -847,7 +865,11 @@ fn reset_hint_ms(value: &str, now_unix_ms: u64) -> Option<u64> {
 }
 
 fn target_quota(target: &ModelTarget, now_unix_ms: i64) -> Option<QuotaSnapshot> {
-    target.quota.as_ref()?.snapshot(now_unix_ms)
+    target
+        .model_quota
+        .as_ref()
+        .and_then(|quota| quota.snapshot(now_unix_ms))
+        .or_else(|| target.quota.as_ref()?.snapshot(now_unix_ms))
 }
 
 fn remaining_fraction(value: i64) -> Option<f64> {
@@ -1206,6 +1228,7 @@ impl ProxyState {
         provider: &LiveProvider,
         config: ControlTargetConfig,
         quota: Arc<TargetQuota>,
+        model_quota: Arc<TargetQuota>,
     ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
@@ -1226,6 +1249,7 @@ impl ProxyState {
             output_cost_per_million: config.output_cost_per_million,
             context_window_tokens: config.context_window_tokens,
             quota: Some(quota),
+            model_quota: Some(model_quota),
             circuit: provider.circuit.clone(),
             availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
@@ -1623,6 +1647,7 @@ impl ProxyState {
                     output_cost_per_million,
                     context_window_tokens,
                     quota: None,
+                    model_quota: None,
                     circuit: None,
                     availability: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
@@ -4574,6 +4599,65 @@ mod address_tests {
         assert_eq!(
             always["enabledCreditTypes"],
             serde_json::json!(["GOOGLE_ONE_AI"])
+        );
+    }
+
+    #[test]
+    fn model_quota_overrides_provider_quota_without_locking_the_hot_path() {
+        let provider_quota = Arc::new(TargetQuota::default());
+        provider_quota.update(&storage::StoredProviderQuota {
+            provider_id: "agy".into(),
+            session_remaining_ppm: 900_000,
+            session_reset_unix_ms: 0,
+            weekly_remaining_ppm: 800_000,
+            weekly_reset_unix_ms: 0,
+            limit_reached: false,
+            observed_at_unix_ms: 1,
+            expires_at_unix_ms: i64::MAX,
+            revision: 1,
+        });
+        let model_quota = Arc::new(TargetQuota::default());
+        model_quota.update_model(&storage::StoredProviderModelQuota {
+            provider_id: "agy".into(),
+            model_id: "gemini-3.1-pro".into(),
+            session_remaining_ppm: 0,
+            session_reset_unix_ms: 0,
+            weekly_remaining_ppm: 600_000,
+            weekly_reset_unix_ms: 0,
+            limit_reached: true,
+            observed_at_unix_ms: 1,
+            expires_at_unix_ms: i64::MAX,
+            revision: 2,
+        });
+        let target = ModelTarget {
+            client: reqwest::Client::new(),
+            upstream: reqwest::Url::parse("https://example.com/v1/chat/completions").unwrap(),
+            provider_key: HeaderValue::from_static("secret"),
+            model: "gemini-3.1-pro".into(),
+            protocol: ProviderProtocol::OpenAi,
+            auth_scheme: ProviderAuthScheme::Bearer,
+            credential_expires_at_unix: 0,
+            product_connection: None,
+            product_model: None,
+            provider_id: Some(Arc::from("agy")),
+            provider_name: Some(Arc::from("antigravity")),
+            antigravity_project: None,
+            rate_limit_scope: resilience::RateLimitScope::Model,
+            weight: 1,
+            input_cost_per_million: None,
+            output_cost_per_million: None,
+            context_window_tokens: None,
+            quota: Some(provider_quota),
+            model_quota: Some(model_quota.clone()),
+            circuit: None,
+            availability: None,
+            in_flight: Arc::new(AtomicUsize::new(0)),
+        };
+        assert!(target_quota(&target, 2).unwrap().limit_reached);
+        model_quota.clear();
+        assert_eq!(
+            target_quota(&target, 2).unwrap().session_remaining_ppm,
+            900_000
         );
     }
 

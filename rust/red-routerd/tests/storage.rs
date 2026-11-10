@@ -1,8 +1,9 @@
 use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
     StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
-    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-    StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderModelQuota,
+    StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant,
+    StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -210,6 +211,25 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_provider_quota(&quota).await.unwrap();
     assert_eq!(db.provider_quotas().await.unwrap(), vec![quota.clone()]);
+    let model_quota = StoredProviderModelQuota {
+        provider_id: "first".into(),
+        model_id: "gemini-3.1-pro".into(),
+        session_remaining_ppm: 250_000,
+        session_reset_unix_ms: 1_700_000_100_000,
+        weekly_remaining_ppm: 600_000,
+        weekly_reset_unix_ms: 1_700_100_000_000,
+        limit_reached: false,
+        observed_at_unix_ms: 1_700_000_000_000,
+        expires_at_unix_ms: 1_700_000_360_000,
+        revision: 11,
+    };
+    db.replace_provider_model_quotas("first", std::slice::from_ref(&model_quota))
+        .await
+        .unwrap();
+    assert_eq!(
+        db.provider_model_quotas().await.unwrap(),
+        vec![model_quota.clone()]
+    );
     let breaker = StoredBreaker {
         provider_id: "first".into(),
         state: "open".into(),
@@ -323,6 +343,15 @@ async fn exercise(backend: Backend, url: &str) {
     reopened.delete_route_pin("agent-combo").await.unwrap();
     assert!(reopened.route_pins().await.unwrap().is_empty());
     assert_eq!(reopened.provider_quotas().await.unwrap(), vec![quota]);
+    assert_eq!(
+        reopened.provider_model_quotas().await.unwrap(),
+        vec![model_quota]
+    );
+    reopened
+        .replace_provider_model_quotas("first", &[])
+        .await
+        .unwrap();
+    assert!(reopened.provider_model_quotas().await.unwrap().is_empty());
     reopened.delete_provider_quota("first").await.unwrap();
     assert!(reopened.provider_quotas().await.unwrap().is_empty());
     assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
