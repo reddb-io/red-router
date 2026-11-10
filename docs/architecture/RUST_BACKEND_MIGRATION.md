@@ -63,7 +63,7 @@ criterion. The cutover is gated by the following operator journeys, in this orde
 
 | Gate | Required outcome | Current remaining work | Complexity |
 | --- | --- | --- | --- |
-| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude, import Antigravity CLI sessions, test, refresh, disable and delete from the SPA | Finish Antigravity OpenAI translation/browser OAuth, then migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High |
+| 1. Provider lifecycle | Create API-key providers, sign into Codex/Claude/Antigravity, import Antigravity CLI sessions, test, refresh, disable and delete from the SPA | Migrate the remaining product provider auth/import flows actually exposed by the dashboard and move local CLI file application into the companion boundary | High |
 | 2. Traffic lifecycle | Issue a named client key, restrict it, select a provider/combo, proxy every advertised protocol, account usage and enforce limits | Finish protocol/error/stream parity fixtures; migrate the remaining dashboard policy and versioned resilience settings | High |
 | 3. Identity and tenancy | Password/bootstrap and configured OIDC can administer tenant-owned providers, combos and keys without cross-tenant access | Complete production SPA wiring and provider-specific OIDC diagnostics | Medium |
 | 4. Existing installation | Upgrade an existing RedRouter installation without losing providers, keys, combos, quotas, usage or audit history | Maintenance-mode legacy SQLite importer, dry-run verification report and rollback marker | High |
@@ -147,9 +147,19 @@ bill the bootstrapped project. Its `agy`/`antigravity` provider names resolve
 model context, capability and price metadata from the validated `models.dev` Google namespace.
 Google refresh is coordinated by the same
 cross-replica lease and generation CAS; deployments must provide
-`ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` for refresh. Browser OAuth,
-OpenAI-to-Antigravity translation and credits-aware retry policy remain follow-up work. The
-remaining provider import formats are still compatibility work.
+`ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` for refresh. OpenAI Chat
+Completions clients can now use persisted Antigravity combo targets without a TypeScript bridge:
+Rust translates bounded messages, tools, tool choice and generation settings into the Cloud Code
+envelope, translates JSON and fragmented SSE responses back to OpenAI text, reasoning, tool calls,
+finish reasons and usage, and settles quota usage before publishing the terminal stream frame.
+Gemini thought signatures remain server-side, are persisted with provider-scoped tool-call keys and
+expiry, survive restart, and are reattached on the next tool turn; they are never returned to the
+client. Browser OAuth is Rust-owned with the same Google scopes and non-PKCE native-client flow as
+the proven legacy implementation. Its sealed state remains bound to actor, tenant, redirect and a
+short-lived verifier; loopback HTTP callbacks are accepted, while public HTTPS callbacks must match
+`ANTIGRAVITY_OAUTH_REDIRECT_URI`. Token exchange, identity/project bootstrap and encrypted session
+persistence can complete on another Rust replica. Credits-aware retry policy and the remaining
+provider import formats are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one

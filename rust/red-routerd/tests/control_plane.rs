@@ -828,12 +828,15 @@ async fn provider_browser_oauth_server() -> (
     Url,
     Arc<AtomicUsize>,
     Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
     tokio::task::JoinHandle<()>,
 ) {
     let codex_requests = Arc::new(AtomicUsize::new(0));
     let claude_requests = Arc::new(AtomicUsize::new(0));
+    let agy_requests = Arc::new(AtomicUsize::new(0));
     let observed_codex = codex_requests.clone();
     let observed_claude = claude_requests.clone();
+    let observed_agy = agy_requests.clone();
     let expiry = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -854,10 +857,10 @@ async fn provider_browser_oauth_server() -> (
             "/codex-token",
             post(move |headers: HeaderMap, body: String| {
                 let observed = observed_codex.clone();
+                let observed_agy = observed_agy.clone();
                 let id_token = codex_id_token.clone();
                 let access_token = codex_access_token.clone();
                 async move {
-                    observed.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(
                         headers[header::CONTENT_TYPE].to_str().unwrap(),
                         "application/x-www-form-urlencoded"
@@ -867,6 +870,21 @@ async fn provider_browser_oauth_server() -> (
                             .into_owned()
                             .collect();
                     assert_eq!(fields["grant_type"], "authorization_code");
+                    if fields["code"] == "agy-browser-code" {
+                        observed_agy.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(fields["redirect_uri"], "http://127.0.0.1:9876/callback");
+                        assert_eq!(fields["client_id"], "test-antigravity-client");
+                        assert_eq!(fields["client_secret"], "test-antigravity-secret");
+                        assert!(!fields.contains_key("code_verifier"));
+                        return Json(serde_json::json!({
+                            "access_token":"agy-access-browser",
+                            "refresh_token":"agy-browser-refresh",
+                            "expires_in":3600,
+                            "token_type":"Bearer",
+                            "scope":"https://www.googleapis.com/auth/cloud-platform"
+                        }));
+                    }
+                    observed.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(fields["code"], "codex-browser-code");
                     assert_eq!(
                         fields["redirect_uri"],
@@ -925,6 +943,28 @@ async fn provider_browser_oauth_server() -> (
                     "account_email":"browser-claude@example.com"
                 }))
             }),
+        )
+        .route(
+            "/userinfo",
+            get(|headers: HeaderMap| async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    "Bearer agy-access-browser"
+                );
+                Json(serde_json::json!({"email":"browser-agy@example.com"}))
+            }),
+        )
+        .route(
+            "/load-code-assist",
+            post(|headers: HeaderMap| async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    "Bearer agy-access-browser"
+                );
+                Json(serde_json::json!({
+                    "cloudaicompanionProject":{"id":"browser-agy-project"}
+                }))
+            }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -934,6 +974,7 @@ async fn provider_browser_oauth_server() -> (
         Url::parse(&format!("http://{address}/claude-token")).unwrap(),
         codex_requests,
         claude_requests,
+        agy_requests,
         task,
     )
 }
@@ -5279,8 +5320,14 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
     let file = Url::from_file_path(directory.path().join("browser-oauth.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
-    let (codex_endpoint, claude_endpoint, codex_requests, claude_requests, oauth_task) =
-        provider_browser_oauth_server().await;
+    let (
+        codex_endpoint,
+        claude_endpoint,
+        codex_requests,
+        claude_requests,
+        agy_requests,
+        oauth_task,
+    ) = provider_browser_oauth_server().await;
     let first = ControlPlane::new_with_oauth_refresh_endpoints(
         database.clone(),
         ADMIN_KEY,
@@ -5448,10 +5495,61 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
     assert!(!claude_exchange.to_string().contains("browser-refresh"));
     assert_eq!(claude_requests.load(Ordering::SeqCst), 1);
 
+    let agy_authorize = client
+        .get(format!("{first_base}/api/oauth/agy/authorize"))
+        .bearer_auth(ADMIN_KEY)
+        .query(&[("redirect_uri", "http://127.0.0.1:9876/callback")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(agy_authorize.status(), StatusCode::OK);
+    let agy_authorize: serde_json::Value =
+        serde_json::from_str(&agy_authorize.text().await.unwrap()).unwrap();
+    assert_eq!(agy_authorize["flowType"], "authorization_code");
+    assert_eq!(
+        agy_authorize["redirectUri"],
+        "http://127.0.0.1:9876/callback"
+    );
+    let agy_state = agy_authorize["state"].as_str().unwrap().to_owned();
+    let agy_verifier = agy_authorize["codeVerifier"].as_str().unwrap().to_owned();
+    let agy_url = Url::parse(agy_authorize["authUrl"].as_str().unwrap()).unwrap();
+    assert_eq!(agy_url.host_str(), Some("accounts.google.com"));
+    let agy_query: std::collections::HashMap<_, _> = agy_url.query_pairs().into_owned().collect();
+    assert_eq!(agy_query["access_type"], "offline");
+    assert_eq!(agy_query["prompt"], "consent");
+    assert!(!agy_query.contains_key("code_challenge"));
+    assert!(!agy_query["scope"]
+        .split_whitespace()
+        .any(|scope| scope == "openid"));
+
+    let agy_exchange = client
+        .post(format!("{second_base}/api/oauth/agy/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"agy-browser-code",
+            "redirectUri":"http://127.0.0.1:9876/callback",
+            "codeVerifier":agy_verifier,
+            "state":agy_state
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(agy_exchange.status(), StatusCode::OK);
+    let agy_exchange: serde_json::Value =
+        serde_json::from_str(&agy_exchange.text().await.unwrap()).unwrap();
+    assert_eq!(agy_exchange["success"], true);
+    assert_eq!(agy_exchange["connection"]["provider"], "agy");
+    assert_eq!(
+        agy_exchange["connection"]["email"],
+        "browser-agy@example.com"
+    );
+    assert!(!agy_exchange.to_string().contains("agy-browser-refresh"));
+    assert_eq!(agy_requests.load(Ordering::SeqCst), 1);
+
     let providers = database.providers().await.unwrap();
-    assert_eq!(providers.len(), 2);
+    assert_eq!(providers.len(), 3);
     let oauth = database.provider_oauth().await.unwrap();
-    assert_eq!(oauth.len(), 2);
+    assert_eq!(oauth.len(), 3);
     assert!(oauth
         .iter()
         .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));
@@ -5459,7 +5557,7 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         .iter()
         .all(|record| !record.refresh_token_ciphertext.contains("browser-refresh")));
     let sessions = database.provider_sessions().await.unwrap();
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions.len(), 3);
     assert!(sessions
         .iter()
         .all(|record| record.session_ciphertext.starts_with("rr:v1:")));

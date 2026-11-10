@@ -58,6 +58,7 @@ const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
+const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
 const AGY_PROVIDER_URL: &str =
@@ -69,6 +70,7 @@ const CLAUDE_BOOTSTRAP_URL: &str = "https://api.anthropic.com/api/claude_cli/boo
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CLAUDE_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const PROVIDER_OAUTH_FLOW_SECONDS: u64 = 10 * 60;
+const AGY_OAUTH_SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 const THOUGHT_SIGNATURE_MEMORY_TTL_MS: i64 = 60 * 60 * 1_000;
 const THOUGHT_SIGNATURE_PERSISTED_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
 const MAX_THOUGHT_SIGNATURES_IN_MEMORY: usize = 1_000;
@@ -130,6 +132,7 @@ struct OAuthRefreshConfig {
     agy_endpoint: reqwest::Url,
     agy_client_id: Option<String>,
     agy_client_secret: Option<Zeroizing<String>>,
+    agy_redirect_uri: Option<String>,
     codex_provider_endpoint: reqwest::Url,
     claude_provider_endpoint: reqwest::Url,
     claude_bootstrap_endpoint: reqwest::Url,
@@ -1110,6 +1113,9 @@ impl OAuthRefreshConfig {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .map(Zeroizing::new);
+        let agy_redirect_uri = std::env::var("ANTIGRAVITY_OAUTH_REDIRECT_URI")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
         validate_oauth_client_id(&codex_client_id)?;
         validate_oauth_client_id(&claude_client_id)?;
         if let Some(client_id) = agy_client_id.as_deref() {
@@ -1120,6 +1126,9 @@ impl OAuthRefreshConfig {
             .is_some_and(|secret| secret.len() > 8192 || secret.chars().any(char::is_control))
         {
             return Err("invalid Antigravity OAuth client secret");
+        }
+        if let Some(redirect_uri) = agy_redirect_uri.as_deref() {
+            validate_agy_oauth_redirect_uri(redirect_uri, Some(redirect_uri))?;
         }
         Ok(Self {
             codex_endpoint: reqwest::Url::parse(CODEX_OAUTH_TOKEN_URL)
@@ -1132,6 +1141,7 @@ impl OAuthRefreshConfig {
                 .map_err(|_| "invalid Antigravity OAuth token URL")?,
             agy_client_id,
             agy_client_secret,
+            agy_redirect_uri,
             codex_provider_endpoint: reqwest::Url::parse(CODEX_PROVIDER_URL)
                 .map_err(|_| "invalid Codex provider URL")?,
             claude_provider_endpoint: reqwest::Url::parse(CLAUDE_PROVIDER_URL)
@@ -1183,6 +1193,7 @@ impl OAuthRefreshConfig {
             agy_endpoint: codex_endpoint,
             agy_client_id: Some("test-antigravity-client".to_owned()),
             agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
+            agy_redirect_uri: None,
             agy_provider_endpoint,
             agy_userinfo_endpoint,
             agy_load_code_assist_endpoint,
@@ -1195,6 +1206,29 @@ fn validate_oauth_client_id(value: &str) -> Result<(), &'static str> {
         return Err("invalid OAuth client identifier");
     }
     Ok(())
+}
+
+fn validate_agy_oauth_redirect_uri(
+    value: &str,
+    configured_public_uri: Option<&str>,
+) -> Result<(), &'static str> {
+    let url = reqwest::Url::parse(value).map_err(|_| "invalid Antigravity OAuth redirect URI")?;
+    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        return Err("invalid Antigravity OAuth redirect URI");
+    }
+    let loopback = match url.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        None => false,
+    };
+    if (url.scheme() == "http" && loopback)
+        || (url.scheme() == "https" && configured_public_uri == Some(value))
+    {
+        Ok(())
+    } else {
+        Err("invalid Antigravity OAuth redirect URI")
+    }
 }
 
 impl ControlPlane {
@@ -2582,6 +2616,15 @@ impl ControlPlane {
                 CODEX_OAUTH_REDIRECT_URI
             }
             "claude" => CLAUDE_OAUTH_REDIRECT_URI,
+            "agy" => {
+                let redirect_uri =
+                    requested_redirect_uri.ok_or("Antigravity OAuth redirect URI is required")?;
+                validate_agy_oauth_redirect_uri(
+                    redirect_uri,
+                    self.0.oauth_refresh.agy_redirect_uri.as_deref(),
+                )?;
+                redirect_uri
+            }
             _ => return Err("unsupported browser OAuth provider"),
         };
         if requested_redirect_uri.is_some_and(|value| {
@@ -2619,6 +2662,14 @@ impl ControlPlane {
                 CLAUDE_OAUTH_AUTHORIZE_URL,
                 self.0.oauth_refresh.claude_client_id.as_str(),
             ),
+            "agy" => (
+                AGY_OAUTH_AUTHORIZE_URL,
+                self.0
+                    .oauth_refresh
+                    .agy_client_id
+                    .as_deref()
+                    .ok_or("Antigravity OAuth client is not configured")?,
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
         let mut auth_url = reqwest::Url::parse(authorize_url)
@@ -2629,21 +2680,29 @@ impl ControlPlane {
                 .append_pair("response_type", "code")
                 .append_pair("client_id", client_id)
                 .append_pair("redirect_uri", redirect_uri)
-                .append_pair("code_challenge", &code_challenge)
-                .append_pair("code_challenge_method", "S256")
-                .append_pair("state", &state)
-                .append_pair("prompt", "login");
+                .append_pair("state", &state);
+            if provider != "agy" {
+                query
+                    .append_pair("code_challenge", &code_challenge)
+                    .append_pair("code_challenge_method", "S256")
+                    .append_pair("prompt", "login");
+            }
             if provider == "codex" {
                 query
                     .append_pair("scope", "openid profile email offline_access")
                     .append_pair("id_token_add_organizations", "true")
                     .append_pair("codex_cli_simplified_flow", "true")
                     .append_pair("originator", "codex_cli_rs");
-            } else {
+            } else if provider == "claude" {
                 query.append_pair(
                     "scope",
                     "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
                 );
+            } else {
+                query
+                    .append_pair("scope", AGY_OAUTH_SCOPES)
+                    .append_pair("access_type", "offline")
+                    .append_pair("prompt", "consent");
             }
         }
         let mut view = serde_json::json!({
@@ -2652,7 +2711,7 @@ impl ControlPlane {
             "codeVerifier":code_verifier,
             "codeChallenge":code_challenge,
             "redirectUri":redirect_uri,
-            "flowType":"authorization_code_pkce",
+            "flowType":if provider == "agy" { "authorization_code" } else { "authorization_code_pkce" },
             "callbackPath":if provider == "codex" { "/auth/callback" } else { "/callback" },
             "callbackHost":"localhost"
         });
@@ -2679,17 +2738,29 @@ impl ControlPlane {
                 &self.0.oauth_refresh.claude_endpoint,
                 self.0.oauth_refresh.claude_client_id.as_str(),
             ),
+            "agy" => (
+                &self.0.oauth_refresh.agy_endpoint,
+                self.0
+                    .oauth_refresh
+                    .agy_client_id
+                    .as_deref()
+                    .ok_or("Antigravity OAuth client is not configured")?,
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
-        let request = if provider == "codex" {
+        let request = if provider == "codex" || provider == "agy" {
             let form = {
                 let mut serializer = url::form_urlencoded::Serializer::new(String::new());
                 serializer
                     .append_pair("grant_type", "authorization_code")
                     .append_pair("client_id", client_id)
                     .append_pair("code", code)
-                    .append_pair("redirect_uri", redirect_uri)
-                    .append_pair("code_verifier", code_verifier);
+                    .append_pair("redirect_uri", redirect_uri);
+                if provider == "codex" {
+                    serializer.append_pair("code_verifier", code_verifier);
+                } else if let Some(secret) = self.0.oauth_refresh.agy_client_secret.as_deref() {
+                    serializer.append_pair("client_secret", secret);
+                }
                 serializer.finish()
             };
             self.0
@@ -2865,6 +2936,33 @@ impl ControlPlane {
                                     "subscriptionType":token_data.get("subscription_type"),
                                     "rateLimitTier":token_data.get("rate_limit_tier")
                                 }
+                            }),
+                        },
+                        name: None,
+                        email: None,
+                        overwrite_existing: true,
+                    },
+                    actor,
+                    enforced_tenant,
+                )
+                .await
+            }
+            "agy" => {
+                self.import_agy_auth_as(
+                    ProviderAuthImportInput {
+                        source: ProviderAuthImportSource::Json {
+                            json: serde_json::json!({
+                                "token":{
+                                    "access_token":access_token,
+                                    "refresh_token":refresh_token,
+                                    "expiry":expires_at,
+                                    "token_type":token_data
+                                        .get("token_type")
+                                        .and_then(serde_json::Value::as_str)
+                                        .unwrap_or("Bearer"),
+                                    "scope":token_data.get("scope")
+                                },
+                                "auth_method":"oauth"
                             }),
                         },
                         name: None,

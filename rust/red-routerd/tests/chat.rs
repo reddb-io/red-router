@@ -203,9 +203,7 @@ async fn openai_to_antigravity_streams_text_tools_and_usage() {
                 body["request"]["tools"][0]["functionDeclarations"][0]["name"],
                 "weather"
             );
-            let event = concat!(
-                "data: {\"response\":{\"responseId\":\"agy-stream-1\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thought\":true,\"text\":\"checking\"},{\"text\":\"Calling weather\"},{\"thoughtSignature\":\"opaque-stream-signature\",\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":4,\"totalTokenCount\":9,\"thoughtsTokenCount\":1}}}\n\n"
-            );
+            let event = "data: {\"response\":{\"responseId\":\"agy-stream-1\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"thought\":true,\"text\":\"checking\"},{\"text\":\"Calling weather\"},{\"thoughtSignature\":\"opaque-stream-signature\",\"functionCall\":{\"name\":\"weather\",\"args\":{\"city\":\"SP\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":4,\"totalTokenCount\":9,\"thoughtsTokenCount\":1}}}\n\n";
             let pieces: Vec<_> = event
                 .as_bytes()
                 .chunks(2)
