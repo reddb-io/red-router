@@ -133,10 +133,10 @@ const READ_MODEL_CATALOG: &str =
 const READ_MODEL_CATALOG_REVISION: &str =
     "SELECT revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
 const UPSERT_MODEL_CATALOG: &str = "INSERT INTO redrouter_model_catalog_snapshot (id, snapshot_json, revision) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET snapshot_json = $1, revision = $2";
-const CREATE_THOUGHT_SIGNATURES: &str = "CREATE TABLE IF NOT EXISTS redrouter_antigravity_thought_signatures (provider_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, signature TEXT NOT NULL, created_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (provider_id, tool_call_id))";
+const CREATE_THOUGHT_SIGNATURES: &str = "CREATE TABLE IF NOT EXISTS redrouter_antigravity_thought_signatures (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, signature TEXT NOT NULL, created_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL)";
 const CREATE_THOUGHT_SIGNATURE_EXPIRY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_antigravity_thought_signatures_expiry ON redrouter_antigravity_thought_signatures (expires_at_unix_ms)";
 const READ_THOUGHT_SIGNATURE: &str = "SELECT signature FROM redrouter_antigravity_thought_signatures WHERE provider_id = $1 AND tool_call_id = $2 AND expires_at_unix_ms > $3";
-const UPSERT_THOUGHT_SIGNATURE: &str = "INSERT INTO redrouter_antigravity_thought_signatures (provider_id, tool_call_id, signature, created_at_unix_ms, expires_at_unix_ms) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id, tool_call_id) DO UPDATE SET signature = $3, created_at_unix_ms = $4, expires_at_unix_ms = $5";
+const UPSERT_THOUGHT_SIGNATURE: &str = "INSERT INTO redrouter_antigravity_thought_signatures (record_id, provider_id, tool_call_id, signature, created_at_unix_ms, expires_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (record_id) DO UPDATE SET signature = $4, created_at_unix_ms = $5, expires_at_unix_ms = $6";
 const DELETE_EXPIRED_THOUGHT_SIGNATURES: &str =
     "DELETE FROM redrouter_antigravity_thought_signatures WHERE expires_at_unix_ms <= $1";
 
@@ -3323,8 +3323,10 @@ impl Database {
         created_at_unix_ms: i64,
         expires_at_unix_ms: i64,
     ) -> Result<(), &'static str> {
+        let record_id = thought_signature_record_id(provider_id, tool_call_id);
         let params = || {
             vec![
+                reddb_client::Value::Text(record_id.clone()),
                 reddb_client::Value::Text(provider_id.to_owned()),
                 reddb_client::Value::Text(tool_call_id.to_owned()),
                 reddb_client::Value::Text(signature.to_owned()),
@@ -3335,6 +3337,7 @@ impl Database {
         match self {
             Self::Sql(pool) => {
                 sqlx::query(UPSERT_THOUGHT_SIGNATURE)
+                    .bind(&record_id)
                     .bind(provider_id)
                     .bind(tool_call_id)
                     .bind(signature)
@@ -5145,6 +5148,10 @@ fn read_reddb_thought_signature(row: &reddb_client::Row) -> Result<String, &'sta
         Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
         _ => Err("invalid Antigravity thought signature"),
     }
+}
+
+fn thought_signature_record_id(provider_id: &str, tool_call_id: &str) -> String {
+    format!("{:x}:{provider_id}{tool_call_id}", provider_id.len())
 }
 
 pub fn embedded_default_url() -> Result<String, &'static str> {
