@@ -15,7 +15,7 @@
     "retire": "Legacy compatibility surface to remove from the shipped server instead of porting."
   },
   "nextRouteInventory": {
-    "expectedTotal": 806,
+    "expectedTotal": 803,
     "families": {
       "[...omnirouteApiCatchAll]": { "routeCount": 1, "disposition": "retire" },
       "a2a": { "routeCount": 5, "disposition": "post-cutover-companion" },
@@ -99,7 +99,7 @@
       "restart": { "routeCount": 1, "disposition": "local-companion" },
       "routing": { "routeCount": 5, "disposition": "cutover-server" },
       "search": { "routeCount": 2, "disposition": "post-cutover-companion" },
-      "services": { "routeCount": 59, "disposition": "local-companion" },
+      "services": { "routeCount": 58, "disposition": "local-companion" },
       "session-pools": { "routeCount": 2, "disposition": "cutover-server" },
       "sessions": { "routeCount": 1, "disposition": "cutover-server" },
       "settings": { "routeCount": 91, "disposition": "cutover-server" },
@@ -118,11 +118,11 @@
       "token-health": { "routeCount": 1, "disposition": "cutover-server" },
       "tools": { "routeCount": 36, "disposition": "post-cutover-companion" },
       "translator": { "routeCount": 5, "disposition": "cutover-server" },
-      "tunnels": { "routeCount": 18, "disposition": "local-companion" },
+      "tunnels": { "routeCount": 17, "disposition": "local-companion" },
       "upstream-proxy": { "routeCount": 1, "disposition": "cutover-server" },
       "usage": { "routeCount": 31, "disposition": "cutover-server" },
       "usage-sinks": { "routeCount": 6, "disposition": "cutover-server" },
-      "v1": { "routeCount": 114, "disposition": "cutover-server" },
+      "v1": { "routeCount": 113, "disposition": "cutover-server" },
       "v1beta": { "routeCount": 2, "disposition": "cutover-server" },
       "version-manager": { "routeCount": 6, "disposition": "local-companion" },
       "vnc-session": { "routeCount": 2, "disposition": "local-companion" },
