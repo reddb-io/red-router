@@ -334,6 +334,7 @@ pub struct ProviderInput {
     pub tenant_id: Option<String>,
     pub provider: String,
     pub upstream_url: String,
+    #[serde(default)]
     pub api_key: String,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
@@ -4054,7 +4055,7 @@ impl ControlPlane {
     async fn configure_provider_as(
         &self,
         id: &str,
-        input: ProviderInput,
+        mut input: ProviderInput,
         session_metadata: Option<Zeroizing<String>>,
         actor: &str,
         enforced_tenant: Option<&str>,
@@ -4062,12 +4063,57 @@ impl ControlPlane {
         validate_id(id)?;
         validate_actor(actor)?;
         validate_provider(&input.provider)?;
-        if !(1..=8192).contains(&input.api_key.len()) {
-            return Err("provider credential must be 1-8192 bytes");
-        }
         if input.upstream_url.len() > 2048 {
             return Err("provider upstream URL is too long");
         }
+        let _mutation = self.0.mutation.lock().await;
+        let existing = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id);
+        let existing_oauth = self
+            .0
+            .database
+            .provider_oauth()
+            .await?
+            .into_iter()
+            .find(|oauth| {
+                oauth.provider_id == id
+                    && existing
+                        .as_ref()
+                        .is_some_and(|provider| oauth.revision == provider.updated_at)
+            });
+        let existing_session =
+            self.0
+                .database
+                .provider_sessions()
+                .await?
+                .into_iter()
+                .find(|session| {
+                    session.provider_id == id
+                        && existing
+                            .as_ref()
+                            .is_some_and(|provider| session.revision == provider.updated_at)
+                });
+        let replacing_access_token = !input.api_key.is_empty();
+        let api_key = if replacing_access_token {
+            if input.api_key.len() > 8192 {
+                return Err("provider credential must be 1-8192 bytes");
+            }
+            Zeroizing::new(std::mem::take(&mut input.api_key))
+        } else {
+            let existing = existing
+                .as_ref()
+                .ok_or("provider credential must be 1-8192 bytes")?;
+            decrypt(
+                &existing.credential_ciphertext,
+                id,
+                self.0.encryption_key.as_str(),
+            )?
+        };
         let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
         let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
         let label = input.label.as_deref().unwrap_or(id).trim();
@@ -4100,12 +4146,15 @@ impl ControlPlane {
                 if auth_scheme != ProviderAuthScheme::Bearer {
                     return Err("OAuth provider authentication must use bearer");
                 }
-                let refresh_token = input
-                    .refresh_token
-                    .as_deref()
-                    .ok_or("OAuth refresh token is required")?;
-                if !(1..=8192).contains(&refresh_token.len()) {
-                    return Err("OAuth refresh token must be 1-8192 bytes");
+                if let Some(refresh_token) = input.refresh_token.as_deref() {
+                    if !(1..=8192).contains(&refresh_token.len()) {
+                        return Err("OAuth refresh token must be 1-8192 bytes");
+                    }
+                } else if !existing_oauth
+                    .as_ref()
+                    .is_some_and(|oauth| oauth.oauth_provider == oauth_provider)
+                {
+                    return Err("OAuth refresh token is required");
                 }
                 if expires_at_unix <= 0 {
                     return Err("OAuth credential expiry is required");
@@ -4121,7 +4170,6 @@ impl ControlPlane {
             return Err("provider credential is already expired");
         }
         // Resolve and pin DNS before changing durable or live configuration.
-        let api_key = Zeroizing::new(input.api_key);
         let live = ProxyState::live_provider(
             &input.upstream_url,
             api_key.as_str(),
@@ -4130,14 +4178,6 @@ impl ControlPlane {
             expires_at_unix,
         )
         .await?;
-        let _mutation = self.0.mutation.lock().await;
-        let existing = self
-            .0
-            .database
-            .providers()
-            .await?
-            .into_iter()
-            .find(|provider| provider.id == id);
         let tenant_id = input
             .tenant_id
             .as_deref()
@@ -4197,24 +4237,33 @@ impl ControlPlane {
         self.0.database.upsert_provider_auth(&provider_auth).await?;
         self.0.database.upsert_provider(&stored).await?;
         let provider_oauth = if let Some(oauth_provider) = oauth_provider {
-            let refresh_token = Zeroizing::new(
-                input
-                    .refresh_token
-                    .as_deref()
-                    .ok_or("OAuth refresh token is required")?
-                    .to_owned(),
-            );
-            let aad = format!("{id}:oauth-refresh");
-            let oauth = StoredProviderOAuth {
-                provider_id: id.to_owned(),
-                oauth_provider,
-                refresh_token_ciphertext: encrypt(
-                    refresh_token.as_str(),
-                    &aad,
-                    self.0.encryption_key.as_str(),
-                )?,
-                generation: 0,
-                revision,
+            let oauth = if let Some(refresh_token) = input.refresh_token.as_deref() {
+                let refresh_token = Zeroizing::new(refresh_token.to_owned());
+                let aad = format!("{id}:oauth-refresh");
+                StoredProviderOAuth {
+                    provider_id: id.to_owned(),
+                    oauth_provider,
+                    refresh_token_ciphertext: encrypt(
+                        refresh_token.as_str(),
+                        &aad,
+                        self.0.encryption_key.as_str(),
+                    )?,
+                    generation: existing_oauth
+                        .as_ref()
+                        .map_or(0, |oauth| oauth.generation.saturating_add(1)),
+                    revision,
+                }
+            } else {
+                let existing_oauth = existing_oauth
+                    .as_ref()
+                    .ok_or("OAuth refresh token is required")?;
+                StoredProviderOAuth {
+                    provider_id: id.to_owned(),
+                    oauth_provider,
+                    refresh_token_ciphertext: existing_oauth.refresh_token_ciphertext.clone(),
+                    generation: existing_oauth.generation,
+                    revision,
+                }
             };
             self.0.database.upsert_provider_oauth(&oauth).await?;
             Some(oauth)
@@ -4237,6 +4286,25 @@ impl ControlPlane {
                         &aad,
                         self.0.encryption_key.as_str(),
                     )?,
+                    revision,
+                })
+                .await?;
+        } else if provider_oauth.is_some()
+            && !replacing_access_token
+            && input.refresh_token.is_none()
+            && existing_session
+                .as_ref()
+                .is_some_and(|session| session.provider == stored.provider)
+        {
+            let existing_session = existing_session
+                .as_ref()
+                .ok_or("provider session metadata is unavailable")?;
+            self.0
+                .database
+                .upsert_provider_session(&StoredProviderSession {
+                    provider_id: id.to_owned(),
+                    provider: stored.provider.clone(),
+                    session_ciphertext: existing_session.session_ciphertext.clone(),
                     revision,
                 })
                 .await?;

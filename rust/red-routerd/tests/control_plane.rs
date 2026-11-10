@@ -6444,6 +6444,41 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
         .refresh_token_ciphertext
         .contains("initial-oauth-refresh-token"));
 
+    let metadata_only_update = client
+        .put(format!("{base}/api/admin/providers/claude-oauth"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"claude",
+                "upstream_url":&upstream,
+                "auth_scheme":"bearer",
+                "label":"Renamed Claude account",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"claude"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(metadata_only_update.status(), StatusCode::OK);
+    let metadata_only_update: serde_json::Value = metadata_only_update.json().await.unwrap();
+    assert_eq!(
+        metadata_only_update["provider"]["label"],
+        "Renamed Claude account"
+    );
+    assert_eq!(metadata_only_update["provider"]["oauth_generation"], "0");
+    assert!(!metadata_only_update.to_string().contains("initial-oauth"));
+    let preserved_oauth = database.provider_oauth().await.unwrap();
+    assert_eq!(preserved_oauth.len(), 1);
+    assert_eq!(preserved_oauth[0].generation, 0);
+    assert_eq!(
+        preserved_oauth[0].refresh_token_ciphertext,
+        oauth[0].refresh_token_ciphertext
+    );
+
     assert_eq!(
         client
             .put(format!("{base}/api/admin/combos/claude-oauth-fixture"))
@@ -7058,7 +7093,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         .body(
             serde_json::json!({
                 "provider":"openai",
-                "upstream_url":first_url,
+                "upstream_url":&first_url,
                 "api_key":"first-provider-secret"
             })
             .to_string(),
@@ -7072,6 +7107,32 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         .await
         .unwrap()
         .contains("first-provider-secret"));
+    assert_eq!(
+        chat(&client, &base, CLIENT_KEY).await.text().await.unwrap(),
+        "first"
+    );
+
+    let metadata_only_update = client
+        .put(format!("{base}/api/admin/providers/first"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"openai",
+                "upstream_url":first_url,
+                "label":"First provider renamed"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(metadata_only_update.status(), StatusCode::OK);
+    let metadata_only_update: serde_json::Value = metadata_only_update.json().await.unwrap();
+    assert_eq!(
+        metadata_only_update["provider"]["label"],
+        "First provider renamed"
+    );
     assert_eq!(
         chat(&client, &base, CLIENT_KEY).await.text().await.unwrap(),
         "first"

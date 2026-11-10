@@ -88,7 +88,7 @@ function localDateTime(unixSeconds?: number): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-function providerInput(draft: Draft): RustProviderInput {
+function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   const id = draft.id.trim();
   const provider = draft.provider.trim();
   const upstreamUrl = draft.upstreamUrl.trim();
@@ -105,8 +105,12 @@ function providerInput(draft: Draft): RustProviderInput {
     throw new Error("Connection label must contain between 1 and 128 characters");
   }
   if (accountEmail.length > 320) throw new Error("Provider account email is too long");
-  if (!apiKey || new TextEncoder().encode(apiKey).length > 8192) {
-    throw new Error("A provider credential between 1 and 8192 bytes is required for every save");
+  if ((!editing && !apiKey) || new TextEncoder().encode(apiKey).length > 8192) {
+    throw new Error(
+      editing
+        ? "A replacement provider credential cannot exceed 8192 bytes"
+        : "A provider credential between 1 and 8192 bytes is required"
+    );
   }
   if (upstreamUrl.length > 2048) throw new Error("Upstream URL is too long");
   let url: URL;
@@ -129,8 +133,15 @@ function providerInput(draft: Draft): RustProviderInput {
     if (draft.authScheme !== "bearer") {
       throw new Error("OAuth accounts must use Authorization: Bearer");
     }
-    if (!draft.refreshToken || new TextEncoder().encode(draft.refreshToken).length > 8192) {
-      throw new Error("An OAuth refresh token between 1 and 8192 bytes is required");
+    if (
+      (!editing && !draft.refreshToken) ||
+      new TextEncoder().encode(draft.refreshToken).length > 8192
+    ) {
+      throw new Error(
+        editing
+          ? "A replacement OAuth refresh token cannot exceed 8192 bytes"
+          : "An OAuth refresh token between 1 and 8192 bytes is required"
+      );
     }
     if (!expiresAt || expiresAt.getTime() <= Date.now()) {
       throw new Error("OAuth credential expiry must be in the future");
@@ -262,7 +273,7 @@ export default function RustProvidersPageClient() {
     setSaving(true);
     setError(null);
     try {
-      const input = providerInput(draft);
+      const input = providerInput(draft, editingId !== null);
       await replaceRustProvider(draft.id.trim(), input);
       reset();
       await reload();
@@ -637,7 +648,9 @@ export default function RustProvidersPageClient() {
               type="password"
               autoComplete="new-password"
               value={draft.apiKey}
-              placeholder={editingId ? "Required to replace" : "Stored encrypted"}
+              placeholder={
+                editingId ? "Leave blank to keep current credential" : "Stored encrypted"
+              }
               onChange={(event) => set("apiKey", event.target.value)}
             />
           </label>
@@ -649,7 +662,9 @@ export default function RustProvidersPageClient() {
                 type="password"
                 autoComplete="new-password"
                 value={draft.refreshToken}
-                placeholder={editingId ? "Required to replace" : "Stored encrypted"}
+                placeholder={
+                  editingId ? "Leave blank to keep current refresh token" : "Stored encrypted"
+                }
                 onChange={(event) => set("refreshToken", event.target.value)}
               />
             </label>
