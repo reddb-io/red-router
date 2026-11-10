@@ -2915,6 +2915,7 @@ impl ControlPlane {
                     },
                     actor,
                     enforced_tenant,
+                    input.connection_id.as_deref(),
                 )
                 .await
             }
@@ -2944,6 +2945,7 @@ impl ControlPlane {
                     },
                     actor,
                     enforced_tenant,
+                    input.connection_id.as_deref(),
                 )
                 .await
             }
@@ -2971,6 +2973,7 @@ impl ControlPlane {
                     },
                     actor,
                     enforced_tenant,
+                    input.connection_id.as_deref(),
                 )
                 .await
             }
@@ -2983,6 +2986,7 @@ impl ControlPlane {
         input: ProviderAuthImportInput,
         actor: &str,
         enforced_tenant: Option<&str>,
+        expected_connection_id: Option<&str>,
     ) -> Result<ProviderAuthImportView, &'static str> {
         validate_actor(actor)?;
         let tenant_id = enforced_tenant.unwrap_or("red");
@@ -2999,6 +3003,9 @@ impl ControlPlane {
         let parsed = parse_codex_auth(raw)?;
         let provider_id =
             codex_import_provider_id(tenant_id, &parsed.account_id, parsed.user_id.as_deref());
+        if expected_connection_id.is_some_and(|expected| expected != provider_id) {
+            return Err("invalid provider OAuth connection");
+        }
         let existing = self
             .0
             .database
@@ -3071,6 +3078,7 @@ impl ControlPlane {
         input: ProviderAuthImportInput,
         actor: &str,
         enforced_tenant: Option<&str>,
+        expected_connection_id: Option<&str>,
     ) -> Result<ProviderAuthImportView, &'static str> {
         validate_actor(actor)?;
         let tenant_id = enforced_tenant.unwrap_or("red");
@@ -3106,6 +3114,9 @@ impl ControlPlane {
             format!("token:{}", hex::encode(digest.finalize()))
         });
         let provider_id = provider_import_id("claude", tenant_id, &identity);
+        if expected_connection_id.is_some_and(|expected| expected != provider_id) {
+            return Err("invalid provider OAuth connection");
+        }
         let existing = self
             .0
             .database
@@ -3178,6 +3189,7 @@ impl ControlPlane {
         input: ProviderAuthImportInput,
         actor: &str,
         enforced_tenant: Option<&str>,
+        expected_connection_id: Option<&str>,
     ) -> Result<ProviderAuthImportView, &'static str> {
         validate_actor(actor)?;
         let tenant_id = enforced_tenant.unwrap_or("red");
@@ -3219,6 +3231,9 @@ impl ControlPlane {
             .to_string(),
         );
         let provider_id = provider_import_id("agy", tenant_id, &identity);
+        if expected_connection_id.is_some_and(|expected| expected != provider_id) {
+            return Err("invalid provider OAuth connection");
+        }
         let existing = self
             .0
             .database
@@ -9357,7 +9372,7 @@ pub async fn import_codex_auth(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .import_codex_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .import_codex_auth_as(input, &scope.actor, scope.tenant_id.as_deref(), None)
         .await
     {
         Ok(imported) => {
@@ -9421,6 +9436,7 @@ pub async fn import_codex_auth_bulk(
                 },
                 &scope.actor,
                 scope.tenant_id.as_deref(),
+                None,
             )
             .await;
         match imported {
@@ -9463,7 +9479,7 @@ pub async fn import_claude_auth(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .import_claude_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .import_claude_auth_as(input, &scope.actor, scope.tenant_id.as_deref(), None)
         .await
     {
         Ok(imported) => {
@@ -9507,7 +9523,7 @@ pub async fn import_agy_auth(
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control
-        .import_agy_auth_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .import_agy_auth_as(input, &scope.actor, scope.tenant_id.as_deref(), None)
         .await
     {
         Ok(imported) => {
@@ -9577,6 +9593,7 @@ pub async fn import_agy_auth_bulk(
                 },
                 &scope.actor,
                 scope.tenant_id.as_deref(),
+                None,
             )
             .await
         {
@@ -9741,6 +9758,7 @@ pub async fn import_claude_auth_bulk(
                 },
                 &scope.actor,
                 scope.tenant_id.as_deref(),
+                None,
             )
             .await;
         match imported {

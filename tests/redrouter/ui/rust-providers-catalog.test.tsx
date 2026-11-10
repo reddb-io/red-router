@@ -9,11 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const api = vi.hoisted(() => ({
+  authorizeRustProviderOAuth: vi.fn(),
   disableRustProvider: vi.fn(),
+  exchangeRustProviderOAuth: vi.fn(),
   listRustProviders: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
   refreshRustModelCatalog: vi.fn(),
+  refreshRustProviderOAuth: vi.fn(),
   replaceRustProvider: vi.fn(),
   testRustProvider: vi.fn(),
 }));
@@ -127,5 +130,75 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("OpenAI: 1 models");
     expect(container.textContent).toContain("gpt-5");
     expect(container.textContent).toContain("context");
+  });
+
+  it("completes Antigravity browser OAuth through the Rust control plane", async () => {
+    api.listRustProviders.mockResolvedValue([]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: {
+        providers: 0,
+        providerModels: 0,
+        fetchedAt: "2026-11-09T00:00:00.000Z",
+      },
+      providers: [],
+      snapshot: { source: "bundled", revision: null },
+    });
+    api.authorizeRustProviderOAuth.mockResolvedValue({
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=sealed",
+      state: "sealed-state",
+      codeVerifier: "v".repeat(43),
+      codeChallenge: "c".repeat(43),
+      redirectUri: "http://127.0.0.1:20128/callback",
+      flowType: "authorization_code",
+      callbackPath: "/callback",
+      callbackHost: "localhost",
+    });
+    api.exchangeRustProviderOAuth.mockResolvedValue({
+      id: "agy-account",
+      provider: "agy",
+      email: "agent@example.com",
+      displayName: "Antigravity account",
+    });
+
+    const container = await mount();
+    const connect = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect Antigravity"
+    );
+    await act(async () => {
+      connect?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.authorizeRustProviderOAuth).toHaveBeenCalledWith(
+      "agy",
+      "http://127.0.0.1:20128/callback"
+    );
+    expect(container.textContent).toContain("Connect Antigravity");
+    const callback = container.querySelector("textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(
+        callback,
+        "http://127.0.0.1:20128/callback?code=provider-code&state=returned-state"
+      );
+      callback.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const complete = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Complete connection"
+    );
+    await act(async () => {
+      complete?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.exchangeRustProviderOAuth).toHaveBeenCalledWith("agy", {
+      code: "provider-code",
+      state: "returned-state",
+      redirectUri: "http://127.0.0.1:20128/callback",
+      codeVerifier: "v".repeat(43),
+    });
+    expect(api.listRustProviders).toHaveBeenCalledTimes(2);
   });
 });

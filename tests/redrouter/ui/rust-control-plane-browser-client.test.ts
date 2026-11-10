@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  authorizeRustProviderOAuth,
   deleteRustClientKey,
   disableRustProvider,
+  exchangeRustProviderOAuth,
   issueRustClientKey,
   listRustClientKeys,
   listRustProviders,
@@ -17,6 +19,7 @@ import {
   refreshRustProviderOAuth,
   rotateRustProviderOAuth,
   rustAdminFetch,
+  rustProviderOAuthFetch,
   rustUsageSinkFetch,
   testRustProvider,
   type RustClientKey,
@@ -150,9 +153,68 @@ describe("Rust control-plane browser client", () => {
     const [, init] = fetch.mock.calls[0] as [string, RequestInit];
     expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
     await expect(rustUsageSinkFetch("/api/admin/providers")).rejects.toThrow("usage-sinks");
+    await expect(rustUsageSinkFetch("https://attacker.example/api/usage-sinks")).rejects.toThrow(
+      "same-origin"
+    );
+  });
+
+  it("keeps provider browser OAuth on the authenticated same-origin Rust surface", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const authorization = {
+      authUrl: "https://accounts.example/authorize?state=sealed",
+      state: "sealed-state",
+      codeVerifier: "v".repeat(43),
+      codeChallenge: "c".repeat(43),
+      redirectUri: "http://127.0.0.1:20128/callback",
+      flowType: "authorization_code" as const,
+      callbackPath: "/callback",
+      callbackHost: "localhost",
+    };
+    const connection = {
+      id: "agy-account",
+      provider: "agy",
+      email: "agent@example.com",
+      displayName: "Antigravity account",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(authorization))
+      .mockResolvedValueOnce(Response.json({ success: true, connection }));
+    vi.stubGlobal("fetch", fetch);
+
     await expect(
-      rustUsageSinkFetch("https://attacker.example/api/usage-sinks")
+      authorizeRustProviderOAuth("agy", "http://127.0.0.1:20128/callback")
+    ).resolves.toEqual(authorization);
+    await expect(
+      exchangeRustProviderOAuth("agy", {
+        code: "authorization-code",
+        redirectUri: authorization.redirectUri,
+        codeVerifier: authorization.codeVerifier,
+        state: authorization.state,
+      })
+    ).resolves.toEqual(connection);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/oauth/agy/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback",
+      "/api/oauth/agy/exchange",
+    ]);
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(init.credentials).toBe("same-origin");
+      expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
+    }
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
+      code: "authorization-code",
+      redirectUri: authorization.redirectUri,
+      codeVerifier: authorization.codeVerifier,
+      state: authorization.state,
+    });
+
+    await expect(
+      rustProviderOAuthFetch("https://attacker.example/api/oauth/agy/authorize")
     ).rejects.toThrow("same-origin");
+    await expect(rustProviderOAuthFetch("/api/oauth/unknown/authorize")).rejects.toThrow(
+      "supported same-origin"
+    );
   });
 
   it("uses the Rust key authority for list, issue, replacement and revocation", async () => {

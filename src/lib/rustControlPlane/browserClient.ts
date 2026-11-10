@@ -59,6 +59,7 @@ export interface RustUsageSummary {
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
 export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
+export type RustProviderOAuthKind = "codex" | "claude" | "agy";
 
 export interface RustProvider {
   id: string;
@@ -75,7 +76,7 @@ export interface RustProvider {
   expires_at_unix?: number;
   credential_expired: boolean;
   credential_type: "static" | "oauth";
-  oauth_provider?: "codex" | "claude";
+  oauth_provider?: RustProviderOAuthKind;
   oauth_generation?: string;
   refreshable: boolean;
   oauth_refresh_state?: "ready" | "reauth_required";
@@ -95,8 +96,35 @@ export interface RustProviderInput {
   account_email?: string;
   expires_at_unix?: number;
   credential_type?: "static" | "oauth";
-  oauth_provider?: "codex" | "claude";
+  oauth_provider?: RustProviderOAuthKind;
   refresh_token?: string;
+}
+
+export interface RustProviderOAuthAuthorization {
+  authUrl: string;
+  state: string;
+  codeVerifier: string;
+  codeChallenge: string;
+  redirectUri: string;
+  flowType: "authorization_code" | "authorization_code_pkce";
+  callbackPath: string;
+  callbackHost: string;
+  fixedPort?: number;
+}
+
+export interface RustProviderOAuthExchangeInput {
+  code: string;
+  redirectUri: string;
+  codeVerifier: string;
+  state: string;
+  connectionId?: string;
+}
+
+export interface RustProviderOAuthConnection {
+  id: string;
+  provider: RustProviderOAuthKind;
+  email?: string | null;
+  displayName: string;
 }
 
 export interface RustProviderOAuthRotationInput {
@@ -263,11 +291,29 @@ export async function rustAdminFetch(path: string, init: RequestInit = {}): Prom
   });
 }
 
-/** Same authenticated browser session, limited to the Rust-owned usage-sink surface. */
-export async function rustUsageSinkFetch(
+/** Authenticated browser flow for the three OAuth providers owned by red-routerd. */
+export async function rustProviderOAuthFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
+  if (!/^\/api\/oauth\/(?:codex|claude|agy)\/(?:authorize|exchange)(?:\?|$)/.test(path)) {
+    throw new TypeError("Rust provider OAuth requests must use a supported same-origin path");
+  }
+  const csrf = readRustAdminCsrfCookie();
+  if (!csrf) throw new Error("Rust admin session is unavailable");
+  const headers = new Headers(init.headers);
+  headers.set(CSRF_HEADER, csrf);
+  headers.set("Accept", "application/json");
+  return fetch(path, {
+    ...init,
+    cache: init.cache ?? "no-store",
+    credentials: "same-origin",
+    headers,
+  });
+}
+
+/** Same authenticated browser session, limited to the Rust-owned usage-sink surface. */
+export async function rustUsageSinkFetch(path: string, init: RequestInit = {}): Promise<Response> {
   if (!path.startsWith("/api/usage-sinks")) {
     throw new TypeError("Rust usage-sink requests must use a same-origin /api/usage-sinks path");
   }
@@ -358,7 +404,8 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.credential_type === "static" || provider.credential_type === "oauth") &&
     (provider.oauth_provider === undefined ||
       provider.oauth_provider === "codex" ||
-      provider.oauth_provider === "claude") &&
+      provider.oauth_provider === "claude" ||
+      provider.oauth_provider === "agy") &&
     (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
     typeof provider.refreshable === "boolean" &&
     (provider.oauth_refresh_state === undefined ||
@@ -401,6 +448,41 @@ function isRustProviderOAuthRefresh(value: unknown): value is RustProviderOAuthR
     (refresh.upstream_status === undefined || isOptionalNumber(refresh.upstream_status)) &&
     typeof refresh.generation === "string" &&
     (refresh.expires_at_unix === undefined || isOptionalNumber(refresh.expires_at_unix))
+  );
+}
+
+function isRustProviderOAuthAuthorization(value: unknown): value is RustProviderOAuthAuthorization {
+  if (!value || typeof value !== "object") return false;
+  const authorization = value as Record<string, unknown>;
+  return (
+    !("access_token" in authorization) &&
+    !("refresh_token" in authorization) &&
+    typeof authorization.authUrl === "string" &&
+    typeof authorization.state === "string" &&
+    typeof authorization.codeVerifier === "string" &&
+    typeof authorization.codeChallenge === "string" &&
+    typeof authorization.redirectUri === "string" &&
+    (authorization.flowType === "authorization_code" ||
+      authorization.flowType === "authorization_code_pkce") &&
+    typeof authorization.callbackPath === "string" &&
+    typeof authorization.callbackHost === "string" &&
+    (authorization.fixedPort === undefined || isNonNegativeInteger(authorization.fixedPort))
+  );
+}
+
+function isRustProviderOAuthConnection(value: unknown): value is RustProviderOAuthConnection {
+  if (!value || typeof value !== "object") return false;
+  const connection = value as Record<string, unknown>;
+  return (
+    !("access_token" in connection) &&
+    !("refresh_token" in connection) &&
+    !("credential" in connection) &&
+    typeof connection.id === "string" &&
+    (connection.provider === "codex" ||
+      connection.provider === "claude" ||
+      connection.provider === "agy") &&
+    (connection.email === undefined || isOptionalString(connection.email)) &&
+    typeof connection.displayName === "string"
   );
 }
 
@@ -580,6 +662,47 @@ export async function listRustProviders(): Promise<RustProvider[]> {
     throw new Error("Invalid Rust provider response");
   }
   return providers;
+}
+
+export async function authorizeRustProviderOAuth(
+  provider: RustProviderOAuthKind,
+  redirectUri: string
+): Promise<RustProviderOAuthAuthorization> {
+  const query = new URLSearchParams({ redirect_uri: redirectUri });
+  const response = await rustProviderOAuthFetch(
+    `/api/oauth/${provider}/authorize?${query.toString()}`
+  );
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  if (!isRustProviderOAuthAuthorization(value)) {
+    throw new Error("Invalid Rust provider OAuth authorization response");
+  }
+  return value;
+}
+
+export async function exchangeRustProviderOAuth(
+  provider: RustProviderOAuthKind,
+  input: RustProviderOAuthExchangeInput
+): Promise<RustProviderOAuthConnection> {
+  const response = await rustProviderOAuthFetch(
+    `/api/oauth/${provider}/exchange`,
+    jsonRequest("POST", input)
+  );
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  const connection =
+    value && typeof value === "object"
+      ? (value as { success?: unknown; connection?: unknown }).connection
+      : undefined;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    (value as { success?: unknown }).success !== true ||
+    !isRustProviderOAuthConnection(connection)
+  ) {
+    throw new Error("Invalid Rust provider OAuth exchange response");
+  }
+  return connection;
 }
 
 export async function replaceRustProvider(

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card } from "@/shared/components";
+import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import {
   disableRustProvider,
   listRustProviders,
@@ -17,6 +18,7 @@ import {
   type RustProviderDiagnostic,
   type RustProviderAuthScheme,
   type RustProviderInput,
+  type RustProviderOAuthKind,
   type RustRateLimitScope,
 } from "@/lib/rustControlPlane/browserClient";
 
@@ -32,7 +34,7 @@ type Draft = {
   accountEmail: string;
   expiresAt: string;
   credentialType: "static" | "oauth";
-  oauthProvider: "codex" | "claude";
+  oauthProvider: RustProviderOAuthKind;
   refreshToken: string;
 };
 
@@ -170,6 +172,10 @@ export default function RustProvidersPageClient() {
   const [diagnostics, setDiagnostics] = useState<Record<string, RustProviderDiagnostic>>({});
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
+  const [oauthDialog, setOauthDialog] = useState<{
+    provider: RustProviderOAuthKind;
+    connectionId?: string;
+  } | null>(null);
 
   const reload = useCallback(async () => {
     const [providerResult, catalogResult] = await Promise.allSettled([
@@ -376,6 +382,27 @@ export default function RustProvidersPageClient() {
       </Card>
 
       <Card
+        title="Provider browser sign-in"
+        subtitle="Connect supported CLI accounts without copying access or refresh tokens into the dashboard. OAuth state, token exchange and encrypted persistence stay in Rust."
+      >
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setOauthDialog({ provider: "codex" })}>
+            Connect OpenAI Codex
+          </Button>
+          <Button variant="secondary" onClick={() => setOauthDialog({ provider: "claude" })}>
+            Connect Claude Code
+          </Button>
+          <Button variant="secondary" onClick={() => setOauthDialog({ provider: "agy" })}>
+            Connect Antigravity
+          </Button>
+        </div>
+        <p className="mt-3 text-xs text-text-muted">
+          API keys and custom OpenAI-compatible endpoints remain available in the manual connection
+          form below.
+        </p>
+      </Card>
+
+      <Card
         title={editingId ? `Replace ${editingId}` : "Add provider connection"}
         subtitle={
           editingId
@@ -490,6 +517,7 @@ export default function RustProvidersPageClient() {
               >
                 <option value="codex">OpenAI Codex CLI</option>
                 <option value="claude">Claude Code</option>
+                <option value="agy">Antigravity</option>
               </select>
             </label>
           )}
@@ -737,13 +765,25 @@ export default function RustProvidersPageClient() {
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
+                {provider.credential_type === "oauth" && provider.oauth_provider && (
+                  <Button
+                    variant="secondary"
+                    disabled={saving}
+                    onClick={() =>
+                      setOauthDialog({
+                        provider: provider.oauth_provider as RustProviderOAuthKind,
+                        connectionId: provider.id,
+                      })
+                    }
+                  >
+                    Sign in again
+                  </Button>
+                )}
                 {provider.enabled && provider.refreshable && (
                   <Button
                     variant="secondary"
                     loading={refreshingProviderId === provider.id}
-                    disabled={
-                      refreshingProviderId !== null && refreshingProviderId !== provider.id
-                    }
+                    disabled={refreshingProviderId !== null && refreshingProviderId !== provider.id}
                     onClick={() => void refreshOAuth(provider)}
                   >
                     Refresh OAuth
@@ -770,6 +810,21 @@ export default function RustProvidersPageClient() {
           ))
         )}
       </div>
+      {oauthDialog && (
+        <RustProviderOAuthModal
+          provider={oauthDialog.provider}
+          connectionId={oauthDialog.connectionId}
+          onClose={() => setOauthDialog(null)}
+          onSuccess={async () => {
+            setOauthDialog(null);
+            try {
+              await reload();
+            } catch (cause) {
+              setError(errorMessage(cause));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

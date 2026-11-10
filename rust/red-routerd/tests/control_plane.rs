@@ -5522,6 +5522,22 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         .split_whitespace()
         .any(|scope| scope == "openid"));
 
+    let mismatched_reauth = client
+        .post(format!("{second_base}/api/oauth/agy/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"agy-browser-code",
+            "redirectUri":"http://127.0.0.1:9876/callback",
+            "codeVerifier":agy_verifier,
+            "state":agy_state,
+            "connectionId":claude_provider_id
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(mismatched_reauth.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(database.providers().await.unwrap().len(), 2);
+
     let agy_exchange = client
         .post(format!("{second_base}/api/oauth/agy/exchange"))
         .bearer_auth(ADMIN_KEY)
@@ -5544,7 +5560,7 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         "browser-agy@example.com"
     );
     assert!(!agy_exchange.to_string().contains("agy-browser-refresh"));
-    assert_eq!(agy_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(agy_requests.load(Ordering::SeqCst), 2);
 
     let providers = database.providers().await.unwrap();
     assert_eq!(providers.len(), 3);
