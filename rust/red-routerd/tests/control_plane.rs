@@ -7480,7 +7480,10 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         .unwrap()
         .iter()
         .all(|resilience| resilience.provider_id != "second"));
-    assert_eq!(chat(&client, &base, RUST_CLIENT_KEY).await.status(), 403);
+    assert_eq!(
+        chat(&client, &base, RUST_CLIENT_KEY).await.status(),
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(
         client
             .put(format!("{base}/api/admin/client-keys/agent-fleet"))
