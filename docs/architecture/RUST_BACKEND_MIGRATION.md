@@ -87,13 +87,16 @@ shows the active validated snapshot and revision, offers its provider namespace 
 inspects provider model metadata without downloading upstream data in the browser. The broad
 Browser authorization and most CLI import formats remain compatibility features to migrate
 as separate vertical slices; they are not silently backed by the Next database in Rust mode.
-Codex CLI `auth.json` import is now Rust-owned for both the dashboard's single and bulk JSON
-contracts. It derives a tenant-scoped stable connection identity from the workspace and user
-claims, so two members of one ChatGPT workspace do not collide, and requires explicit overwrite
-for the same account. Access and refresh tokens use the normal encrypted provider/OAuth
-repositories, responses are redacted and non-cacheable, and the import is audit logged. ZIP
-extraction, export back to a local CLI and the remaining provider import formats are still
-compatibility work.
+Codex CLI `auth.json` and Claude CLI `.credentials.json` imports are now Rust-owned for both the
+dashboard's single and bulk JSON contracts. Codex derives a tenant-scoped stable connection
+identity from the workspace and user claims, so two members of one ChatGPT workspace do not
+collide. Claude performs a bounded, redirect-free bootstrap against the fixed Anthropic endpoint,
+uses the returned account UUID as its stable identity, accepts an operator-supplied e-mail when
+bootstrap cannot identify the account, and otherwise requires explicit unsafe-import intent.
+Both importers require explicit overwrite for an existing account. Access and refresh tokens use
+the normal encrypted provider/OAuth repositories, responses are redacted and non-cacheable, and
+imports are audit logged. ZIP extraction, export back to a local CLI and the remaining provider
+import formats are still compatibility work.
 Rust now owns the first OAuth persistence vertical for imported Codex and Claude sessions:
 access and refresh tokens use separately authenticated ciphertext, reads expose only provider
 kind and a string-encoded generation, and SQLite rotates the pair and expiry in one

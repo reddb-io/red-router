@@ -75,6 +75,13 @@ those environment secrets.
   replacing that account. The response contains only the redacted provider view; access, ID and
   refresh tokens never appear in the response or audit event. Bulk import accepts at most 50
   entries and reports individual failures without aborting successful entries.
+- `POST /api/providers/claude-auth/import` and `/import-bulk` preserve the corresponding Claude
+  CLI `.credentials.json` dashboard contracts. Rust performs a bounded bootstrap request against
+  Anthropic's fixed CLI endpoint with the imported access token, uses the returned account UUID as
+  the stable tenant-scoped identity, and keeps bootstrap response fields out of public provider
+  state except for the validated account e-mail. When bootstrap cannot identify an account, an
+  operator-supplied e-mail is accepted; otherwise the import fails with `identity_unverified`
+  unless the caller explicitly opts into overwrite mode. Tokens remain write-only and encrypted.
 - `POST /api/admin/providers/{id}/oauth/rotate` replaces an imported access/refresh-token
   pair and expiry. The caller supplies the last observed `expected_generation`; SQLite uses
   `BEGIN IMMEDIATE` plus a generation CAS to update both ciphertexts and expiry atomically,
