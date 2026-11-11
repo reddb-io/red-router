@@ -185,6 +185,7 @@ struct SqliteChangeWatcher {
     pool: sqlx::AnyPool,
     version: i64,
     control_marker: [u8; 32],
+    pending: Option<(i64, [u8; 32])>,
 }
 
 impl SqliteChangeWatcher {
@@ -198,10 +199,18 @@ impl SqliteChangeWatcher {
             pool: pool.clone(),
             version,
             control_marker,
+            pending: None,
         })
     }
 
     async fn changed(&mut self) -> Result<bool, &'static str> {
+        // Do not forget a relevant durable change until both provider and
+        // OIDC snapshots have been rebuilt successfully. This also makes a
+        // transient SQLite read failure retryable without requiring another
+        // writer to bump data_version.
+        if self.pending.is_some() {
+            return Ok(true);
+        }
         let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
             .fetch_one(&self.pool)
             .await
@@ -211,12 +220,20 @@ impl SqliteChangeWatcher {
         }
         let control_marker = sqlite_control_marker(&self.pool).await?;
         let changed = control_marker != self.control_marker;
-        // A failed marker read must not acknowledge the new data version. The
-        // next poll then retries the same durable change instead of silently
-        // stranding an older in-memory snapshot.
-        self.version = version;
-        self.control_marker = control_marker;
+        if changed {
+            self.pending = Some((version, control_marker));
+        } else {
+            // Non-control-plane writes do not require a snapshot rebuild.
+            self.version = version;
+        }
         Ok(changed)
+    }
+
+    fn acknowledge(&mut self) {
+        if let Some((version, control_marker)) = self.pending.take() {
+            self.version = version;
+            self.control_marker = control_marker;
+        }
     }
 }
 
@@ -1898,8 +1915,11 @@ impl ControlPlane {
                     // Keep the last complete snapshot available meanwhile.
                     Err(_) => continue,
                 }
-                plane.sync_provider_snapshot().await;
-                plane.sync_oidc_snapshot().await;
+                let provider = plane.sync_provider_snapshot().await;
+                let oidc = plane.sync_oidc_snapshot().await;
+                if provider.is_ok() && oidc.is_ok() {
+                    plane.acknowledge_control_snapshot().await;
+                }
             }
         });
     }
@@ -1911,73 +1931,81 @@ impl ControlPlane {
         }
     }
 
-    async fn sync_provider_snapshot(&self) {
+    async fn acknowledge_control_snapshot(&self) {
+        if let Some(watcher) = &self.0.sqlite_changes {
+            watcher.lock().await.acknowledge();
+        }
+    }
+
+    async fn sync_provider_snapshot(&self) -> Result<(), &'static str> {
         let observed = match self.provider_runtime_signature().await {
             Ok(signature) => signature,
-            Err(_) => {
+            Err(error) => {
                 *self.0.current.write().await = None;
                 *self.0.routes.write().await = RouteSnapshot::Unavailable;
-                return;
+                return Err(error);
             }
         };
         if *self.0.provider_snapshot_signature.read().await == observed {
-            return;
+            return Ok(());
         }
         let _mutation = self.0.mutation.lock().await;
         let latest = match self.provider_runtime_signature().await {
             Ok(signature) => signature,
-            Err(_) => {
+            Err(error) => {
                 *self.0.current.write().await = None;
                 *self.0.routes.write().await = RouteSnapshot::Unavailable;
-                return;
+                return Err(error);
             }
         };
         if *self.0.provider_snapshot_signature.read().await == latest {
-            return;
+            return Ok(());
         }
-        if self.refresh().await.is_err() {
+        if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
-            return;
+            return Err(error);
         }
-        if self.refresh_quotas().await.is_err() {
+        if let Err(error) = self.refresh_quotas().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
-            return;
+            return Err(error);
         }
-        if self.refresh_routes().await.is_err() {
+        if let Err(error) = self.refresh_routes().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
-            return;
+            return Err(error);
         }
         *self.0.provider_snapshot_signature.write().await = latest;
+        Ok(())
     }
 
-    async fn sync_oidc_snapshot(&self) {
+    async fn sync_oidc_snapshot(&self) -> Result<(), &'static str> {
         let observed = match self.oidc_runtime_signature().await {
             Ok(signature) => signature,
-            Err(_) => {
+            Err(error) => {
                 self.clear_oidc_runtime().await;
-                return;
+                return Err(error);
             }
         };
         if *self.0.oidc_snapshot_signature.read().await == observed {
-            return;
+            return Ok(());
         }
         let _mutation = self.0.mutation.lock().await;
         let latest = match self.oidc_runtime_signature().await {
             Ok(signature) => signature,
-            Err(_) => {
+            Err(error) => {
                 self.clear_oidc_runtime().await;
-                return;
+                return Err(error);
             }
         };
         if *self.0.oidc_snapshot_signature.read().await == latest {
-            return;
+            return Ok(());
         }
-        if self.refresh_oidc().await.is_err() {
+        if let Err(error) = self.refresh_oidc().await {
             self.clear_oidc_runtime().await;
-            return;
+            return Err(error);
         }
         *self.0.oidc_snapshot_signature.write().await = latest;
+        Ok(())
     }
 
     fn spawn_oauth_refresh_sync(&self, cadence: Duration) {
