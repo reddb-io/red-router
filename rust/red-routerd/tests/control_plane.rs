@@ -4145,14 +4145,15 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         .unwrap();
     assert_eq!(second.status(), StatusCode::OK);
     assert_eq!(second.text().await.unwrap(), "relay-second");
-    let bodies = second_bodies.lock().unwrap();
-    let messages = bodies[0]["messages"].as_array().unwrap();
-    assert_eq!(messages[0]["role"], "system");
-    let handoff = messages[0]["content"].as_str().unwrap();
-    assert!(handoff.contains("<previous_model>first-model</previous_model>"));
-    assert!(handoff.contains("<current_model>second-model</current_model>"));
-    assert_eq!(messages[1]["content"], "what is next?");
-    drop(bodies);
+    {
+        let bodies = second_bodies.lock().unwrap();
+        let messages = bodies[0]["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "system");
+        let handoff = messages[0]["content"].as_str().unwrap();
+        assert!(handoff.contains("<previous_model>first-model</previous_model>"));
+        assert!(handoff.contains("<current_model>second-model</current_model>"));
+        assert_eq!(messages[1]["content"], "what is next?");
+    }
 
     let invalid = client
         .post(format!("{base}/v1/chat/completions"))
