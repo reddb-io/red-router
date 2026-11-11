@@ -661,6 +661,42 @@ impl NativeUsage {
         if denied {
             return Ok(false);
         }
+        // Each matching model window is checked while the same SQLite write
+        // lock protects both the completed ledger and all outstanding holds.
+        let model_limits = sqlx::query("SELECT reset_interval,reset_minutes,token_limit FROM redrouter_client_model_token_limits WHERE key_id=$1 AND model=$2")
+            .bind(reservation.key_id).bind(reservation.model).fetch_all(&mut **connection)
+            .await.map_err(|_| "model quota unavailable")?;
+        for limit in model_limits {
+            let interval: String = limit
+                .try_get("reset_interval")
+                .map_err(|_| "invalid model quota")?;
+            let reset: i64 = limit
+                .try_get("reset_minutes")
+                .map_err(|_| "invalid model quota")?;
+            let maximum: i64 = limit
+                .try_get("token_limit")
+                .map_err(|_| "invalid model quota")?;
+            if !(1..=MAX_SAFE_INTEGER).contains(&maximum) {
+                return Err("invalid model quota");
+            }
+            let window = model_window_start(reservation.now_ms, &interval, reset)?;
+            let consumed: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+                .bind(reservation.key_id).bind(reservation.model).bind(window).fetch_one(&mut **connection)
+                .await.map_err(|_| "model quota ledger unavailable")?;
+            let held: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(reserved_tokens),0) FROM redrouter_usage_reservations WHERE key_id=$1 AND model=$2")
+                .bind(reservation.key_id).bind(reservation.model).fetch_one(&mut **connection)
+                .await.map_err(|_| "model quota reservations unavailable")?;
+            if consumed < 0 || held < 0 {
+                return Err("invalid model quota state");
+            }
+            if consumed
+                .checked_add(held)
+                .and_then(|n| n.checked_add(reservation.reserved_tokens))
+                .is_none_or(|n| n > maximum)
+            {
+                return Ok(false);
+            }
+        }
         let inserted = sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'dispatched') ON CONFLICT (event_id) DO NOTHING")
             .bind(reservation.event_id)
             .bind(reservation.key_id)
@@ -963,6 +999,49 @@ fn boundaries(now_ms: i64) -> Result<(i64, i64), &'static str> {
     ))
 }
 
+fn model_window_start(
+    now_ms: i64,
+    interval: &str,
+    reset_minutes: i64,
+) -> Result<i64, &'static str> {
+    if !(0..1440).contains(&reset_minutes) {
+        return Err("invalid model quota reset");
+    }
+    let now = OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms) * 1_000_000)
+        .map_err(|_| "invalid model quota timestamp")?;
+    let reset = time::Time::from_hms((reset_minutes / 60) as u8, (reset_minutes % 60) as u8, 0)
+        .map_err(|_| "invalid model quota reset")?;
+    let today = now.date();
+    let date = match interval {
+        "daily" => today,
+        "weekly" => today
+            .checked_sub(time::Duration::days(i64::from(
+                today.weekday().number_days_from_monday(),
+            )))
+            .ok_or("invalid model quota timestamp")?,
+        "monthly" => time::Date::from_calendar_date(today.year(), today.month(), 1)
+            .map_err(|_| "invalid model quota timestamp")?,
+        _ => return Err("invalid model quota interval"),
+    };
+    let candidate = date.with_time(reset).assume_utc();
+    let start = if candidate <= now {
+        candidate
+    } else {
+        let prior = match interval {
+            "daily" => date.checked_sub(time::Duration::days(1)),
+            "weekly" => date.checked_sub(time::Duration::days(7)),
+            "monthly" => date
+                .previous_day()
+                .and_then(|day| time::Date::from_calendar_date(day.year(), day.month(), 1).ok()),
+            _ => None,
+        }
+        .ok_or("invalid model quota timestamp")?;
+        prior.with_time(reset).assume_utc()
+    };
+    i64::try_from(start.unix_timestamp_nanos() / 1_000_000)
+        .map_err(|_| "invalid model quota timestamp")
+}
+
 fn usd_to_micros(usd: f64) -> Result<i64, &'static str> {
     let micros = usd * 1_000_000.0;
     if !micros.is_finite() || micros < 0.0 || micros > MAX_SAFE_INTEGER as f64 {
@@ -1046,6 +1125,72 @@ mod tests {
             reservation_tokens: 60,
             reservation_microusd: 100_000,
         }
+    }
+
+    #[test]
+    fn model_windows_follow_utc_reset_boundaries() {
+        use time::format_description::well_known::Rfc3339;
+        let ms = |value: &str| {
+            OffsetDateTime::parse(value, &Rfc3339)
+                .unwrap()
+                .unix_timestamp()
+                * 1000
+        };
+        assert_eq!(
+            model_window_start(ms("2024-03-01T01:00:00Z"), "monthly", 120).unwrap(),
+            ms("2024-02-01T02:00:00Z")
+        );
+        assert_eq!(
+            model_window_start(ms("2024-03-04T01:00:00Z"), "weekly", 120).unwrap(),
+            ms("2024-02-26T02:00:00Z")
+        );
+        assert_eq!(
+            model_window_start(ms("2024-03-04T02:00:00Z"), "daily", 120).unwrap(),
+            ms("2024-03-04T02:00:00Z")
+        );
+        assert!(model_window_start(ms("2024-03-04T02:00:00Z"), "hourly", 0).is_err());
+    }
+
+    #[tokio::test]
+    async fn model_limit_serializes_reservations_across_instances() {
+        let folder = TempDir::new().unwrap();
+        let url = sqlite_url(&folder);
+        let first = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        sqlx::query("INSERT INTO redrouter_client_model_token_limits VALUES ('key','limited','daily',0,100)")
+            .execute(first.sql_pool().unwrap()).await.unwrap();
+        let second = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let one = NativeUsage::new(first.clone()).unwrap();
+        let two = NativeUsage::new(second).unwrap();
+        let global = NativeQuota {
+            max_tokens_per_minute: 1000,
+            max_tokens_per_day: 1000,
+            max_monthly_microusd: 0,
+            reservation_tokens: 60,
+            reservation_microusd: 0,
+        };
+        let reservation = Reservation {
+            event_id: "one",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "limited",
+            quota: global,
+            reserved_tokens: 60,
+            reserved_microusd: 0,
+            now_ms: 1_700_000_000_000,
+        };
+        let other = Reservation {
+            event_id: "two",
+            ..reservation
+        };
+        let (a, b) = tokio::join!(one.reserve(&reservation), two.reserve(&other));
+        assert_ne!(a.unwrap(), b.unwrap());
+        let different = Reservation {
+            event_id: "different",
+            model: "another-model",
+            ..reservation
+        };
+        assert!(one.reserve(&different).await.unwrap());
     }
 
     #[tokio::test]

@@ -483,6 +483,16 @@ description, and OpenAI-compatible `usage` with `prompt_tokens` and
 and evidence are operator assertions, not inferred prices; check them against the
 provider. Reconciliation atomically writes the ledger and minute counter and
 removes the hold. Do not put credentials or sensitive response content in evidence.
+For a native (not imported) client key with an existing global usage quota and a
+positive token reservation bound, stop all servers, disable the key and set
+`RED_ROUTER_NATIVE_DB_PATH`. Run `red-routerd configure-model-token-limit
+--offline-confirmed KEY MODEL INTERVAL RESET_MINUTES LIMIT`. Intervals are
+`daily`, `weekly` (Monday), or `monthly`; reset minutes are 0–1439 from midnight
+UTC. Multiple windows can apply to the same model. The SQLite admission transaction
+counts recorded model tokens and outstanding model reservations across processes.
+The dashboard cannot yet manage these rules, and legacy model counters and limits
+are not yet imported; imported keys are rejected by this command. The existing
+global quota and compatible per-request reservation must remain configured.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

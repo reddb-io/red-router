@@ -6086,6 +6086,27 @@ impl ControlPlane {
         if native_quota.enabled() && self.0.native_usage.read().await.is_none() {
             return Err("native usage quotas require SQLite storage");
         }
+        if self.0.database.is_sqlite().await {
+            let pool = self
+                .0
+                .database
+                .sql_pool()
+                .ok_or("model quota unavailable")?;
+            let minimum: Option<i64> = sqlx::query_scalar(
+                "SELECT MIN(token_limit) FROM redrouter_client_model_token_limits WHERE key_id=$1",
+            )
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .map_err(|_| "model quota unavailable")?;
+            if minimum.is_some_and(|limit| {
+                !native_quota.enabled()
+                    || native_quota.reservation_tokens <= 0
+                    || native_quota.reservation_tokens > limit
+            }) {
+                return Err("model quotas require a compatible global reservation");
+            }
+        }
         let record = StoredClientKey {
             id: id.to_owned(),
             label: input.label,

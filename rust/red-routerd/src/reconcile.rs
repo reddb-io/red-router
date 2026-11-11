@@ -147,6 +147,75 @@ pub async fn cancel_undispatched(path: &Path, id: &str) -> Result<bool, &'static
     Ok(result.rows_affected() == 1)
 }
 
+/// Configure one model limit while the key and servers are offline. Imported
+/// keys require separate baseline adoption and are deliberately rejected.
+pub async fn configure_native_model_limit(
+    path: &Path,
+    key: &str,
+    model: &str,
+    interval: &str,
+    reset_minutes: i64,
+    limit: i64,
+) -> Result<(), &'static str> {
+    if key.is_empty()
+        || key.len() > 128
+        || key.chars().any(char::is_control)
+        || model.is_empty()
+        || model.len() > 256
+        || model.trim() != model
+        || model.chars().any(char::is_control)
+        || !matches!(interval, "daily" | "weekly" | "monthly")
+        || !(0..1440).contains(&reset_minutes)
+        || !(1..=9_007_199_254_740_991).contains(&limit)
+    {
+        return Err("invalid model quota");
+    }
+    let pool = database(path, false).await?;
+    let mut db = pool
+        .acquire()
+        .await
+        .map_err(|_| "model quota storage unavailable")?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "model quota storage unavailable")?;
+    let result: Result<(), &'static str> = async {
+        let row = sqlx::query("SELECT k.enabled,q.max_tokens_per_minute,q.max_tokens_per_day,q.max_monthly_microusd,q.reservation_tokens FROM redrouter_control_client_keys k JOIN redrouter_control_client_key_quotas q ON q.key_id=k.id AND q.revision=k.revision WHERE k.id=?")
+            .bind(key).fetch_optional(&mut *db).await.map_err(|_| "client quota unavailable")?.ok_or("client quota unavailable")?;
+        let enabled: i64 = row.try_get("enabled").map_err(|_| "invalid client quota")?;
+        let reserved: i64 = row.try_get("reservation_tokens").map_err(|_| "invalid client quota")?;
+        let global = ["max_tokens_per_minute", "max_tokens_per_day", "max_monthly_microusd"]
+            .iter().map(|field| row.try_get::<i64, _>(*field).map_err(|_| "invalid client quota"))
+            .collect::<Result<Vec<_>, _>>()?;
+        if enabled != 0 || reserved <= 0 || reserved > limit || !global.iter().any(|n| *n > 0) {
+            return Err("disable the key and configure a compatible global reservation first");
+        }
+        let legacy_table: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_key_migration'")
+            .fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?;
+        if legacy_table == 1 {
+            let legacy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_key_migration WHERE key_id=?")
+                .bind(key).fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?;
+            if legacy != 0 { return Err("legacy model quota baseline requires migration"); }
+        }
+        sqlx::query("INSERT INTO redrouter_client_model_token_limits (key_id,model,reset_interval,reset_minutes,token_limit) VALUES (?,?,?,?,?) ON CONFLICT(key_id,model,reset_interval) DO UPDATE SET reset_minutes=excluded.reset_minutes,token_limit=excluded.token_limit")
+            .bind(key).bind(model).bind(interval).bind(reset_minutes).bind(limit).execute(&mut *db).await.map_err(|_| "cannot configure model quota")?;
+        Ok(())
+    }.await;
+    match result {
+        Ok(()) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *db)
+                .await
+                .map_err(|_| "cannot commit model quota")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *db).await;
+            Err(error)
+        }
+    }
+}
+
 /// Inspect native Rust reservations without exposing credentials.
 pub async fn list_native(path: &Path) -> Result<Value, &'static str> {
     let pool = database(path, true).await?;

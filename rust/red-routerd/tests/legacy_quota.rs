@@ -109,6 +109,56 @@ async fn native_reconciliation_is_atomic_audited_and_only_records_usage_once() {
 }
 
 #[tokio::test]
+async fn model_limit_configuration_refuses_legacy_and_unbounded_keys() {
+    let (_dir, destination) = fixture().await;
+    legacy_quota::adopt(&destination, "key-a", 50, 10)
+        .await
+        .unwrap();
+    assert!(reconcile::configure_native_model_limit(
+        &destination,
+        "key-a",
+        "gpt-4",
+        "daily",
+        0,
+        100
+    )
+    .await
+    .is_err());
+    let mut db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::raw_sql("INSERT INTO redrouter_control_client_keys VALUES ('native','Native','hash2',0,0,'[]','[]','[]','[]','[]',0,0,0,1); INSERT INTO redrouter_control_client_key_quotas VALUES ('native',0,0,0,0,0,1);").execute(&mut db).await.unwrap();
+    db.close().await.unwrap();
+    assert!(reconcile::configure_native_model_limit(
+        &destination,
+        "native",
+        "gpt-4",
+        "daily",
+        0,
+        100
+    )
+    .await
+    .is_err());
+    let mut db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("UPDATE redrouter_control_client_key_quotas SET max_tokens_per_day=1000,reservation_tokens=50 WHERE key_id='native'").execute(&mut db).await.unwrap();
+    db.close().await.unwrap();
+    reconcile::configure_native_model_limit(&destination, "native", "gpt-4", "daily", 120, 100)
+        .await
+        .unwrap();
+    let mut db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let saved: (i64, i64) = sqlx::query_as("SELECT reset_minutes,token_limit FROM redrouter_client_model_token_limits WHERE key_id='native' AND model='gpt-4'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(saved, (120, 100));
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn adopts_daily_monthly_counters_and_pending_holds_once() {
     let (_dir, destination) = fixture().await;
     let report = legacy_quota::adopt(&destination, "key-a", 50, 10)

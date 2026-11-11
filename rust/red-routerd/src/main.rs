@@ -259,6 +259,32 @@ async fn run(
         println!("{}", serde_json::to_string(&plan)?);
         return Ok(());
     }
+    if command.as_deref() == Some("configure-model-token-limit") {
+        if args.next().as_deref() != Some("--offline-confirmed") {
+            return Err("usage: red-routerd configure-model-token-limit --offline-confirmed KEY MODEL INTERVAL RESET_MINUTES LIMIT".into());
+        }
+        let key = args.next().ok_or("key ID is required")?;
+        let model = args.next().ok_or("model is required")?;
+        let interval = args.next().ok_or("interval is required")?;
+        let reset: i64 = args.next().ok_or("reset minutes are required")?.parse()?;
+        let limit: i64 = args.next().ok_or("token limit is required")?.parse()?;
+        if args.next().is_some() {
+            return Err("unexpected argument".into());
+        }
+        let path = env::var_os("RED_ROUTER_NATIVE_DB_PATH")
+            .ok_or("RED_ROUTER_NATIVE_DB_PATH is required")?;
+        red_routerd::reconcile::configure_native_model_limit(
+            std::path::Path::new(&path),
+            &key,
+            &model,
+            &interval,
+            reset,
+            limit,
+        )
+        .await?;
+        println!("Model token limit configured");
+        return Ok(());
+    }
     if matches!(
         command.as_deref(),
         Some("list-native-reservations" | "reconcile-native-usage")
