@@ -7951,9 +7951,18 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
     let file = Url::from_file_path(directory.path().join("provider-oauth.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
-    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
-        .await
-        .unwrap();
+    let (token_endpoint, _token_requests, _token_mode, _refresh_tokens, token_task) =
+        claude_oauth_refresh_server().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        false,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
     let (upstream, requests, provider_task) = recording_anthropic_bearer_provider().await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -7963,6 +7972,31 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
         .as_secs()
         + 3_600;
 
+    let unverified = client
+        .put(format!("{base}/api/admin/providers/claude-unverified"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"claude",
+                "upstream_url":&upstream,
+                "api_key":"claude-access-unverified",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"claude",
+                "refresh_token":"unverified-refresh-token"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unverified.status(), StatusCode::BAD_REQUEST);
+    assert!(database.providers().await.unwrap().is_empty());
+    assert!(database.provider_oauth().await.unwrap().is_empty());
+    assert!(database.provider_sessions().await.unwrap().is_empty());
+
     let configured = client
         .put(format!("{base}/api/admin/providers/claude-oauth"))
         .bearer_auth(ADMIN_KEY)
@@ -7971,7 +8005,7 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
             serde_json::json!({
                 "provider":"claude",
                 "upstream_url":&upstream,
-                "api_key":"initial-oauth-access-token",
+                "api_key":"claude-access-one",
                 "auth_scheme":"bearer",
                 "expires_at_unix":expiry,
                 "credential_type":"oauth",
@@ -8156,7 +8190,7 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
     assert_eq!(
         requests.lock().unwrap().as_slice(),
         [
-            "Bearer initial-oauth-access-token",
+            "Bearer claude-access-one",
             "Bearer rotated-oauth-access-token"
         ]
     );
@@ -8168,6 +8202,7 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
 
     gateway_task.abort();
     provider_task.abort();
+    token_task.abort();
 }
 
 #[tokio::test]
@@ -8205,7 +8240,7 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
                 serde_json::json!({
                     "provider":"claude",
                     "upstream_url":&upstream,
-                    "api_key":"initial-refresh-access-token",
+                    "api_key":"claude-access-one",
                     "auth_scheme":"bearer",
                     "expires_at_unix":expiry,
                     "credential_type":"oauth",
@@ -8385,7 +8420,7 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
                 serde_json::json!({
                     "provider":"claude",
                     "upstream_url":&upstream,
-                    "api_key":"replacement-access-token",
+                    "api_key":"claude-access-two",
                     "auth_scheme":"bearer",
                     "expires_at_unix":expiry,
                     "credential_type":"oauth",

@@ -4628,7 +4628,7 @@ impl ControlPlane {
         &self,
         id: &str,
         mut input: ProviderInput,
-        session_metadata: Option<Zeroizing<String>>,
+        mut session_metadata: Option<Zeroizing<String>>,
         actor: &str,
         enforced_tenant: Option<&str>,
     ) -> Result<ProviderView, &'static str> {
@@ -4765,6 +4765,59 @@ impl ControlPlane {
             }
             _ => return Err("unsupported provider credential type"),
         };
+        if oauth_provider.as_deref() == Some("claude") {
+            if let Some(metadata) = session_metadata.as_deref() {
+                validate_claude_session_metadata(metadata)?;
+            } else if replacing_access_token || input.refresh_token.is_some() {
+                // A raw Claude token pair is not a complete CLI identity. Verify the
+                // account with Anthropic before writing anything and bind a stable
+                // per-connection device identity to the encrypted session record.
+                let bootstrap = self.claude_bootstrap_identity(api_key.as_str()).await;
+                let account_uuid = bootstrap
+                    .account_id
+                    .filter(|value| valid_uuid(value))
+                    .ok_or("Claude account identity could not be verified")?;
+                let existing_identity = existing_session
+                    .as_ref()
+                    .and_then(|session| {
+                        let aad = format!("{id}:oauth-session");
+                        decrypt(
+                            &session.session_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )
+                        .ok()
+                    })
+                    .and_then(|metadata| claude_session_identity(metadata.as_str()).ok())
+                    .filter(|(_, account)| account.eq_ignore_ascii_case(&account_uuid));
+                let cli_user_id = if let Some((device, _)) = existing_identity {
+                    device
+                } else {
+                    let mut device = Zeroizing::new([0_u8; 32]);
+                    getrandom::fill(device.as_mut())
+                        .map_err(|_| "cannot generate Claude device identity")?;
+                    hex::encode(device.as_slice())
+                };
+                session_metadata = Some(Zeroizing::new(
+                    serde_json::json!({
+                        "accountUUID": account_uuid,
+                        "cliUserID": cli_user_id,
+                    })
+                    .to_string(),
+                ));
+            } else {
+                let existing_session = existing_session
+                    .as_ref()
+                    .ok_or("Claude OAuth requires a verified CLI session")?;
+                let aad = format!("{id}:oauth-session");
+                let metadata = decrypt(
+                    &existing_session.session_ciphertext,
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                validate_claude_session_metadata(metadata.as_str())?;
+            }
+        }
         if input.enabled
             && expires_at_unix > 0
             && expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX)
@@ -7894,18 +7947,7 @@ impl ControlPlane {
                 &aad,
                 self.0.encryption_key.as_str(),
             )?;
-            let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
-                .map_err(|_| "invalid Claude session metadata")?;
-            let device = json_non_empty_string(metadata.get("cliUserID"))
-                .ok_or("Claude device identity is missing")?;
-            let account = json_non_empty_string(metadata.get("accountUUID"))
-                .ok_or("Claude account identity is missing")?;
-            if device.len() != 64 || !device.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err("invalid Claude device identity");
-            }
-            if !valid_uuid(account) {
-                return Err("invalid Claude account identity");
-            }
+            let (device, account) = claude_session_identity(metadata.as_str())?;
             let session_id = {
                 let mut sessions = self
                     .0
@@ -7921,8 +7963,8 @@ impl ControlPlane {
                 }
             };
             let identity = Arc::new(crate::ClaudeIdentity {
-                device_id: Arc::from(device.to_ascii_lowercase()),
-                account_uuid: Arc::from(account.to_ascii_lowercase()),
+                device_id: Arc::from(device),
+                account_uuid: Arc::from(account),
                 session_id,
             });
             if identities
@@ -10580,6 +10622,29 @@ fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn claude_session_identity(metadata: &str) -> Result<(String, String), &'static str> {
+    if metadata.len() > 64 * 1024 {
+        return Err("invalid Claude session metadata");
+    }
+    let metadata: serde_json::Value =
+        serde_json::from_str(metadata).map_err(|_| "invalid Claude session metadata")?;
+    let device = json_non_empty_string(metadata.get("cliUserID"))
+        .ok_or("Claude device identity is missing")?;
+    let account = json_non_empty_string(metadata.get("accountUUID"))
+        .ok_or("Claude account identity is missing")?;
+    if device.len() != 64 || !device.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("invalid Claude device identity");
+    }
+    if !valid_uuid(account) {
+        return Err("invalid Claude account identity");
+    }
+    Ok((device.to_ascii_lowercase(), account.to_ascii_lowercase()))
+}
+
+fn validate_claude_session_metadata(metadata: &str) -> Result<(), &'static str> {
+    claude_session_identity(metadata).map(|_| ())
 }
 
 fn browser_oauth_token_field(
