@@ -286,7 +286,8 @@ async fn captured_provider(
                                 "keyDecisions":["Rust owns proxy persistence"],
                                 "taskProgress":"Context relay persistence is complete and provider handoff is being validated.",
                                 "activeEntities":["red-routerd","context-relay"]
-                            }).to_string()}}]
+                            }).to_string()}}],
+                            "usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}
                         }))
                         .into_response()
                     } else {
@@ -4223,6 +4224,24 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
     })
     .await
     .expect("Rust context relay summary persistence timed out");
+    let relay_usage: (i64, String, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(MIN(key_name),''), COALESCE(SUM(tokens_input),0), COALESCE(SUM(tokens_output),0) FROM redrouter_usage_ledger WHERE key_id = ?",
+    )
+    .bind("redrouter-context-relay")
+    .fetch_one(&persisted_state)
+    .await
+    .unwrap();
+    assert_eq!(
+        relay_usage,
+        (1, "Red Router context relay".to_owned(), 11, 7)
+    );
+    let client_usage: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_ledger WHERE key_id = ?")
+            .bind("relay-client")
+            .fetch_one(&persisted_state)
+            .await
+            .unwrap();
+    assert_eq!(client_usage, 0);
     {
         let bodies = second_bodies.lock().unwrap();
         assert_eq!(bodies[1]["model"], "shared-model");

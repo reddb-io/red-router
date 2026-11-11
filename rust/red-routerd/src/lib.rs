@@ -3127,9 +3127,31 @@ struct ContextRelaySummaryTarget {
     provider_key: HeaderValue,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
+    tenant_id: Arc<str>,
     provider_name: String,
     model: String,
     antigravity_project: Option<Arc<str>>,
+    rate_limit_scope: resilience::RateLimitScope,
+    circuit: Option<Arc<circuit::ProviderCircuit>>,
+    availability: Option<Arc<availability::ProviderAvailability>>,
+    in_flight: Arc<AtomicUsize>,
+}
+
+struct ContextRelayGeneratedSummary {
+    handoff: control_plane::ContextRelayHandoff,
+    summary_model: String,
+    usage: accounting::ChatUsage,
+}
+
+enum ContextRelaySummaryOutcome {
+    Generated(ContextRelayGeneratedSummary),
+    Rejected {
+        status: StatusCode,
+        headers: HeaderMap,
+        error_body: Option<Bytes>,
+    },
+    InvalidSuccess,
+    TransportFailure,
 }
 
 fn context_relay_text(value: &serde_json::Value) -> String {
@@ -3283,9 +3305,14 @@ fn context_relay_summary_target(
         provider_key: target.provider_key.clone(),
         protocol: target.protocol,
         auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
+        tenant_id: route.tenant_id.clone(),
         provider_name: provider,
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        rate_limit_scope: target.rate_limit_scope,
+        circuit: target.circuit.clone(),
+        availability: target.availability.clone(),
+        in_flight: target.in_flight.clone(),
     })
 }
 
@@ -3398,11 +3425,11 @@ fn parse_context_relay_summary(
 }
 
 async fn generate_context_relay_summary(
-    target: ContextRelaySummaryTarget,
+    target: &ContextRelaySummaryTarget,
     history: String,
     source_model: String,
     message_count: usize,
-) -> Option<(control_plane::ContextRelayHandoff, String)> {
+) -> ContextRelaySummaryOutcome {
     let prompt = format!(
         "You are a context summarizer. Analyze the conversation below and return ONLY a JSON object with this exact structure: {{\"summary\":\"dense continuation summary, maximum 200 words\",\"keyDecisions\":[\"decision\"],\"taskProgress\":\"done, pending, and next steps\",\"activeEntities\":[\"file, feature, or topic\"]}}. Do not invent facts.\n\nCONVERSATION HISTORY:\n{history}"
     );
@@ -3447,15 +3474,17 @@ async fn generate_context_relay_summary(
             }
         }),
         ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity => {
-            antigravity_translation::request(
+            let Ok(body) = antigravity_translation::request(
                 &chat_body,
                 &target.model,
                 target.antigravity_project.as_deref(),
                 None,
-            )
-            .ok()?
+            ) else {
+                return ContextRelaySummaryOutcome::InvalidSuccess;
+            };
+            body
         }
-        _ => return None,
+        _ => return ContextRelaySummaryOutcome::InvalidSuccess,
     };
     let antigravity = matches!(
         target.protocol,
@@ -3505,23 +3534,34 @@ async fn generate_context_relay_summary(
         }
         Some(request)
     };
-    let response = tokio::time::timeout(Duration::from_secs(30), build_request(true)?.send())
-        .await
-        .ok()?
-        .ok()?;
+    let Some(request) = build_request(true) else {
+        return ContextRelaySummaryOutcome::InvalidSuccess;
+    };
+    let response = match tokio::time::timeout(Duration::from_secs(30), request.send()).await {
+        Ok(Ok(response)) => response,
+        _ => return ContextRelaySummaryOutcome::TransportFailure,
+    };
     let response = if antigravity
         && response.status() == StatusCode::FORBIDDEN
         && target.antigravity_project.is_some()
     {
-        tokio::time::timeout(Duration::from_secs(30), build_request(false)?.send())
-            .await
-            .ok()?
-            .ok()?
+        let Some(request) = build_request(false) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        match tokio::time::timeout(Duration::from_secs(30), request.send()).await {
+            Ok(Ok(response)) => response,
+            _ => return ContextRelaySummaryOutcome::TransportFailure,
+        }
     } else {
         response
     };
     if !response.status().is_success() {
-        return None;
+        let response = inspect_provider_response(response).await;
+        return ContextRelaySummaryOutcome::Rejected {
+            status: response.status(),
+            headers: response.headers().clone(),
+            error_body: response.error_body().map(Bytes::copy_from_slice),
+        };
     }
     if antigravity
         && !response
@@ -3531,32 +3571,141 @@ async fn generate_context_relay_summary(
             .and_then(|value| value.split(';').next())
             .is_some_and(|value| value.trim().eq_ignore_ascii_case("text/event-stream"))
     {
-        return None;
+        return ContextRelaySummaryOutcome::InvalidSuccess;
     }
     if response
         .content_length()
         .is_some_and(|length| length > CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES as u64)
     {
-        return None;
+        return ContextRelaySummaryOutcome::InvalidSuccess;
     }
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.ok()?;
+        let Ok(chunk) = chunk else {
+            return ContextRelaySummaryOutcome::TransportFailure;
+        };
         if bytes.len().saturating_add(chunk.len()) > CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES {
-            return None;
+            return ContextRelaySummaryOutcome::InvalidSuccess;
         }
         bytes.extend_from_slice(&chunk);
     }
     let response: serde_json::Value = if antigravity {
-        antigravity_translation::response(&bytes, &target.model)
-            .ok()?
-            .value
+        let Ok(response) = antigravity_translation::response(&bytes, &target.model) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        response.value
     } else {
-        serde_json::from_slice(&bytes).ok()?
+        let Ok(response) = serde_json::from_slice(&bytes) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        response
     };
-    let handoff = parse_context_relay_summary(&response, &source_model, message_count)?;
-    Some((handoff, target.model))
+    let usage = match target.protocol {
+        ProviderProtocol::OpenAi
+        | ProviderProtocol::Antigravity
+        | ProviderProtocol::OpenAiToAntigravity => accounting::ChatUsage::from_response(&response),
+        ProviderProtocol::OpenAiResponses => {
+            accounting::ChatUsage::from_responses_response(&response)
+        }
+        ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
+            accounting::ChatUsage::from_anthropic_response(&response)
+        }
+        ProviderProtocol::Gemini => accounting::ChatUsage::from_gemini_response(&response),
+        _ => return ContextRelaySummaryOutcome::InvalidSuccess,
+    };
+    let (Ok(usage), Some(handoff)) = (
+        usage,
+        parse_context_relay_summary(&response, &source_model, message_count),
+    ) else {
+        return ContextRelaySummaryOutcome::InvalidSuccess;
+    };
+    ContextRelaySummaryOutcome::Generated(ContextRelayGeneratedSummary {
+        handoff,
+        summary_model: target.model.clone(),
+        usage,
+    })
+}
+
+async fn record_context_relay_provider_health(
+    target: &ContextRelaySummaryTarget,
+    circuit_permit: Option<circuit::CircuitPermit>,
+    availability_permit: Option<availability::AvailabilityPermit>,
+    status: Option<StatusCode>,
+    headers: Option<&HeaderMap>,
+    error_body: Option<&[u8]>,
+) -> Result<(), &'static str> {
+    if let (Some(circuit), Some(permit)) = (target.circuit.as_ref(), circuit_permit) {
+        match status {
+            None => circuit.record_failure(permit).await?,
+            Some(status) if circuit::provider_failure_status(status) => {
+                circuit.record_failure(permit).await?
+            }
+            Some(status) if status.is_success() => circuit.record_success(permit).await?,
+            Some(_) => {
+                circuit.record_ignored(permit).await;
+            }
+        }
+    }
+    let (Some(availability), Some(permit), Some(status)) =
+        (target.availability.as_ref(), availability_permit, status)
+    else {
+        return Ok(());
+    };
+    let empty_headers = HeaderMap::new();
+    let headers = headers.unwrap_or(&empty_headers);
+    let failure_class = resilience::classify_provider_failure(
+        target.rate_limit_scope,
+        Some(&target.provider_name),
+        status,
+        headers,
+        error_body,
+    );
+    match failure_class {
+        resilience::ProviderFailureClass::Banned => {
+            availability
+                .record_terminal_failure(permit, availability::TerminalStatus::Banned)
+                .await
+        }
+        resilience::ProviderFailureClass::Expired => {
+            availability
+                .record_terminal_failure(permit, availability::TerminalStatus::Expired)
+                .await
+        }
+        resilience::ProviderFailureClass::AmbiguousExpired => {
+            availability
+                .record_ambiguous_auth_failure(permit, status, retry_after_hint_ms(headers))
+                .await
+        }
+        resilience::ProviderFailureClass::CreditsExhausted => {
+            availability
+                .record_terminal_failure(permit, availability::TerminalStatus::CreditsExhausted)
+                .await
+        }
+        resilience::ProviderFailureClass::Model => {
+            availability
+                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .await
+        }
+        resilience::ProviderFailureClass::Transient
+            if availability::connection_failure_status(status) =>
+        {
+            availability
+                .record_connection_failure(permit, status, retry_after_hint_ms(headers))
+                .await
+        }
+        resilience::ProviderFailureClass::Transient
+            if availability::model_failure_status(status) =>
+        {
+            availability
+                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .await
+        }
+        resilience::ProviderFailureClass::Transient if status.is_success() => {
+            availability.record_success(permit, &target.model).await
+        }
+        resilience::ProviderFailureClass::Transient => Ok(()),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3593,20 +3742,122 @@ fn spawn_context_relay_summary(
                 return;
             }
         };
-        let generated = tokio::time::timeout(
-            CONTEXT_RELAY_SUMMARY_DEADLINE,
-            generate_context_relay_summary(summary_target, history, source_model, message_count),
-        )
-        .await
-        .ok()
-        .flatten();
-        if let Some((handoff, summary_model)) = generated {
+        async {
+            let usage_attempt = match control
+                .begin_context_relay_usage(&summary_target.provider_name, &summary_target.model)
+                .await
+            {
+                Ok(attempt) => attempt,
+                Err(_) => {
+                    eprintln!("context relay usage accounting unavailable");
+                    return;
+                }
+            };
+            let availability_permit = if let Some(availability) = &summary_target.availability {
+                match availability.try_acquire(&summary_target.model).await {
+                    Ok(availability::AvailabilityDecision::Permit(permit)) => Some(permit),
+                    Ok(availability::AvailabilityDecision::Blocked { .. }) => return,
+                    Err(_) => {
+                        eprintln!("context relay provider availability unavailable");
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let circuit_permit = if let Some(circuit) = &summary_target.circuit {
+                match circuit.try_acquire().await {
+                    Ok(circuit::CircuitDecision::Permit(permit)) => Some(permit),
+                    Ok(circuit::CircuitDecision::Open { .. }) => return,
+                    Err(_) => {
+                        eprintln!("context relay provider health unavailable");
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let _provider_load = ProviderLoadGuard::new(summary_target.in_flight.clone());
+            let outcome = tokio::time::timeout(
+                CONTEXT_RELAY_SUMMARY_DEADLINE,
+                generate_context_relay_summary(
+                    &summary_target,
+                    history,
+                    source_model,
+                    message_count,
+                ),
+            )
+            .await
+            .unwrap_or(ContextRelaySummaryOutcome::TransportFailure);
+            let health = match &outcome {
+                ContextRelaySummaryOutcome::Generated(_)
+                | ContextRelaySummaryOutcome::InvalidSuccess => {
+                    record_context_relay_provider_health(
+                        &summary_target,
+                        circuit_permit,
+                        availability_permit,
+                        Some(StatusCode::OK),
+                        None,
+                        None,
+                    )
+                    .await
+                }
+                ContextRelaySummaryOutcome::Rejected {
+                    status,
+                    headers,
+                    error_body,
+                } => {
+                    record_context_relay_provider_health(
+                        &summary_target,
+                        circuit_permit,
+                        availability_permit,
+                        Some(*status),
+                        Some(headers),
+                        error_body.as_deref(),
+                    )
+                    .await
+                }
+                ContextRelaySummaryOutcome::TransportFailure => {
+                    record_context_relay_provider_health(
+                        &summary_target,
+                        circuit_permit,
+                        availability_permit,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                }
+            };
+            if health.is_err() {
+                eprintln!("context relay provider health accounting unavailable");
+                return;
+            }
+            let ContextRelaySummaryOutcome::Generated(generated) = outcome else {
+                return;
+            };
+            if let Some(attempt) = usage_attempt {
+                if control
+                    .record_context_relay_usage(
+                        attempt,
+                        &summary_target.tenant_id,
+                        &summary_target.provider_name,
+                        &summary_target.model,
+                        &generated.usage,
+                    )
+                    .await
+                    .is_err()
+                {
+                    eprintln!("context relay usage accounting unavailable");
+                    return;
+                }
+            }
             if control
                 .record_context_relay_handoff(
                     &combo_id,
                     &session_id,
-                    &handoff,
-                    &summary_model,
+                    &generated.handoff,
+                    &generated.summary_model,
                     expires_at_unix_ms,
                 )
                 .await
@@ -3615,6 +3866,7 @@ fn spawn_context_relay_summary(
                 eprintln!("context relay handoff persistence unavailable");
             }
         }
+        .await;
         if control
             .release_context_relay_generation(&generation_lease)
             .await
@@ -5654,7 +5906,12 @@ mod address_tests {
                                     "keyDecisions":["Use the native Gemini endpoint"],
                                     "taskProgress":"Gemini generation is covered.",
                                     "activeEntities":["gemini-2.5-flash"]
-                                }).to_string()}]}}]
+                                }).to_string()}]}}],
+                                "usageMetadata":{
+                                    "promptTokenCount":7,
+                                    "candidatesTokenCount":3,
+                                    "totalTokenCount":10
+                                }
                             }))
                         }
                     },
@@ -5728,25 +5985,37 @@ mod address_tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
-        let (gemini, gemini_model) = generate_context_relay_summary(
-            ContextRelaySummaryTarget {
-                client: client.clone(),
-                upstream: reqwest::Url::parse(&format!("http://{address}/v1beta/models")).unwrap(),
-                provider_key: HeaderValue::from_static("gemini-secret"),
-                protocol: ProviderProtocol::Gemini,
-                auth_scheme: ProviderAuthScheme::XGoogApiKey,
-                provider_name: "google".to_owned(),
-                model: "gemini-2.5-flash".to_owned(),
-                antigravity_project: None,
-            },
+        let gemini_target = ContextRelaySummaryTarget {
+            client: client.clone(),
+            upstream: reqwest::Url::parse(&format!("http://{address}/v1beta/models")).unwrap(),
+            provider_key: HeaderValue::from_static("gemini-secret"),
+            protocol: ProviderProtocol::Gemini,
+            auth_scheme: ProviderAuthScheme::XGoogApiKey,
+            tenant_id: Arc::from("red"),
+            provider_name: "google".to_owned(),
+            model: "gemini-2.5-flash".to_owned(),
+            antigravity_project: None,
+            rate_limit_scope: resilience::RateLimitScope::Auto,
+            circuit: None,
+            availability: None,
+            in_flight: Arc::new(AtomicUsize::new(0)),
+        };
+        let ContextRelaySummaryOutcome::Generated(gemini) = generate_context_relay_summary(
+            &gemini_target,
             "USER: continue the Rust migration".to_owned(),
             "gemini-source".to_owned(),
             3,
         )
         .await
-        .unwrap();
-        assert_eq!(gemini.summary, "Gemini generated the relay summary.");
-        assert_eq!(gemini_model, "gemini-2.5-flash");
+        else {
+            panic!("Gemini context relay summary was not generated");
+        };
+        assert_eq!(
+            gemini.handoff.summary,
+            "Gemini generated the relay summary."
+        );
+        assert_eq!(gemini.summary_model, "gemini-2.5-flash");
+        assert_eq!((gemini.usage.input, gemini.usage.output), (7, 3));
         let gemini_body = gemini_bodies.lock().unwrap()[0].clone();
         assert_eq!(
             gemini_body["generationConfig"]["responseMimeType"],
@@ -5757,31 +6026,40 @@ mod address_tests {
             .unwrap()
             .contains("CONVERSATION HISTORY"));
 
-        let (antigravity, antigravity_model) = generate_context_relay_summary(
-            ContextRelaySummaryTarget {
-                client,
-                upstream: reqwest::Url::parse(&format!(
-                    "http://{address}/v1internal:streamGenerateContent"
-                ))
-                .unwrap(),
-                provider_key: HeaderValue::from_static("Bearer agy-secret"),
-                protocol: ProviderProtocol::Antigravity,
-                auth_scheme: ProviderAuthScheme::Bearer,
-                provider_name: "agy".to_owned(),
-                model: "gemini-2.5-pro".to_owned(),
-                antigravity_project: Some(Arc::from("relay-project")),
-            },
+        let antigravity_target = ContextRelaySummaryTarget {
+            client,
+            upstream: reqwest::Url::parse(&format!(
+                "http://{address}/v1internal:streamGenerateContent"
+            ))
+            .unwrap(),
+            provider_key: HeaderValue::from_static("Bearer agy-secret"),
+            protocol: ProviderProtocol::Antigravity,
+            auth_scheme: ProviderAuthScheme::Bearer,
+            tenant_id: Arc::from("red"),
+            provider_name: "agy".to_owned(),
+            model: "gemini-2.5-pro".to_owned(),
+            antigravity_project: Some(Arc::from("relay-project")),
+            rate_limit_scope: resilience::RateLimitScope::Auto,
+            circuit: None,
+            availability: None,
+            in_flight: Arc::new(AtomicUsize::new(0)),
+        };
+        let ContextRelaySummaryOutcome::Generated(antigravity) = generate_context_relay_summary(
+            &antigravity_target,
             "USER: preserve the agent context".to_owned(),
             "antigravity-source".to_owned(),
             4,
         )
         .await
-        .unwrap();
+        else {
+            panic!("Antigravity context relay summary was not generated");
+        };
         assert_eq!(
-            antigravity.summary,
+            antigravity.handoff.summary,
             "Antigravity generated the relay summary."
         );
-        assert_eq!(antigravity_model, "gemini-2.5-pro");
+        assert_eq!(antigravity.summary_model, "gemini-2.5-pro");
+        assert_eq!((antigravity.usage.input, antigravity.usage.output), (5, 5));
         assert_eq!(antigravity_requests.load(Ordering::SeqCst), 2);
         let antigravity_body = antigravity_bodies.lock().unwrap()[1].clone();
         assert_eq!(antigravity_body["project"], "relay-project");

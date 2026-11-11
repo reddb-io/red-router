@@ -369,6 +369,14 @@ generation for the same combo/session. SQLite and PostgreSQL additionally coordi
 generation across Rust replicas with an expiring durable lease; an old owner cannot release
 its successor's lease, and a crashed owner cannot strand future generation. The summary call
 has a deadline shorter than the lease so a slow response cannot outlive its ownership.
+Summary calls use the selected provider's live availability gate, durable circuit breaker and
+in-flight counter, so background work cannot bypass an open or unavailable connection and is
+visible to load-aware routing. On SQLite, completed summaries are settled in the normal usage
+ledger under the reserved `redrouter-context-relay` system identity, preserving tenant,
+provider, model, tokens and the request-time price snapshot without reserving or debiting the
+client key that triggered the relay. A successful response without valid usage metadata is not
+stored as a free summary. Other storage backends continue the summary path without this
+SQLite-specific ledger entry until native usage accounting is generalized beyond SQLite.
 Generation failure stays outside the client response path, and a missing summary still
 produces a marker that explicitly forbids invented context.
 The same path pre-generates a handoff when fresh provider/model session telemetry crosses the

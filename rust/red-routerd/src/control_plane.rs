@@ -61,6 +61,8 @@ const PROVIDER_QUOTA_LEASE_MS: i64 = 15_000;
 const PROVIDER_QUOTA_TTL_SECONDS: u64 = 180;
 const PROVIDER_QUOTA_MAX_BODY_BYTES: usize = 512 * 1024;
 const CONTEXT_RELAY_GENERATION_LEASE_MS: i64 = 60_000;
+const CONTEXT_RELAY_USAGE_KEY_ID: &str = "redrouter-context-relay";
+const CONTEXT_RELAY_USAGE_KEY_NAME: &str = "Red Router context relay";
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -340,6 +342,11 @@ pub(crate) struct ContextRelayGenerationLease {
     _local: ContextRelayGenerationGuard,
     record_id: String,
     owner: String,
+}
+
+pub(crate) struct ContextRelayUsageAttempt {
+    event_id: String,
+    prices: Option<crate::accounting::TokenPrices>,
 }
 
 impl Drop for ContextRelayGenerationGuard {
@@ -2995,6 +3002,52 @@ impl ControlPlane {
                 prices,
                 now_ms: unix_time_ms()?,
                 reserved: identity.usage_quota.is_some(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn begin_context_relay_usage(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Result<Option<ContextRelayUsageAttempt>, &'static str> {
+        if self.0.native_usage.read().await.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(ContextRelayUsageAttempt {
+            event_id: format!("relay_usage_{}", random_token(16)?),
+            prices: self.native_usage_prices(provider, model).await?,
+        }))
+    }
+
+    pub(crate) async fn record_context_relay_usage(
+        &self,
+        attempt: ContextRelayUsageAttempt,
+        tenant_id: &str,
+        provider: &str,
+        model: &str,
+        usage_event: &crate::accounting::ChatUsage,
+    ) -> Result<(), &'static str> {
+        let store = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        store
+            .settle(&crate::native_usage::UsageEvent {
+                event_id: &attempt.event_id,
+                key_id: CONTEXT_RELAY_USAGE_KEY_ID,
+                key_name: CONTEXT_RELAY_USAGE_KEY_NAME,
+                tenant_id,
+                provider,
+                model,
+                usage: usage_event,
+                prices: attempt.prices.as_ref(),
+                now_ms: unix_time_ms()?,
+                reserved: false,
             })
             .await?;
         Ok(())
