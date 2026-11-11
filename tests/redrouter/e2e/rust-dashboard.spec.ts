@@ -51,7 +51,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
       "/api/admin/client-keys": { client_keys: [] },
       "/api/admin/provider-quotas": { provider_quotas: [] },
       "/api/admin/provider-health": { provider_health: [] },
-      "/api/admin/usage": { usage: Object.fromEntries(["request_count", "priced_request_count", "tokens_input", "tokens_output", "tokens_cache_read", "tokens_cache_creation", "tokens_reasoning", "amount_microusd", "pending_request_count", "pending_reserved_tokens", "pending_reserved_microusd"].map((key) => [key, 0])) },
+      "/api/admin/usage": { usage: { ...Object.fromEntries(["request_count", "priced_request_count", "tokens_input", "tokens_output", "tokens_cache_read", "tokens_cache_creation", "tokens_reasoning", "amount_microusd", "pending_request_count", "pending_reserved_tokens", "pending_reserved_microusd", "search_units"].map((key) => [key, 0])), entries: [], next_cursor: null } },
     };
     await route.fulfill({ status: responses[path] ? 200 : 503, json: responses[path] ?? { error: "unavailable" } });
   });
@@ -67,6 +67,9 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await page.getByRole("link", { name: "API keys", exact: true }).click();
   await expect(page.getByRole("heading", { name: "API keys" })).toBeVisible();
   await expect(page.getByText("No Rust-owned client keys yet.")).toBeVisible();
+  await page.getByRole("link", { name: "Usage report", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Usage report" })).toBeVisible();
+  await expect(page.getByText("No usage in this period.")).toBeVisible();
   for (const path of ["/api/admin/providers", "/api/admin/combos", "/api/admin/client-keys"]) {
     expect(calls.some((call) => call.path === path && call.csrf === "fixture-csrf")).toBe(true);
   }

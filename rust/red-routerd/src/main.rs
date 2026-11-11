@@ -72,6 +72,18 @@ async fn run(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
+    if command.as_deref() == Some("inspect-legacy-sqlite") {
+        if args.next().is_some() {
+            return Err(
+                "usage: red-routerd inspect-legacy-sqlite (set RED_ROUTER_PRODUCT_DB_PATH)".into(),
+            );
+        }
+        let path = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let report = red_routerd::legacy_preflight::inspect(std::path::Path::new(&path)).await?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     if command.as_deref() == Some("fastllm-control") {
         if args.next().is_some() {
             return Err("usage: red-routerd fastllm-control".into());
@@ -170,7 +182,7 @@ async fn run(
         return Ok(());
     }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())

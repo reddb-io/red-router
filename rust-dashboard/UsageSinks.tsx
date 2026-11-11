@@ -70,7 +70,7 @@ export default function UsageSinks() {
   }, []);
 
   useEffect(() => {
-    void load().catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load usage exports"))
+    void Promise.resolve().then(load).catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load usage exports"))
       .finally(() => setLoading(false));
   }, [load]);
 

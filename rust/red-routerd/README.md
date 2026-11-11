@@ -381,7 +381,7 @@ S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
 The Rust dashboard can be built with `npm ci` and `npm run build:rust-dashboard`.
 This produces `.build/rust-dashboard`, a static bundle using the existing Rust-backed
-providers, combos, client-key and usage-destination views. It uses Rust's OIDC browser session and requires
+providers, combos, client-key, usage-report and usage-destination views. It uses Rust's OIDC browser session and requires
 OIDC browser login to be configured; the remaining Next dashboard views are not yet ported.
 Set `RED_ROUTER_SPA_DIR` to that directory or another prepared static build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
@@ -392,6 +392,11 @@ versioned `/_next/static/` chunks use immutable one-year caching. Brotli and gzi
 files are selected when present. The server adds CSP, clickjacking, MIME-sniffing,
 referrer, permissions and opener protections. Producing and packaging the complete
 production dashboard export remains migration work.
+For a non-mutating inventory before migrating a legacy Next.js SQLite database, set
+`RED_ROUTER_PRODUCT_DB_PATH` to that file and run `red-routerd inspect-legacy-sqlite`.
+It reads a single snapshot and reports counts without credentials or row contents. This
+is an inspection only; `migration_ready` remains false until data import and policy
+equivalence have been verified.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

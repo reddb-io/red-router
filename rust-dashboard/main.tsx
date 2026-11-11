@@ -7,12 +7,14 @@ const Providers = lazy(() => import("../src/app/(dashboard)/dashboard/providers/
 const Combos = lazy(() => import("../src/app/(dashboard)/dashboard/combos/RustCombosPageClient"));
 const Keys = lazy(() => import("../src/app/(dashboard)/dashboard/api-manager/RustApiManagerPageClient"));
 const UsageSinks = lazy(() => import("./UsageSinks"));
+const UsageReport = lazy(() => import("./UsageReport"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
   { path: "/dashboard/combos", label: "Combos", component: Combos },
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
   { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
+  { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
 ];
 
 function Dashboard() {
