@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deleteRustClientKey,
+  deleteRustTokenLimit,
   issueRustClientKey,
   listRustClientKeys,
+  listRustTokenLimits,
   readRustUsageSummary,
   replaceRustClientKey,
+  saveRustTokenLimit,
   type RustClientKey,
   type RustClientKeyInput,
+  type RustTokenLimit,
+  type RustTokenLimitInterval,
   type RustUsageSummary,
 } from "@/lib/rustControlPlane/browserClient";
 
@@ -35,6 +40,21 @@ type Draft = {
   maxMonthlySpend: string;
   reservationTokens: string;
   reservationSpend: string;
+};
+
+type TokenLimitDraft = {
+  id?: string;
+  model: string;
+  tokenLimit: string;
+  resetInterval: RustTokenLimitInterval;
+  resetTime: string;
+};
+
+const EMPTY_TOKEN_LIMIT_DRAFT: TokenLimitDraft = {
+  model: "",
+  tokenLimit: "",
+  resetInterval: "daily",
+  resetTime: "00:00",
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -419,6 +439,10 @@ export default function RustApiManagerPageClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tokenLimitKey, setTokenLimitKey] = useState<RustClientKey | null>(null);
+  const [tokenLimits, setTokenLimits] = useState<RustTokenLimit[]>([]);
+  const [tokenLimitDraft, setTokenLimitDraft] = useState<TokenLimitDraft>(EMPTY_TOKEN_LIMIT_DRAFT);
+  const [tokenLimitsLoading, setTokenLimitsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     const [nextKeys, nextUsage] = await Promise.all([listRustClientKeys(), readRustUsageSummary()]);
@@ -484,6 +508,70 @@ export default function RustApiManagerPageClient() {
     try {
       await deleteRustClientKey(key.id);
       await refresh();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openTokenLimits = async (key: RustClientKey) => {
+    setTokenLimitKey(key);
+    setTokenLimitDraft(EMPTY_TOKEN_LIMIT_DRAFT);
+    setTokenLimitsLoading(true);
+    setError(null);
+    try {
+      setTokenLimits(await listRustTokenLimits(key.id));
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setTokenLimits([]);
+    } finally {
+      setTokenLimitsLoading(false);
+    }
+  };
+
+  const saveTokenLimit = async () => {
+    if (!tokenLimitKey) return;
+    const model = tokenLimitDraft.model.trim();
+    const tokenLimit = Number(tokenLimitDraft.tokenLimit);
+    if (!model || model.length > 256) {
+      setError("A model ID between 1 and 256 characters is required");
+      return;
+    }
+    if (!Number.isSafeInteger(tokenLimit) || tokenLimit <= 0) {
+      setError("The model token limit must be a positive safe integer");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await saveRustTokenLimit({
+        ...(tokenLimitDraft.id ? { id: tokenLimitDraft.id } : {}),
+        apiKeyId: tokenLimitKey.id,
+        scopeType: "model",
+        scopeValue: model,
+        tokenLimit,
+        resetInterval: tokenLimitDraft.resetInterval,
+        resetTime: tokenLimitDraft.resetTime,
+        enabled: true,
+      });
+      setTokenLimits(await listRustTokenLimits(tokenLimitKey.id));
+      setTokenLimitDraft(EMPTY_TOKEN_LIMIT_DRAFT);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeTokenLimit = async (limit: RustTokenLimit) => {
+    if (!tokenLimitKey || !window.confirm(`Delete the ${limit.scopeValue} token limit?`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteRustTokenLimit(limit.id);
+      setTokenLimits(await listRustTokenLimits(tokenLimitKey.id));
+      if (tokenLimitDraft.id === limit.id) setTokenLimitDraft(EMPTY_TOKEN_LIMIT_DRAFT);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -627,13 +715,20 @@ export default function RustApiManagerPageClient() {
                   {key.allowed_models.length
                     ? `${key.allowed_models.length} model grants`
                     : "all models"}{" "}
-                  · {key.access_schedule?.enabled
+                  ·{" "}
+                  {key.access_schedule?.enabled
                     ? `${key.access_schedule.from}-${key.access_schedule.until} ${key.access_schedule.tz}`
                     : "always available"}{" "}
                   · created by {key.created_by}
                 </p>
               </div>
               <div className="flex gap-2">
+                <button
+                  className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm hover:bg-surface"
+                  onClick={() => void openTokenLimits(key)}
+                >
+                  Model quotas
+                </button>
                 <button
                   className="rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm hover:bg-surface"
                   onClick={() => {
@@ -656,6 +751,170 @@ export default function RustApiManagerPageClient() {
           ))
         )}
       </section>
+
+      {tokenLimitKey && (
+        <section className="rounded-xl border border-black/10 dark:border-white/10 bg-surface/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-text">
+                Model token quotas · {tokenLimitKey.label}
+              </h2>
+              <p className="mt-1 max-w-3xl text-xs text-text-muted">
+                The key must stay disabled while a model quota is changed. A global token or spend
+                quota and a conservative token reservation are required before the Rust backend
+                accepts a model limit.
+              </p>
+            </div>
+            <button
+              className="rounded-lg px-3 py-2 text-sm hover:bg-surface"
+              onClick={() => {
+                setTokenLimitKey(null);
+                setTokenLimits([]);
+                setTokenLimitDraft(EMPTY_TOKEN_LIMIT_DRAFT);
+              }}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className={labelClass}>
+              Exact model ID
+              <input
+                className={inputClass}
+                value={tokenLimitDraft.model}
+                disabled={Boolean(tokenLimitDraft.id)}
+                placeholder="openai/gpt-5"
+                onChange={(event) =>
+                  setTokenLimitDraft({ ...tokenLimitDraft, model: event.target.value })
+                }
+              />
+            </label>
+            <label className={labelClass}>
+              Token limit
+              <input
+                className={inputClass}
+                inputMode="numeric"
+                value={tokenLimitDraft.tokenLimit}
+                onChange={(event) =>
+                  setTokenLimitDraft({ ...tokenLimitDraft, tokenLimit: event.target.value })
+                }
+              />
+            </label>
+            <label className={labelClass}>
+              Reset interval
+              <select
+                className={inputClass}
+                value={tokenLimitDraft.resetInterval}
+                disabled={Boolean(tokenLimitDraft.id)}
+                onChange={(event) =>
+                  setTokenLimitDraft({
+                    ...tokenLimitDraft,
+                    resetInterval: event.target.value as RustTokenLimitInterval,
+                  })
+                }
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly (Monday)</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </label>
+            <label className={labelClass}>
+              Reset time (UTC)
+              <input
+                className={inputClass}
+                type="time"
+                value={tokenLimitDraft.resetTime}
+                onChange={(event) =>
+                  setTokenLimitDraft({ ...tokenLimitDraft, resetTime: event.target.value })
+                }
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            {tokenLimitDraft.id && (
+              <button
+                className="rounded-lg px-3 py-2 text-sm hover:bg-surface"
+                onClick={() => setTokenLimitDraft(EMPTY_TOKEN_LIMIT_DRAFT)}
+              >
+                Cancel edit
+              </button>
+            )}
+            <button
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={saving || tokenLimitKey.enabled}
+              onClick={() => void saveTokenLimit()}
+            >
+              {tokenLimitDraft.id ? "Update model quota" : "Add model quota"}
+            </button>
+          </div>
+          {tokenLimitKey.enabled && (
+            <p role="status" className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              Disable this key before changing model quotas.
+            </p>
+          )}
+
+          <div className="mt-4 overflow-x-auto">
+            {tokenLimitsLoading ? (
+              <p className="text-sm text-text-muted">Loading model quotas…</p>
+            ) : tokenLimits.length === 0 ? (
+              <p className="text-sm text-text-muted">No model token quotas configured.</p>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr>
+                    <th className="py-2 pr-3">Model</th>
+                    <th className="py-2 pr-3">Window</th>
+                    <th className="py-2 pr-3">Used / limit</th>
+                    <th className="py-2 pr-3">Next reset</th>
+                    <th className="py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tokenLimits.map((limit) => (
+                    <tr key={limit.id} className="border-t border-black/5 dark:border-white/5">
+                      <td className="py-2 pr-3 font-mono text-xs">{limit.scopeValue}</td>
+                      <td className="py-2 pr-3">
+                        {limit.resetInterval} · {limit.resetTime} UTC
+                      </td>
+                      <td className="py-2 pr-3">
+                        {limit.tokensUsed.toLocaleString()} / {limit.tokenLimit.toLocaleString()}
+                      </td>
+                      <td className="py-2 pr-3">{new Date(limit.nextResetAt).toLocaleString()}</td>
+                      <td className="py-2 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            className="rounded border border-black/10 dark:border-white/10 px-2 py-1 text-xs"
+                            disabled={tokenLimitKey.enabled}
+                            onClick={() =>
+                              setTokenLimitDraft({
+                                id: limit.id,
+                                model: limit.scopeValue,
+                                tokenLimit: String(limit.tokenLimit),
+                                resetInterval: limit.resetInterval,
+                                resetTime: limit.resetTime,
+                              })
+                            }
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-600"
+                            disabled={saving || tokenLimitKey.enabled}
+                            onClick={() => void removeTokenLimit(limit)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

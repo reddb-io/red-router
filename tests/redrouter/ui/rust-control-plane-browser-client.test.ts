@@ -7,6 +7,7 @@ import {
   configureRustProviderHealth,
   configureRustProviderQuota,
   deleteRustClientKey,
+  deleteRustTokenLimit,
   disableRustCombo,
   disableRustProvider,
   exchangeRustProviderOAuth,
@@ -17,6 +18,7 @@ import {
   listRustCombos,
   listRustProviderHealth,
   listRustClientKeys,
+  listRustTokenLimits,
   listRustProviderQuotas,
   listRustProviders,
   readRustCatalogProvider,
@@ -35,12 +37,15 @@ import {
   rustAdminFetch,
   rustProviderOAuthFetch,
   rustProviderSessionFetch,
+  rustTokenLimitFetch,
   rustUsageSinkFetch,
+  saveRustTokenLimit,
   testRustProvider,
   type RustClientKey,
   type RustCombo,
   type RustProvider,
   type RustProviderQuota,
+  type RustTokenLimit,
 } from "@/lib/rustControlPlane/browserClient";
 
 const clientKey: RustClientKey = {
@@ -72,6 +77,22 @@ const clientKey: RustClientKey = {
   reservation_tokens: 8_192,
   reservation_spend_usd: 1,
   revision: "1700000000000000000",
+};
+
+const tokenLimit: RustTokenLimit = {
+  id: "limit-fixture",
+  apiKeyId: clientKey.id,
+  scopeType: "model",
+  scopeValue: "openai/gpt-5",
+  tokenLimit: 100_000,
+  resetInterval: "daily",
+  resetTime: "02:30",
+  enabled: true,
+  tokensUsed: 12_000,
+  windowStart: "1800000000000",
+  periodStartAt: 1_800_000_000_000,
+  nextResetAt: 1_800_086_400_000,
+  remaining: 88_000,
 };
 
 const provider: RustProvider = {
@@ -432,6 +453,44 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("manages per-model token limits through the authenticated Rust compatibility route", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ apiKeyId: clientKey.id, limits: [tokenLimit] }))
+      .mockResolvedValueOnce(Response.json({ success: true, limit: tokenLimit }))
+      .mockResolvedValueOnce(Response.json({ success: true }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustTokenLimits(clientKey.id)).resolves.toEqual([tokenLimit]);
+    await expect(
+      saveRustTokenLimit({
+        apiKeyId: clientKey.id,
+        scopeType: "model",
+        scopeValue: tokenLimit.scopeValue,
+        tokenLimit: tokenLimit.tokenLimit,
+        resetInterval: "daily",
+        resetTime: "02:30",
+        enabled: true,
+      })
+    ).resolves.toEqual(tokenLimit);
+    await expect(deleteRustTokenLimit(tokenLimit.id)).resolves.toBeUndefined();
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/usage/token-limits?apiKeyId=key_fixture",
+      "/api/usage/token-limits",
+      "/api/usage/token-limits?id=limit-fixture",
+    ]);
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(init.credentials).toBe("same-origin");
+      expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
+    }
+    await expect(rustTokenLimitFetch("/api/usage/other")).rejects.toThrow("token-limit");
+    await expect(
+      rustTokenLimitFetch("https://attacker.example/api/usage/token-limits")
+    ).rejects.toThrow("same-origin");
   });
 
   it("rejects malformed Rust client-key access schedules", async () => {

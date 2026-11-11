@@ -52,6 +52,35 @@ export interface RustIssuedClientKey {
   warning: string;
 }
 
+export type RustTokenLimitInterval = "daily" | "weekly" | "monthly";
+
+export interface RustTokenLimit {
+  id: string;
+  apiKeyId: string;
+  scopeType: "model";
+  scopeValue: string;
+  tokenLimit: number;
+  resetInterval: RustTokenLimitInterval;
+  resetTime: string;
+  enabled: true;
+  tokensUsed: number;
+  windowStart: string;
+  periodStartAt: number;
+  nextResetAt: number;
+  remaining: number;
+}
+
+export interface RustTokenLimitInput {
+  id?: string;
+  apiKeyId: string;
+  scopeType: "model";
+  scopeValue: string;
+  tokenLimit: number;
+  resetInterval: RustTokenLimitInterval;
+  resetTime: string;
+  enabled: true;
+}
+
 export interface RustUsageSummary {
   request_count: number;
   priced_request_count: number;
@@ -595,6 +624,24 @@ export async function rustUsageSinkFetch(path: string, init: RequestInit = {}): 
   });
 }
 
+/** Authenticated compatibility surface for Rust-owned per-model token limits. */
+export async function rustTokenLimitFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  if (!/^\/api\/usage\/token-limits(?:\?|$)/.test(path)) {
+    throw new TypeError("Rust token-limit requests must use the same-origin token-limit path");
+  }
+  const csrf = readRustAdminCsrfCookie();
+  if (!csrf) throw new Error("Rust admin session is unavailable");
+  const headers = new Headers(init.headers);
+  headers.set(CSRF_HEADER, csrf);
+  headers.set("Accept", "application/json");
+  return fetch(path, {
+    ...init,
+    cache: init.cache ?? "no-store",
+    credentials: "same-origin",
+    headers,
+  });
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
@@ -657,6 +704,45 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     isOptionalNumber(key.reservation_tokens) &&
     isOptionalNumber(key.reservation_spend_usd) &&
     typeof key.revision === "string"
+  );
+}
+
+function isRustTokenLimit(value: unknown): value is RustTokenLimit {
+  if (!value || typeof value !== "object") return false;
+  const limit = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(limit, [
+      "id",
+      "apiKeyId",
+      "scopeType",
+      "scopeValue",
+      "tokenLimit",
+      "resetInterval",
+      "resetTime",
+      "enabled",
+      "tokensUsed",
+      "windowStart",
+      "periodStartAt",
+      "nextResetAt",
+      "remaining",
+    ]) &&
+    typeof limit.id === "string" &&
+    typeof limit.apiKeyId === "string" &&
+    limit.scopeType === "model" &&
+    typeof limit.scopeValue === "string" &&
+    isNonNegativeInteger(limit.tokenLimit) &&
+    limit.tokenLimit > 0 &&
+    (limit.resetInterval === "daily" ||
+      limit.resetInterval === "weekly" ||
+      limit.resetInterval === "monthly") &&
+    typeof limit.resetTime === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(limit.resetTime) &&
+    limit.enabled === true &&
+    isNonNegativeInteger(limit.tokensUsed) &&
+    typeof limit.windowStart === "string" &&
+    isNonNegativeJsonInteger(limit.periodStartAt) &&
+    isNonNegativeJsonInteger(limit.nextResetAt) &&
+    isNonNegativeInteger(limit.remaining)
   );
 }
 
@@ -1333,6 +1419,40 @@ export async function replaceRustClientKey(
 
 export async function deleteRustClientKey(id: string): Promise<void> {
   const response = await rustAdminFetch(`/api/admin/client-keys/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    throw new Error(rustAdminError(value, response.status));
+  }
+}
+
+export async function listRustTokenLimits(apiKeyId: string): Promise<RustTokenLimit[]> {
+  const query = new URLSearchParams({ apiKeyId });
+  const response = await rustTokenLimitFetch(`/api/usage/token-limits?${query}`);
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  const limits =
+    value && typeof value === "object" ? (value as { limits?: unknown }).limits : undefined;
+  if (!Array.isArray(limits) || !limits.every(isRustTokenLimit)) {
+    throw new Error("Invalid Rust token-limit response");
+  }
+  return limits;
+}
+
+export async function saveRustTokenLimit(input: RustTokenLimitInput): Promise<RustTokenLimit> {
+  const response = await rustTokenLimitFetch("/api/usage/token-limits", jsonRequest("POST", input));
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  const limit =
+    value && typeof value === "object" ? (value as { limit?: unknown }).limit : undefined;
+  if (!isRustTokenLimit(limit)) throw new Error("Invalid Rust token-limit response");
+  return limit;
+}
+
+export async function deleteRustTokenLimit(id: string): Promise<void> {
+  const query = new URLSearchParams({ id });
+  const response = await rustTokenLimitFetch(`/api/usage/token-limits?${query}`, {
     method: "DELETE",
   });
   if (!response.ok) {
