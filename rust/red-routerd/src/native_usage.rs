@@ -680,9 +680,22 @@ impl NativeUsage {
                 return Err("invalid model quota");
             }
             let window = model_window_start(reservation.now_ms, &interval, reset)?;
-            let consumed: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+            let mut consumed: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
                 .bind(reservation.key_id).bind(reservation.model).bind(window).fetch_one(&mut **connection)
                 .await.map_err(|_| "model quota ledger unavailable")?;
+            if let Some(baseline) = sqlx::query("SELECT window_start_unix_ms,tokens_used FROM redrouter_legacy_model_token_baselines WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
+                .bind(reservation.key_id).bind(reservation.model).bind(&interval).fetch_optional(&mut **connection)
+                .await.map_err(|_| "legacy model quota baseline unavailable")?
+            {
+                let baseline_window: i64 = baseline.try_get("window_start_unix_ms").map_err(|_| "invalid legacy model quota baseline")?;
+                let baseline_tokens: i64 = baseline.try_get("tokens_used").map_err(|_| "invalid legacy model quota baseline")?;
+                if baseline_window > window || baseline_tokens < 0 {
+                    return Err("invalid legacy model quota baseline");
+                }
+                if baseline_window == window {
+                    consumed = consumed.checked_add(baseline_tokens).ok_or("usage counter overflow")?;
+                }
+            }
             let held: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(reserved_tokens),0) FROM redrouter_usage_reservations WHERE key_id=$1 AND model=$2")
                 .bind(reservation.key_id).bind(reservation.model).fetch_one(&mut **connection)
                 .await.map_err(|_| "model quota reservations unavailable")?;

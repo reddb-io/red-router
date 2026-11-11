@@ -18,9 +18,21 @@ async fn fixture() -> (TempDir, std::path::PathBuf) {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE usage_history (id INTEGER PRIMARY KEY); CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY,api_key_id TEXT,tenant_id TEXT,timestamp TEXT,tokens_input INTEGER,tokens_output INTEGER,amount_usd REAL,success INTEGER); CREATE TABLE api_key_quota_limits (api_key_id TEXT PRIMARY KEY,tpm_limit INTEGER,rpm_limit INTEGER,monthly_amount_usd REAL); INSERT INTO api_key_quota_limits VALUES ('key-a',200,5,0.00010001); CREATE TABLE api_key_daily_token_limits (api_key_id TEXT PRIMARY KEY,daily_tokens_limit INTEGER); INSERT INTO api_key_daily_token_limits VALUES ('key-a',1000); CREATE TABLE api_key_quota_counters (api_key_id TEXT,dimension_key TEXT,bucket_index INTEGER,consumed REAL,updated_at INTEGER); CREATE TABLE api_key_usage_reservations (id TEXT PRIMARY KEY,api_key_id TEXT,reserved_tokens INTEGER,reserved_usd REAL,created_at INTEGER,state TEXT,provider TEXT,model TEXT);").execute(&mut input).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE usage_history (id INTEGER PRIMARY KEY); CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY,api_key_id TEXT,tenant_id TEXT,timestamp TEXT,tokens_input INTEGER,tokens_output INTEGER,amount_usd REAL,success INTEGER); CREATE TABLE api_key_quota_limits (api_key_id TEXT PRIMARY KEY,tpm_limit INTEGER,rpm_limit INTEGER,monthly_amount_usd REAL); INSERT INTO api_key_quota_limits VALUES ('key-a',200,5,0.00010001); CREATE TABLE api_key_daily_token_limits (api_key_id TEXT PRIMARY KEY,daily_tokens_limit INTEGER); INSERT INTO api_key_daily_token_limits VALUES ('key-a',1000); CREATE TABLE api_key_quota_counters (api_key_id TEXT,dimension_key TEXT,bucket_index INTEGER,consumed REAL,updated_at INTEGER); CREATE TABLE api_key_token_limits (id TEXT PRIMARY KEY,api_key_id TEXT,scope_type TEXT,scope_value TEXT,token_limit INTEGER,reset_interval TEXT,reset_time TEXT,enabled INTEGER,created_at TEXT,updated_at TEXT); INSERT INTO api_key_token_limits VALUES ('model-daily','key-a','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); CREATE TABLE api_key_token_counters (limit_id TEXT,window_start TEXT,tokens_used INTEGER,updated_at TEXT,PRIMARY KEY(limit_id,window_start)); CREATE TABLE api_key_usage_reservations (id TEXT PRIMARY KEY,api_key_id TEXT,reserved_tokens INTEGER,reserved_usd REAL,created_at INTEGER,state TEXT,provider TEXT,model TEXT);").execute(&mut input).await.unwrap();
     let now = OffsetDateTime::now_utc();
     let now_ms = (now.unix_timestamp_nanos() / 1_000_000) as i64;
+    let model_window = now
+        .date()
+        .with_hms(0, 0, 0)
+        .unwrap()
+        .assume_utc()
+        .unix_timestamp()
+        * 1000;
+    sqlx::query("INSERT INTO api_key_token_counters VALUES ('model-daily',?,120,datetime('now'))")
+        .bind(model_window.to_string())
+        .execute(&mut input)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO request_cost_ledger VALUES (1,'key-a','red',?,100,30,0.00000031,1)")
         .bind(now.format(&Rfc3339).unwrap())
         .execute(&mut input)
@@ -173,6 +185,7 @@ async fn adopts_daily_monthly_counters_and_pending_holds_once() {
         ),
         (130, 1, 1, 2)
     );
+    assert_eq!(report.model_limits, 1);
     let mut db =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
             .await
@@ -193,6 +206,8 @@ async fn adopts_daily_monthly_counters_and_pending_holds_once() {
     assert_eq!(token_counter, 3);
     let limits: (i64,i64,i64,i64,i64) = sqlx::query_as("SELECT max_tokens_per_minute,max_tokens_per_day,max_monthly_microusd,reservation_tokens,reservation_microusd FROM redrouter_control_client_key_quotas WHERE key_id='key-a'").fetch_one(&mut db).await.unwrap();
     assert_eq!(limits, (200, 1000, 100, 50, 10));
+    let model_limit: (i64, i64) = sqlx::query_as("SELECT token_limit,tokens_used FROM redrouter_client_model_token_limits l JOIN redrouter_legacy_model_token_baselines b USING (key_id,model,reset_interval) WHERE l.key_id='key-a' AND l.model='gpt-4'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(model_limit, (500, 120));
     let rpm: i64 =
         sqlx::query_scalar("SELECT max_rpm FROM redrouter_control_client_keys WHERE id='key-a'")
             .fetch_one(&mut db)

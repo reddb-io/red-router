@@ -17,6 +17,7 @@ pub struct Adoption {
     pub monthly_microusd: i64,
     pub reservations: u64,
     pub counters: u64,
+    pub model_limits: u64,
 }
 
 pub async fn adopt(
@@ -84,7 +85,7 @@ pub async fn adopt(
                 .bind(table).fetch_optional(&mut db).await.map_err(|_| "legacy quota archive unavailable")?.flatten();
             if exists.is_none() { return Err("legacy quota archive is incomplete"); }
         }
-        for table in ["redrouter_legacy_quota_baselines", "redrouter_usage_reservations", "redrouter_usage_counters", "redrouter_request_rate_counters", "redrouter_usage_ledger"] {
+        for table in ["redrouter_legacy_quota_baselines", "redrouter_legacy_model_token_baselines", "redrouter_client_model_token_limits", "redrouter_usage_reservations", "redrouter_usage_counters", "redrouter_request_rate_counters", "redrouter_usage_ledger"] {
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE key_id=?"))
                 .bind(key_id).fetch_one(&mut db).await.map_err(|_| "native quota state unavailable")?;
             if count != 0 { return Err("native quota state already exists; nothing adopted"); }
@@ -107,6 +108,46 @@ pub async fn adopt(
         sqlx::query("UPDATE redrouter_control_client_key_quotas SET max_tokens_per_minute=?,max_tokens_per_day=?,max_monthly_microusd=?,reservation_tokens=?,reservation_microusd=? WHERE key_id=?")
             .bind(quota.max_tokens_per_minute).bind(quota.max_tokens_per_day).bind(quota.max_monthly_microusd).bind(quota.reservation_tokens).bind(quota.reservation_microusd).bind(key_id)
             .execute(&mut db).await.map_err(|_| "cannot adopt legacy usage limits")?;
+        let archived_model_limits: Option<i64> = sqlx::query_scalar::<_, Option<i64>>("SELECT row_count FROM redrouter_legacy_archive_manifest WHERE source_table='api_key_token_limits'")
+            .fetch_optional(&mut db).await.map_err(|_| "legacy model quota archive unavailable")?.flatten();
+        let mut model_limit_count = 0_u64;
+        if archived_model_limits.is_some_and(|count| count > 0) {
+            let archived_counters: Option<i64> = sqlx::query_scalar::<_, Option<i64>>("SELECT row_count FROM redrouter_legacy_archive_manifest WHERE source_table='api_key_token_counters'")
+                .fetch_optional(&mut db).await.map_err(|_| "legacy model quota archive unavailable")?.flatten();
+            if archived_counters.is_none() { return Err("legacy model quota archive is incomplete"); }
+            let model_limits = sqlx::query("SELECT id,scope_type,scope_value,token_limit,reset_interval,reset_time,enabled FROM redrouter_legacy_api_key_token_limits WHERE api_key_id=? ORDER BY __legacy_rowid")
+                .bind(key_id).fetch_all(&mut db).await.map_err(|_| "cannot read legacy model quotas")?;
+            if model_limits.len() > 10_000 { return Err("too many legacy model quotas"); }
+            for row in model_limits {
+                let enabled: i64 = row.try_get("enabled").map_err(|_| "invalid legacy model quota")?;
+                if !matches!(enabled, 0 | 1) { return Err("invalid legacy model quota"); }
+                if enabled == 0 { continue; }
+                let id: String = row.try_get("id").map_err(|_| "invalid legacy model quota")?;
+                let scope: String = row.try_get("scope_type").map_err(|_| "invalid legacy model quota")?;
+                let model: String = row.try_get("scope_value").map_err(|_| "invalid legacy model quota")?;
+                let maximum: i64 = row.try_get("token_limit").map_err(|_| "invalid legacy model quota")?;
+                let interval: String = row.try_get("reset_interval").map_err(|_| "invalid legacy model quota")?;
+                let reset_time: Option<String> = row.try_get("reset_time").map_err(|_| "invalid legacy model quota")?;
+                if scope != "model" || id.is_empty() || id.len() > 128 || id.chars().any(char::is_control)
+                    || model.trim() != model || model.is_empty() || model.len() > 256 || model.chars().any(char::is_control)
+                    || !(1..=MAX_SAFE).contains(&maximum) || reservation_tokens <= 0 || reservation_tokens > maximum
+                { return Err("unsupported legacy model quota"); }
+                let reset_minutes = reset_minutes(reset_time.as_deref().unwrap_or("00:00"))?;
+                let window = crate::native_usage::model_window_start(now_ms, &interval, reset_minutes)?;
+                let counters = sqlx::query("SELECT tokens_used FROM redrouter_legacy_api_key_token_counters WHERE limit_id=? AND window_start=?")
+                    .bind(&id).bind(window.to_string()).fetch_all(&mut db).await.map_err(|_| "cannot read legacy model quota counter")?;
+                if counters.len() > 1 { return Err("duplicate legacy model quota counter"); }
+                let used = counters.first().map(|counter| counter.try_get::<i64, _>("tokens_used")).transpose().map_err(|_| "invalid legacy model quota counter")?.unwrap_or(0);
+                if !(0..=MAX_SAFE).contains(&used) { return Err("invalid legacy model quota counter"); }
+                sqlx::query("INSERT INTO redrouter_client_model_token_limits (key_id,model,reset_interval,reset_minutes,token_limit) VALUES (?,?,?,?,?)")
+                    .bind(key_id).bind(&model).bind(&interval).bind(reset_minutes).bind(maximum)
+                    .execute(&mut db).await.map_err(|_| "cannot adopt legacy model quota")?;
+                sqlx::query("INSERT INTO redrouter_legacy_model_token_baselines (key_id,model,reset_interval,window_start_unix_ms,tokens_used) VALUES (?,?,?,?,?)")
+                    .bind(key_id).bind(model).bind(interval).bind(window).bind(used)
+                    .execute(&mut db).await.map_err(|_| "cannot adopt legacy model quota baseline")?;
+                model_limit_count += 1;
+            }
+        }
         let mut tokens = 0_i64;
         let mut usd = 0_f64;
         let mut ledger = sqlx::query("SELECT tenant_id,timestamp,tokens_input,tokens_output,amount_usd,success FROM redrouter_legacy_request_cost_ledger WHERE api_key_id=? ORDER BY __legacy_rowid")
@@ -172,7 +213,7 @@ pub async fn adopt(
                 .bind(&id).bind(key_id).bind(&tenant).bind(provider).bind(model).bind(reserved).bind(micros).bind(created)
                 .execute(&mut db).await.map_err(|_| "legacy reservation conflicts with native state")?;
         }
-        Ok(Adoption { daily_tokens: tokens, monthly_microusd: monthly, reservations: reservations.len() as u64, counters: counter_count })
+        Ok(Adoption { daily_tokens: tokens, monthly_microusd: monthly, reservations: reservations.len() as u64, counters: counter_count, model_limits: model_limit_count })
     }.await;
     match result {
         Ok(report) => {
@@ -211,4 +252,27 @@ fn micros_floor_limit(usd: f64) -> Result<i64, &'static str> {
         return Err("unsupported legacy spend limit");
     }
     Ok(value.floor() as i64)
+}
+
+fn reset_minutes(value: &str) -> Result<i64, &'static str> {
+    let (hour, minute) = value
+        .split_once(':')
+        .ok_or("invalid legacy model quota reset time")?;
+    if hour.len() != 2
+        || minute.len() != 2
+        || !hour.bytes().all(|b| b.is_ascii_digit())
+        || !minute.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err("invalid legacy model quota reset time");
+    }
+    let hour: i64 = hour
+        .parse()
+        .map_err(|_| "invalid legacy model quota reset time")?;
+    let minute: i64 = minute
+        .parse()
+        .map_err(|_| "invalid legacy model quota reset time")?;
+    if hour > 23 || minute > 59 {
+        return Err("invalid legacy model quota reset time");
+    }
+    Ok(hour * 60 + minute)
 }

@@ -84,6 +84,7 @@ const CREATE_DASHBOARD_KEY_VALUE: &str = "CREATE TABLE IF NOT EXISTS key_value (
 const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL)";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_LEGACY_QUOTA_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_quota_baselines (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, day_start_unix_ms BIGINT NOT NULL, daily_tokens BIGINT NOT NULL, month_start_unix_ms BIGINT NOT NULL, monthly_microusd BIGINT NOT NULL)";
+const CREATE_LEGACY_MODEL_TOKEN_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_model_token_baselines (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, window_start_unix_ms BIGINT NOT NULL, tokens_used BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_CLIENT_MODEL_TOKEN_LIMITS: &str = "CREATE TABLE IF NOT EXISTS redrouter_client_model_token_limits (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, reset_minutes BIGINT NOT NULL, token_limit BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_REQUEST_RATE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_rate_counters (key_id TEXT NOT NULL, window_seconds BIGINT NOT NULL, bucket_index BIGINT NOT NULL, consumed_requests BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, window_seconds, bucket_index))";
 const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
@@ -846,6 +847,7 @@ impl Database {
                         CREATE_USAGE_LEDGER,
                         CREATE_USAGE_COUNTERS,
                         CREATE_LEGACY_QUOTA_BASELINES,
+                        CREATE_LEGACY_MODEL_TOKEN_BASELINES,
                         CREATE_CLIENT_MODEL_TOKEN_LIMITS,
                         CREATE_REQUEST_RATE_COUNTERS,
                         CREATE_USAGE_RESERVATIONS_KEY_INDEX,

@@ -35,7 +35,13 @@ pub async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, Stri
         CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key));
         CREATE TABLE api_key_quota_limits (api_key_id TEXT PRIMARY KEY,tpm_limit INTEGER,rpm_limit INTEGER,monthly_amount_usd REAL);
         INSERT INTO api_key_quota_limits VALUES ('first',200,5,0.01);
-        CREATE TABLE api_key_token_limits (id TEXT);
+        CREATE TABLE api_key_token_limits (
+          id TEXT PRIMARY KEY, api_key_id TEXT NOT NULL, scope_type TEXT NOT NULL,
+          scope_value TEXT NOT NULL DEFAULT '', token_limit INTEGER NOT NULL,
+          reset_interval TEXT NOT NULL DEFAULT 'monthly', reset_time TEXT,
+          enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
         CREATE TABLE api_key_daily_token_limits (id TEXT);
         CREATE TABLE domain_budgets (id TEXT);
         CREATE TABLE budget_assignments (id TEXT);
@@ -65,6 +71,12 @@ pub async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, Stri
 async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_format() {
     use sha2::{Digest, Sha256};
     let (_dir, source, dest, url) = fixture().await;
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now'));")
+        .execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
     let report = legacy_keys::import(&source, &dest).await.unwrap();
     assert_eq!(
@@ -124,7 +136,7 @@ async fn any_unsupported_policy_rolls_back_all_keys_and_unknown_schema_fails_clo
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("UPDATE api_keys SET allowed_models='[]'; INSERT INTO api_key_token_limits VALUES ('first');").execute(&mut input).await.unwrap();
+    sqlx::raw_sql("UPDATE api_keys SET allowed_models='[]'; INSERT INTO api_key_token_limits VALUES ('limit','first','provider','openai',100,'daily','00:00',1,datetime('now'),datetime('now'));").execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     assert!(legacy_keys::import(&source, &dest).await.is_err());
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))

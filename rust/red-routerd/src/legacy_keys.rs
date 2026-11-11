@@ -53,12 +53,24 @@ const COLUMNS: &[&str] = &[
 // Even disabled or unmatched rows are rejected: deleting a policy or changing
 // a key later must not silently activate an incomplete migration.
 const POLICY_TABLES: &[&str] = &[
-    "api_key_token_limits",
     "domain_budgets",
     "budget_assignments",
     "key_group_members",
     "api_key_context_sources",
     "model_combo_mappings",
+];
+
+const TOKEN_LIMIT_COLUMNS: &[&str] = &[
+    "id",
+    "api_key_id",
+    "scope_type",
+    "scope_value",
+    "token_limit",
+    "reset_interval",
+    "reset_time",
+    "enabled",
+    "created_at",
+    "updated_at",
 ];
 
 #[derive(Debug, serde::Serialize)]
@@ -120,6 +132,22 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
                 .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy policies")?;
             if count != 0 { return Err("legacy policy, quota or reservation requires migration; no keys imported"); }
+        }
+        // Model token limits have a native adoption path. Refuse older or
+        // unknown table shapes and provider/global scopes instead of silently
+        // weakening their semantics. Imported keys still remain disabled until
+        // `legacy-quota-adopt` copies limits and the active-window counters.
+        let token_columns: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('api_key_token_limits')")
+            .fetch_all(&mut *snapshot).await.map_err(|_| "cannot inspect legacy token limit schema")?;
+        if token_columns.len() != TOKEN_LIMIT_COLUMNS.len()
+            || TOKEN_LIMIT_COLUMNS.iter().any(|column| !token_columns.iter().any(|found| found == column))
+        {
+            return Err("unsupported legacy token limit schema; no keys imported");
+        }
+        let unsupported_token_limits: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_key_token_limits WHERE scope_type <> 'model' OR enabled NOT IN (0,1) OR reset_interval NOT IN ('daily','weekly','monthly')")
+            .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy token limits")?;
+        if unsupported_token_limits != 0 {
+            return Err("provider or global token limits require migration; no keys imported");
         }
         let settings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='settings' AND ((key IN ('disabledModels','modelVisibilityAllowlist','modelVisibilityDenylist') AND COALESCE(trim(value),'') NOT IN ('[]','null')) OR (key IN ('hidePaidModels','excludeTosAvoid','hideAutoCombos') AND COALESCE(trim(value),'') NOT IN ('false','null')) OR (key='freeAccessPolicy' AND COALESCE(trim(value),'') NOT IN ('\"off\"','null')) OR (key='proxyEnabled' AND COALESCE(trim(value),'') <> 'true'))) OR (namespace='api_key_tags')")
             .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy settings")?;

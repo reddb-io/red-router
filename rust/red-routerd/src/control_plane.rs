@@ -7959,8 +7959,16 @@ impl ControlPlane {
                 .try_get("token_limit")
                 .map_err(|_| "invalid token limit")?;
             let start = crate::native_usage::model_window_start(now, &interval, reset)?;
-            let used: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input+tokens_output+tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+            let mut used: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input+tokens_output+tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
                 .bind(key_id).bind(&model).bind(start).fetch_one(pool).await.map_err(|_| "token limit ledger unavailable")?;
+            if let Some(baseline) = sqlx::query("SELECT window_start_unix_ms,tokens_used FROM redrouter_legacy_model_token_baselines WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
+                .bind(key_id).bind(&model).bind(&interval).fetch_optional(pool).await.map_err(|_| "legacy model quota baseline unavailable")?
+            {
+                let baseline_start: i64 = baseline.try_get("window_start_unix_ms").map_err(|_| "invalid legacy model quota baseline")?;
+                let baseline_used: i64 = baseline.try_get("tokens_used").map_err(|_| "invalid legacy model quota baseline")?;
+                if baseline_start > start || baseline_used < 0 { return Err("invalid legacy model quota baseline"); }
+                if baseline_start == start { used = used.checked_add(baseline_used).ok_or("usage counter overflow")?; }
+            }
             let id = token_limit_id(key_id, &model, &interval);
             views.push(serde_json::json!({
                 "id":id,"apiKeyId":key_id,"scopeType":"model","scopeValue":model,
@@ -8019,8 +8027,18 @@ impl ControlPlane {
             if enabled != 0 || !has_global || reservation <= 0 || reservation > input.token_limit { return Err("disable the key and configure a compatible reservation first"); }
             let expected = token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval);
             if input.id.as_deref().is_some_and(|id| id != expected) { return Err("token limit identifier does not match its scope"); }
-            let migrated: i64 = sqlx::query_scalar("SELECT CASE WHEN EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_key_migration') THEN (SELECT COUNT(*) FROM redrouter_legacy_key_migration WHERE key_id=$1) ELSE 0 END")
-                .bind(&input.api_key_id).fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?;
+            // SQLite resolves every table referenced by a statement before it
+            // evaluates CASE branches. Keep the optional legacy table out of
+            // the second statement entirely when a native database has never
+            // run the legacy importer.
+            let migration_table: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_key_migration'")
+                .fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?;
+            let migrated: i64 = if migration_table == 0 {
+                0
+            } else {
+                sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_key_migration WHERE key_id=$1")
+                    .bind(&input.api_key_id).fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?
+            };
             if migrated != 0 { return Err("legacy model quota baseline requires migration"); }
             sqlx::query("INSERT INTO redrouter_client_model_token_limits (key_id,model,reset_interval,reset_minutes,token_limit) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(key_id,model,reset_interval) DO UPDATE SET reset_minutes=$4,token_limit=$5")
                 .bind(&input.api_key_id).bind(&input.scope_value).bind(&input.reset_interval).bind(reset).bind(input.token_limit)
