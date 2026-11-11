@@ -1,5 +1,5 @@
 use red_routerd::{
-    legacy_archive, legacy_quota,
+    legacy_archive, legacy_quota, reconcile,
     storage::{Backend, Database},
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
@@ -57,6 +57,55 @@ async fn fixture() -> (TempDir, std::path::PathBuf) {
     sqlx::raw_sql("CREATE TABLE redrouter_legacy_key_migration (key_id TEXT PRIMARY KEY,source_is_active INTEGER,source_is_banned INTEGER,source_revoked_at TEXT); INSERT INTO redrouter_legacy_key_migration VALUES ('key-a',1,0,NULL); INSERT INTO redrouter_control_client_keys VALUES ('key-a','A','hash',0,0,'[]','[]','[]','[]','[]',0,0,0,1); INSERT INTO redrouter_control_client_key_ownership VALUES ('key-a','red','legacy-migration',1); INSERT INTO redrouter_control_client_key_quotas VALUES ('key-a',0,0,0,0,0,1);").execute(&mut output).await.unwrap();
     output.close().await.unwrap();
     (dir, destination)
+}
+
+#[tokio::test]
+async fn native_reconciliation_is_atomic_audited_and_only_records_usage_once() {
+    let (_dir, destination) = fixture().await;
+    legacy_quota::adopt(&destination, "key-a", 50, 10)
+        .await
+        .unwrap();
+    let pending = reconcile::list_native(&destination).await.unwrap();
+    assert_eq!(pending["reservations"][0]["id"], "hold-a");
+    let now_ms = (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
+    let mut report = serde_json::json!({
+        "timestamp_ms": now_ms,
+        "amount_microusd": 25,
+        "evidence": "provider statement request 42",
+        "usage": {"prompt_tokens": 12, "completion_tokens": 8,
+                  "completion_tokens_details": {"reasoning_tokens": 2}}
+    });
+    report["evidence"] = serde_json::json!("");
+    assert!(reconcile::reconcile_native(&destination, "hold-a", &report)
+        .await
+        .is_err());
+    report["evidence"] = serde_json::json!("provider statement request 42");
+    let (first, second) = tokio::join!(
+        reconcile::reconcile_native(&destination, "hold-a", &report),
+        reconcile::reconcile_native(&destination, "hold-a", &report)
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    let mut db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let ledger: (i64, i64, i64, i64, String) = sqlx::query_as("SELECT tokens_input,tokens_output,tokens_reasoning,amount_microusd,pricing_snapshot FROM redrouter_usage_ledger WHERE event_id='hold-a'")
+        .fetch_one(&mut db).await.unwrap();
+    assert_eq!((ledger.0, ledger.1, ledger.2, ledger.3), (12, 8, 2, 25));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&ledger.4).unwrap()["source"],
+        "operator-reconciliation"
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM redrouter_usage_reservations WHERE event_id='hold-a'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+    let counter: i64 = sqlx::query_scalar("SELECT consumed_tokens FROM redrouter_usage_counters WHERE key_id='key-a' AND minute_bucket=?")
+        .bind(now_ms / 60_000).fetch_one(&mut db).await.unwrap();
+    assert!(counter >= 22);
 }
 
 #[tokio::test]

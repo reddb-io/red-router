@@ -738,6 +738,16 @@ impl NativeUsage {
                     .map_err(|_| "usage storage unavailable")?;
                 Ok(recorded)
             }
+            Err("usage exceeds reservation; reconciliation required") => {
+                // Persist the quarantine before returning an error. Rolling
+                // this transaction back would leave the underestimated hold
+                // available for further admissions.
+                sqlx::query("COMMIT")
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(|_| "usage storage unavailable")?;
+                Err("usage exceeds reservation; reconciliation required")
+            }
             Err(error) => {
                 let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
                 Err(error)
@@ -1376,6 +1386,69 @@ mod tests {
             })
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn underestimated_reservation_stays_quarantined_after_restart() {
+        let folder = TempDir::new().unwrap();
+        let url = sqlite_url(&folder);
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let reservation = Reservation {
+            event_id: "underestimated",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "gpt",
+            quota: quota(),
+            reserved_tokens: 60,
+            reserved_microusd: 100_000,
+            now_ms: 1_700_000_000_000,
+        };
+        assert!(usage.reserve(&reservation).await.unwrap());
+        let tokens = ChatUsage {
+            input: 61,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        let event = UsageEvent {
+            event_id: reservation.event_id,
+            key_id: reservation.key_id,
+            key_name: "Agent",
+            tenant_id: reservation.tenant_id,
+            provider: reservation.provider,
+            model: reservation.model,
+            usage: &tokens,
+            prices: None,
+            kind: UsageKind::Tokens,
+            search_units: 0,
+            rerank_price: None,
+            now_ms: reservation.now_ms,
+            reserved: true,
+        };
+        assert_eq!(
+            usage.settle(&event).await,
+            Err("usage exceeds reservation; reconciliation required")
+        );
+        drop(usage);
+        Arc::try_unwrap(database)
+            .ok()
+            .unwrap()
+            .close()
+            .await
+            .unwrap();
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let hold: (i64, i64) = sqlx::query_as("SELECT reserved_tokens,reserved_microusd FROM redrouter_usage_reservations WHERE event_id='underestimated'")
+            .fetch_one(database.sql_pool().unwrap()).await.unwrap();
+        assert_eq!(hold, (MAX_SAFE_INTEGER, MAX_SAFE_INTEGER));
+        let usage = NativeUsage::new(database).unwrap();
+        let next = Reservation {
+            event_id: "next",
+            ..reservation
+        };
+        assert!(!usage.reserve(&next).await.unwrap());
     }
 
     #[tokio::test]

@@ -261,6 +261,44 @@ async fn run(
     }
     if matches!(
         command.as_deref(),
+        Some("list-native-reservations" | "reconcile-native-usage")
+    ) {
+        let path = env::var_os("RED_ROUTER_NATIVE_DB_PATH")
+            .ok_or("RED_ROUTER_NATIVE_DB_PATH is required")?;
+        let path = std::path::Path::new(&path);
+        if command.as_deref() == Some("list-native-reservations") {
+            if args.next().is_some() {
+                return Err("usage: red-routerd list-native-reservations".into());
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&red_routerd::reconcile::list_native(path).await?)?
+            );
+        } else {
+            use std::io::Read as _;
+            if args.next().as_deref() != Some("--verified") {
+                return Err("usage: red-routerd reconcile-native-usage --verified <reservation-id> <usage.json>".into());
+            }
+            let id = args.next().ok_or("reservation ID is required")?;
+            let file = args.next().ok_or("usage JSON file is required")?;
+            if args.next().is_some() {
+                return Err("unexpected argument".into());
+            }
+            let mut data = Vec::new();
+            std::fs::File::open(file)?
+                .take(1_048_577)
+                .read_to_end(&mut data)?;
+            if data.len() > 1_048_576 {
+                return Err("usage JSON file is too large".into());
+            }
+            let response: serde_json::Value = serde_json::from_slice(&data)?;
+            red_routerd::reconcile::reconcile_native(path, &id, &response).await?;
+            println!("Native usage reconciled");
+        }
+        return Ok(());
+    }
+    if matches!(
+        command.as_deref(),
         Some("list-usage-reservations" | "reconcile-usage" | "cancel-undispatched")
     ) {
         let path = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")

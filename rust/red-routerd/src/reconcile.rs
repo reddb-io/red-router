@@ -146,3 +146,114 @@ pub async fn cancel_undispatched(path: &Path, id: &str) -> Result<bool, &'static
             .map_err(|_| "reservation unavailable")?;
     Ok(result.rows_affected() == 1)
 }
+
+/// Inspect native Rust reservations without exposing credentials.
+pub async fn list_native(path: &Path) -> Result<Value, &'static str> {
+    let pool = database(path, true).await?;
+    let rows = sqlx::query("SELECT event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state FROM redrouter_usage_reservations ORDER BY created_at_unix_ms,event_id LIMIT 1000")
+        .fetch_all(&pool).await.map_err(|_| "native reservation schema unavailable")?;
+    let mut reservations = Vec::with_capacity(rows.len());
+    for row in rows {
+        reservations.push(json!({
+            "id": row.try_get::<String, _>("event_id").map_err(|_| "invalid reservation")?,
+            "key_id": row.try_get::<String, _>("key_id").map_err(|_| "invalid reservation")?,
+            "tenant_id": row.try_get::<String, _>("tenant_id").map_err(|_| "invalid reservation")?,
+            "provider": row.try_get::<String, _>("provider").map_err(|_| "invalid reservation")?,
+            "model": row.try_get::<String, _>("model").map_err(|_| "invalid reservation")?,
+            "reserved_tokens": row.try_get::<i64, _>("reserved_tokens").map_err(|_| "invalid reservation")?,
+            "reserved_microusd": row.try_get::<i64, _>("reserved_microusd").map_err(|_| "invalid reservation")?,
+            "created_at_ms": row.try_get::<i64, _>("created_at_unix_ms").map_err(|_| "invalid reservation")?,
+            "state": row.try_get::<String, _>("state").map_err(|_| "invalid reservation")?,
+        }));
+    }
+    Ok(json!({"reservations": reservations, "limit": 1000}))
+}
+
+/// Atomically replace a native hold with explicitly verified usage and cost.
+/// The caller must verify that the original request was not already included
+/// in a migrated baseline before supplying this accounting evidence.
+pub async fn reconcile_native(path: &Path, id: &str, response: &Value) -> Result<(), &'static str> {
+    if id.is_empty() || id.len() > 128 || id.chars().any(char::is_control) {
+        return Err("invalid reservation ID");
+    }
+    let usage = ChatUsage::from_response(response)?;
+    let tokens = i64::try_from(usage.billable_tokens()?).map_err(|_| "invalid token usage")?;
+    const MAX_SAFE: i64 = 9_007_199_254_740_991;
+    if tokens > MAX_SAFE {
+        return Err("invalid token usage");
+    }
+    let amount = response
+        .get("amount_microusd")
+        .and_then(Value::as_i64)
+        .filter(|v| (0..=MAX_SAFE).contains(v))
+        .ok_or("verified amount_microusd is required")?;
+    let evidence = response
+        .get("evidence")
+        .and_then(Value::as_str)
+        .filter(|v| (10..=512).contains(&v.trim().len()) && !v.chars().any(char::is_control))
+        .ok_or("accounting evidence is required")?
+        .trim();
+    let timestamp = response
+        .get("timestamp_ms")
+        .and_then(Value::as_i64)
+        .ok_or("timestamp_ms is required")?;
+    let now = i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "invalid clock")?
+            .as_millis(),
+    )
+    .map_err(|_| "invalid clock")?;
+    if !(946_684_800_000..4_102_444_800_000).contains(&timestamp)
+        || timestamp > now.saturating_add(300_000)
+    {
+        return Err("invalid usage timestamp");
+    }
+    let pool = database(path, false).await?;
+    let mut db = pool
+        .acquire()
+        .await
+        .map_err(|_| "native reservation unavailable")?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot lock native reservations")?;
+    let result: Result<(), &'static str> = async {
+        let row = sqlx::query("SELECT r.key_id,r.tenant_id,r.provider,r.model,r.state,r.created_at_unix_ms,k.label FROM redrouter_usage_reservations r JOIN redrouter_control_client_keys k ON k.id=r.key_id JOIN redrouter_control_client_key_ownership o ON o.key_id=k.id AND o.tenant_id=r.tenant_id WHERE r.event_id=?")
+            .bind(id).fetch_optional(&mut *db).await.map_err(|_| "native reservation unavailable")?.ok_or("native reservation not found")?;
+        let key: String = row.try_get("key_id").map_err(|_| "invalid native reservation")?;
+        let tenant: String = row.try_get("tenant_id").map_err(|_| "invalid native reservation")?;
+        let provider: String = row.try_get("provider").map_err(|_| "invalid native reservation")?;
+        let model: String = row.try_get("model").map_err(|_| "invalid native reservation")?;
+        let label: String = row.try_get("label").map_err(|_| "invalid native reservation")?;
+        let state: String = row.try_get("state").map_err(|_| "invalid native reservation")?;
+        let created: i64 = row.try_get("created_at_unix_ms").map_err(|_| "invalid native reservation")?;
+        if state != "dispatched" || timestamp < created { return Err("reservation is not dispatched or timestamp predates it"); }
+        let snapshot = json!({"currency":"USD","source":"operator-reconciliation","evidence":evidence}).to_string();
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES (?,?,?,?,?,?,'tokens',0,?,?,?,?,?,?,1,?,?)")
+            .bind(id).bind(&key).bind(label).bind(tenant).bind(provider).bind(model)
+            .bind(usage.input as i64).bind(usage.output as i64).bind(usage.cache_read as i64).bind(usage.cache_creation as i64).bind(usage.reasoning as i64).bind(amount).bind(snapshot).bind(timestamp)
+            .execute(&mut *db).await.map_err(|_| "cannot record reconciled usage")?;
+        if tokens > 0 {
+            sqlx::query("INSERT INTO redrouter_usage_counters (key_id,minute_bucket,consumed_tokens,updated_at_unix_ms) VALUES (?,?,?,?) ON CONFLICT (key_id,minute_bucket) DO UPDATE SET consumed_tokens=redrouter_usage_counters.consumed_tokens+excluded.consumed_tokens,updated_at_unix_ms=excluded.updated_at_unix_ms")
+                .bind(key).bind(timestamp / 60_000).bind(tokens).bind(timestamp).execute(&mut *db).await.map_err(|_| "cannot update usage counter")?;
+        }
+        let removed = sqlx::query("DELETE FROM redrouter_usage_reservations WHERE event_id=? AND state='dispatched'")
+            .bind(id).execute(&mut *db).await.map_err(|_| "cannot settle native reservation")?;
+        if removed.rows_affected() != 1 { return Err("native reservation changed"); }
+        Ok(())
+    }.await;
+    match result {
+        Ok(()) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *db)
+                .await
+                .map_err(|_| "cannot commit reconciliation")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *db).await;
+            Err(error)
+        }
+    }
+}

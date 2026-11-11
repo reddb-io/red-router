@@ -470,10 +470,19 @@ The archived event history is not inserted into the native ledger, avoiding doub
 counting. Legacy spend, pending spend and fractional counters round upward for quota
 enforcement, while a monthly spend limit rounds downward by at most one microdollar;
 original values remain in the archive. `reserved` and `dispatched` rows are both
-kept as unresolved holds. Native manual reconciliation for these holds is not yet
-available. The command refuses missing archives, unattributed current-period rows,
+kept as unresolved holds. The command refuses missing archives, unattributed current-period rows,
 enabled keys or existing native state. Keep both servers stopped throughout the
 archive, key import and adoption window; the archive must be from the same snapshot.
+To inspect Rust-owned pending holds, set `RED_ROUTER_NATIVE_DB_PATH` to the native
+SQLite file and run `red-routerd list-native-reservations`. After verifying actual
+usage, cost, and that the event is not already included in the legacy baseline,
+run `red-routerd reconcile-native-usage --verified RESERVATION_ID usage.json`.
+The JSON must contain `timestamp_ms`, integer `amount_microusd`, an `evidence`
+description, and OpenAI-compatible `usage` with `prompt_tokens` and
+`completion_tokens`. Include reasoning/cache details when applicable. The amount
+and evidence are operator assertions, not inferred prices; check them against the
+provider. Reconciliation atomically writes the ledger and minute counter and
+removes the hold. Do not put credentials or sensitive response content in evidence.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
