@@ -11,6 +11,8 @@ use url::Url;
 
 // Keep the read-only legacy inspection contract in the Windows storage job as
 // well as its standalone integration test.
+#[path = "legacy_archive.rs"]
+mod legacy_archive_tests;
 #[path = "legacy_keys.rs"]
 mod legacy_key_tests;
 #[path = "legacy_preflight.rs"]

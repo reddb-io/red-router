@@ -427,6 +427,17 @@ existing destination records, OAuth, custom endpoints, non-default routing or
 quota configuration and other unsupported metadata. It does not migrate session
 credentials, provider priorities, health history, combos or policies and is not a
 complete cutover.
+To stage legacy usage history, cost ledger, quota counters, reservations and budget
+tables without rounding their stored values, stop both servers and run
+`red-routerd archive-legacy-usage --offline-confirmed` with the same source and
+destination paths. The source is attached read-only; rows and SQLite value types are
+checked before the destination transaction commits. Tables and their row counts are
+recorded in `redrouter_legacy_archive_manifest`; source tables that do not exist are
+marked with a NULL count. Existing archives are never overwritten. These are inert
+staging tables: Rust quota admission, dashboard reports and export destinations do
+not yet consume them, and pending reservations are not reconciled automatically.
+Keep the original database and do not activate migrated quotas until accounting,
+tenant attribution and delivery state have been converted and verified.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

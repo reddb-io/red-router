@@ -10,6 +10,7 @@ pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
+pub mod legacy_archive;
 pub mod legacy_keys;
 pub mod legacy_preflight;
 pub mod legacy_providers;
