@@ -167,6 +167,7 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
     } else await route.fulfill({ status: 404, json: {} });
   });
   await page.goto(`${origin}/dashboard/model-catalog`);
+  await expect(page.getByLabel("Provider", { exact: true })).toBeVisible({ timeout: 10_000 });
   await page.getByLabel("Provider", { exact: true }).selectOption("example");
   await expect(page.getByText("128,000")).toBeVisible();
   await expect(page.getByText("$1.25")).toBeVisible();

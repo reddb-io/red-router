@@ -62,10 +62,11 @@ export default function ModelCatalog() {
       <p>Snapshot: {catalog.manifest.fetchedAt} · {catalog.manifest.providers} providers · {catalog.manifest.providerModels} provider models · {catalog.snapshot.source}</p>
       {catalog.snapshot.last_error && <p role="alert">Last refresh failed: {catalog.snapshot.last_error}</p>}
       <button type="button" disabled={busy} onClick={() => void refresh()}>Refresh catalog</button>
-      <label className="block">Provider<select className={fieldClass} value={providerId} onChange={(event) => { setProviderId(event.target.value); setQuery(""); setError(""); }}>
+      <label className="block" htmlFor="catalog-provider">Provider</label>
+      <select id="catalog-provider" className={fieldClass} value={providerId} onChange={(event) => { setProviderId(event.target.value); setQuery(""); setError(""); }}>
         <option value="">Select a provider</option>
         {catalog.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name || provider.id} ({provider.id})</option>)}
-      </select></label>
+      </select>
       {providerId && <>
         <label className="block">Filter models<input className={fieldClass} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         {!models ? <p>Loading models…</p> : <div className="overflow-x-auto"><table className="w-full text-left">
