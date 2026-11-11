@@ -8182,6 +8182,11 @@ impl ControlPlane {
                 return Err(error);
             }
         }
+        // SQLite uses a single pooled connection so every proxy process sees
+        // one serialized quota authority. COMMIT ends the transaction but the
+        // PoolConnection remains checked out until it is dropped; release it
+        // before rebuilding the response and recording the audit event.
+        drop(db);
         let after = self
             .token_limit_views(&input.api_key_id, tenant_id)
             .await?
@@ -8275,6 +8280,9 @@ impl ControlPlane {
                         return Err(error);
                     }
                 };
+                // Release the single SQLite connection before the audit
+                // writer starts its own transaction.
+                drop(db);
                 if affected == 1 {
                     self.record_audit_event(
                         AuditContext {
