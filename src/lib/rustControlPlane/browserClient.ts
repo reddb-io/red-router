@@ -86,6 +86,39 @@ export interface RustIdentityBindingInput {
   enabled: boolean;
 }
 
+export interface RustAuditEvent {
+  id: string;
+  timestamp: string;
+  createdAt: string;
+  action: string;
+  actor: string;
+  tenantId: string;
+  target: string;
+  resourceType: string;
+  status: string;
+  requestId: string;
+  details: unknown;
+  metadata: unknown;
+  ip: string | null;
+  ipAddress: string | null;
+}
+
+export interface RustAuditQuery {
+  action?: string;
+  actor?: string;
+  target?: string;
+  resourceType?: string;
+  status?: string;
+  requestId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RustAuditPage {
+  events: RustAuditEvent[];
+  total: number;
+}
+
 export type RustTokenLimitInterval = "daily" | "weekly" | "monthly";
 
 export interface RustTokenLimit {
@@ -703,6 +736,10 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[])
   return Object.keys(value).every((key) => keys.has(key));
 }
 
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
 function isRustCatalogLimit(value: unknown): boolean {
   if (value === undefined) return true;
   if (!value || typeof value !== "object") return false;
@@ -765,6 +802,45 @@ function isRustIdentityBinding(value: unknown): value is RustIdentityBinding {
     (binding.role === "admin" || binding.role === "tenant-admin" || binding.role === "issuer") &&
     typeof binding.enabled === "boolean" &&
     typeof binding.revision === "string"
+  );
+}
+
+function isRustAuditEvent(value: unknown): value is RustAuditEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(event, [
+      "id",
+      "timestamp",
+      "createdAt",
+      "action",
+      "actor",
+      "tenantId",
+      "target",
+      "resourceType",
+      "status",
+      "requestId",
+      "details",
+      "metadata",
+      "ip",
+      "ipAddress",
+    ]) &&
+    typeof event.id === "string" &&
+    typeof event.timestamp === "string" &&
+    typeof event.createdAt === "string" &&
+    typeof event.action === "string" &&
+    typeof event.actor === "string" &&
+    typeof event.tenantId === "string" &&
+    typeof event.target === "string" &&
+    typeof event.resourceType === "string" &&
+    typeof event.status === "string" &&
+    typeof event.requestId === "string" &&
+    hasOwn(event, "details") &&
+    hasOwn(event, "metadata") &&
+    hasOwn(event, "ip") &&
+    hasOwn(event, "ipAddress") &&
+    isOptionalString(event.ip) &&
+    isOptionalString(event.ipAddress)
   );
 }
 
@@ -1491,6 +1567,26 @@ export async function deleteRustIdentityBinding(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!response.ok) await rustError(response);
+}
+
+export async function listRustAuditEvents(query: RustAuditQuery = {}): Promise<RustAuditPage> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const suffix = params.size ? `?${params}` : "";
+  const response = await rustAdminFetch(`/api/admin/audit-log${suffix}`);
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(rustAdminError(value, response.status));
+  if (!Array.isArray(value) || !value.every(isRustAuditEvent)) {
+    throw new Error("Invalid Rust audit-log response");
+  }
+  const totalHeader = response.headers.get("x-total-count");
+  const total = totalHeader === null ? Number.NaN : Number(totalHeader);
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new Error("Invalid Rust audit-log total");
+  }
+  return { events: value, total };
 }
 
 export async function listRustClientKeys(): Promise<RustClientKey[]> {

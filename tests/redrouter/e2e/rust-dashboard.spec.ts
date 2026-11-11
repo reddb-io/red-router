@@ -56,6 +56,30 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     calls.push({ path, csrf: route.request().headers()["x-red-router-csrf"] });
+    if (path === "/api/admin/audit-log") {
+      await route.fulfill({
+        headers: { "x-total-count": "1" },
+        json: [
+          {
+            id: "audit-one",
+            timestamp: "2026-11-11T20:00:00Z",
+            createdAt: "2026-11-11T20:00:00Z",
+            action: "tenant.update",
+            actor: "oidc:owner",
+            tenantId: "red",
+            target: "red",
+            resourceType: "tenant",
+            status: "success",
+            requestId: "request-one",
+            details: { enabled: true },
+            metadata: { enabled: true },
+            ip: null,
+            ipAddress: null,
+          },
+        ],
+      });
+      return;
+    }
     const responses: Record<string, unknown> = {
       "/api/auth/config": {
         backend: "rust",
@@ -130,12 +154,16 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await expect(page.getByRole("heading", { name: "Organizations and identities" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Red", exact: true })).toBeVisible();
   await expect(page.getByRole("cell", { name: "owner", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Audit log", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "tenant.update", exact: true })).toBeVisible();
   for (const path of [
     "/api/admin/providers",
     "/api/admin/combos",
     "/api/admin/client-keys",
     "/api/admin/tenants",
     "/api/admin/identity-bindings",
+    "/api/admin/audit-log",
   ]) {
     expect(calls.some((call) => call.path === path && call.csrf === "fixture-csrf")).toBe(true);
   }

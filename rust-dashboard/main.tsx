@@ -20,6 +20,7 @@ const OidcSettings = lazy(() => import("./OidcSettings"));
 const ModelCatalog = lazy(() => import("./ModelCatalog"));
 const LegacyUsage = lazy(() => import("./LegacyUsage"));
 const Organizations = lazy(() => import("./Organizations"));
+const AuditLog = lazy(() => import("./AuditLog"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
@@ -30,6 +31,7 @@ const pages = [
   { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
   { path: "/dashboard/legacy-usage", label: "Historical usage", component: LegacyUsage },
   { path: "/dashboard/organizations", label: "Organizations", component: Organizations },
+  { path: "/dashboard/audit", label: "Audit log", component: AuditLog },
   { path: "/dashboard/oidc", label: "Single sign-on", component: OidcSettings },
 ];
 

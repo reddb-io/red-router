@@ -16,6 +16,7 @@ import {
   importRustProviderSession,
   importRustProviderSessionsBulk,
   issueRustClientKey,
+  listRustAuditEvents,
   listRustCombos,
   listRustProviderHealth,
   listRustClientKeys,
@@ -48,6 +49,7 @@ import {
   testRustProvider,
   type RustClientKey,
   type RustCombo,
+  type RustAuditEvent,
   type RustIdentityBinding,
   type RustProvider,
   type RustProviderQuota,
@@ -117,6 +119,23 @@ const identityBinding: RustIdentityBinding = {
   role: "tenant-admin",
   enabled: true,
   revision: "1700000000000000003",
+};
+
+const auditEvent: RustAuditEvent = {
+  id: "audit-fixture",
+  timestamp: "2026-11-11T20:00:00Z",
+  createdAt: "2026-11-11T20:00:00Z",
+  action: "provider.update",
+  actor: "oidc:fixture",
+  tenantId: tenant.id,
+  target: "openrouter-main",
+  resourceType: "provider",
+  status: "success",
+  requestId: "request-fixture",
+  details: { enabled: true },
+  metadata: { enabled: true },
+  ip: null,
+  ipAddress: null,
 };
 
 const provider: RustProvider = {
@@ -539,6 +558,41 @@ describe("Rust control-plane browser client", () => {
     await expect(listRustTenants()).rejects.toThrow("Invalid Rust tenant response");
     await expect(listRustIdentityBindings()).rejects.toThrow(
       "Invalid Rust identity-binding response"
+    );
+  });
+
+  it("reads a bounded, filterable Rust audit page and validates its total", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([auditEvent]), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-total-count": "1" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([auditEvent]), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-total-count": "invalid" },
+        })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      listRustAuditEvents({
+        action: auditEvent.action,
+        resourceType: auditEvent.resourceType,
+        limit: 50,
+        offset: 0,
+      })
+    ).resolves.toEqual({ events: [auditEvent], total: 1 });
+    await expect(listRustAuditEvents()).rejects.toThrow("Invalid Rust audit-log total");
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "/api/admin/audit-log?action=provider.update&resourceType=provider&limit=50&offset=0"
+    );
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-red-router-csrf")).toBe(
+      "fixture-token"
     );
   });
 
