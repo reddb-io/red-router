@@ -856,6 +856,10 @@ async fn assert_context_relay_generation_lease(first: &Database, second: &Databa
         .acquire_context_relay_generation_lease("relay", "owner-c", 1_500, 2_500)
         .await
         .unwrap());
+    first
+        .release_context_relay_generation_lease("relay", "owner-c")
+        .await
+        .unwrap();
 }
 
 #[cfg(feature = "reddb-embedded")]
@@ -900,11 +904,6 @@ async fn remote(backend: Backend, variable: &str) {
 
 #[tokio::test]
 async fn remote_postgres_configuration_survives_reconnect() {
-    remote(Backend::Postgres, "RED_ROUTER_TEST_POSTGRES_URL").await;
-}
-
-#[tokio::test]
-async fn remote_postgres_context_relay_generation_lease_serializes_replicas() {
     let Ok(url) = std::env::var("RED_ROUTER_TEST_POSTGRES_URL") else {
         return;
     };
@@ -912,6 +911,7 @@ async fn remote_postgres_context_relay_generation_lease_serializes_replicas() {
         std::env::var("RED_ROUTER_TEST_DISPOSABLE").as_deref(),
         Ok("1")
     );
+    exercise(Backend::Postgres, &url).await;
     let first = Database::connect(Backend::Postgres, &url).await.unwrap();
     let second = Database::connect(Backend::Postgres, &url).await.unwrap();
     assert_context_relay_generation_lease(&first, &second).await;
