@@ -379,8 +379,11 @@ caches keys and throttles unknown-key refreshes. JWKS endpoints must use HTTPS e
 for literal-loopback development servers. Browser login uses Authorization Code + PKCE
 S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour sessions,
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
-The dashboard login/settings code can consume this Rust boundary. Set
-`RED_ROUTER_SPA_DIR` to a prepared static dashboard build containing `index.html` and
+The Rust dashboard can be built with `npm ci` and `npm run build:rust-dashboard`.
+This produces `.build/rust-dashboard`, a static bundle using the existing Rust-backed
+providers, combos and client-key views. It uses Rust's OIDC browser session and requires
+OIDC browser login to be configured; the remaining Next dashboard views are not yet ported.
+Set `RED_ROUTER_SPA_DIR` to that directory or another prepared static build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
 directory. Browser navigation serves exported `route.html` or `route/index.html` pages
 when present and otherwise falls back to the SPA shell. Reserved API namespaces,
