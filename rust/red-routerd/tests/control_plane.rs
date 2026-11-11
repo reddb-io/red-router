@@ -4111,17 +4111,26 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         .unwrap();
     assert_eq!(configured.status(), StatusCode::OK);
     let configured: serde_json::Value = configured.json().await.unwrap();
-    assert_eq!(configured["context_relay"]["handoffThreshold"], 0.8);
     assert_eq!(
-        configured["context_relay"]["handoffModel"],
+        configured["combo"]["context_relay"]["handoffThreshold"],
+        0.8
+    );
+    assert_eq!(
+        configured["combo"]["context_relay"]["handoffModel"],
         "openai/summary-model"
     );
     assert_eq!(
-        configured["context_relay"]["handoffProviders"],
+        configured["combo"]["context_relay"]["handoffProviders"],
         serde_json::json!(["codex", "openai"])
     );
-    assert_eq!(configured["context_relay"]["maxMessagesForSummary"], 24);
-    assert_eq!(configured["context_relay"]["relayMode"], "schema-locked");
+    assert_eq!(
+        configured["combo"]["context_relay"]["maxMessagesForSummary"],
+        24
+    );
+    assert_eq!(
+        configured["combo"]["context_relay"]["relayMode"],
+        "schema-locked"
+    );
     let first = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(RUST_CLIENT_KEY)
