@@ -411,9 +411,10 @@ async fn run(
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())
         .parse()?;
-    if !address.ip().is_loopback() {
-        return Err("this development slice only listens on loopback".into());
-    }
+    validate_listen_address(
+        address,
+        env::var("RED_ROUTER_ALLOW_REMOTE_LISTEN").as_deref() == Ok("1"),
+    )?;
     let max_in_flight = match env::var("RED_ROUTER_MAX_IN_FLIGHT") {
         Ok(value) => Some(
             value
@@ -1091,4 +1092,32 @@ async fn shutdown_signal() {
         return;
     }
     let _ = tokio::signal::ctrl_c().await;
+}
+
+fn validate_listen_address(address: SocketAddr, allow_remote: bool) -> Result<(), &'static str> {
+    if !address.ip().is_loopback() && !allow_remote {
+        return Err("non-loopback RED_ROUTER_LISTEN requires RED_ROUTER_ALLOW_REMOTE_LISTEN=1");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod listen_tests {
+    use super::validate_listen_address;
+
+    #[test]
+    fn loopback_listen_is_safe_by_default() {
+        assert!(validate_listen_address("127.0.0.1:19091".parse().unwrap(), false).is_ok());
+        assert!(validate_listen_address("[::1]:19091".parse().unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn remote_listen_requires_explicit_opt_in() {
+        let address = "0.0.0.0:25050".parse().unwrap();
+        assert_eq!(
+            validate_listen_address(address, false),
+            Err("non-loopback RED_ROUTER_LISTEN requires RED_ROUTER_ALLOW_REMOTE_LISTEN=1")
+        );
+        assert!(validate_listen_address(address, true).is_ok());
+    }
 }
