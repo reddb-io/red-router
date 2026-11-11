@@ -176,7 +176,9 @@ describe("Rust combo manager", () => {
     expect(container.textContent).toContain("Context relay");
 
     const id = container.querySelector('input[placeholder="fast-coding"]') as HTMLInputElement;
-    const providerSelect = container.querySelectorAll("select")[2] as HTMLSelectElement;
+    const providerSelect = [...container.querySelectorAll("select")].find((select) =>
+      [...select.options].some((option) => option.value === provider.id)
+    ) as HTMLSelectElement;
     await act(async () => {
       setInput(id, "new-coding");
       setSelect(providerSelect, provider.id);
@@ -436,6 +438,47 @@ describe("Rust combo manager", () => {
         stragglerGraceMs: 8_000,
         panelTimeoutMs: 90_000,
       },
+      enabled: combo.enabled,
+    });
+  });
+
+  it("edits and persists a nested combo reference for Rust flattening", async () => {
+    const nestedCombo = {
+      ...combo,
+      id: "nested-coding",
+      strategy: "priority",
+      targets: [{ kind: "combo-ref", combo_id: combo.id }],
+      last_known_good: undefined,
+    };
+    api.listRustCombos.mockResolvedValue([combo, nestedCombo]);
+    api.replaceRustCombo.mockResolvedValue(nestedCombo);
+    const container = await mount();
+    expect(container.textContent).toContain("Expanded safely by the Rust proxy");
+    const editButtons = [...container.querySelectorAll("button")].filter(
+      (button) => button.textContent === "Edit"
+    );
+    await act(async () => {
+      editButtons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Nested combo (flatten)");
+    const reference = [...container.querySelectorAll("select")].find((select) =>
+      [...select.options].some((option) => option.value === combo.id)
+    ) as HTMLSelectElement;
+    expect(reference.value).toBe(combo.id);
+    const save = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save combo"
+    );
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.replaceRustCombo).toHaveBeenCalledWith(nestedCombo.id, {
+      protocol: combo.protocol,
+      strategy: "priority",
+      fallback: combo.fallback,
+      targets: [{ kind: "combo-ref", combo_id: combo.id }],
       enabled: combo.enabled,
     });
   });

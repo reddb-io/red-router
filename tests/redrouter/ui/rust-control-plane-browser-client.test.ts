@@ -138,6 +138,15 @@ const pipelineCombo: RustCombo = {
   last_known_good: undefined,
 };
 
+const nestedCombo: RustCombo = {
+  ...combo,
+  id: "nested-route",
+  strategy: "priority",
+  targets: [{ kind: "combo-ref", combo_id: combo.id }],
+  auto: undefined,
+  last_known_good: undefined,
+};
+
 const providerQuota: RustProviderQuota = {
   provider_id: "claude-team",
   session: { remaining_percent: 72.5, reset_at_unix_ms: 1_900_000_000_000 },
@@ -479,13 +488,20 @@ describe("Rust control-plane browser client", () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ combos: [combo, fusionCombo, pipelineCombo] }))
+      .mockResolvedValueOnce(
+        Response.json({ combos: [combo, fusionCombo, pipelineCombo, nestedCombo] })
+      )
       .mockResolvedValueOnce(Response.json({ combo }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustCombos()).resolves.toEqual([combo, fusionCombo, pipelineCombo]);
+    await expect(listRustCombos()).resolves.toEqual([
+      combo,
+      fusionCombo,
+      pipelineCombo,
+      nestedCombo,
+    ]);
     await expect(
       replaceRustCombo(combo.id, {
         protocol: combo.protocol,

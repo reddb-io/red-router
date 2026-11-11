@@ -387,12 +387,21 @@ target using the native Chat Completions, Responses, Anthropic or Gemini body sh
 returns only the final target through the normal streaming/tool-capable proxy loop.
 Intermediate failure is explicit and fail-closed; only 429/502/503/504 may consume the
 configured bounded retry budget.
+Rust also accepts explicit `{kind: "combo-ref", combo_id}` route entries and performs the
+legacy flatten mode entirely inside the Rust snapshot builder. Expansion preserves declaration
+order and fails closed on a missing/disabled dependency, tenant or protocol crossing, cycles,
+more than three nesting levels, duplicate concrete targets, or an expansion beyond the native
+eight-target bound. Configure and disable operations validate the prospective graph before the
+database write, so an existing parent cannot be stranded by a partial mutation. The SPA reads,
+creates and edits these references through the same Rust admin API. Nested `execute` mode and
+weighted parent/reference semantics remain explicit follow-up work rather than silently changing
+the child strategy.
 The same path pre-generates a handoff when fresh provider/model session telemetry crosses the
 configured warning threshold but remains below the 95% exhaustion boundary, using the quota
 reset as the handoff expiry when available. The RedDB cross-process lease remains follow-up
 work.
-The remaining dashboard strategies remain explicit follow-up work rather than
-compatibility calls back into Next.js.
+The remaining orchestration semantics remain explicit follow-up work rather than compatibility
+calls back into Next.js.
 
 Provider-wide circuit state is owned by `redrouter_provider_breakers` in the same
 selected database authority. Network failures and upstream `408`, `500`, `502`, `503`

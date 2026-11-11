@@ -23,6 +23,8 @@ import {
 } from "@/lib/rustControlPlane/browserClient";
 
 type TargetDraft = {
+  kind: "model" | "combo-ref";
+  comboId: string;
   providerId: string;
   model: string;
   prompt: string;
@@ -100,6 +102,8 @@ const STRATEGIES: Array<{ value: RustComboStrategy; label: string }> = [
 ];
 
 const EMPTY_TARGET: TargetDraft = {
+  kind: "model",
+  comboId: "",
   providerId: "",
   model: "",
   prompt: "",
@@ -174,18 +178,29 @@ function comboDraft(combo: RustCombo): Draft {
       maxRetries: String(combo.pipeline?.maxRetries ?? 0),
       retryDelayMs: String(combo.pipeline?.retryDelayMs ?? 1_000),
     },
-    targets: combo.targets.map((target) => ({
-      providerId: target.provider_id,
-      model: target.model,
-      prompt: target.prompt ?? "",
-      weight: target.weight === undefined ? "" : String(target.weight),
-      inputCost:
-        target.input_cost_per_million === undefined ? "" : String(target.input_cost_per_million),
-      outputCost:
-        target.output_cost_per_million === undefined ? "" : String(target.output_cost_per_million),
-      contextWindow:
-        target.context_window_tokens === undefined ? "" : String(target.context_window_tokens),
-    })),
+    targets: combo.targets.map((target) =>
+      target.kind === "combo-ref"
+        ? { ...EMPTY_TARGET, kind: "combo-ref", comboId: target.combo_id }
+        : {
+            ...EMPTY_TARGET,
+            providerId: target.provider_id,
+            model: target.model,
+            prompt: target.prompt ?? "",
+            weight: target.weight === undefined ? "" : String(target.weight),
+            inputCost:
+              target.input_cost_per_million === undefined
+                ? ""
+                : String(target.input_cost_per_million),
+            outputCost:
+              target.output_cost_per_million === undefined
+                ? ""
+                : String(target.output_cost_per_million),
+            contextWindow:
+              target.context_window_tokens === undefined
+                ? ""
+                : String(target.context_window_tokens),
+          }
+    ),
   };
 }
 
@@ -220,7 +235,11 @@ function requiredInteger(value: string, label: string, minimum: number, maximum:
   return parsed;
 }
 
-function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
+function comboInput(
+  draft: Draft,
+  providers: RustProvider[],
+  combos: RustCombo[]
+): RustComboInput {
   const id = draft.id.trim();
   if (!id || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) {
     throw new Error("Combo ID must contain only letters, numbers, dashes or underscores");
@@ -230,6 +249,20 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
   }
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const targets: RustComboTarget[] = draft.targets.map((target, index) => {
+    if (target.kind === "combo-ref") {
+      const comboId = target.comboId.trim();
+      const nested = combos.find((combo) => combo.id === comboId);
+      if (!nested || comboId === id) {
+        throw new Error(`Target ${index + 1} must select another configured combo`);
+      }
+      if (!nested.enabled || nested.protocol !== draft.protocol) {
+        throw new Error(`Nested combo ${comboId} must be enabled and use the same protocol`);
+      }
+      if (draft.strategy === "weighted") {
+        throw new Error("Weighted combos cannot contain nested combo references");
+      }
+      return { kind: "combo-ref", combo_id: comboId };
+    }
     const providerId = target.providerId.trim();
     const model = target.model.trim();
     const provider = providerById.get(providerId);
@@ -272,13 +305,20 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
       ...(contextWindow === undefined ? {} : { context_window_tokens: contextWindow }),
     };
   });
-  const targetKeys = targets.map((target) => `${target.provider_id}\u0000${target.model}`);
+  const targetKeys = targets.map((target) =>
+    target.kind === "combo-ref"
+      ? `combo\u0000${target.combo_id}`
+      : `${target.provider_id}\u0000${target.model}`
+  );
   if (new Set(targetKeys).size !== targetKeys.length) {
     throw new Error("A combo cannot contain the same provider and model twice");
   }
   if (
     draft.strategy === "weighted" &&
-    targets.reduce((total, target) => total + (target.weight ?? 0), 0) !== 100
+    targets.reduce(
+      (total, target) => total + (target.kind === "combo-ref" ? 0 : (target.weight ?? 0)),
+      0
+    ) !== 100
   ) {
     throw new Error("Weighted target values must total exactly 100");
   }
@@ -293,10 +333,7 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
           },
         }
       : undefined;
-  if (
-    auto &&
-    Object.values(auto.weights).reduce((total, weight) => total + weight, 0) <= 0
-  ) {
+  if (auto && Object.values(auto.weights).reduce((total, weight) => total + weight, 0) <= 0) {
     throw new Error("Auto weights must be between 0 and 1 and contain a positive total");
   }
   const contextRelay =
@@ -363,8 +400,9 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
     fusion?.judgeModel &&
     !targets.some(
       (target) =>
-        target.model === fusion.judgeModel ||
-        `${target.provider_id}/${target.model}` === fusion.judgeModel
+        target.kind !== "combo-ref" &&
+        (target.model === fusion.judgeModel ||
+          `${target.provider_id}/${target.model}` === fusion.judgeModel)
     )
   ) {
     throw new Error("Fusion judge must be one of the combo targets");
@@ -373,12 +411,7 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
     draft.strategy === "pipeline"
       ? {
           maxRetries: requiredInteger(draft.pipeline.maxRetries, "Maximum retries", 0, 10),
-          retryDelayMs: requiredInteger(
-            draft.pipeline.retryDelayMs,
-            "Retry delay",
-            0,
-            60_000
-          ),
+          retryDelayMs: requiredInteger(draft.pipeline.retryDelayMs, "Retry delay", 0, 60_000),
         }
       : undefined;
   return {
@@ -487,7 +520,9 @@ export default function RustCombosPageClient() {
   const edit = (combo: RustCombo) => {
     setEditingId(combo.id);
     setDraft(comboDraft(combo));
-    for (const target of combo.targets) void loadCatalog(target.provider_id);
+    for (const target of combo.targets) {
+      if (target.kind !== "combo-ref") void loadCatalog(target.provider_id);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -495,7 +530,7 @@ export default function RustCombosPageClient() {
     setSaving(true);
     setError(null);
     try {
-      const input = comboInput(draft, providers);
+      const input = comboInput(draft, providers, combos);
       await replaceRustCombo(draft.id.trim(), input);
       reset();
       await reload();
@@ -808,8 +843,8 @@ export default function RustCombosPageClient() {
             <div className="mb-3">
               <strong className="text-sm text-text">Fusion panel</strong>
               <p className="text-xs text-text-muted">
-                Rust queries the panel concurrently and asks one configured target to synthesize
-                the final answer.
+                Rust queries the panel concurrently and asks one configured target to synthesize the
+                final answer.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -975,48 +1010,91 @@ export default function RustCombosPageClient() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <label className={labelClass}>
-                    Provider connection
+                    Target type
                     <select
                       className={inputClass}
-                      value={target.providerId}
-                      onChange={(event) => {
-                        setTarget(index, { providerId: event.target.value, model: "" });
-                        void loadCatalog(event.target.value);
-                      }}
+                      value={target.kind}
+                      onChange={(event) =>
+                        setTarget(index, {
+                          ...EMPTY_TARGET,
+                          kind: event.target.value as TargetDraft["kind"],
+                        })
+                      }
                     >
-                      <option value="">Select provider</option>
-                      {providers.map((candidate) => (
-                        <option
-                          key={candidate.id}
-                          value={candidate.id}
-                          disabled={!candidate.enabled && candidate.id !== target.providerId}
-                        >
-                          {candidate.label} · {candidate.id}
-                          {candidate.enabled ? "" : " · disabled"}
-                        </option>
-                      ))}
+                      <option value="model">Provider model</option>
+                      <option value="combo-ref">Nested combo (flatten)</option>
                     </select>
                   </label>
-                  <label className={labelClass}>
-                    Exact provider model ID
-                    <input
-                      className={inputClass}
-                      list={`rust-combo-models-${index}`}
-                      value={target.model}
-                      maxLength={256}
-                      placeholder="gpt-5.3-codex"
-                      onFocus={() => void loadCatalog(target.providerId)}
-                      onChange={(event) => setTarget(index, { model: event.target.value })}
-                    />
-                    <datalist id={`rust-combo-models-${index}`}>
-                      {models.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name ?? model.id}
-                        </option>
-                      ))}
-                    </datalist>
-                  </label>
-                  {draft.strategy === "weighted" && (
+                  {target.kind === "combo-ref" ? (
+                    <label className={labelClass}>
+                      Referenced combo
+                      <select
+                        className={inputClass}
+                        value={target.comboId}
+                        onChange={(event) => setTarget(index, { comboId: event.target.value })}
+                      >
+                        <option value="">Select combo</option>
+                        {combos
+                          .filter(
+                            (combo) =>
+                              combo.id !== draft.id &&
+                              combo.enabled &&
+                              combo.protocol === draft.protocol
+                          )
+                          .map((combo) => (
+                            <option key={combo.id} value={combo.id}>
+                              {combo.id} · {combo.strategy}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <>
+                      <label className={labelClass}>
+                        Provider connection
+                        <select
+                          className={inputClass}
+                          value={target.providerId}
+                          onChange={(event) => {
+                            setTarget(index, { providerId: event.target.value, model: "" });
+                            void loadCatalog(event.target.value);
+                          }}
+                        >
+                          <option value="">Select provider</option>
+                          {providers.map((candidate) => (
+                            <option
+                              key={candidate.id}
+                              value={candidate.id}
+                              disabled={!candidate.enabled && candidate.id !== target.providerId}
+                            >
+                              {candidate.label} · {candidate.id}
+                              {candidate.enabled ? "" : " · disabled"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={labelClass}>
+                        Exact provider model ID
+                        <input
+                          className={inputClass}
+                          list={`rust-combo-models-${index}`}
+                          value={target.model}
+                          maxLength={256}
+                          placeholder="gpt-5.3-codex"
+                          onFocus={() => void loadCatalog(target.providerId)}
+                          onChange={(event) => setTarget(index, { model: event.target.value })}
+                        />
+                        <datalist id={`rust-combo-models-${index}`}>
+                          {models.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name ?? model.id}
+                            </option>
+                          ))}
+                        </datalist>
+                      </label>
+                    </>
+                  )}
+                  {target.kind === "model" && draft.strategy === "weighted" && (
                     <label className={labelClass}>
                       Weight (all targets total 100)
                       <input
@@ -1030,7 +1108,7 @@ export default function RustCombosPageClient() {
                       />
                     </label>
                   )}
-                  {draft.strategy === "pipeline" && (
+                  {target.kind === "model" && draft.strategy === "pipeline" && (
                     <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
                       Stage instruction (optional)
                       <textarea
@@ -1047,7 +1125,8 @@ export default function RustCombosPageClient() {
                       />
                     </label>
                   )}
-                  {(draft.strategy === "cost-optimized" || draft.strategy === "auto") && (
+                  {target.kind === "model" &&
+                    (draft.strategy === "cost-optimized" || draft.strategy === "auto") && (
                     <>
                       <label className={labelClass}>
                         Input USD / million
@@ -1075,7 +1154,8 @@ export default function RustCombosPageClient() {
                       </label>
                     </>
                   )}
-                  {(draft.strategy === "context-optimized" || draft.strategy === "auto") && (
+                  {target.kind === "model" &&
+                    (draft.strategy === "context-optimized" || draft.strategy === "auto") && (
                     <label className={labelClass}>
                       Context window tokens
                       <input
@@ -1169,6 +1249,21 @@ export default function RustCombosPageClient() {
           >
             <div className="grid gap-2">
               {combo.targets.map((target, index) => {
+                if (target.kind === "combo-ref") {
+                  return (
+                    <div
+                      key={`combo-${target.combo_id}`}
+                      className="rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/10"
+                    >
+                      <span className="font-mono text-text">
+                        {index + 1}. combo / {target.combo_id}
+                      </span>
+                      <div className="mt-1 text-xs text-text-muted">
+                        Expanded safely by the Rust proxy
+                      </div>
+                    </div>
+                  );
+                }
                 const provider = providerById.get(target.provider_id);
                 return (
                   <div
@@ -1205,7 +1300,8 @@ export default function RustCombosPageClient() {
             {combo.context_relay && (
               <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
                 Context relay: threshold {combo.context_relay.handoffThreshold}, up to{" "}
-                {combo.context_relay.maxMessagesForSummary} messages, {combo.context_relay.relayMode}
+                {combo.context_relay.maxMessagesForSummary} messages,{" "}
+                {combo.context_relay.relayMode}
                 {combo.context_relay.handoffModel
                   ? `, summary model ${combo.context_relay.handoffModel}`
                   : ", active model for summaries"}
@@ -1220,7 +1316,7 @@ export default function RustCombosPageClient() {
             )}
             {combo.pipeline && (
               <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
-                Pipeline: {combo.pipeline.maxRetries} transient retries per stage, {" "}
+                Pipeline: {combo.pipeline.maxRetries} transient retries per stage,{" "}
                 {combo.pipeline.retryDelayMs} ms delay
               </div>
             )}

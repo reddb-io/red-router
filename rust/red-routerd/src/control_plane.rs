@@ -886,7 +886,13 @@ pub struct AuditEventView {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComboTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "comboName")]
+    pub combo_id: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub provider_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
@@ -898,6 +904,20 @@ pub struct ComboTarget {
     pub output_cost_per_million: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window_tokens: Option<u64>,
+}
+
+impl ComboTarget {
+    fn combo_reference(&self) -> Option<&str> {
+        if self.kind.as_deref() == Some("combo-ref") {
+            self.combo_id.as_deref()
+        } else {
+            None
+        }
+    }
+
+    fn is_combo_reference(&self) -> bool {
+        self.kind.as_deref() == Some("combo-ref")
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -5090,12 +5110,11 @@ impl ControlPlane {
             .into_iter()
             .filter(|combo| combo.enabled && combo.tenant_id == tenant_id)
         {
-            if combo.targets_json.len() > 256 * 1024 {
-                return Err("invalid combo targets");
-            }
-            let targets = serde_json::from_str::<Vec<ComboTarget>>(&combo.targets_json)
-                .map_err(|_| "invalid combo targets")?;
-            if targets.iter().any(|target| target.provider_id == id) {
+            if combo_view(&combo)?
+                .targets
+                .iter()
+                .any(|target| target.provider_id == id)
+            {
                 return Err("provider is referenced by an enabled combo");
             }
         }
@@ -5323,13 +5342,8 @@ impl ControlPlane {
         validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let providers = self.0.database.providers().await?;
-        let existing = self
-            .0
-            .database
-            .combos()
-            .await?
-            .into_iter()
-            .find(|combo| combo.id == id);
+        let combo_records = self.0.database.combos().await?;
+        let existing = combo_records.iter().find(|combo| combo.id == id).cloned();
         let tenant_id = input
             .tenant_id
             .as_deref()
@@ -5361,9 +5375,19 @@ impl ControlPlane {
         normalize_fusion_config(&mut input);
         normalize_pipeline_config(&mut input);
         validate_combo(&input)?;
+        resolve_nested_combo_targets(
+            id,
+            &tenant_id,
+            &input.protocol,
+            &input.targets,
+            &combo_records,
+        )?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
             if !input.targets.iter().all(|target| {
+                if target.is_combo_reference() {
+                    return true;
+                }
                 providers
                     .iter()
                     .find(|provider| {
@@ -5405,6 +5429,10 @@ impl ControlPlane {
             enabled: input.enabled,
             revision: revision()?,
         };
+        let mut prospective = combo_records.clone();
+        prospective.retain(|combo| combo.id != id);
+        prospective.push(record.clone());
+        validate_combo_graphs(&prospective)?;
         self.0.database.upsert_combo(&record).await?;
         let before = existing.as_ref().map(combo_view).transpose()?;
         let after_view = combo_view(&record)?;
@@ -5444,23 +5472,25 @@ impl ControlPlane {
         validate_id(id)?;
         validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
-        let combo = self
-            .0
-            .database
-            .combos()
-            .await?
-            .into_iter()
+        let mut prospective = self.0.database.combos().await?;
+        let combo = prospective
+            .iter()
             .find(|combo| combo.id == id)
+            .cloned()
             .ok_or("combo configuration not found")?;
         if enforced_tenant.is_some_and(|tenant| tenant != combo.tenant_id) {
             return Err("combo tenant is unavailable");
         }
         let before = combo_view(&combo)?;
         let disabled_revision = revision()?;
-        self.0.database.disable_combo(id, disabled_revision).await?;
         let mut disabled = combo.clone();
         disabled.enabled = false;
         disabled.revision = disabled_revision;
+        if let Some(candidate) = prospective.iter_mut().find(|candidate| candidate.id == id) {
+            *candidate = disabled.clone();
+        }
+        validate_combo_graphs(&prospective)?;
+        self.0.database.disable_combo(id, disabled_revision).await?;
         let after = combo_view(&disabled)?;
         self.record_audit_event(
             AuditContext {
@@ -6839,6 +6869,13 @@ impl ControlPlane {
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
             let view = combo_view(record)?;
+            let concrete_targets = resolve_nested_combo_targets(
+                &record.id,
+                &record.tenant_id,
+                &record.protocol,
+                &view.targets,
+                &records,
+            )?;
             let auto_weights =
                 view.auto
                     .as_ref()
@@ -6855,7 +6892,7 @@ impl ControlPlane {
             let pipeline = view.pipeline.clone().unwrap_or_default();
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
-            for target in view.targets {
+            for target in concrete_targets {
                 let Some(provider) = providers.iter().find(|provider| {
                     provider.id == target.provider_id
                         && provider.tenant_id == record.tenant_id
@@ -8505,6 +8542,94 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     })
 }
 
+const MAX_COMBO_NESTING_DEPTH: usize = 3;
+
+fn resolve_nested_combo_targets(
+    root_id: &str,
+    tenant_id: &str,
+    protocol: &str,
+    root_targets: &[ComboTarget],
+    records: &[StoredCombo],
+) -> Result<Vec<ComboTarget>, &'static str> {
+    struct Expansion<'a> {
+        tenant_id: &'a str,
+        protocol: &'a str,
+        records: &'a [StoredCombo],
+        visiting: HashSet<String>,
+        resolved: Vec<ComboTarget>,
+    }
+
+    fn expand(
+        combo_id: &str,
+        targets: &[ComboTarget],
+        depth: usize,
+        state: &mut Expansion<'_>,
+    ) -> Result<(), &'static str> {
+        if !state.visiting.insert(combo_id.to_owned()) {
+            return Err("circular combo reference");
+        }
+        for target in targets {
+            let Some(nested_id) = target.combo_reference() else {
+                if state.resolved.iter().any(|existing| {
+                    existing.provider_id == target.provider_id && existing.model == target.model
+                }) {
+                    return Err("nested combo expansion contains duplicate targets");
+                }
+                if state.resolved.len() == 8 {
+                    return Err("nested combo expansion exceeds eight targets");
+                }
+                state.resolved.push(target.clone());
+                continue;
+            };
+            if depth >= MAX_COMBO_NESTING_DEPTH {
+                return Err("maximum combo nesting depth exceeded");
+            }
+            let nested = state
+                .records
+                .iter()
+                .find(|record| record.id == nested_id)
+                .ok_or("nested combo not found")?;
+            if !nested.enabled {
+                return Err("nested combo is disabled");
+            }
+            if nested.tenant_id != state.tenant_id || nested.protocol != state.protocol {
+                return Err("nested combo tenant or protocol mismatch");
+            }
+            let view = combo_view(nested)?;
+            expand(nested_id, &view.targets, depth + 1, state)?;
+        }
+        state.visiting.remove(combo_id);
+        Ok(())
+    }
+
+    let mut state = Expansion {
+        tenant_id,
+        protocol,
+        records,
+        visiting: HashSet::new(),
+        resolved: Vec::new(),
+    };
+    expand(root_id, root_targets, 0, &mut state)?;
+    if state.resolved.is_empty() {
+        return Err("combo has no concrete targets");
+    }
+    Ok(state.resolved)
+}
+
+fn validate_combo_graphs(records: &[StoredCombo]) -> Result<(), &'static str> {
+    for record in records.iter().filter(|record| record.enabled) {
+        let view = combo_view(record)?;
+        resolve_nested_combo_targets(
+            &record.id,
+            &record.tenant_id,
+            &record.protocol,
+            &view.targets,
+            records,
+        )?;
+    }
+    Ok(())
+}
+
 fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
     serde_json::json!({
         "id": record.id,
@@ -8999,6 +9124,29 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         return Err("combo targets must contain 1-8 entries");
     }
     for target in &input.targets {
+        if target.is_combo_reference() {
+            let combo_id = target
+                .combo_reference()
+                .ok_or("invalid nested combo reference")?;
+            validate_id(combo_id)?;
+            if !target.provider_id.is_empty()
+                || !target.model.is_empty()
+                || target.prompt.is_some()
+                || target.weight.is_some()
+                || target.input_cost_per_million.is_some()
+                || target.output_cost_per_million.is_some()
+                || target.context_window_tokens.is_some()
+            {
+                return Err("invalid nested combo reference");
+            }
+            if input.strategy == "weighted" {
+                return Err("weighted combos cannot contain nested combo references");
+            }
+            continue;
+        }
+        if target.kind.is_some() || target.combo_id.is_some() {
+            return Err("invalid nested combo reference");
+        }
         validate_id(&target.provider_id)?;
         if target.model.is_empty()
             || target.model.len() > 256
@@ -9060,9 +9208,15 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         return Err("weighted combo target weights must total 100");
     }
     if input.targets.iter().enumerate().any(|(index, target)| {
-        input.targets[..index]
-            .iter()
-            .any(|other| other.provider_id == target.provider_id && other.model == target.model)
+        input.targets[..index].iter().any(|other| {
+            if let Some(combo_id) = target.combo_reference() {
+                other.combo_reference() == Some(combo_id)
+            } else {
+                !other.is_combo_reference()
+                    && other.provider_id == target.provider_id
+                    && other.model == target.model
+            }
+        })
     }) {
         return Err("combo contains duplicate targets");
     }
@@ -9104,6 +9258,9 @@ fn enrich_combo_metadata(
     catalog: &crate::catalog::ModelCatalog,
 ) -> Result<(), &'static str> {
     for target in &mut input.targets {
+        if target.is_combo_reference() {
+            continue;
+        }
         let Some(provider) = providers
             .iter()
             .find(|provider| provider.id == target.provider_id)
@@ -11958,6 +12115,111 @@ pub async fn delete_client_key(
 mod tests {
     use super::*;
 
+    fn direct_combo_target(provider_id: &str, model: &str) -> ComboTarget {
+        ComboTarget {
+            kind: None,
+            combo_id: None,
+            provider_id: provider_id.to_owned(),
+            model: model.to_owned(),
+            prompt: None,
+            weight: None,
+            input_cost_per_million: None,
+            output_cost_per_million: None,
+            context_window_tokens: None,
+        }
+    }
+
+    fn combo_reference(combo_id: &str) -> ComboTarget {
+        ComboTarget {
+            kind: Some("combo-ref".to_owned()),
+            combo_id: Some(combo_id.to_owned()),
+            provider_id: String::new(),
+            model: String::new(),
+            prompt: None,
+            weight: None,
+            input_cost_per_million: None,
+            output_cost_per_million: None,
+            context_window_tokens: None,
+        }
+    }
+
+    fn stored_combo(id: &str, targets: Vec<ComboTarget>, enabled: bool) -> StoredCombo {
+        StoredCombo {
+            id: id.to_owned(),
+            tenant_id: "red".to_owned(),
+            protocol: "openai".to_owned(),
+            strategy: "priority".to_owned(),
+            fallback: true,
+            targets_json: serde_json::to_string(&targets).unwrap(),
+            enabled,
+            revision: 1,
+        }
+    }
+
+    #[test]
+    fn nested_combo_targets_flatten_in_declared_order() {
+        let child = stored_combo(
+            "child",
+            vec![
+                direct_combo_target("first", "model-a"),
+                direct_combo_target("second", "model-b"),
+            ],
+            true,
+        );
+        let root_targets = vec![
+            combo_reference("child"),
+            direct_combo_target("third", "model-c"),
+        ];
+        let resolved =
+            resolve_nested_combo_targets("root", "red", "openai", &root_targets, &[child]).unwrap();
+        assert_eq!(
+            resolved
+                .iter()
+                .map(|target| (target.provider_id.as_str(), target.model.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("first", "model-a"),
+                ("second", "model-b"),
+                ("third", "model-c")
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_combo_graph_rejects_cycles_depth_and_disabled_dependencies() {
+        let cycle_a = stored_combo("cycle-a", vec![combo_reference("cycle-b")], true);
+        let cycle_b = stored_combo("cycle-b", vec![combo_reference("cycle-a")], true);
+        assert_eq!(
+            validate_combo_graphs(&[cycle_a, cycle_b]),
+            Err("circular combo reference")
+        );
+
+        let leaf = stored_combo("leaf", vec![direct_combo_target("first", "model")], true);
+        let level_three = stored_combo("level-three", vec![combo_reference("leaf")], true);
+        let level_two = stored_combo("level-two", vec![combo_reference("level-three")], true);
+        let level_one = stored_combo("level-one", vec![combo_reference("level-two")], true);
+        let root = stored_combo("root", vec![combo_reference("level-one")], true);
+        assert_eq!(
+            validate_combo_graphs(&[leaf, level_three, level_two, level_one, root]),
+            Err("maximum combo nesting depth exceeded")
+        );
+
+        let child = stored_combo(
+            "disabled-child",
+            vec![direct_combo_target("first", "model")],
+            false,
+        );
+        let parent = stored_combo(
+            "enabled-parent",
+            vec![combo_reference("disabled-child")],
+            true,
+        );
+        assert_eq!(
+            validate_combo_graphs(&[child, parent]),
+            Err("nested combo is disabled")
+        );
+    }
+
     #[test]
     fn combo_metadata_uses_models_dev_without_overriding_operator_values() {
         let providers = vec![StoredProvider {
@@ -11975,6 +12237,8 @@ mod tests {
             strategy: "cost-optimized".to_owned(),
             fallback: true,
             targets: vec![ComboTarget {
+                kind: None,
+                combo_id: None,
                 provider_id: "first".to_owned(),
                 model: "gpt-3.5-turbo".to_owned(),
                 prompt: None,

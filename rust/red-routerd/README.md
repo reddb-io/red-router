@@ -295,6 +295,13 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   contract. The optional pipeline object persists maxRetries and retryDelayMs; only
   intermediate 429/502/503/504 responses are retried. Successful physical calls are
   independently recorded in the SQLite usage ledger.
+  A target may instead be `{kind: "combo-ref", combo_id: "another-combo"}`. Rust expands
+  referenced combos inline in declared order before publishing the immutable route snapshot.
+  References must stay within the same tenant and protocol, point to an enabled combo, remain
+  within three nesting levels and expand to at most eight unique concrete targets. Cycles,
+  duplicate expanded targets and mutations that would strand an enabled parent are rejected
+  before persistence. Weighted parents intentionally reject references until weighted nested
+  execution has an unambiguous contract.
 
 Provider and combo ownership is revision-coupled in the selected Rust database. A
 partially committed ownership update makes the control-plane snapshot unavailable

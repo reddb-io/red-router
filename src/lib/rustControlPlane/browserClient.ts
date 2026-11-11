@@ -326,7 +326,9 @@ export type RustComboStrategy =
   | "quota-weighted"
   | "lkgp";
 
-export interface RustComboTarget {
+export interface RustComboModelTarget {
+  kind?: never;
+  combo_id?: never;
   provider_id: string;
   model: string;
   prompt?: string;
@@ -335,6 +337,15 @@ export interface RustComboTarget {
   output_cost_per_million?: number;
   context_window_tokens?: number;
 }
+
+export interface RustComboReferenceTarget {
+  kind: "combo-ref";
+  combo_id: string;
+  provider_id?: never;
+  model?: never;
+}
+
+export type RustComboTarget = RustComboModelTarget | RustComboReferenceTarget;
 
 export interface RustComboAutoWeights {
   quota: number;
@@ -721,6 +732,13 @@ function isOptionalFiniteNumber(value: unknown): boolean {
 function isRustComboTarget(value: unknown): value is RustComboTarget {
   if (!value || typeof value !== "object") return false;
   const target = value as Record<string, unknown>;
+  if (target.kind === "combo-ref") {
+    return (
+      hasOnlyKeys(target, ["kind", "combo_id"]) &&
+      typeof target.combo_id === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(target.combo_id)
+    );
+  }
   return (
     hasOnlyKeys(target, [
       "provider_id",
@@ -862,8 +880,7 @@ function isRustCombo(value: unknown): value is RustCombo {
     Array.isArray(combo.targets) &&
     combo.targets.every(isRustComboTarget) &&
     (combo.auto === undefined || isRustComboAutoConfig(combo.auto)) &&
-    (combo.context_relay === undefined ||
-      isRustComboContextRelayConfig(combo.context_relay)) &&
+    (combo.context_relay === undefined || isRustComboContextRelayConfig(combo.context_relay)) &&
     (combo.fusion === undefined || isRustComboFusionConfig(combo.fusion)) &&
     (combo.pipeline === undefined || isRustComboPipelineConfig(combo.pipeline)) &&
     typeof combo.enabled === "boolean" &&
