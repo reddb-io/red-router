@@ -62,6 +62,8 @@ const PROVIDER_QUOTA_POLL_GAP: Duration = Duration::from_millis(500);
 const PROVIDER_QUOTA_LEASE_MS: i64 = 15_000;
 const PROVIDER_QUOTA_TTL_SECONDS: u64 = 180;
 const PROVIDER_QUOTA_MAX_BODY_BYTES: usize = 512 * 1024;
+const USAGE_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const USAGE_MAINTENANCE_BATCH_SIZE: i64 = 10_000;
 const CONTEXT_RELAY_GENERATION_LEASE_MS: i64 = 60_000;
 const CONTEXT_RELAY_USAGE_KEY_ID: &str = "redrouter-context-relay";
 const CONTEXT_RELAY_USAGE_KEY_NAME: &str = "Red Router context relay";
@@ -1866,6 +1868,7 @@ impl ControlPlane {
         if sqlite {
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
             plane.spawn_provider_quota_sync(quota_cadence);
+            plane.spawn_usage_maintenance(USAGE_MAINTENANCE_INTERVAL);
         }
         Ok(plane)
     }
@@ -1896,6 +1899,27 @@ impl ControlPlane {
                 let _mutation = plane.0.mutation.lock().await;
                 if plane.refresh_clients().await.is_err() {
                     *plane.0.clients.write().await = ClientSnapshot::Unavailable;
+                }
+            }
+        });
+    }
+
+    fn spawn_usage_maintenance(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // Startup must not contend with schema initialization, exporters or
+            // the first inference burst. The first maintenance pass is delayed.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let plane = ControlPlane(inner);
+                if let Err(error) = plane.maintain_native_usage(None).await {
+                    eprintln!("Rust usage maintenance failed: {error}");
                 }
             }
         });
@@ -3086,6 +3110,40 @@ impl ControlPlane {
             .admit_request(&identity.id, minute, day, unix_time_ms()?)
             .await
             .map(Some)
+    }
+
+    pub(crate) async fn maintain_native_usage(
+        &self,
+        actor: Option<&str>,
+    ) -> Result<crate::native_usage::UsageMaintenanceReport, &'static str> {
+        if let Some(actor) = actor {
+            validate_actor(actor)?;
+        }
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        let report = usage
+            .prune_operational_state(unix_time_ms()?, USAGE_MAINTENANCE_BATCH_SIZE)
+            .await?;
+        if let Some(actor) = actor {
+            self.record_audit_event(
+                AuditContext {
+                    action: "usage.maintenance",
+                    actor,
+                    tenant_id: "red",
+                    target: "operational-counters",
+                    resource_type: "usage",
+                },
+                Option::<&serde_json::Value>::None,
+                Some(&report),
+            )
+            .await;
+        }
+        Ok(report)
     }
 
     pub(crate) async fn begin_native_usage(
@@ -10749,6 +10807,35 @@ pub async fn get_usage_report(
         Err(_) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Usage reporting unavailable",
+        ),
+    }
+}
+
+pub async fn maintain_usage(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if scope.tenant_id.is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "Global administrator access is required",
+        );
+    }
+    match control.maintain_native_usage(Some(&scope.actor)).await {
+        Ok(report) => {
+            let mut response = Json(serde_json::json!({"maintenance":report})).into_response();
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response
+        }
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage maintenance unavailable",
         ),
     }
 }

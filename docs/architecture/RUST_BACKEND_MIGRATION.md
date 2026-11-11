@@ -47,8 +47,8 @@ features must not be implemented only there.
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness                                                                                                                    |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry                                                                                                                                          |
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                                                            |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key TPM/day/monthly-spend reservations and chat/Responses JSON+SSE plus embedding/Anthropic/Gemini settlement; budgets, schedules and non-SQLite stores remain                                           |
-| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/Anthropic/Gemini ledger, counters and cursor-paginated tenant reporting; retention and remaining streaming/rerank paths remain                                               |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key request/token/day/monthly-spend admission, access schedules and chat/Responses JSON+SSE plus embedding/Anthropic/Gemini settlement; budgets and non-SQLite quota stores remain                         |
+| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining rerank paths remain                 |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware Antigravity quota snapshots, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout                                                    |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains                                                                                                             |
@@ -236,6 +236,12 @@ and recent ledger entries. Stable composite cursors page the immutable descendin
 without loading an unbounded export into memory while totals continue to cover the complete
 selected window. Global admins can filter by tenant and key; `tenant-admin` callers are
 unconditionally restricted to their bound tenant.
+Expired rolling-window counters are operational scratch state rather than financial
+history. Rust prunes them hourly in bounded SQLite transactions and exposes an authenticated
+global-admin maintenance trigger for catching up larger backlogs. The immutable usage ledger
+and uncertain reservations are deliberately excluded: the legacy retention contract preserves
+financial records independently, and deleting them before archival/export would destroy audit
+and BigQuery guarantees.
 Each priced native ledger row stores the complete models.dev token-price vector and capture
 time used for settlement. Reports return that frozen JSON object instead of joining against
 the current catalog. The SQLite migration serializes with `BEGIN IMMEDIATE`; pre-snapshot

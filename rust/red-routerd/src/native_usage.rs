@@ -128,12 +128,78 @@ pub(crate) struct UsageReport {
     pub(crate) entries: Vec<UsageLedgerEntry>,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct UsageMaintenanceReport {
+    pub(crate) usage_counters_deleted: u64,
+    pub(crate) request_counters_deleted: u64,
+    pub(crate) has_more: bool,
+}
+
 impl NativeUsage {
     pub(crate) fn new(database: Arc<crate::storage::Database>) -> Result<Self, &'static str> {
         database
             .sql_pool()
             .ok_or("native usage requires SQLite storage")?;
         Ok(Self { database })
+    }
+
+    pub(crate) async fn prune_operational_state(
+        &self,
+        now_ms: i64,
+        batch_size: i64,
+    ) -> Result<UsageMaintenanceReport, &'static str> {
+        if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&now_ms)
+            || !(1..=10_000).contains(&batch_size)
+        {
+            return Err("invalid usage maintenance request");
+        }
+        let mut connection = self.begin().await?;
+        let result = async {
+            // Quota admission reads only the current and immediately preceding
+            // minute. Older counters are operational scratch state, not ledger.
+            let minute_bucket = now_ms / 60_000;
+            let usage_counters_deleted = sqlx::query("DELETE FROM redrouter_usage_counters WHERE rowid IN (SELECT rowid FROM redrouter_usage_counters WHERE minute_bucket < $1 ORDER BY minute_bucket ASC LIMIT $2)")
+                .bind(minute_bucket - 1)
+                .bind(batch_size)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot prune usage counters")?
+                .rows_affected();
+
+            // Request admission likewise uses two buckets for each supported
+            // rolling window. Invalid internal window rows are fail-safe debris
+            // and can never participate in admission, so maintenance removes them.
+            let request_counters_deleted = sqlx::query("DELETE FROM redrouter_request_rate_counters WHERE rowid IN (SELECT rowid FROM redrouter_request_rate_counters WHERE (window_seconds = 60 AND bucket_index < $1) OR (window_seconds = 86400 AND bucket_index < $2) OR window_seconds NOT IN (60,86400) ORDER BY updated_at_unix_ms ASC LIMIT $3)")
+                .bind(minute_bucket - 1)
+                .bind(now_ms / 86_400_000 - 1)
+                .bind(batch_size)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot prune request rate-limit counters")?
+                .rows_affected();
+            let batch_size = u64::try_from(batch_size)
+                .map_err(|_| "invalid usage maintenance request")?;
+            Ok(UsageMaintenanceReport {
+                usage_counters_deleted,
+                request_counters_deleted,
+                has_more: usage_counters_deleted == batch_size
+                    || request_counters_deleted == batch_size,
+            })
+        }
+        .await;
+        match result {
+            Ok(report) => {
+                sqlx::query("COMMIT")
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(|_| "usage maintenance unavailable")?;
+                Ok(report)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+                Err(error)
+            }
+        }
     }
 
     pub(crate) async fn admit_request(
@@ -940,6 +1006,95 @@ mod tests {
         assert!(usage.admit_request("day-key", 0, 2, now).await.unwrap());
         assert!(usage.admit_request("day-key", 0, 2, now).await.unwrap());
         assert!(!usage.admit_request("day-key", 0, 2, now).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn maintenance_prunes_only_expired_operational_counters_in_batches() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let now = 1_700_000_030_000_i64;
+        let minute = now / 60_000;
+        let day = now / 86_400_000;
+        for bucket in [minute, minute - 1, minute - 2, minute - 3, minute - 4] {
+            sqlx::query("INSERT INTO redrouter_usage_counters (key_id,minute_bucket,consumed_tokens,updated_at_unix_ms) VALUES ('key',$1,1,$2)")
+                .bind(bucket)
+                .bind(now)
+                .execute(database.sql_pool().unwrap())
+                .await
+                .unwrap();
+        }
+        for (window, bucket) in [
+            (60_i64, minute),
+            (60, minute - 1),
+            (60, minute - 2),
+            (86_400, day),
+            (86_400, day - 1),
+            (86_400, day - 2),
+            (1, 0),
+        ] {
+            sqlx::query("INSERT INTO redrouter_request_rate_counters (key_id,window_seconds,bucket_index,consumed_requests,updated_at_unix_ms) VALUES ('key',$1,$2,1,$3)")
+                .bind(window)
+                .bind(bucket)
+                .bind(now)
+                .execute(database.sql_pool().unwrap())
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ('historical','key','Key','red','openai','gpt',1,1,0,0,0,0,0,NULL,$1)")
+            .bind(now - 10 * 86_400_000)
+            .execute(database.sql_pool().unwrap())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state) VALUES ('uncertain','key','red','openai','gpt',10,0,$1,'dispatched')")
+            .bind(now - 10 * 86_400_000)
+            .execute(database.sql_pool().unwrap())
+            .await
+            .unwrap();
+
+        let first = usage.prune_operational_state(now, 2).await.unwrap();
+        assert_eq!(first.usage_counters_deleted, 2);
+        assert_eq!(first.request_counters_deleted, 2);
+        assert!(first.has_more);
+        let second = usage.prune_operational_state(now, 2).await.unwrap();
+        assert_eq!(second.usage_counters_deleted, 1);
+        assert_eq!(second.request_counters_deleted, 1);
+        assert!(!second.has_more);
+
+        let usage_buckets: Vec<i64> = sqlx::query_scalar(
+            "SELECT minute_bucket FROM redrouter_usage_counters ORDER BY minute_bucket",
+        )
+        .fetch_all(database.sql_pool().unwrap())
+        .await
+        .unwrap();
+        assert_eq!(usage_buckets, vec![minute - 1, minute]);
+        let request_rows: Vec<(i64, i64)> = sqlx::query_as("SELECT window_seconds,bucket_index FROM redrouter_request_rate_counters ORDER BY window_seconds,bucket_index")
+            .fetch_all(database.sql_pool().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            request_rows,
+            vec![
+                (60, minute - 1),
+                (60, minute),
+                (86_400, day - 1),
+                (86_400, day)
+            ]
+        );
+        let ledger_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_ledger")
+            .fetch_one(database.sql_pool().unwrap())
+            .await
+            .unwrap();
+        let reservations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_reservations")
+                .fetch_one(database.sql_pool().unwrap())
+                .await
+                .unwrap();
+        assert_eq!((ledger_rows, reservations), (1, 1));
     }
 
     #[tokio::test]

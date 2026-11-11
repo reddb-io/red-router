@@ -2192,6 +2192,45 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    sqlx::query("INSERT INTO redrouter_usage_counters (key_id,minute_bucket,consumed_tokens,updated_at_unix_ms) VALUES ('stale',1,1,60000)")
+        .execute(&audit)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO redrouter_request_rate_counters (key_id,window_seconds,bucket_index,consumed_requests,updated_at_unix_ms) VALUES ('stale',60,1,1,60000)")
+        .execute(&audit)
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/usage/maintenance"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let maintenance = client
+        .post(format!("{base}/api/admin/usage/maintenance"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(maintenance.status(), StatusCode::OK);
+    assert_eq!(
+        maintenance.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    let maintenance: serde_json::Value =
+        serde_json::from_str(&maintenance.text().await.unwrap()).unwrap();
+    assert_eq!(maintenance["maintenance"]["usage_counters_deleted"], 1);
+    assert_eq!(maintenance["maintenance"]["request_counters_deleted"], 1);
+    assert_eq!(maintenance["maintenance"]["has_more"], false);
+    let ledger_after_maintenance: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_ledger")
+            .fetch_one(&audit)
+            .await
+            .unwrap();
+    assert_eq!(ledger_after_maintenance, 2);
     audit.close().await;
     gateway_task.abort();
     provider_task.abort();

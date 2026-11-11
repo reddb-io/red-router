@@ -2147,6 +2147,10 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/admin/usage", get(control_plane::get_usage_report))
         .route(
+            "/api/admin/usage/maintenance",
+            post(control_plane::maintain_usage),
+        )
+        .route(
             "/api/usage-sinks/types",
             get(control_plane::usage_export_types),
         )

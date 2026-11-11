@@ -250,6 +250,12 @@ serialization boundary and conservative weighted rolling-window counters, so ind
 Rust processes sharing one file cannot collectively exceed a key's limit. Keys without
 request limits do not touch these counters. RedDB/PostgreSQL durable keys and environment-only
 policies retain process-local request counters until their shared counter drivers are implemented.
+Rust performs an hourly bounded cleanup of expired token/request rolling-window counters.
+`POST /api/admin/usage/maintenance` lets a global administrator immediately remove up to
+10,000 rows from each counter table and reports whether a later pass may have more work.
+This never deletes the financial usage ledger or uncertain reservations, so cost reports
+and BigQuery delivery do not lose source events. Tenant administrators cannot trigger
+global maintenance.
 
 - `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
   newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
