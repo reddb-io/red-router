@@ -109,7 +109,8 @@ async fn serve(State(assets): State<SpaAssets>, request: Request) -> Response {
 
     let navigation = navigation_request(&path, &request);
     let served = if navigation {
-        ServeFile::new(assets.index.as_ref())
+        let page = exported_page(&assets, &path).await;
+        ServeFile::new(page)
             .precompressed_br()
             .precompressed_gzip()
             .oneshot(request)
@@ -128,6 +129,25 @@ async fn serve(State(assets): State<SpaAssets>, request: Request) -> Response {
     };
     add_security_headers(&mut response, &path, navigation);
     response
+}
+
+// Next's static export can use either route.html or route/index.html depending
+// on trailingSlash. Missing routes retain support for a single-shell SPA.
+async fn exported_page(assets: &SpaAssets, path: &str) -> PathBuf {
+    let relative = path.trim_matches('/');
+    if !relative.is_empty() {
+        let file = assets.root.join(format!("{relative}.html"));
+        let index = assets.root.join(relative).join("index.html");
+        for candidate in [file, index] {
+            if tokio::fs::metadata(&candidate)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+            {
+                return candidate;
+            }
+        }
+    }
+    assets.index.as_ref().clone()
 }
 
 fn safe_path(path: &str) -> Option<String> {

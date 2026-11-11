@@ -382,7 +382,8 @@ double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit lo
 The dashboard login/settings code can consume this Rust boundary. Set
 `RED_ROUTER_SPA_DIR` to a prepared static dashboard build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
-directory. Browser navigation receives the SPA shell, but reserved API namespaces,
+directory. Browser navigation serves exported `route.html` or `route/index.html` pages
+when present and otherwise falls back to the SPA shell. Reserved API namespaces,
 hidden paths and missing files with extensions never do. HTML and `sw.js` use `no-store`;
 versioned `/_next/static/` chunks use immutable one-year caching. Brotli and gzip sidecar
 files are selected when present. The server adds CSP, clickjacking, MIME-sniffing,

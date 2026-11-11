@@ -113,6 +113,45 @@ async fn never_turns_unknown_api_or_asset_paths_into_spa_html() {
 }
 
 #[tokio::test]
+async fn serves_exported_pages_for_direct_navigation_and_falls_back_to_shell() {
+    let (directory, app) = fixture().await;
+    fs::create_dir_all(directory.path().join("dashboard/settings")).unwrap();
+    fs::write(
+        directory.path().join("dashboard/providers.html"),
+        "providers page",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("dashboard/settings/index.html"),
+        "settings page",
+    )
+    .unwrap();
+    for (path, expected) in [
+        ("/dashboard/providers", "providers page"),
+        ("/dashboard/settings/", "settings page"),
+        ("/dashboard/unmatched", "RedRouter Rust dashboard"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .header("accept", "text/html")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains(expected), "{path}");
+    }
+}
+
+#[tokio::test]
 async fn service_worker_is_not_cached_and_static_post_is_rejected() {
     let (_directory, app) = fixture().await;
     let worker = app
