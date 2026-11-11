@@ -8080,6 +8080,15 @@ impl ControlPlane {
             return Err("invalid token limit");
         }
         let reset = parse_reset_minutes(input.reset_time.as_deref().unwrap_or("00:00"))?;
+        let expected = token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval);
+        if input.id.as_deref().is_some_and(|id| id != expected) {
+            return Err("token limit identifier does not match its scope");
+        }
+        let before = self
+            .token_limit_views(&input.api_key_id, tenant_id)
+            .await?
+            .into_iter()
+            .find(|limit| limit["id"] == expected);
         let pool = self
             .0
             .database
@@ -8102,8 +8111,6 @@ impl ControlPlane {
             let reservation: i64 = row.try_get("reservation_tokens").map_err(|_| "invalid client quota")?;
             let has_global = ["max_tokens_per_minute","max_tokens_per_day","max_monthly_microusd"].iter().try_fold(false,|found,field| row.try_get::<i64,_>(*field).map(|value|found||value>0).map_err(|_|"invalid client quota"))?;
             if enabled != 0 || !has_global || reservation <= 0 || reservation > input.token_limit { return Err("disable the key and configure a compatible reservation first"); }
-            let expected = token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval);
-            if input.id.as_deref().is_some_and(|id| id != expected) { return Err("token limit identifier does not match its scope"); }
             // SQLite resolves every table referenced by a statement before it
             // evaluates CASE branches. Keep the optional legacy table out of
             // the second statement entirely when a native database has never
@@ -8133,21 +8140,44 @@ impl ControlPlane {
                 return Err(error);
             }
         }
-        let mut limits = self.token_limit_views(&input.api_key_id, tenant_id).await?;
-        limits
+        let after = self
+            .token_limit_views(&input.api_key_id, tenant_id)
+            .await?
             .into_iter()
             .find(|limit| {
                 limit["id"]
                     == token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval)
             })
-            .ok_or("token limit unavailable")
+            .ok_or("token limit unavailable")?;
+        let owner: String = sqlx::query_scalar(
+            "SELECT tenant_id FROM redrouter_control_client_key_ownership WHERE key_id=$1",
+        )
+        .bind(&input.api_key_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| "token limit storage unavailable")?;
+        self.record_audit_event(
+            AuditContext {
+                action: "client_key.token_limit.upsert",
+                actor,
+                tenant_id: &owner,
+                target: &expected,
+                resource_type: "client_key_token_limit",
+            },
+            before.as_ref(),
+            Some(&after),
+        )
+        .await;
+        Ok(after)
     }
 
     async fn delete_token_limit_as(
         &self,
         id: &str,
+        actor: &str,
         tenant_id: Option<&str>,
     ) -> Result<bool, &'static str> {
+        validate_actor(actor)?;
         if id.is_empty() || id.len() > 64 {
             return Err("invalid token limit identifier");
         }
@@ -8171,9 +8201,54 @@ impl ControlPlane {
                 if tenant_id.is_some_and(|expected| expected != tenant) {
                     return Ok(false);
                 }
-                let result=sqlx::query("DELETE FROM redrouter_client_model_token_limits WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
-                    .bind(key).bind(model).bind(interval).execute(pool).await.map_err(|_|"cannot delete token limit")?;
-                return Ok(result.rows_affected() == 1);
+                let before = self
+                    .token_limit_views(&key, tenant_id)
+                    .await?
+                    .into_iter()
+                    .find(|limit| limit["id"] == id);
+                let mut db = pool
+                    .acquire()
+                    .await
+                    .map_err(|_| "cannot delete token limit")?;
+                sqlx::query("BEGIN IMMEDIATE")
+                    .execute(&mut *db)
+                    .await
+                    .map_err(|_| "cannot delete token limit")?;
+                let result: Result<u64, &'static str> = async {
+                    sqlx::query("DELETE FROM redrouter_legacy_model_token_baselines WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
+                        .bind(&key).bind(&model).bind(&interval).execute(&mut *db).await.map_err(|_| "cannot delete token limit baseline")?;
+                    sqlx::query("DELETE FROM redrouter_client_model_token_limits WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
+                        .bind(&key).bind(&model).bind(&interval).execute(&mut *db).await.map(|result| result.rows_affected()).map_err(|_|"cannot delete token limit")
+                }.await;
+                let affected = match result {
+                    Ok(affected) => {
+                        sqlx::query("COMMIT")
+                            .execute(&mut *db)
+                            .await
+                            .map_err(|_| "cannot commit token limit deletion")?;
+                        affected
+                    }
+                    Err(error) => {
+                        let _ = sqlx::query("ROLLBACK").execute(&mut *db).await;
+                        return Err(error);
+                    }
+                };
+                if affected == 1 {
+                    self.record_audit_event(
+                        AuditContext {
+                            action: "client_key.token_limit.delete",
+                            actor,
+                            tenant_id: &tenant,
+                            target: id,
+                            resource_type: "client_key_token_limit",
+                        },
+                        before.as_ref(),
+                        Option::<&serde_json::Value>::None,
+                    )
+                    .await;
+                    return Ok(true);
+                }
+                return Ok(false);
             }
         }
         Ok(false)
@@ -11212,7 +11287,7 @@ pub async fn delete_token_limit(
         return api_error(StatusCode::BAD_REQUEST, "id query param is required");
     };
     match control
-        .delete_token_limit_as(id, scope.tenant_id.as_deref())
+        .delete_token_limit_as(id, &scope.actor, scope.tenant_id.as_deref())
         .await
     {
         Ok(true) => Json(serde_json::json!({"success":true})).into_response(),
