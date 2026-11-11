@@ -4067,11 +4067,13 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let file = Url::from_file_path(directory.path().join("protocols.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let pricing = sqlx::SqlitePool::connect(&url).await.unwrap();
     sqlx::query("INSERT INTO key_value(namespace,key,value) VALUES ('pricing','cohere',?)")
         .bind(r#"{"rerank-v3.5":{"search_unit_cost":0.002}}"#)
-        .execute(database.sql_pool().unwrap())
+        .execute(&pricing)
         .await
         .unwrap();
+    pricing.close().await;
     let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
         .await
         .unwrap();
