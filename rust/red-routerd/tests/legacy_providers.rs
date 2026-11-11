@@ -264,6 +264,8 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     }
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-extra','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -278,7 +280,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        3
+        4
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -287,6 +289,11 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-extra", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-proxy", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
     );
