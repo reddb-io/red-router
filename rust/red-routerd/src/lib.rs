@@ -3115,6 +3115,7 @@ fn context_relay_xml(value: &str) -> String {
 const CONTEXT_RELAY_SUMMARY_TTL_MS: i64 = 5 * 60 * 60 * 1_000;
 const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
+const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
 
 #[derive(Clone)]
 struct ContextRelaySummaryTarget {
@@ -3284,6 +3285,26 @@ fn context_relay_target_changed(previous: &(String, String), target: &ModelTarge
     target.provider_id.as_deref() != Some(previous.0.as_str()) || target.model != previous.1
 }
 
+fn context_relay_quota_expiry(
+    target: &ModelTarget,
+    warning_threshold: f64,
+    now_unix_ms: i64,
+) -> Option<i64> {
+    let quota = target_quota(target, now_unix_ms)?;
+    if quota.limit_reached {
+        return None;
+    }
+    let used = 1.0 - remaining_fraction(quota.session_remaining_ppm)?;
+    if used < warning_threshold || used >= CONTEXT_RELAY_EXHAUSTION_THRESHOLD {
+        return None;
+    }
+    Some(if quota.session_reset_unix_ms > now_unix_ms {
+        quota.session_reset_unix_ms
+    } else {
+        now_unix_ms.saturating_add(CONTEXT_RELAY_SUMMARY_TTL_MS)
+    })
+}
+
 fn context_relay_response_text(value: &serde_json::Value) -> String {
     if let Some(content) = value
         .pointer("/choices/0/message/content")
@@ -3448,6 +3469,61 @@ async fn generate_context_relay_summary(
     let response: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let handoff = parse_context_relay_summary(&response, &source_model, message_count)?;
     Some((handoff, target.model))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_context_relay_summary(
+    control: control_plane::ControlPlane,
+    combo_id: String,
+    session_id: String,
+    summary_target: ContextRelaySummaryTarget,
+    history: String,
+    source_model: String,
+    message_count: usize,
+    expires_at_unix_ms: i64,
+    handoff_known_absent: bool,
+) {
+    tokio::spawn(async move {
+        if !handoff_known_absent {
+            match control.context_relay_handoff(&combo_id, &session_id).await {
+                Ok(Some(_)) => return,
+                Ok(None) => {}
+                Err(_) => {
+                    eprintln!("context relay handoff state unavailable");
+                    return;
+                }
+            }
+        }
+        let generation_guard = match control.begin_context_relay_generation(&combo_id, &session_id)
+        {
+            Ok(Some(guard)) => guard,
+            Ok(None) => return,
+            Err(_) => {
+                eprintln!("context relay generation state unavailable");
+                return;
+            }
+        };
+        let _generation_guard = generation_guard;
+        let Some((handoff, summary_model)) =
+            generate_context_relay_summary(summary_target, history, source_model, message_count)
+                .await
+        else {
+            return;
+        };
+        if control
+            .record_context_relay_handoff(
+                &combo_id,
+                &session_id,
+                &handoff,
+                &summary_model,
+                expires_at_unix_ms,
+            )
+            .await
+            .is_err()
+        {
+            eprintln!("context relay handoff persistence unavailable");
+        }
+    });
 }
 
 fn inject_context_relay_handoff(
@@ -4807,14 +4883,38 @@ async fn proxy_request(
                         {
                             eprintln!("context relay session persistence unavailable");
                         }
-                        if context_relay_handoff.is_none() {
-                            if let (Some(route), Some((_, previous_model))) = (
-                                route.filter(|route| route.strategy == RouteStrategy::ContextRelay),
-                                context_relay_previous.as_ref().filter(|previous| {
-                                    context_relay_target_changed(previous, target)
-                                }),
-                            ) {
-                                if let (Some(summary_target), Some((history, message_count))) = (
+                        if let Some(route) =
+                            route.filter(|route| route.strategy == RouteStrategy::ContextRelay)
+                        {
+                            let switched_source = context_relay_previous
+                                .as_ref()
+                                .filter(|previous| context_relay_target_changed(previous, target))
+                                .map(|(_, previous_model)| previous_model.clone());
+                            let now_unix_ms = unix_time_ms();
+                            let quota_expiry = context_relay_quota_expiry(
+                                target,
+                                route.context_relay.handoff_threshold,
+                                now_unix_ms,
+                            );
+                            let generation = switched_source
+                                .map(|source_model| {
+                                    (
+                                        source_model,
+                                        now_unix_ms.saturating_add(CONTEXT_RELAY_SUMMARY_TTL_MS),
+                                        true,
+                                    )
+                                })
+                                .or_else(|| {
+                                    quota_expiry
+                                        .map(|expires_at| (target.model.clone(), expires_at, false))
+                                });
+                            if context_relay_handoff.is_none() {
+                                if let (
+                                    Some((source_model, expires_at, handoff_known_absent)),
+                                    Some(summary_target),
+                                    Some((history, message_count)),
+                                ) = (
+                                    generation,
                                     context_relay_summary_target(route, &eligible, target),
                                     context_relay_history(
                                         &parsed,
@@ -4822,45 +4922,17 @@ async fn proxy_request(
                                         route.context_relay.relay_mode == "schema-locked",
                                     ),
                                 ) {
-                                    if let Ok(Some(generation_guard)) =
-                                        control.begin_context_relay_generation(&model, session_id)
-                                    {
-                                        let control = control.clone();
-                                        let combo_id = model.clone();
-                                        let session_id = session_id.to_owned();
-                                        let source_model = previous_model.clone();
-                                        tokio::spawn(async move {
-                                            let _generation_guard = generation_guard;
-                                            let Some((handoff, summary_model)) =
-                                                generate_context_relay_summary(
-                                                    summary_target,
-                                                    history,
-                                                    source_model,
-                                                    message_count,
-                                                )
-                                                .await
-                                            else {
-                                                return;
-                                            };
-                                            let expires_at = unix_time_ms()
-                                                .saturating_add(CONTEXT_RELAY_SUMMARY_TTL_MS);
-                                            if control
-                                                .record_context_relay_handoff(
-                                                    &combo_id,
-                                                    &session_id,
-                                                    &handoff,
-                                                    &summary_model,
-                                                    expires_at,
-                                                )
-                                                .await
-                                                .is_err()
-                                            {
-                                                eprintln!(
-                                                    "context relay handoff persistence unavailable"
-                                                );
-                                            }
-                                        });
-                                    }
+                                    spawn_context_relay_summary(
+                                        control.clone(),
+                                        model.clone(),
+                                        session_id.to_owned(),
+                                        summary_target,
+                                        history,
+                                        source_model,
+                                        message_count,
+                                        expires_at,
+                                        handoff_known_absent,
+                                    );
                                 }
                             }
                         }
@@ -5534,7 +5606,7 @@ mod address_tests {
             input_cost_per_million: None,
             output_cost_per_million: None,
             context_window_tokens: None,
-            quota: Some(provider_quota),
+            quota: Some(provider_quota.clone()),
             model_quota: Some(model_quota.clone()),
             circuit: None,
             availability: None,
@@ -5546,6 +5618,31 @@ mod address_tests {
             target_quota(&target, 2).unwrap().session_remaining_ppm,
             900_000
         );
+        assert_eq!(context_relay_quota_expiry(&target, 0.8, 2), None);
+        provider_quota.update(&storage::StoredProviderQuota {
+            provider_id: "agy".into(),
+            session_remaining_ppm: 150_000,
+            session_reset_unix_ms: 10_000,
+            weekly_remaining_ppm: 600_000,
+            weekly_reset_unix_ms: 20_000,
+            limit_reached: false,
+            observed_at_unix_ms: 2,
+            expires_at_unix_ms: i64::MAX,
+            revision: 3,
+        });
+        assert_eq!(context_relay_quota_expiry(&target, 0.8, 2), Some(10_000));
+        provider_quota.update(&storage::StoredProviderQuota {
+            provider_id: "agy".into(),
+            session_remaining_ppm: 40_000,
+            session_reset_unix_ms: 10_000,
+            weekly_remaining_ppm: 600_000,
+            weekly_reset_unix_ms: 20_000,
+            limit_reached: false,
+            observed_at_unix_ms: 3,
+            expires_at_unix_ms: i64::MAX,
+            revision: 4,
+        });
+        assert_eq!(context_relay_quota_expiry(&target, 0.8, 2), None);
     }
 
     #[test]

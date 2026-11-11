@@ -4265,6 +4265,84 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         assert_eq!(messages[1]["content"], "continue after the summary");
     }
 
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert_eq!(
+        set_provider_quota(
+            &client,
+            &base,
+            "relay-first",
+            serde_json::json!({
+                "session":{"remaining_percent":15.0,"reset_at_unix_ms":now + 3_600_000},
+                "ttl_seconds":600
+            }),
+        )
+        .await,
+        StatusCode::OK
+    );
+    let quota_warning = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-session-id", "quota-warning-session")
+        .json(&serde_json::json!({
+            "model":"relay-combo",
+            "messages":[{"role":"user","content":"prepare before account rotation"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(quota_warning.status(), StatusCode::OK);
+    assert_eq!(quota_warning.text().await.unwrap(), "relay-first");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let persisted: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM redrouter_context_relay_handoffs WHERE combo_id = ?",
+            )
+            .bind("relay-combo")
+            .fetch_one(&persisted_state)
+            .await
+            .unwrap();
+            if persisted == 2 && first_bodies.lock().unwrap().len() >= 4 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Rust quota-warning handoff pre-generation timed out");
+    assert!(first_bodies.lock().unwrap()[3]["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("prepare before account rotation"));
+
+    assert_eq!(
+        replace_combo("relay-second", "shared-model")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let rotated = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-session-id", "quota-warning-session")
+        .json(&serde_json::json!({
+            "model":"relay-combo",
+            "messages":[{"role":"user","content":"continue on the next account"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rotated.status(), StatusCode::OK);
+    assert_eq!(rotated.text().await.unwrap(), "relay-second");
+    assert!(second_bodies.lock().unwrap()[2]["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("<session_summary>The user is migrating"));
+
     let invalid = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(RUST_CLIENT_KEY)
@@ -4275,7 +4353,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         .await
         .unwrap();
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(second_bodies.lock().unwrap().len(), 2);
+    assert_eq!(second_bodies.lock().unwrap().len(), 3);
 
     let invalid_config = client
         .put(format!("{base}/api/admin/combos/relay-combo"))

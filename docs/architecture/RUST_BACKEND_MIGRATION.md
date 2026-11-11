@@ -364,8 +364,10 @@ Anthropic or translated Anthropic target. The summary is stored with a five-hour
 reused through the protocol-native handoff channel; one process coalesces concurrent
 generation for the same combo/session. Generation failure stays outside the client response
 path, and a missing summary still produces a marker that explicitly forbids invented context.
-Native Gemini/Antigravity summary generation, cross-replica generation leases and Codex
-quota-triggered pre-generation remain follow-up work.
+The same path pre-generates a handoff when fresh provider/model session telemetry crosses the
+configured warning threshold but remains below the 95% exhaustion boundary, using the quota
+reset as the handoff expiry when available. Native Gemini/Antigravity summary generation and
+cross-replica generation leases remain follow-up work.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 
