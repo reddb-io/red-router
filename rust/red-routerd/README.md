@@ -403,6 +403,17 @@ files and run `red-routerd import-legacy-pricing`. The source is read-only; inse
 atomic, reruns skip identical rows, and any conflicting destination value aborts the
 entire import without overwriting it. This transfers pricing only, not providers, keys,
 policies, usage history or destinations; use an offline migration window for cutover.
+For an initial subset of legacy client keys, stop both servers and set the same two
+paths, then run `red-routerd import-legacy-keys --offline-confirmed`. This requires
+an initialized Rust SQLite destination with empty client-key tables and existing,
+enabled tenants. It copies IDs, names, SHA-256 key digests, tenant, enabled/revoked
+status, expiry and model ID format in one transaction; plaintext credentials are not
+copied. The legacy database is opened read-only. Unknown key schemas, restrictions,
+quotas, budgets, groups, pending reservations, model mappings, key tags or usage
+attributes cause the entire import to fail closed. This command does not migrate
+provider credentials, usage history, quotas, their counters, or remaining policies;
+do not treat a successful partial key import as a complete cutover. It requires a
+quiescent snapshot: changes made to the legacy system afterward are not replicated.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
