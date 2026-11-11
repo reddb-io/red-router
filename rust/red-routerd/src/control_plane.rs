@@ -3130,6 +3130,8 @@ impl ControlPlane {
             .prune_operational_state(unix_time_ms()?, USAGE_MAINTENANCE_BATCH_SIZE)
             .await?;
         if let Some(actor) = actor {
+            let audit_details = serde_json::to_value(&report)
+                .map_err(|_| "cannot encode usage maintenance audit")?;
             self.record_audit_event(
                 AuditContext {
                     action: "usage.maintenance",
@@ -3139,7 +3141,7 @@ impl ControlPlane {
                     resource_type: "usage",
                 },
                 Option::<&serde_json::Value>::None,
-                Some(&report),
+                Some(&audit_details),
             )
             .await;
         }
