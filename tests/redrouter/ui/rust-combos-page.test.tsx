@@ -173,6 +173,7 @@ describe("Rust combo manager", () => {
     expect(container.textContent).toContain("74% quota");
     expect(container.textContent).toContain("healthy");
     expect(container.textContent).toContain("Last known good");
+    expect(container.textContent).toContain("Context relay");
 
     const id = container.querySelector('input[placeholder="fast-coding"]') as HTMLInputElement;
     const providerSelect = container.querySelectorAll("select")[2] as HTMLSelectElement;

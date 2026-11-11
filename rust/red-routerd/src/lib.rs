@@ -68,6 +68,7 @@ const ROUTING_STRATEGIES: &[&str] = &[
     "cost-optimized",
     "context-optimized",
     "cache-optimized",
+    "context-relay",
     "reset-aware",
     "reset-window",
     "headroom",
@@ -465,6 +466,7 @@ pub(crate) enum RouteStrategy {
     CostOptimized,
     ContextOptimized,
     CacheOptimized,
+    ContextRelay,
     ResetAware,
     ResetWindow,
     Headroom,
@@ -557,7 +559,7 @@ struct ListedModel {
 impl ModelRoute {
     fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
         match self.strategy {
-            RouteStrategy::Priority | RouteStrategy::FillFirst => 0,
+            RouteStrategy::Priority | RouteStrategy::FillFirst | RouteStrategy::ContextRelay => 0,
             RouteStrategy::RoundRobin => {
                 self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
             }
@@ -1614,6 +1616,7 @@ impl ProxyState {
                     RouteStrategy::ContextOptimized
                 }
                 Some(v) if v.as_str() == Some("cache-optimized") => RouteStrategy::CacheOptimized,
+                Some(v) if v.as_str() == Some("context-relay") => RouteStrategy::ContextRelay,
                 Some(v) if v.as_str() == Some("reset-aware") => RouteStrategy::ResetAware,
                 Some(v) if v.as_str() == Some("reset-window") => RouteStrategy::ResetWindow,
                 Some(v) if v.as_str() == Some("headroom") => RouteStrategy::Headroom,
@@ -1621,6 +1624,14 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("lkgp") => RouteStrategy::Lkgp,
                 _ => return Err("unsupported route strategy"),
             };
+            if strategy == RouteStrategy::ContextRelay
+                && matches!(
+                    protocol,
+                    ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+                )
+            {
+                return Err("context-relay requires a conversational protocol");
+            }
             let fallback = match object.get("fallback") {
                 None => false,
                 Some(v) => v.as_bool().ok_or("invalid fallback")?,
@@ -3072,6 +3083,106 @@ async fn antigravity(State(state): State<ProxyState>, request: Request) -> Respo
     proxy_request(state, request, ProviderProtocol::Antigravity, None).await
 }
 
+fn parse_context_relay_session_id(headers: &HeaderMap) -> Result<Option<String>, ()> {
+    let values = ["x-omniroute-session-id", "x-session-id"]
+        .into_iter()
+        .flat_map(|name| headers.get_all(name).iter())
+        .map(|value| value.to_str().map(str::trim).map_err(|_| ()))
+        .collect::<Result<Vec<_>, _>>()?;
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.iter().any(|value| {
+        value.is_empty() || value.len() > 256 || !value.as_bytes().iter().all(u8::is_ascii_graphic)
+    }) || values.iter().any(|value| *value != values[0])
+    {
+        return Err(());
+    }
+    Ok(Some(values[0].to_owned()))
+}
+
+fn context_relay_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn inject_context_relay_handoff(
+    body: &mut serde_json::Value,
+    protocol: ProviderProtocol,
+    previous_model: &str,
+    current_model: &str,
+) -> Result<(), ()> {
+    let object = body.as_object_mut().ok_or(())?;
+    let content = format!(
+        "<context_handoff>\n<transfer_reason>Model routing: {} → {}</transfer_reason>\n<previous_model>{}</previous_model>\n<current_model>{}</current_model>\n<note>No prior-session summary is available for this handoff. Use only the conversation context supplied by the client and do not invent missing details.</note>\n</context_handoff>",
+        context_relay_xml(previous_model),
+        context_relay_xml(current_model),
+        context_relay_xml(previous_model),
+        context_relay_xml(current_model),
+    );
+    match protocol {
+        ProviderProtocol::OpenAiResponses => {
+            let existing = object
+                .get("instructions")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            object.insert(
+                "instructions".to_owned(),
+                serde_json::Value::String(existing.map_or_else(
+                    || content.clone(),
+                    |existing| format!("{content}\n\n{existing}"),
+                )),
+            );
+        }
+        ProviderProtocol::Anthropic => {
+            let block = serde_json::json!({"type":"text", "text":content});
+            let system = object.remove("system");
+            let next = match system {
+                Some(serde_json::Value::Array(mut blocks)) => {
+                    blocks.push(block);
+                    serde_json::Value::Array(blocks)
+                }
+                Some(serde_json::Value::String(existing)) if !existing.is_empty() => {
+                    serde_json::json!([{"type":"text", "text":existing}, block])
+                }
+                _ => serde_json::Value::Array(vec![block]),
+            };
+            object.insert("system".to_owned(), next);
+        }
+        ProviderProtocol::Gemini | ProviderProtocol::Antigravity => {
+            let instruction = object
+                .entry("systemInstruction")
+                .or_insert_with(|| serde_json::json!({"parts":[]}));
+            let parts = instruction
+                .as_object_mut()
+                .and_then(|instruction| {
+                    instruction
+                        .entry("parts")
+                        .or_insert_with(|| serde_json::json!([]))
+                        .as_array_mut()
+                })
+                .ok_or(())?;
+            parts.push(serde_json::json!({"text":content}));
+        }
+        ProviderProtocol::OpenAi
+        | ProviderProtocol::OpenAiToAnthropic
+        | ProviderProtocol::OpenAiToAntigravity => {
+            let messages = object
+                .entry("messages")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut()
+                .ok_or(())?;
+            messages.insert(0, serde_json::json!({"role":"system", "content":content}));
+        }
+        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank => return Err(()),
+    }
+    Ok(())
+}
+
 async fn gemini(
     State(state): State<ProxyState>,
     Path(model_action): Path<String>,
@@ -3351,6 +3462,22 @@ async fn proxy_request(
         .and_then(|routes| routes.get(&model))
         .or_else(|| state.routes.get(&model))
         .filter(|route| policy.tenant_allowed(&route.tenant_id));
+    let context_relay_session_id = if route
+        .is_some_and(|route| route.strategy == RouteStrategy::ContextRelay)
+    {
+        if state.control_plane.is_none() {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Context relay persistence is unavailable",
+            );
+        }
+        match parse_context_relay_session_id(&original_headers) {
+            Ok(session_id) => session_id,
+            Err(()) => return error(StatusCode::BAD_REQUEST, "Invalid context relay session id"),
+        }
+    } else {
+        None
+    };
     if (route.is_none()
         && (control_routes_authoritative
             || !state.routes.is_empty()
@@ -3417,7 +3544,7 @@ async fn proxy_request(
     let translation_target = eligible
         .iter()
         .find(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
-    let mut translated = if let Some(target) = translation_target {
+    let _translated_validation = if let Some(target) = translation_target {
         match translation::request(&parsed, &target.model) {
             Ok(value) => Some(value),
             Err(_) => {
@@ -3476,6 +3603,24 @@ async fn proxy_request(
         .and_then(|_| prompt_cache_affinity_key(&parsed));
     let attempt_order =
         route.map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
+    let context_relay_previous = match (
+        route.filter(|route| route.strategy == RouteStrategy::ContextRelay),
+        context_relay_session_id.as_deref(),
+        state.control_plane.as_ref(),
+    ) {
+        (Some(_), Some(session_id), Some(control)) => {
+            match control.context_relay_session(&model, session_id).await {
+                Ok(previous) => previous,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Context relay state unavailable",
+                    )
+                }
+            }
+        }
+        _ => None,
+    };
     let attempts = if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {
@@ -3797,27 +3942,48 @@ async fn proxy_request(
         );
         let (client, url, provider_key, mut payload) = match target {
             Some(target) => {
+                let mut attempt_parsed = parsed.clone();
+                if offset == 0 {
+                    if let Some((_, previous_model)) = context_relay_previous
+                        .as_ref()
+                        .filter(|(_, previous_model)| previous_model.as_str() != target.model)
+                    {
+                        if inject_context_relay_handoff(
+                            &mut attempt_parsed,
+                            protocol,
+                            previous_model,
+                            &target.model,
+                        )
+                        .is_err()
+                        {
+                            return error(
+                                StatusCode::BAD_REQUEST,
+                                "Context relay is incompatible with this request body",
+                            );
+                        }
+                    }
+                }
                 if attempt_protocol == ProviderProtocol::Antigravity {
                     if let Some(project) = target.antigravity_project.as_deref() {
-                        parsed["project"] = serde_json::Value::String(project.to_owned());
+                        attempt_parsed["project"] = serde_json::Value::String(project.to_owned());
                     }
                 }
                 let encoded = if translate_antigravity {
                     antigravity_translation::request(
-                        &parsed,
+                        &attempt_parsed,
                         &target.model,
                         target.antigravity_project.as_deref(),
                         attempt_signatures.as_ref(),
                     )
                     .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
-                } else if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
-                    value["model"] = serde_json::Value::String(target.model.clone());
-                    serde_json::to_vec(value).map_err(|_| ())
+                } else if translate_anthropic {
+                    translation::request(&attempt_parsed, &target.model)
+                        .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
                 } else {
                     if protocol != ProviderProtocol::Gemini {
-                        parsed["model"] = serde_json::Value::String(target.model.clone());
+                        attempt_parsed["model"] = serde_json::Value::String(target.model.clone());
                     }
-                    serde_json::to_vec(&parsed).map_err(|_| ())
+                    serde_json::to_vec(&attempt_parsed).map_err(|_| ())
                 };
                 let payload = match encoded {
                     Ok(value) => value,
@@ -4245,6 +4411,20 @@ async fn proxy_request(
                     true,
                 )
                 .await;
+                if route.is_some_and(|route| route.strategy == RouteStrategy::ContextRelay) {
+                    if let (Some(control), Some(session_id)) = (
+                        state.control_plane.as_ref(),
+                        context_relay_session_id.as_deref(),
+                    ) {
+                        if control
+                            .record_context_relay_session(&model, session_id, target)
+                            .await
+                            .is_err()
+                        {
+                            eprintln!("context relay session persistence unavailable");
+                        }
+                    }
+                }
             } else if retryable {
                 record_route_outcome(
                     &state,
@@ -4734,6 +4914,63 @@ async fn record_route_outcome(
 #[cfg(test)]
 mod address_tests {
     use super::*;
+
+    #[test]
+    fn context_relay_rejects_ambiguous_or_unsafe_session_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-session-id", HeaderValue::from_static("session-one"));
+        assert_eq!(
+            parse_context_relay_session_id(&headers).unwrap().as_deref(),
+            Some("session-one")
+        );
+        headers.insert(
+            "x-omniroute-session-id",
+            HeaderValue::from_static("session-two"),
+        );
+        assert!(parse_context_relay_session_id(&headers).is_err());
+
+        let mut oversized = HeaderMap::new();
+        oversized.insert(
+            "x-session-id",
+            HeaderValue::from_str(&"x".repeat(257)).unwrap(),
+        );
+        assert!(parse_context_relay_session_id(&oversized).is_err());
+    }
+
+    #[test]
+    fn context_relay_uses_each_protocols_native_system_channel() {
+        let mut responses = serde_json::json!({"input":"hello","instructions":"existing"});
+        inject_context_relay_handoff(
+            &mut responses,
+            ProviderProtocol::OpenAiResponses,
+            "old<&",
+            "new",
+        )
+        .unwrap();
+        let instructions = responses["instructions"].as_str().unwrap();
+        assert!(instructions.contains("<previous_model>old&lt;&amp;</previous_model>"));
+        assert!(instructions.ends_with("existing"));
+
+        let mut anthropic = serde_json::json!({
+            "system":"existing",
+            "messages":[{"role":"user","content":"hello"}]
+        });
+        inject_context_relay_handoff(&mut anthropic, ProviderProtocol::Anthropic, "old", "new")
+            .unwrap();
+        assert_eq!(anthropic["system"][0]["text"], "existing");
+        assert!(anthropic["system"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("<current_model>new</current_model>"));
+        assert_eq!(anthropic["messages"][0]["content"], "hello");
+
+        let mut gemini = serde_json::json!({"contents":[]});
+        inject_context_relay_handoff(&mut gemini, ProviderProtocol::Gemini, "old", "new").unwrap();
+        assert!(gemini["systemInstruction"]["parts"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("<context_handoff>"));
+    }
 
     #[test]
     fn metadata_and_private_addresses_are_not_public() {

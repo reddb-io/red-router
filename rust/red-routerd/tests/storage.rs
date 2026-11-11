@@ -1,9 +1,9 @@
 use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
-    StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
-    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderModelQuota,
-    StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant,
-    StoredUsageExport,
+    StoredClientKey, StoredCombo, StoredContextRelaySession, StoredIdentityBinding,
+    StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
+    StoredProviderModelQuota, StoredProviderQuota, StoredProviderSession, StoredResilience,
+    StoredRoutePin, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -200,6 +200,22 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_route_pin(&route_pin).await.unwrap();
     assert_eq!(db.route_pins().await.unwrap(), vec![route_pin.clone()]);
+    let relay_session = StoredContextRelaySession {
+        record_id: "hashed-session".into(),
+        combo_id: "agent-combo".into(),
+        provider_id: "first".into(),
+        model: "openai/model".into(),
+        updated_at_unix_ms: 1_700_000_000_000,
+    };
+    db.upsert_context_relay_session(&relay_session)
+        .await
+        .unwrap();
+    assert_eq!(
+        db.context_relay_session(&relay_session.record_id)
+            .await
+            .unwrap(),
+        Some(relay_session.clone())
+    );
     let quota = StoredProviderQuota {
         provider_id: "first".into(),
         session_remaining_ppm: 750_000,
@@ -342,6 +358,13 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.client_keys().await.unwrap(), vec![revoked_key]);
     assert_eq!(reopened.combos().await.unwrap(), vec![disabled_combo]);
     assert_eq!(reopened.route_pins().await.unwrap(), vec![route_pin]);
+    assert_eq!(
+        reopened
+            .context_relay_session(&relay_session.record_id)
+            .await
+            .unwrap(),
+        Some(relay_session)
+    );
     reopened.delete_route_pin("agent-combo").await.unwrap();
     assert!(reopened.route_pins().await.unwrap().is_empty());
     assert_eq!(reopened.provider_quotas().await.unwrap(), vec![quota]);

@@ -5,11 +5,11 @@ use crate::{
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredAuditEvent, StoredClientKey, StoredCombo, StoredIdentityBinding,
-        StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-        StoredProviderAuth, StoredProviderModelQuota, StoredProviderOAuth,
-        StoredProviderOAuthStatus, StoredProviderQuota, StoredProviderSession, StoredResilience,
-        StoredRoutePin, StoredTenant, StoredUsageExport,
+        StoredAuditEvent, StoredClientKey, StoredCombo, StoredContextRelaySession,
+        StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
+        StoredOidcConfig, StoredProvider, StoredProviderAuth, StoredProviderModelQuota,
+        StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota, StoredProviderSession,
+        StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -6716,6 +6716,7 @@ impl ControlPlane {
                 "cost-optimized" => RouteStrategy::CostOptimized,
                 "context-optimized" => RouteStrategy::ContextOptimized,
                 "cache-optimized" => RouteStrategy::CacheOptimized,
+                "context-relay" => RouteStrategy::ContextRelay,
                 "reset-aware" => RouteStrategy::ResetAware,
                 "reset-window" => RouteStrategy::ResetWindow,
                 "headroom" => RouteStrategy::Headroom,
@@ -6862,6 +6863,41 @@ impl ControlPlane {
             self.0.database.delete_route_pin(combo_id).await?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn context_relay_session(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+    ) -> Result<Option<(String, String)>, &'static str> {
+        let record_id = context_relay_record_id(combo_id, session_id);
+        self.0
+            .database
+            .context_relay_session(&record_id)
+            .await
+            .map(|record| record.map(|record| (record.provider_id, record.model)))
+    }
+
+    pub(crate) async fn record_context_relay_session(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+        target: &crate::ModelTarget,
+    ) -> Result<(), &'static str> {
+        let provider_id = target
+            .provider_id
+            .as_deref()
+            .ok_or("context relay provider identity unavailable")?;
+        self.0
+            .database
+            .upsert_context_relay_session(&StoredContextRelaySession {
+                record_id: context_relay_record_id(combo_id, session_id),
+                combo_id: combo_id.to_owned(),
+                provider_id: provider_id.to_owned(),
+                model: target.model.clone(),
+                updated_at_unix_ms: unix_time_ms()?,
+            })
+            .await
     }
 
     async fn clear_route_pin(
@@ -8471,6 +8507,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "cost-optimized"
             | "context-optimized"
             | "cache-optimized"
+            | "context-relay"
             | "reset-aware"
             | "reset-window"
             | "headroom"
@@ -8497,6 +8534,14 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         }
         ("auto", None) | (_, None) => {}
         (_, Some(_)) => return Err("auto configuration requires the auto strategy"),
+    }
+    if input.strategy == "context-relay"
+        && matches!(
+            protocol,
+            ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+        )
+    {
+        return Err("context-relay requires a conversational protocol");
     }
     if input.targets.is_empty() || input.targets.len() > 8 {
         return Err("combo targets must contain 1-8 entries");
@@ -9267,6 +9312,15 @@ fn unix_time_ms() -> Result<i64, &'static str> {
         .map_err(|_| "system clock is unavailable")?
         .as_millis();
     i64::try_from(millis).map_err(|_| "system clock is out of range")
+}
+
+fn context_relay_record_id(combo_id: &str, session_id: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"redrouter-context-relay-v1\0");
+    digest.update(combo_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(session_id.as_bytes());
+    hex::encode(digest.finalize())
 }
 
 fn unix_time_seconds() -> Result<u64, &'static str> {

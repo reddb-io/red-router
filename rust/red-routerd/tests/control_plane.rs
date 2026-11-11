@@ -254,6 +254,42 @@ async fn provider(
     (format!("http://{address}/v1/chat/completions"), task)
 }
 
+async fn captured_provider(
+    expected_key: &'static str,
+    label: &'static str,
+) -> (
+    String,
+    Arc<Mutex<Vec<serde_json::Value>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let observed = bodies.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                let observed = observed.clone();
+                async move {
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {expected_key}")
+                    );
+                    observed.lock().unwrap().push(body);
+                    label
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        bodies,
+        task,
+    )
+}
+
 async fn usage_provider(
     expected_key: &'static str,
 ) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
@@ -2214,6 +2250,11 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         .unwrap()
         .iter()
         .any(|strategy| strategy == "quota-weighted"));
+    assert!(capabilities["combos"]["strategies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|strategy| strategy == "context-relay"));
 
     assert_eq!(
         client
@@ -3991,6 +4032,143 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     responses_task.abort();
     anthropic_task.abort();
     gemini_task.abort();
+}
+
+#[tokio::test]
+async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("context-relay.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (first_url, first_bodies, first_task) =
+        captured_provider("relay-first-secret", "relay-first").await;
+    let (second_url, second_bodies, second_task) =
+        captured_provider("relay-second-secret", "relay-second").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("relay-first", first_url, "relay-first-secret"),
+        ("relay-second", second_url, "relay-second-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/relay-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Relay client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["relay-combo","first-model","second-model"],
+                "allowed_provider_ids":["relay-first","relay-second"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let replace_combo = |provider_id: &str, model: &str| {
+        client
+            .put(format!("{base}/api/admin/combos/relay-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"context-relay",
+                "fallback":true,
+                "targets":[{"provider_id":provider_id,"model":model}]
+            }))
+    };
+    assert_eq!(
+        replace_combo("relay-first", "first-model")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let first = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-omniroute-session-id", "agent-session-1")
+        .json(&serde_json::json!({
+            "model":"relay-combo",
+            "messages":[{"role":"user","content":"continue the migration"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(first.text().await.unwrap(), "relay-first");
+    assert_eq!(
+        first_bodies.lock().unwrap()[0]["messages"][0]["role"],
+        "user"
+    );
+
+    assert_eq!(
+        replace_combo("relay-second", "second-model")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let second = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-session-id", "agent-session-1")
+        .json(&serde_json::json!({
+            "model":"relay-combo",
+            "messages":[{"role":"user","content":"what is next?"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+    assert_eq!(second.text().await.unwrap(), "relay-second");
+    let bodies = second_bodies.lock().unwrap();
+    let messages = bodies[0]["messages"].as_array().unwrap();
+    assert_eq!(messages[0]["role"], "system");
+    let handoff = messages[0]["content"].as_str().unwrap();
+    assert!(handoff.contains("<previous_model>first-model</previous_model>"));
+    assert!(handoff.contains("<current_model>second-model</current_model>"));
+    assert_eq!(messages[1]["content"], "what is next?");
+    drop(bodies);
+
+    let invalid = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-session-id", "one")
+        .header("x-omniroute-session-id", "two")
+        .json(&serde_json::json!({"model":"relay-combo","messages":[]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(second_bodies.lock().unwrap().len(), 1);
+
+    gateway_task.abort();
+    first_task.abort();
+    second_task.abort();
 }
 
 #[tokio::test]

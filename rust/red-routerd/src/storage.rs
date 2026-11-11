@@ -105,6 +105,9 @@ const LIST_ROUTE_PINS: &str =
     "SELECT combo_id, provider_id, model, revision FROM redrouter_route_pins ORDER BY combo_id ASC";
 const UPSERT_ROUTE_PIN: &str = "INSERT INTO redrouter_route_pins (combo_id, provider_id, model, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (combo_id) DO UPDATE SET provider_id = $2, model = $3, revision = $4";
 const DELETE_ROUTE_PIN: &str = "DELETE FROM redrouter_route_pins WHERE combo_id = $1";
+const CREATE_CONTEXT_RELAY_SESSIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_context_relay_sessions (record_id TEXT PRIMARY KEY, combo_id TEXT NOT NULL, provider_id TEXT NOT NULL, model TEXT NOT NULL, updated_at_unix_ms BIGINT NOT NULL)";
+const READ_CONTEXT_RELAY_SESSION: &str = "SELECT combo_id, provider_id, model, updated_at_unix_ms FROM redrouter_context_relay_sessions WHERE record_id = $1";
+const UPSERT_CONTEXT_RELAY_SESSION: &str = "INSERT INTO redrouter_context_relay_sessions (record_id, combo_id, provider_id, model, updated_at_unix_ms) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (record_id) DO UPDATE SET combo_id = $2, provider_id = $3, model = $4, updated_at_unix_ms = $5";
 const CREATE_PROVIDER_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_quotas (provider_id TEXT PRIMARY KEY, session_remaining_ppm BIGINT NOT NULL, session_reset_unix_ms BIGINT NOT NULL, weekly_remaining_ppm BIGINT NOT NULL, weekly_reset_unix_ms BIGINT NOT NULL, limit_reached BIGINT NOT NULL, observed_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDER_QUOTAS: &str = "SELECT provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision FROM redrouter_provider_quotas ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_QUOTA: &str = "INSERT INTO redrouter_provider_quotas (provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET session_remaining_ppm = $2, session_reset_unix_ms = $3, weekly_remaining_ppm = $4, weekly_reset_unix_ms = $5, limit_reached = $6, observed_at_unix_ms = $7, expires_at_unix_ms = $8, revision = $9";
@@ -380,6 +383,15 @@ pub struct StoredRoutePin {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredContextRelaySession {
+    pub record_id: String,
+    pub combo_id: String,
+    pub provider_id: String,
+    pub model: String,
+    pub updated_at_unix_ms: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProviderQuota {
     pub provider_id: String,
     /// Parts per million remaining, or -1 when the window is unknown.
@@ -570,6 +582,7 @@ impl Database {
                         CREATE_COMBOS,
                         CREATE_COMBO_OWNERSHIP,
                         CREATE_ROUTE_PINS,
+                        CREATE_CONTEXT_RELAY_SESSIONS,
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_PROVIDER_MODEL_QUOTAS,
                         CREATE_BREAKERS,
@@ -689,6 +702,8 @@ impl Database {
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_COMBO_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
+                db.remote_schema_query(CREATE_CONTEXT_RELAY_SESSIONS)
+                    .await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_MODEL_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
@@ -748,6 +763,7 @@ impl Database {
                     CREATE_COMBOS,
                     CREATE_COMBO_OWNERSHIP,
                     CREATE_ROUTE_PINS,
+                    CREATE_CONTEXT_RELAY_SESSIONS,
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_PROVIDER_MODEL_QUOTAS,
                     CREATE_BREAKERS,
@@ -2714,6 +2730,79 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot delete route pin state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn context_relay_session(
+        &self,
+        record_id: &str,
+    ) -> Result<Option<StoredContextRelaySession>, &'static str> {
+        let params = [reddb_client::Value::Text(record_id.to_owned())];
+        let record = match self {
+            Self::Sql(pool) => sqlx::query(READ_CONTEXT_RELAY_SESSION)
+                .bind(record_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read context relay session")?
+                .as_ref()
+                .map(read_sql_context_relay_session)
+                .transpose()?,
+            Self::Remote(_) => self
+                .remote_query(READ_CONTEXT_RELAY_SESSION, &params)
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_context_relay_session)
+                .transpose()?,
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query_with(READ_CONTEXT_RELAY_SESSION, params.to_vec())
+                .await
+                .map_err(|_| "cannot read context relay session")?
+                .rows
+                .first()
+                .map(read_reddb_context_relay_session)
+                .transpose()?,
+        };
+        Ok(record.map(|mut record| {
+            record.record_id = record_id.to_owned();
+            record
+        }))
+    }
+
+    pub async fn upsert_context_relay_session(
+        &self,
+        session: &StoredContextRelaySession,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_CONTEXT_RELAY_SESSION)
+                    .bind(&session.record_id)
+                    .bind(&session.combo_id)
+                    .bind(&session.provider_id)
+                    .bind(&session.model)
+                    .bind(session.updated_at_unix_ms)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write context relay session")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_CONTEXT_RELAY_SESSION,
+                    &context_relay_session_params(session),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_CONTEXT_RELAY_SESSION,
+                    context_relay_session_params(session),
+                )
+                .await
+                .map_err(|_| "cannot write context relay session")?;
             }
         }
         Ok(())
@@ -4963,6 +5052,60 @@ fn route_pin_params(pin: &StoredRoutePin) -> Vec<reddb_client::Value> {
         reddb_client::Value::Text(pin.provider_id.clone()),
         reddb_client::Value::Text(pin.model.clone()),
         reddb_client::Value::Int(pin.revision),
+    ]
+}
+
+fn read_sql_context_relay_session(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredContextRelaySession, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid context relay session")
+    };
+    Ok(StoredContextRelaySession {
+        record_id: String::new(),
+        combo_id: text("combo_id")?,
+        provider_id: text("provider_id")?,
+        model: text("model")?,
+        updated_at_unix_ms: row
+            .try_get("updated_at_unix_ms")
+            .map_err(|_| "invalid context relay session")?,
+    })
+}
+
+fn read_reddb_context_relay_session(
+    row: &reddb_client::Row,
+) -> Result<StoredContextRelaySession, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid context relay session"),
+    };
+    let updated_at_unix_ms = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("updated_at_unix_ms"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid context relay session"),
+    }?;
+    Ok(StoredContextRelaySession {
+        record_id: String::new(),
+        combo_id: text("combo_id")?,
+        provider_id: text("provider_id")?,
+        model: text("model")?,
+        updated_at_unix_ms,
+    })
+}
+
+fn context_relay_session_params(session: &StoredContextRelaySession) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(session.record_id.clone()),
+        reddb_client::Value::Text(session.combo_id.clone()),
+        reddb_client::Value::Text(session.provider_id.clone()),
+        reddb_client::Value::Text(session.model.clone()),
+        reddb_client::Value::Int(session.updated_at_unix_ms),
     ]
 }
 

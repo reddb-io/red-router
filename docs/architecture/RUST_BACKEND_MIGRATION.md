@@ -348,6 +348,15 @@ is allocation-free after the fixed eight-target deck is built and performs no st
 network reads in the request path. Operators can assign independent normalized weights to
 those four signals. The configuration is stored with the combo payload, survives restart
 and live reload, and legacy array-only combo payloads retain the balanced defaults.
+The Rust-owned `context-relay` strategy preserves dashboard target order and stores the
+last successful provider/model for each explicit client session in
+`redrouter_context_relay_sessions`. Session identifiers are validated at the HTTP boundary
+and reduced to a domain-separated SHA-256 record key before persistence. A later model
+switch injects a bounded handoff marker using the native Chat Completions, Responses,
+Anthropic or Gemini system channel while preserving the client conversation. This state is
+shared by Rust processes using the same database and survives restart. Structured LLM
+summary generation and Codex quota-triggered pre-generation remain the next context-relay
+slice; the current marker explicitly forbids inventing context when no summary exists.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

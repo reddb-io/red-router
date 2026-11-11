@@ -317,6 +317,7 @@ export type RustComboStrategy =
   | "cost-optimized"
   | "context-optimized"
   | "cache-optimized"
+  | "context-relay"
   | "reset-aware"
   | "reset-window"
   | "headroom"
@@ -674,6 +675,7 @@ const RUST_COMBO_STRATEGIES: RustComboStrategy[] = [
   "cost-optimized",
   "context-optimized",
   "cache-optimized",
+  "context-relay",
   "reset-aware",
   "reset-window",
   "headroom",
