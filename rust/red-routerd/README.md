@@ -427,6 +427,15 @@ existing destination records, OAuth, custom endpoints, non-default routing or
 quota configuration and other unsupported metadata. It does not migrate session
 credentials, provider priorities, health history, combos or policies and is not a
 complete cutover.
+To preserve full legacy provider records, including OAuth tokens and provider-specific
+metadata, without activating accounts, stop both servers and run
+`red-routerd stage-legacy-provider-records --offline-confirmed` with the two database
+paths and `STORAGE_ENCRYPTION_KEY` set. Each row is encrypted as a single Rust envelope
+bound to `legacy-provider-stage:<provider-id>`; no plaintext token is written to the
+destination. Staged records do not create a connection, refresh a token, or enable
+OAuth. If a source field was already encrypted by the legacy server, the original
+legacy encryption key remains necessary for a later conversion. Existing staging is
+never overwritten; unsupported SQLite field types and schemas abort the operation.
 To stage legacy usage history, cost ledger, quota counters, reservations and budget
 tables without rounding their stored values, stop both servers and run
 `red-routerd archive-legacy-usage --offline-confirmed` with the same source and

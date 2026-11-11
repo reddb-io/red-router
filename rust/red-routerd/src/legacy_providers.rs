@@ -11,6 +11,123 @@ pub struct ProviderImport {
     pub source_enabled: bool,
 }
 
+#[derive(serde::Serialize)]
+pub struct ProviderStage {
+    pub staged: u64,
+}
+
+/// Stage every complete provider row, including OAuth tokens and provider-
+/// specific metadata, in a Rust-encrypted envelope. No staged row is activated
+/// or interpreted as a supported provider configuration.
+pub async fn stage(
+    source: &Path,
+    destination: &Path,
+    storage_key: &str,
+) -> Result<ProviderStage, &'static str> {
+    use futures_util::TryStreamExt;
+    if !(16..=512).contains(&storage_key.len()) {
+        return Err("invalid storage encryption key");
+    }
+    let source = std::fs::canonicalize(source).map_err(|_| "legacy database does not exist")?;
+    let destination =
+        std::fs::canonicalize(destination).map_err(|_| "destination database does not exist")?;
+    if source == destination {
+        return Err("legacy and destination databases must be different files");
+    }
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new().filename(source).read_only(true),
+    )
+    .await
+    .map_err(|_| "cannot open legacy database read-only")?;
+    sqlx::query("PRAGMA query_only = ON")
+        .execute(&mut input)
+        .await
+        .map_err(|_| "cannot initialize legacy database")?;
+    sqlx::query("PRAGMA trusted_schema = OFF")
+        .execute(&mut input)
+        .await
+        .map_err(|_| "cannot initialize legacy database")?;
+    let mut output =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(destination))
+            .await
+            .map_err(|_| "cannot open destination database")?;
+    sqlx::query("PRAGMA busy_timeout = 5000")
+        .execute(&mut output)
+        .await
+        .map_err(|_| "cannot initialize destination database")?;
+    let mut snapshot = input
+        .begin()
+        .await
+        .map_err(|_| "cannot start legacy snapshot")?;
+    let mut target = output
+        .begin()
+        .await
+        .map_err(|_| "cannot start provider staging")?;
+    let result: Result<ProviderStage, &'static str> = async {
+        let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'").fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination schema")?;
+        if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
+        let definition: Option<String> = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_connections'").fetch_optional(&mut *snapshot).await.map_err(|_| "cannot inspect legacy provider schema")?;
+        let definition = definition.ok_or("legacy provider schema unavailable")?;
+        if definition.to_ascii_uppercase().contains("VIRTUAL TABLE") { return Err("unsupported legacy provider schema"); }
+        let columns = sqlx::query("PRAGMA table_xinfo('provider_connections')").fetch_all(&mut *snapshot).await.map_err(|_| "cannot inspect legacy provider schema")?;
+        // SQLite builds can limit json_object to 127 arguments.
+        if columns.is_empty() || columns.len() > 60 { return Err("unsupported legacy provider schema"); }
+        let mut names = Vec::with_capacity(columns.len());
+        for column in columns {
+            let name: String = column.try_get("name").map_err(|_| "invalid legacy provider schema")?;
+            let hidden: i64 = column.try_get("hidden").map_err(|_| "invalid legacy provider schema")?;
+            if hidden != 0 || name.is_empty() || name.len() > 256 { return Err("unsupported legacy provider schema"); }
+            names.push(name);
+        }
+        if !names.iter().any(|name| name == "id") { return Err("legacy provider identifier is missing"); }
+        let quoted = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
+        let invalid = names.iter().map(|name| format!("typeof({}) NOT IN ('null','integer','text')", quoted(name))).collect::<Vec<_>>().join(" OR ");
+        let unsupported: i64 = sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM provider_connections WHERE {invalid} LIMIT 1)"))
+            .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy provider values")?;
+        if unsupported != 0 { return Err("unsupported legacy provider value type"); }
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name='redrouter_legacy_provider_records'").fetch_one(&mut *target).await.map_err(|_| "cannot inspect provider staging state")?;
+        if exists != 0 { return Err("legacy provider staging already exists; nothing overwritten"); }
+        sqlx::query("CREATE TABLE redrouter_legacy_provider_records (provider_id TEXT PRIMARY KEY, encrypted_record TEXT NOT NULL)")
+            .execute(&mut *target).await.map_err(|_| "cannot initialize provider staging")?;
+        let pairs = names.iter().map(|name| format!("?,{}", quoted(name))).collect::<Vec<_>>().join(",");
+        let statement = format!("SELECT id,json_object({pairs}) AS record FROM provider_connections");
+        let mut query = sqlx::query(&statement);
+        for name in &names { query = query.bind(name); }
+        let mut rows = query.fetch(&mut *snapshot);
+        let mut staged = 0u64;
+        while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy provider records")? {
+            if staged >= 10_000 { return Err("too many legacy provider records"); }
+            let id: String = row.try_get("id").map_err(|_| "invalid legacy provider identifier")?;
+            if id.is_empty() || id.len() > 256 || id.chars().any(char::is_control) { return Err("invalid legacy provider identifier"); }
+            let record = Zeroizing::new(row.try_get::<String, _>("record").map_err(|_| "invalid legacy provider record")?);
+            if record.len() > 1_048_576 { return Err("legacy provider record is too large"); }
+            let ciphertext = crate::control_plane::encrypt(&record, &format!("legacy-provider-stage:{id}"), storage_key)?;
+            sqlx::query("INSERT INTO redrouter_legacy_provider_records (provider_id,encrypted_record) VALUES (?,?)")
+                .bind(&id).bind(ciphertext).execute(&mut *target).await.map_err(|_| "cannot stage legacy provider record")?;
+            staged += 1;
+        }
+        Ok(ProviderStage { staged })
+    }.await;
+    match result {
+        Ok(report) => {
+            snapshot
+                .commit()
+                .await
+                .map_err(|_| "cannot finish legacy snapshot")?;
+            target
+                .commit()
+                .await
+                .map_err(|_| "cannot commit provider staging")?;
+            Ok(report)
+        }
+        Err(error) => {
+            let _ = target.rollback().await;
+            let _ = snapshot.rollback().await;
+            Err(error)
+        }
+    }
+}
+
 pub async fn import(
     source: &Path,
     destination: &Path,

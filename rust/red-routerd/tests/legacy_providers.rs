@@ -157,3 +157,74 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn stages_complete_oauth_records_as_encrypted_inert_envelopes() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, access_token TEXT, refresh_token TEXT, provider_specific_data TEXT, priority INTEGER, tenant_id TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query(
+        "INSERT INTO provider_connections VALUES ('session-1','codex','oauth',?,?,?,17,'acme')",
+    )
+    .bind("oauth-access-private-token")
+    .bind("oauth-refresh-private-token")
+    .bind(r#"{"accountId":"acc-1","extra":"value"}"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let report = legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.staged, 1);
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let mut output = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let encrypted: String = sqlx::query_scalar("SELECT encrypted_record FROM redrouter_legacy_provider_records WHERE provider_id='session-1'").fetch_one(&mut output).await.unwrap();
+    assert!(!encrypted.contains("oauth-refresh-private-token"));
+    let raw = decrypt_rust_ciphertext(&encrypted, "legacy-provider-stage:session-1");
+    let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(record["refresh_token"], "oauth-refresh-private-token");
+    assert_eq!(record["access_token"], "oauth-access-private-token");
+    assert_eq!(
+        record["provider_specific_data"],
+        r#"{"accountId":"acc-1","extra":"value"}"#
+    );
+    assert_eq!(record["tenant_id"], "acme");
+    assert_eq!(record["priority"], 17);
+    let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_providers")
+        .fetch_one(&mut output)
+        .await
+        .unwrap();
+    assert_eq!(
+        active, 0,
+        "staging must not create or refresh an OAuth session"
+    );
+    output.close().await.unwrap();
+    let destination_bytes = tokio::fs::read(&dest).await.unwrap();
+    assert!(!destination_bytes
+        .windows(b"oauth-refresh-private-token".len())
+        .any(|part| part == b"oauth-refresh-private-token"));
+    assert!(legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .is_err());
+}
