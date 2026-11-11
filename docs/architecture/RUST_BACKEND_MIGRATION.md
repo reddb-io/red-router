@@ -360,8 +360,11 @@ provider allowlist, summary-message bound and schema-locked/standard relay mode.
 normalized and validated before the route snapshot changes, while combos created before
 this payload extension retain the legacy defaults. On a model switch, Rust can now generate
 a bounded structured summary asynchronously through an authorized OpenAI Chat, Responses,
-Anthropic or translated Anthropic target. The summary is stored with a five-hour TTL and
-reused through the protocol-native handoff channel; one process coalesces concurrent
+Anthropic, translated Anthropic, native Gemini or Antigravity CLI target. Gemini uses its
+native JSON content and structured-response configuration. Antigravity uses the official
+project-aware request envelope and bounded SSE decoder, including the consumer-account retry
+without the project billing header after a project-scoped `403`. The summary is stored with a
+five-hour TTL and reused through the protocol-native handoff channel; one process coalesces concurrent
 generation for the same combo/session. SQLite and PostgreSQL additionally coordinate that
 generation across Rust replicas with an expiring durable lease; an old owner cannot release
 its successor's lease, and a crashed owner cannot strand future generation. The summary call
@@ -370,8 +373,8 @@ Generation failure stays outside the client response path, and a missing summary
 produces a marker that explicitly forbids invented context.
 The same path pre-generates a handoff when fresh provider/model session telemetry crosses the
 configured warning threshold but remains below the 95% exhaustion boundary, using the quota
-reset as the handoff expiry when available. Native Gemini/Antigravity summary generation and
-the RedDB cross-process lease remain follow-up work.
+reset as the handoff expiry when available. The RedDB cross-process lease remains follow-up
+work.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

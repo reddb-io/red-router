@@ -3117,6 +3117,8 @@ const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
 const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
 const CONTEXT_RELAY_SUMMARY_DEADLINE: Duration = Duration::from_secs(45);
+const ANTIGRAVITY_CLI_USER_AGENT: &str =
+    "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
 
 #[derive(Clone)]
 struct ContextRelaySummaryTarget {
@@ -3127,6 +3129,7 @@ struct ContextRelaySummaryTarget {
     auth_scheme: ProviderAuthScheme,
     provider_name: String,
     model: String,
+    antigravity_project: Option<Arc<str>>,
 }
 
 fn context_relay_text(value: &serde_json::Value) -> String {
@@ -3267,6 +3270,9 @@ fn context_relay_summary_target(
                 | ProviderProtocol::OpenAiResponses
                 | ProviderProtocol::Anthropic
                 | ProviderProtocol::OpenAiToAnthropic
+                | ProviderProtocol::Gemini
+                | ProviderProtocol::Antigravity
+                | ProviderProtocol::OpenAiToAntigravity
         )
     {
         return None;
@@ -3279,6 +3285,7 @@ fn context_relay_summary_target(
         auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
         provider_name: provider,
         model: target.model.clone(),
+        antigravity_project: target.antigravity_project.clone(),
     })
 }
 
@@ -3399,6 +3406,12 @@ async fn generate_context_relay_summary(
     let prompt = format!(
         "You are a context summarizer. Analyze the conversation below and return ONLY a JSON object with this exact structure: {{\"summary\":\"dense continuation summary, maximum 200 words\",\"keyDecisions\":[\"decision\"],\"taskProgress\":\"done, pending, and next steps\",\"activeEntities\":[\"file, feature, or topic\"]}}. Do not invent facts.\n\nCONVERSATION HISTORY:\n{history}"
     );
+    let chat_body = serde_json::json!({
+        "model":target.model.clone(),
+        "messages":[{"role":"user","content":prompt.clone()}],
+        "stream":false,
+        "max_tokens":800
+    });
     let body = match target.protocol {
         ProviderProtocol::OpenAi => {
             let mut body = serde_json::json!({
@@ -3426,30 +3439,98 @@ async fn generate_context_relay_summary(
             "stream":false,
             "max_tokens":800
         }),
+        ProviderProtocol::Gemini => serde_json::json!({
+            "contents":[{"role":"user","parts":[{"text":prompt}]}],
+            "generationConfig":{
+                "maxOutputTokens":800,
+                "responseMimeType":"application/json"
+            }
+        }),
+        ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity => {
+            antigravity_translation::request(
+                &chat_body,
+                &target.model,
+                target.antigravity_project.as_deref(),
+                None,
+            )
+            .ok()?
+        }
         _ => return None,
     };
-    let mut request = target
-        .client
-        .post(target.upstream)
-        .header(header::CONTENT_TYPE, "application/json")
-        .json(&body);
-    request = match target.auth_scheme {
-        ProviderAuthScheme::Bearer => request.header(header::AUTHORIZATION, target.provider_key),
-        ProviderAuthScheme::XApiKey => request.header("x-api-key", target.provider_key),
-        ProviderAuthScheme::XGoogApiKey => request.header("x-goog-api-key", target.provider_key),
-        ProviderAuthScheme::Auto => return None,
-    };
-    if matches!(
+    let antigravity = matches!(
         target.protocol,
-        ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
-    ) {
-        request = request.header("anthropic-version", "2023-06-01");
+        ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity
+    );
+    let mut upstream = target.upstream.clone();
+    if target.protocol == ProviderProtocol::Gemini {
+        upstream.set_path(&format!(
+            "{}/{}:generateContent",
+            upstream.path(),
+            target.model
+        ));
+    } else if antigravity {
+        upstream.set_query(Some("alt=sse"));
     }
-    let response = tokio::time::timeout(Duration::from_secs(30), request.send())
+    let build_request = |include_antigravity_project: bool| {
+        let mut request = target
+            .client
+            .post(upstream.clone())
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&body);
+        request = match target.auth_scheme {
+            ProviderAuthScheme::Bearer => {
+                request.header(header::AUTHORIZATION, target.provider_key.clone())
+            }
+            ProviderAuthScheme::XApiKey => request.header("x-api-key", target.provider_key.clone()),
+            ProviderAuthScheme::XGoogApiKey => {
+                request.header("x-goog-api-key", target.provider_key.clone())
+            }
+            ProviderAuthScheme::Auto => return None,
+        };
+        if matches!(
+            target.protocol,
+            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+        ) {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
+        if antigravity {
+            request = request
+                .header(header::ACCEPT, "text/event-stream")
+                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            if include_antigravity_project {
+                if let Some(project) = target.antigravity_project.as_deref() {
+                    request = request.header("x-goog-user-project", project);
+                }
+            }
+        }
+        Some(request)
+    };
+    let response = tokio::time::timeout(Duration::from_secs(30), build_request(true)?.send())
         .await
         .ok()?
         .ok()?;
+    let response = if antigravity
+        && response.status() == StatusCode::FORBIDDEN
+        && target.antigravity_project.is_some()
+    {
+        tokio::time::timeout(Duration::from_secs(30), build_request(false)?.send())
+            .await
+            .ok()?
+            .ok()?
+    } else {
+        response
+    };
     if !response.status().is_success() {
+        return None;
+    }
+    if antigravity
+        && !response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("text/event-stream"))
+    {
         return None;
     }
     if response
@@ -3467,7 +3548,13 @@ async fn generate_context_relay_summary(
         }
         bytes.extend_from_slice(&chunk);
     }
-    let response: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let response: serde_json::Value = if antigravity {
+        antigravity_translation::response(&bytes, &target.model)
+            .ok()?
+            .value
+    } else {
+        serde_json::from_slice(&bytes).ok()?
+    };
     let handoff = parse_context_relay_summary(&response, &source_model, message_count)?;
     Some((handoff, target.model))
 }
@@ -4589,10 +4676,7 @@ async fn proxy_request(
             if attempt_antigravity {
                 upstream = upstream
                     .header(header::ACCEPT, "text/event-stream")
-                    .header(
-                        header::USER_AGENT,
-                        "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
-                    );
+                    .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
                 if include_antigravity_project {
                     if let Some(project) = antigravity_project.as_deref() {
                         upstream = upstream.header("x-goog-user-project", project);
@@ -5542,6 +5626,177 @@ mod address_tests {
             4,
         )
         .is_none());
+    }
+
+    #[tokio::test]
+    async fn context_relay_generates_native_gemini_and_antigravity_summaries() {
+        let gemini_bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_gemini = gemini_bodies.clone();
+        let antigravity_bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_antigravity = antigravity_bodies.clone();
+        let antigravity_requests = Arc::new(AtomicUsize::new(0));
+        let observed_antigravity_requests = antigravity_requests.clone();
+        let app = Router::new()
+            .route(
+                "/v1beta/models/gemini-2.5-flash:generateContent",
+                post(
+                    move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                        let observed = observed_gemini.clone();
+                        async move {
+                            assert_eq!(
+                                headers["x-goog-api-key"].to_str().unwrap(),
+                                "gemini-secret"
+                            );
+                            observed.lock().unwrap().push(body);
+                            Json(serde_json::json!({
+                                "candidates":[{"content":{"role":"model","parts":[{"text":serde_json::json!({
+                                    "summary":"Gemini generated the relay summary.",
+                                    "keyDecisions":["Use the native Gemini endpoint"],
+                                    "taskProgress":"Gemini generation is covered.",
+                                    "activeEntities":["gemini-2.5-flash"]
+                                }).to_string()}]}}]
+                            }))
+                        }
+                    },
+                ),
+            )
+            .route(
+                "/v1internal:streamGenerateContent",
+                post(
+                    move |uri: Uri,
+                          headers: HeaderMap,
+                          Json(body): Json<serde_json::Value>| {
+                        let observed = observed_antigravity.clone();
+                        let requests = observed_antigravity_requests.clone();
+                        async move {
+                            let attempt = requests.fetch_add(1, Ordering::SeqCst);
+                            assert_eq!(uri.query(), Some("alt=sse"));
+                            assert_eq!(
+                                headers[header::AUTHORIZATION].to_str().unwrap(),
+                                "Bearer agy-secret"
+                            );
+                            assert_eq!(
+                                headers[header::ACCEPT].to_str().unwrap(),
+                                "text/event-stream"
+                            );
+                            assert_eq!(
+                                headers[header::USER_AGENT].to_str().unwrap(),
+                                ANTIGRAVITY_CLI_USER_AGENT
+                            );
+                            observed.lock().unwrap().push(body);
+                            if attempt == 0 {
+                                assert_eq!(
+                                    headers["x-goog-user-project"].to_str().unwrap(),
+                                    "relay-project"
+                                );
+                                return Response::builder()
+                                    .status(StatusCode::FORBIDDEN)
+                                    .body(Body::empty())
+                                    .unwrap();
+                            }
+                            assert!(headers.get("x-goog-user-project").is_none());
+                            let summary = serde_json::json!({
+                                "summary":"Antigravity generated the relay summary.",
+                                "keyDecisions":["Use the official CLI envelope"],
+                                "taskProgress":"Antigravity SSE decoding is covered.",
+                                "activeEntities":["antigravity"]
+                            })
+                            .to_string();
+                            let event = serde_json::json!({"response":{
+                                "responseId":"relay-summary",
+                                "candidates":[{
+                                    "content":{"role":"model","parts":[{"text":summary}]},
+                                    "finishReason":"STOP"
+                                }],
+                                "usageMetadata":{
+                                    "promptTokenCount":5,
+                                    "candidatesTokenCount":5,
+                                    "totalTokenCount":10
+                                }
+                            }});
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
+                                .body(Body::from(format!("data: {event}\n\n")))
+                                .unwrap()
+                        }
+                    },
+                ),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+        let (gemini, gemini_model) = generate_context_relay_summary(
+            ContextRelaySummaryTarget {
+                client: client.clone(),
+                upstream: reqwest::Url::parse(&format!("http://{address}/v1beta/models")).unwrap(),
+                provider_key: HeaderValue::from_static("gemini-secret"),
+                protocol: ProviderProtocol::Gemini,
+                auth_scheme: ProviderAuthScheme::XGoogApiKey,
+                provider_name: "google".to_owned(),
+                model: "gemini-2.5-flash".to_owned(),
+                antigravity_project: None,
+            },
+            "USER: continue the Rust migration".to_owned(),
+            "gemini-source".to_owned(),
+            3,
+        )
+        .await
+        .unwrap();
+        assert_eq!(gemini.summary, "Gemini generated the relay summary.");
+        assert_eq!(gemini_model, "gemini-2.5-flash");
+        let gemini_body = gemini_bodies.lock().unwrap()[0].clone();
+        assert_eq!(
+            gemini_body["generationConfig"]["responseMimeType"],
+            "application/json"
+        );
+        assert!(gemini_body["contents"][0]["parts"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("CONVERSATION HISTORY"));
+
+        let (antigravity, antigravity_model) = generate_context_relay_summary(
+            ContextRelaySummaryTarget {
+                client,
+                upstream: reqwest::Url::parse(&format!(
+                    "http://{address}/v1internal:streamGenerateContent"
+                ))
+                .unwrap(),
+                provider_key: HeaderValue::from_static("Bearer agy-secret"),
+                protocol: ProviderProtocol::Antigravity,
+                auth_scheme: ProviderAuthScheme::Bearer,
+                provider_name: "agy".to_owned(),
+                model: "gemini-2.5-pro".to_owned(),
+                antigravity_project: Some(Arc::from("relay-project")),
+            },
+            "USER: preserve the agent context".to_owned(),
+            "antigravity-source".to_owned(),
+            4,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            antigravity.summary,
+            "Antigravity generated the relay summary."
+        );
+        assert_eq!(antigravity_model, "gemini-2.5-pro");
+        assert_eq!(antigravity_requests.load(Ordering::SeqCst), 2);
+        let antigravity_body = antigravity_bodies.lock().unwrap()[1].clone();
+        assert_eq!(antigravity_body["project"], "relay-project");
+        assert_eq!(antigravity_body["model"], "gemini-2.5-pro");
+        assert_eq!(
+            antigravity_body["request"]["generationConfig"]["maxOutputTokens"],
+            800
+        );
+        assert!(
+            antigravity_body["request"]["contents"][0]["parts"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("CONVERSATION HISTORY")
+        );
+        server.abort();
     }
 
     #[test]
