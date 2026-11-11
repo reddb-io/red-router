@@ -427,6 +427,7 @@ pub(crate) struct ModelRoute {
     protocol: ProviderProtocol,
     strategy: RouteStrategy,
     auto_weights: AutoRouteWeights,
+    context_relay: control_plane::ComboContextRelayConfig,
     fallback: bool,
     cursor: AtomicUsize,
     seed: usize,
@@ -1831,6 +1832,7 @@ impl ProxyState {
                         protocol,
                         strategy,
                         auto_weights: AutoRouteWeights::default(),
+                        context_relay: control_plane::ComboContextRelayConfig::default(),
                         fallback,
                         cursor: AtomicUsize::new(0),
                         seed: if strategy == RouteStrategy::StrictRandom {
@@ -3462,9 +3464,10 @@ async fn proxy_request(
         .and_then(|routes| routes.get(&model))
         .or_else(|| state.routes.get(&model))
         .filter(|route| policy.tenant_allowed(&route.tenant_id));
-    let context_relay_session_id = if route
-        .is_some_and(|route| route.strategy == RouteStrategy::ContextRelay)
-    {
+    let context_relay_config = route
+        .filter(|route| route.strategy == RouteStrategy::ContextRelay)
+        .map(|route| &route.context_relay);
+    let context_relay_session_id = if context_relay_config.is_some() {
         if state.control_plane.is_none() {
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,

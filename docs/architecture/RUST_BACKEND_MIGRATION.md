@@ -354,9 +354,13 @@ last successful provider/model for each explicit client session in
 and reduced to a domain-separated SHA-256 record key before persistence. A later model
 switch injects a bounded handoff marker using the native Chat Completions, Responses,
 Anthropic or Gemini system channel while preserving the client conversation. This state is
-shared by Rust processes using the same database and survives restart. Structured LLM
-summary generation and Codex quota-triggered pre-generation remain the next context-relay
-slice; the current marker explicitly forbids inventing context when no summary exists.
+shared by Rust processes using the same database and survives restart. The Rust combo
+contract and SPA now also persist the legacy handoff threshold, optional summary model,
+provider allowlist, summary-message bound and schema-locked/standard relay mode. Values are
+normalized and validated before the route snapshot changes, while combos created before
+this payload extension retain the legacy defaults. Structured LLM summary generation and
+Codex quota-triggered pre-generation remain the next context-relay slice; the current marker
+explicitly forbids inventing context when no summary exists.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

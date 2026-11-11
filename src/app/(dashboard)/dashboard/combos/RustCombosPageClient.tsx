@@ -43,6 +43,13 @@ type Draft = {
     context: string;
     load: string;
   };
+  contextRelay: {
+    handoffThreshold: string;
+    handoffModel: string;
+    handoffProviders: string;
+    maxMessagesForSummary: string;
+    relayMode: "standard" | "schema-locked";
+  };
   targets: TargetDraft[];
 };
 
@@ -95,6 +102,13 @@ const EMPTY_DRAFT: Draft = {
   fallback: true,
   enabled: true,
   autoWeights: { quota: "0.3", cost: "0.25", context: "0.15", load: "0.3" },
+  contextRelay: {
+    handoffThreshold: "0.85",
+    handoffModel: "",
+    handoffProviders: "codex",
+    maxMessagesForSummary: "30",
+    relayMode: "standard",
+  },
   targets: [{ ...EMPTY_TARGET }],
 };
 
@@ -118,6 +132,13 @@ function comboDraft(combo: RustCombo): Draft {
       cost: String(combo.auto?.weights.cost ?? 0.25),
       context: String(combo.auto?.weights.context ?? 0.15),
       load: String(combo.auto?.weights.load ?? 0.3),
+    },
+    contextRelay: {
+      handoffThreshold: String(combo.context_relay?.handoffThreshold ?? 0.85),
+      handoffModel: combo.context_relay?.handoffModel ?? "",
+      handoffProviders: (combo.context_relay?.handoffProviders ?? ["codex"]).join(", "),
+      maxMessagesForSummary: String(combo.context_relay?.maxMessagesForSummary ?? 30),
+      relayMode: combo.context_relay?.relayMode ?? "standard",
     },
     targets: combo.targets.map((target) => ({
       providerId: target.provider_id,
@@ -230,12 +251,51 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
   ) {
     throw new Error("Auto weights must be between 0 and 1 and contain a positive total");
   }
+  const contextRelay =
+    draft.strategy === "context-relay"
+      ? {
+          handoffThreshold: requiredNumber(
+            draft.contextRelay.handoffThreshold,
+            "Handoff threshold",
+            0.94
+          ),
+          handoffModel: draft.contextRelay.handoffModel.trim() || undefined,
+          handoffProviders: Array.from(
+            new Set(
+              draft.contextRelay.handoffProviders
+                .split(",")
+                .map((provider) => provider.trim().toLowerCase())
+                .filter(Boolean)
+            )
+          ),
+          maxMessagesForSummary: requiredNumber(
+            draft.contextRelay.maxMessagesForSummary,
+            "Maximum summary messages",
+            100
+          ),
+          relayMode: draft.contextRelay.relayMode,
+        }
+      : undefined;
+  if (contextRelay && contextRelay.handoffThreshold < 0.5) {
+    throw new Error("Handoff threshold must be between 0.5 and 0.94");
+  }
+  if (
+    contextRelay &&
+    (!Number.isSafeInteger(contextRelay.maxMessagesForSummary) ||
+      contextRelay.maxMessagesForSummary < 5)
+  ) {
+    throw new Error("Maximum summary messages must be an integer between 5 and 100");
+  }
+  if (contextRelay && contextRelay.handoffProviders.length > 10) {
+    throw new Error("Context relay accepts at most ten handoff providers");
+  }
   return {
     protocol: draft.protocol,
     strategy: draft.strategy,
     fallback: draft.fallback,
     targets,
     ...(auto === undefined ? {} : { auto }),
+    ...(contextRelay === undefined ? {} : { context_relay: contextRelay }),
     enabled: draft.enabled,
   };
 }
@@ -319,7 +379,12 @@ export default function RustCombosPageClient() {
   );
 
   const reset = () => {
-    setDraft({ ...EMPTY_DRAFT, targets: [{ ...EMPTY_TARGET }] });
+    setDraft({
+      ...EMPTY_DRAFT,
+      autoWeights: { ...EMPTY_DRAFT.autoWeights },
+      contextRelay: { ...EMPTY_DRAFT.contextRelay },
+      targets: [{ ...EMPTY_TARGET }],
+    });
     setEditingId(null);
   };
 
@@ -528,6 +593,116 @@ export default function RustCombosPageClient() {
                   />
                 </label>
               ))}
+            </div>
+          </div>
+        )}
+
+        {draft.strategy === "context-relay" && (
+          <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+            <div className="mb-3">
+              <strong className="text-sm text-text">Context relay handoff</strong>
+              <p className="text-xs text-text-muted">
+                Rust persists session affinity now; these settings control structured summary
+                generation and quota-triggered handoff.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className={labelClass}>
+                Quota warning threshold
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={0.5}
+                  max={0.94}
+                  step={0.01}
+                  value={draft.contextRelay.handoffThreshold}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contextRelay: {
+                        ...current.contextRelay,
+                        handoffThreshold: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Maximum messages to summarize
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={5}
+                  max={100}
+                  step={1}
+                  value={draft.contextRelay.maxMessagesForSummary}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contextRelay: {
+                        ...current.contextRelay,
+                        maxMessagesForSummary: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Relay mode
+                <select
+                  className={inputClass}
+                  value={draft.contextRelay.relayMode}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contextRelay: {
+                        ...current.contextRelay,
+                        relayMode: event.target.value as "standard" | "schema-locked",
+                      },
+                    }))
+                  }
+                >
+                  <option value="standard">Standard</option>
+                  <option value="schema-locked">Schema locked</option>
+                </select>
+              </label>
+              <label className={labelClass}>
+                Summary model override
+                <input
+                  className={inputClass}
+                  type="text"
+                  maxLength={200}
+                  placeholder="Leave blank to use the active model"
+                  value={draft.contextRelay.handoffModel}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contextRelay: {
+                        ...current.contextRelay,
+                        handoffModel: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+              <label className={`${labelClass} sm:col-span-2`}>
+                Handoff providers (comma separated)
+                <input
+                  className={inputClass}
+                  type="text"
+                  placeholder="codex"
+                  value={draft.contextRelay.handoffProviders}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contextRelay: {
+                        ...current.contextRelay,
+                        handoffProviders: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
             </div>
           </div>
         )}
@@ -784,6 +959,15 @@ export default function RustCombosPageClient() {
               <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
                 Auto weights: quota {combo.auto.weights.quota}, cost {combo.auto.weights.cost},
                 context {combo.auto.weights.context}, load {combo.auto.weights.load}
+              </div>
+            )}
+            {combo.context_relay && (
+              <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
+                Context relay: threshold {combo.context_relay.handoffThreshold}, up to{" "}
+                {combo.context_relay.maxMessagesForSummary} messages, {combo.context_relay.relayMode}
+                {combo.context_relay.handoffModel
+                  ? `, summary model ${combo.context_relay.handoffModel}`
+                  : ", active model for summaries"}
               </div>
             )}
             {combo.last_known_good && (

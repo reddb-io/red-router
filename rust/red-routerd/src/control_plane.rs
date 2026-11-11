@@ -884,6 +884,33 @@ pub struct ComboAutoConfig {
     pub weights: ComboAutoWeights,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ComboContextRelayConfig {
+    #[serde(default = "default_handoff_threshold")]
+    pub handoff_threshold: f64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub handoff_model: String,
+    #[serde(default = "default_handoff_providers")]
+    pub handoff_providers: Vec<String>,
+    #[serde(default = "default_max_messages_for_summary")]
+    pub max_messages_for_summary: u32,
+    #[serde(default = "standard_relay_mode")]
+    pub relay_mode: String,
+}
+
+impl Default for ComboContextRelayConfig {
+    fn default() -> Self {
+        Self {
+            handoff_threshold: default_handoff_threshold(),
+            handoff_model: String::new(),
+            handoff_providers: default_handoff_providers(),
+            max_messages_for_summary: default_max_messages_for_summary(),
+            relay_mode: standard_relay_mode(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComboInput {
@@ -897,6 +924,8 @@ pub struct ComboInput {
     pub targets: Vec<ComboTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto: Option<ComboAutoConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_relay: Option<ComboContextRelayConfig>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
@@ -911,6 +940,8 @@ pub struct ComboView {
     pub targets: Vec<ComboTarget>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto: Option<ComboAutoConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_relay: Option<ComboContextRelayConfig>,
     pub enabled: bool,
     pub revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -923,6 +954,8 @@ struct StoredComboPayload {
     targets: Vec<ComboTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     auto: Option<ComboAutoConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context_relay: Option<ComboContextRelayConfig>,
 }
 
 #[derive(Deserialize)]
@@ -1156,6 +1189,22 @@ fn static_credential_type() -> String {
 
 fn priority_strategy() -> String {
     "priority".to_owned()
+}
+
+fn default_handoff_threshold() -> f64 {
+    0.85
+}
+
+fn default_handoff_providers() -> Vec<String> {
+    vec!["codex".to_owned()]
+}
+
+fn default_max_messages_for_summary() -> u32 {
+    30
+}
+
+fn standard_relay_mode() -> String {
+    "standard".to_owned()
 }
 
 fn default_quota_ttl_seconds() -> u64 {
@@ -5150,6 +5199,7 @@ impl ControlPlane {
         }
         let catalog = self.model_catalog().await;
         enrich_combo_metadata(&mut input, &providers, &catalog)?;
+        normalize_context_relay_config(&mut input);
         validate_combo(&input)?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
@@ -5169,10 +5219,11 @@ impl ControlPlane {
                 return Err("combo targets require enabled providers with the same protocol");
             }
         }
-        let targets_json = if input.auto.is_some() {
+        let targets_json = if input.auto.is_some() || input.context_relay.is_some() {
             serde_json::to_string(&StoredComboPayload {
                 targets: input.targets.clone(),
                 auto: input.auto.clone(),
+                context_relay: input.context_relay.clone(),
             })
         } else {
             serde_json::to_string(&input.targets)
@@ -6633,6 +6684,7 @@ impl ControlPlane {
                             load: config.weights.load,
                         }
                     });
+            let context_relay = view.context_relay.clone().unwrap_or_default();
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
@@ -6745,6 +6797,7 @@ impl ControlPlane {
                     protocol,
                     strategy,
                     auto_weights,
+                    context_relay,
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
                     seed: if strategy == RouteStrategy::StrictRandom {
@@ -8083,9 +8136,11 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     } else {
         return Err("invalid combo targets");
     };
-    let (targets, auto) = match payload {
-        StoredComboPayloadCompat::Legacy(targets) => (targets, None),
-        StoredComboPayloadCompat::Current(payload) => (payload.targets, payload.auto),
+    let (targets, auto, context_relay) = match payload {
+        StoredComboPayloadCompat::Legacy(targets) => (targets, None, None),
+        StoredComboPayloadCompat::Current(payload) => {
+            (payload.targets, payload.auto, payload.context_relay)
+        }
     };
     let input = ComboInput {
         tenant_id: Some(record.tenant_id.clone()),
@@ -8094,6 +8149,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         fallback: record.fallback,
         targets: targets.clone(),
         auto: auto.clone(),
+        context_relay: context_relay.clone(),
         enabled: record.enabled,
     };
     validate_combo(&input)?;
@@ -8105,6 +8161,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         fallback: record.fallback,
         targets,
         auto,
+        context_relay,
         enabled: record.enabled,
         revision: record.revision.to_string(),
         last_known_good: None,
@@ -8535,6 +8592,29 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         ("auto", None) | (_, None) => {}
         (_, Some(_)) => return Err("auto configuration requires the auto strategy"),
     }
+    match (input.strategy.as_str(), input.context_relay.as_ref()) {
+        ("context-relay", Some(config)) => {
+            if !config.handoff_threshold.is_finite()
+                || !(0.5..=0.94).contains(&config.handoff_threshold)
+                || config.handoff_model.len() > 200
+                || config.handoff_model.chars().any(char::is_control)
+                || config.handoff_providers.len() > 10
+                || config.handoff_providers.iter().any(|provider| {
+                    provider.is_empty()
+                        || provider.len() > 100
+                        || provider.chars().any(char::is_control)
+                })
+                || !(5..=100).contains(&config.max_messages_for_summary)
+                || !matches!(config.relay_mode.as_str(), "standard" | "schema-locked")
+            {
+                return Err("invalid context relay configuration");
+            }
+        }
+        ("context-relay", None) | (_, None) => {}
+        (_, Some(_)) => {
+            return Err("context relay configuration requires the context-relay strategy")
+        }
+    }
     if input.strategy == "context-relay"
         && matches!(
             protocol,
@@ -8610,6 +8690,21 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         return Err("combo contains duplicate targets");
     }
     Ok(())
+}
+
+fn normalize_context_relay_config(input: &mut ComboInput) {
+    let Some(config) = input.context_relay.as_mut() else {
+        return;
+    };
+    config.handoff_model = config.handoff_model.trim().to_owned();
+    let mut providers = Vec::new();
+    for provider in &config.handoff_providers {
+        let provider = provider.trim().to_ascii_lowercase();
+        if !provider.is_empty() && !providers.contains(&provider) {
+            providers.push(provider);
+        }
+    }
+    config.handoff_providers = providers;
 }
 
 fn enrich_combo_metadata(
@@ -11481,6 +11576,7 @@ mod tests {
                 context_window_tokens: None,
             }],
             auto: None,
+            context_relay: None,
             enabled: true,
         };
 

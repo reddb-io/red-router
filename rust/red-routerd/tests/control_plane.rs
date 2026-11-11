@@ -4095,17 +4095,33 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
             .json(&serde_json::json!({
                 "strategy":"context-relay",
                 "fallback":true,
+                "context_relay":{
+                    "handoffThreshold":0.8,
+                    "handoffModel":"  openai/summary-model  ",
+                    "handoffProviders":[" CODEX ","codex","OpenAI"],
+                    "maxMessagesForSummary":24,
+                    "relayMode":"schema-locked"
+                },
                 "targets":[{"provider_id":provider_id,"model":model}]
             }))
     };
+    let configured = replace_combo("relay-first", "first-model")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(configured["context_relay"]["handoffThreshold"], 0.8);
     assert_eq!(
-        replace_combo("relay-first", "first-model")
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::OK
+        configured["context_relay"]["handoffModel"],
+        "openai/summary-model"
     );
+    assert_eq!(
+        configured["context_relay"]["handoffProviders"],
+        serde_json::json!(["codex", "openai"])
+    );
+    assert_eq!(configured["context_relay"]["maxMessagesForSummary"], 24);
+    assert_eq!(configured["context_relay"]["relayMode"], "schema-locked");
     let first = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(RUST_CLIENT_KEY)
@@ -4166,6 +4182,24 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         .unwrap();
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
     assert_eq!(second_bodies.lock().unwrap().len(), 1);
+
+    let invalid_config = client
+        .put(format!("{base}/api/admin/combos/relay-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "strategy":"priority",
+            "context_relay":{
+                "handoffThreshold":0.8,
+                "handoffProviders":["codex"],
+                "maxMessagesForSummary":30,
+                "relayMode":"standard"
+            },
+            "targets":[{"provider_id":"relay-second","model":"second-model"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_config.status(), StatusCode::BAD_REQUEST);
 
     gateway_task.abort();
     first_task.abort();

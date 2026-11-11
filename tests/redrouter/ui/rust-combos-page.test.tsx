@@ -266,4 +266,66 @@ describe("Rust combo manager", () => {
       enabled: combo.enabled,
     });
   });
+
+  it("edits and persists Rust context relay settings", async () => {
+    const relayCombo = {
+      ...combo,
+      strategy: "context-relay",
+      context_relay: {
+        handoffThreshold: 0.85,
+        handoffModel: "openai/gpt-5-mini",
+        handoffProviders: ["codex"],
+        maxMessagesForSummary: 30,
+        relayMode: "standard",
+      },
+      last_known_good: undefined,
+    };
+    api.listRustCombos.mockResolvedValue([relayCombo]);
+    api.replaceRustCombo.mockResolvedValue(relayCombo);
+    const container = await mount();
+    const edit = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Edit"
+    );
+    await act(async () => {
+      edit?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Context relay handoff");
+    const threshold = container.querySelector('input[max="0.94"]') as HTMLInputElement;
+    const messages = container.querySelector('input[max="100"]') as HTMLInputElement;
+    const summaryModel = container.querySelector('input[maxlength="200"]') as HTMLInputElement;
+    const providers = container.querySelector('input[placeholder="codex"]') as HTMLInputElement;
+    const mode = [...container.querySelectorAll("select")].find((select) =>
+      [...select.options].some((option) => option.value === "schema-locked")
+    ) as HTMLSelectElement;
+    await act(async () => {
+      setInput(threshold, "0.8");
+      setInput(messages, "24");
+      setInput(summaryModel, "openai/gpt-5.3-codex");
+      setInput(providers, "Codex, OpenAI, codex");
+      setSelect(mode, "schema-locked");
+    });
+    const save = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save combo"
+    );
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.replaceRustCombo).toHaveBeenCalledWith(combo.id, {
+      protocol: combo.protocol,
+      strategy: "context-relay",
+      fallback: combo.fallback,
+      targets: combo.targets,
+      context_relay: {
+        handoffThreshold: 0.8,
+        handoffModel: "openai/gpt-5.3-codex",
+        handoffProviders: ["codex", "openai"],
+        maxMessagesForSummary: 24,
+        relayMode: "schema-locked",
+      },
+      enabled: combo.enabled,
+    });
+  });
 });

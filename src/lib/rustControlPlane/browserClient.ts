@@ -344,6 +344,14 @@ export interface RustComboAutoConfig {
   weights: RustComboAutoWeights;
 }
 
+export interface RustComboContextRelayConfig {
+  handoffThreshold: number;
+  handoffModel?: string;
+  handoffProviders: string[];
+  maxMessagesForSummary: number;
+  relayMode: "standard" | "schema-locked";
+}
+
 export interface RustComboRoutePin {
   provider_id: string;
   model: string;
@@ -358,6 +366,7 @@ export interface RustCombo {
   fallback: boolean;
   targets: RustComboTarget[];
   auto?: RustComboAutoConfig;
+  context_relay?: RustComboContextRelayConfig;
   enabled: boolean;
   revision: string;
   last_known_good?: RustComboRoutePin;
@@ -370,6 +379,7 @@ export interface RustComboInput {
   fallback: boolean;
   targets: RustComboTarget[];
   auto?: RustComboAutoConfig;
+  context_relay?: RustComboContextRelayConfig;
   enabled: boolean;
 }
 
@@ -738,6 +748,32 @@ function isRustComboAutoConfig(value: unknown): value is RustComboAutoConfig {
   );
 }
 
+function isRustComboContextRelayConfig(value: unknown): value is RustComboContextRelayConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(config, [
+      "handoffThreshold",
+      "handoffModel",
+      "handoffProviders",
+      "maxMessagesForSummary",
+      "relayMode",
+    ]) &&
+    typeof config.handoffThreshold === "number" &&
+    Number.isFinite(config.handoffThreshold) &&
+    config.handoffThreshold >= 0.5 &&
+    config.handoffThreshold <= 0.94 &&
+    (config.handoffModel === undefined || typeof config.handoffModel === "string") &&
+    Array.isArray(config.handoffProviders) &&
+    config.handoffProviders.length <= 10 &&
+    config.handoffProviders.every((provider) => typeof provider === "string") &&
+    isNonNegativeInteger(config.maxMessagesForSummary) &&
+    (config.maxMessagesForSummary as number) >= 5 &&
+    (config.maxMessagesForSummary as number) <= 100 &&
+    (config.relayMode === "standard" || config.relayMode === "schema-locked")
+  );
+}
+
 function isRustCombo(value: unknown): value is RustCombo {
   if (!value || typeof value !== "object") return false;
   const combo = value as Record<string, unknown>;
@@ -750,6 +786,7 @@ function isRustCombo(value: unknown): value is RustCombo {
       "fallback",
       "targets",
       "auto",
+      "context_relay",
       "enabled",
       "revision",
       "last_known_good",
@@ -762,6 +799,8 @@ function isRustCombo(value: unknown): value is RustCombo {
     Array.isArray(combo.targets) &&
     combo.targets.every(isRustComboTarget) &&
     (combo.auto === undefined || isRustComboAutoConfig(combo.auto)) &&
+    (combo.context_relay === undefined ||
+      isRustComboContextRelayConfig(combo.context_relay)) &&
     typeof combo.enabled === "boolean" &&
     typeof combo.revision === "string" &&
     (combo.last_known_good === undefined || isRustComboRoutePin(combo.last_known_good))
