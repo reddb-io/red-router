@@ -1,4 +1,6 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
+pub use crate::policy::AccessScheduleConfig;
+
 use crate::{
     availability::{AvailabilityStatus, ProviderAvailability},
     circuit::{BreakerStatus, ProviderCircuit},
@@ -654,6 +656,7 @@ pub struct ClientKeyInput {
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
+    pub access_schedule: Option<AccessScheduleConfig>,
     #[serde(default)]
     pub scopes: Vec<String>,
     #[serde(default)]
@@ -683,6 +686,7 @@ pub struct ClientKeyIssueInput {
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
+    pub access_schedule: Option<AccessScheduleConfig>,
     #[serde(default)]
     pub scopes: Vec<String>,
     #[serde(default)]
@@ -785,6 +789,7 @@ impl ClientKeyIssueInput {
             model_id_format: self.model_id_format,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
+            access_schedule: self.access_schedule,
             scopes: self.scopes,
             allowed_endpoints: self.allowed_endpoints,
             allowed_models: self.allowed_models,
@@ -811,6 +816,7 @@ pub struct ClientKeyView {
     pub model_id_format: String,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
+    pub access_schedule: Option<AccessScheduleConfig>,
     pub scopes: Vec<String>,
     pub allowed_endpoints: Vec<String>,
     pub allowed_models: Vec<String>,
@@ -5810,6 +5816,7 @@ impl ControlPlane {
                     .unwrap_or("prefixed"),
             )?
             .to_owned(),
+            access_schedule_json: encode_access_schedule(input.access_schedule.as_ref())?,
             tenant_id: tenant_id.to_owned(),
             created_by: existing
                 .as_ref()
@@ -6868,7 +6875,7 @@ impl ControlPlane {
             {
                 return Err("native usage quotas require SQLite storage");
             }
-            ClientSnapshot::Current(Arc::new(ClientPolicies::from_stored(policies)))
+            ClientSnapshot::Current(Arc::new(ClientPolicies::from_stored(policies)?))
         };
         *self.0.clients.write().await = snapshot;
         Ok(())
@@ -8363,6 +8370,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         model_id_format: validate_model_id_format(&record.model_id_format)?.to_owned(),
         enabled: record.enabled,
         expires_at_unix,
+        access_schedule: decode_access_schedule(&record.access_schedule_json)?,
         scopes: parse_list(&record.scopes_json)?,
         allowed_endpoints: parse_list(&record.allowed_endpoints_json)?,
         allowed_models: parse_list(&record.allowed_models_json)?,
@@ -8887,6 +8895,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,
+        access_schedule: view.access_schedule,
         scopes: view.scopes,
         allowed_models: view.allowed_models,
         allowed_endpoints: view.allowed_endpoints,
@@ -8943,6 +8952,24 @@ fn validate_model_id_format(value: &str) -> Result<&str, &'static str> {
         "prefixed" | "flat" => Ok(value),
         _ => Err("client key model ID format must be prefixed or flat"),
     }
+}
+
+fn encode_access_schedule(value: Option<&AccessScheduleConfig>) -> Result<String, &'static str> {
+    let Some(schedule) = value else {
+        return Ok(String::new());
+    };
+    schedule.validate()?;
+    serde_json::to_string(schedule).map_err(|_| "invalid client key access schedule")
+}
+
+fn decode_access_schedule(value: &str) -> Result<Option<AccessScheduleConfig>, &'static str> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let schedule = serde_json::from_str::<AccessScheduleConfig>(value)
+        .map_err(|_| "invalid client key access schedule")?;
+    schedule.validate()?;
+    Ok(Some(schedule))
 }
 
 fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {

@@ -1746,6 +1746,114 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
     .await
     .expect("replica did not publish the client key snapshot");
 
+    let denied_schedule = serde_json::json!({
+        "enabled":true,
+        "from":"00:00",
+        "until":"00:00",
+        "days":[0,1,2,3,4,5,6],
+        "tz":"UTC"
+    });
+    let scheduled = client
+        .put(format!("{base}/api/admin/client-keys/{key_id}"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "label":"RedDB Cloud / Acme production",
+            "tenant_id":"acme",
+            "scopes":["inference:chat"],
+            "allowed_endpoints":["chat"],
+            "allowed_models":["*"],
+            "access_schedule":denied_schedule
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scheduled.status(), StatusCode::OK);
+    let scheduled: serde_json::Value =
+        serde_json::from_str(&scheduled.text().await.unwrap()).unwrap();
+    assert_eq!(scheduled["client_key"]["access_schedule"]["tz"], "UTC");
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/key"))
+            .bearer_auth(&raw_key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/{key_id}"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"RedDB Cloud / Acme production",
+                "tenant_id":"acme",
+                "access_schedule":{
+                    "enabled":true,
+                    "from":"08:00",
+                    "until":"18:00",
+                    "days":[1,2,3,4,5],
+                    "tz":"not/a-timezone"
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/key"))
+            .bearer_auth(&raw_key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let cleared = client
+        .put(format!("{base}/api/admin/client-keys/{key_id}"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "label":"RedDB Cloud / Acme production",
+            "tenant_id":"acme",
+            "scopes":["inference:chat"],
+            "allowed_endpoints":["chat"],
+            "allowed_models":["*"],
+            "access_schedule":null
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cleared.status(), StatusCode::OK);
+    let cleared: serde_json::Value = serde_json::from_str(&cleared.text().await.unwrap()).unwrap();
+    assert!(cleared["client_key"]["access_schedule"].is_null());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let primary = client
+                .get(format!("{base}/v1/key"))
+                .bearer_auth(&raw_key)
+                .send()
+                .await
+                .unwrap()
+                .status();
+            let replica = client
+                .get(format!("{replica_base}/v1/key"))
+                .bearer_auth(&raw_key)
+                .send()
+                .await
+                .unwrap()
+                .status();
+            if primary == StatusCode::OK && replica == StatusCode::OK {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("client access schedule did not converge across replicas");
+
     let provision_body = serde_json::json!({
         "label":"RedDB Cloud / Acme database key",
         "api_key":"cloud-generated-key-1234567890",

@@ -51,6 +51,13 @@ const clientKey: RustClientKey = {
   model_id_format: "prefixed",
   enabled: true,
   expires_at_unix: null,
+  access_schedule: {
+    enabled: true,
+    from: "08:00",
+    until: "18:00",
+    days: [1, 2, 3, 4, 5],
+    tz: "America/Sao_Paulo",
+  },
   scopes: ["inference:chat"],
   allowed_endpoints: ["chat"],
   allowed_models: ["openai/*"],
@@ -425,6 +432,23 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("rejects malformed Rust client-key access schedules", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        client_keys: [
+          {
+            ...clientKey,
+            access_schedule: { ...clientKey.access_schedule!, from: "25:00" },
+          },
+        ],
+      })
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustClientKeys()).rejects.toThrow("Invalid Rust client-key response");
   });
 
   it("uses the Rust provider authority without accepting returned credentials", async () => {

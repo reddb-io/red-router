@@ -5,6 +5,14 @@ export interface RustAuthConfig {
   password_login: false;
 }
 
+export interface RustClientAccessSchedule {
+  enabled: boolean;
+  from: string;
+  until: string;
+  days: number[];
+  tz: string;
+}
+
 export interface RustClientKey {
   id: string;
   label: string;
@@ -13,6 +21,7 @@ export interface RustClientKey {
   model_id_format: "prefixed" | "flat";
   enabled: boolean;
   expires_at_unix: number | null;
+  access_schedule: RustClientAccessSchedule | null;
   scopes: string[];
   allowed_endpoints: string[];
   allowed_models: string[];
@@ -633,6 +642,7 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     (key.model_id_format === "prefixed" || key.model_id_format === "flat") &&
     typeof key.enabled === "boolean" &&
     isOptionalNumber(key.expires_at_unix) &&
+    isRustClientAccessSchedule(key.access_schedule) &&
     isStringArray(key.scopes) &&
     isStringArray(key.allowed_endpoints) &&
     isStringArray(key.allowed_models) &&
@@ -647,6 +657,27 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     isOptionalNumber(key.reservation_tokens) &&
     isOptionalNumber(key.reservation_spend_usd) &&
     typeof key.revision === "string"
+  );
+}
+
+function isRustClientAccessSchedule(value: unknown): value is RustClientAccessSchedule | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object") return false;
+  const schedule = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(schedule, ["enabled", "from", "until", "days", "tz"]) &&
+    typeof schedule.enabled === "boolean" &&
+    typeof schedule.from === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.from) &&
+    typeof schedule.until === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.until) &&
+    Array.isArray(schedule.days) &&
+    schedule.days.length > 0 &&
+    schedule.days.length <= 7 &&
+    schedule.days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) &&
+    new Set(schedule.days).size === schedule.days.length &&
+    typeof schedule.tz === "string" &&
+    schedule.tz.length > 0
   );
 }
 

@@ -212,6 +212,12 @@ no-store`. The required `label` is durable operator metadata and may describe th
   `max_spend_per_month_usd`, `reservation_tokens` and
   `reservation_spend_usd`. Reservation values are conservative per-provider-attempt
   bounds and are required when a corresponding quota is enabled.
+- A client-key policy may include `access_schedule` with `enabled`, exact `HH:MM`
+  `from`/`until` values, weekdays `0` (Sunday) through `6` (Saturday), and an IANA
+  `tz` such as `America/Sao_Paulo`. Rust validates and persists the schedule, evaluates
+  it in the configured timezone during authentication, and denies equal start/end
+  windows. Overnight windows are supported. Invalid or revision-mismatched schedule
+  state fails closed instead of broadening access.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 - `GET /v1/key` and `/api/v1/key` return only the caller's persisted key identity. The
   dashboard SQLite compatibility reader preserves its configured `flat` or `prefixed`

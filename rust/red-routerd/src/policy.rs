@@ -1,4 +1,7 @@
 use axum::http::{header, HeaderMap};
+use chrono::{Datelike, Timelike};
+use chrono_tz::Tz;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -18,6 +21,7 @@ pub(crate) struct ClientPolicy {
     identity: Option<ClientIdentity>,
     enabled: bool,
     expires_at_unix: Option<u64>,
+    access_schedule: Option<AccessSchedule>,
     scopes: Vec<String>,
     allowed_routes: Option<Vec<String>>,
     allowed_models: Option<Vec<String>>,
@@ -51,6 +55,7 @@ pub(crate) struct StoredPolicy {
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
+    pub access_schedule: Option<AccessScheduleConfig>,
     pub scopes: Vec<String>,
     pub allowed_models: Vec<String>,
     pub allowed_endpoints: Vec<String>,
@@ -60,6 +65,93 @@ pub(crate) struct StoredPolicy {
     pub max_requests_per_minute: Option<usize>,
     pub max_requests_per_day: Option<usize>,
     pub usage_quota: Option<crate::native_usage::NativeQuota>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AccessScheduleConfig {
+    pub enabled: bool,
+    pub from: String,
+    pub until: String,
+    pub days: Vec<u8>,
+    pub tz: String,
+}
+
+struct AccessSchedule {
+    from_minutes: u16,
+    until_minutes: u16,
+    days: u8,
+    timezone: Tz,
+}
+
+impl AccessScheduleConfig {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        if parse_schedule_time(&self.from).is_none()
+            || parse_schedule_time(&self.until).is_none()
+            || self.days.is_empty()
+            || self.days.len() > 7
+            || self.days.iter().any(|day| *day > 6)
+            || self
+                .days
+                .iter()
+                .enumerate()
+                .any(|(index, day)| self.days[..index].contains(day))
+            || self.tz.is_empty()
+            || self.tz.len() > 100
+            || self.tz.chars().any(char::is_control)
+            || self.tz.parse::<Tz>().is_err()
+        {
+            return Err("invalid client key access schedule");
+        }
+        Ok(())
+    }
+
+    fn compile(&self) -> Result<Option<AccessSchedule>, &'static str> {
+        self.validate()?;
+        if !self.enabled {
+            return Ok(None);
+        }
+        let mut days = 0_u8;
+        for day in &self.days {
+            days |= 1 << day;
+        }
+        Ok(Some(AccessSchedule {
+            from_minutes: parse_schedule_time(&self.from)
+                .ok_or("invalid client key access schedule")?,
+            until_minutes: parse_schedule_time(&self.until)
+                .ok_or("invalid client key access schedule")?,
+            days,
+            timezone: self
+                .tz
+                .parse()
+                .map_err(|_| "invalid client key access schedule")?,
+        }))
+    }
+}
+
+fn parse_schedule_time(value: &str) -> Option<u16> {
+    if value.len() != 5 || value.as_bytes().get(2) != Some(&b':') {
+        return None;
+    }
+    let hour = value.get(..2)?.parse::<u16>().ok()?;
+    let minute = value.get(3..)?.parse::<u16>().ok()?;
+    (hour < 24 && minute < 60).then_some(hour * 60 + minute)
+}
+
+impl AccessSchedule {
+    fn allows(&self, now: std::time::SystemTime) -> bool {
+        let local = chrono::DateTime::<chrono::Utc>::from(now).with_timezone(&self.timezone);
+        let day = local.weekday().num_days_from_sunday() as u8;
+        if self.days & (1 << day) == 0 {
+            return false;
+        }
+        let minutes = (local.hour() * 60 + local.minute()) as u16;
+        if self.until_minutes < self.from_minutes {
+            minutes >= self.from_minutes || minutes < self.until_minutes
+        } else {
+            minutes >= self.from_minutes && minutes < self.until_minutes
+        }
+    }
 }
 
 struct RateLimit {
@@ -116,6 +208,7 @@ impl ClientPolicies {
                 identity: None,
                 enabled: true,
                 expires_at_unix: None,
+                access_schedule: None,
                 scopes: Vec::new(),
                 allowed_routes: None,
                 allowed_models: None,
@@ -128,58 +221,63 @@ impl ClientPolicies {
         }
     }
 
-    pub(crate) fn from_stored(policies: Vec<StoredPolicy>) -> Self {
-        Self {
-            entries: policies
-                .into_iter()
-                .map(|policy| {
-                    let allowed_models = if policy.allowed_models.is_empty() {
-                        None
-                    } else {
-                        Some(policy.allowed_models)
-                    };
-                    let concurrency = policy
-                        .max_concurrent_requests
-                        .map(|limit| Arc::new(Semaphore::new(limit)));
-                    let rate_limit = (policy.max_requests_per_minute.is_some()
-                        || policy.max_requests_per_day.is_some())
-                    .then(|| RateLimit {
-                        minute: policy.max_requests_per_minute,
-                        day: policy.max_requests_per_day,
-                        requests: Mutex::new((VecDeque::new(), VecDeque::new())),
-                    });
-                    ClientPolicy {
-                        credential: ClientCredential::Sha256(policy.key_hash),
-                        identity: Some(ClientIdentity {
-                            id: Arc::from(policy.id),
-                            name: Arc::from(policy.name),
-                            tenant_id: Arc::from(policy.tenant_id),
-                            role: if policy
-                                .scopes
-                                .iter()
-                                .any(|scope| matches!(scope.as_str(), "manage" | "admin"))
-                            {
-                                "admin"
-                            } else {
-                                "standard"
-                            },
-                            id_format: Arc::from(policy.model_id_format),
-                            usage_quota: policy.usage_quota,
-                        }),
-                        enabled: policy.enabled,
-                        expires_at_unix: policy.expires_at_unix,
-                        scopes: policy.scopes,
-                        allowed_routes: None,
-                        allowed_models,
-                        allowed_endpoints: policy.allowed_endpoints,
-                        blocked_models: policy.blocked_models,
-                        allowed_provider_ids: policy.allowed_provider_ids,
-                        concurrency,
-                        rate_limit,
-                    }
+    pub(crate) fn from_stored(policies: Vec<StoredPolicy>) -> Result<Self, &'static str> {
+        let entries = policies
+            .into_iter()
+            .map(|policy| {
+                let access_schedule = policy
+                    .access_schedule
+                    .map(|schedule| schedule.compile())
+                    .transpose()?
+                    .flatten();
+                let allowed_models = if policy.allowed_models.is_empty() {
+                    None
+                } else {
+                    Some(policy.allowed_models)
+                };
+                let concurrency = policy
+                    .max_concurrent_requests
+                    .map(|limit| Arc::new(Semaphore::new(limit)));
+                let rate_limit = (policy.max_requests_per_minute.is_some()
+                    || policy.max_requests_per_day.is_some())
+                .then(|| RateLimit {
+                    minute: policy.max_requests_per_minute,
+                    day: policy.max_requests_per_day,
+                    requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+                });
+                Ok(ClientPolicy {
+                    credential: ClientCredential::Sha256(policy.key_hash),
+                    identity: Some(ClientIdentity {
+                        id: Arc::from(policy.id),
+                        name: Arc::from(policy.name),
+                        tenant_id: Arc::from(policy.tenant_id),
+                        role: if policy
+                            .scopes
+                            .iter()
+                            .any(|scope| matches!(scope.as_str(), "manage" | "admin"))
+                        {
+                            "admin"
+                        } else {
+                            "standard"
+                        },
+                        id_format: Arc::from(policy.model_id_format),
+                        usage_quota: policy.usage_quota,
+                    }),
+                    enabled: policy.enabled,
+                    expires_at_unix: policy.expires_at_unix,
+                    access_schedule,
+                    scopes: policy.scopes,
+                    allowed_routes: None,
+                    allowed_models,
+                    allowed_endpoints: policy.allowed_endpoints,
+                    blocked_models: policy.blocked_models,
+                    allowed_provider_ids: policy.allowed_provider_ids,
+                    concurrency,
+                    rate_limit,
                 })
-                .collect(),
-        }
+            })
+            .collect::<Result<Vec<_>, &'static str>>()?;
+        Ok(Self { entries })
     }
 
     pub(crate) fn parse<F>(config: &str, resolve: F) -> Result<Self, &'static str>
@@ -314,6 +412,7 @@ impl ClientPolicies {
                 identity: None,
                 enabled,
                 expires_at_unix,
+                access_schedule: None,
                 scopes: Vec::new(),
                 allowed_routes,
                 allowed_models,
@@ -404,6 +503,10 @@ impl ClientPolicy {
                     .duration_since(std::time::UNIX_EPOCH)
                     .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
             })
+            && self
+                .access_schedule
+                .as_ref()
+                .is_none_or(|schedule| schedule.allows(std::time::SystemTime::now()))
     }
 
     pub(crate) fn allow_request(&self) -> bool {
@@ -520,6 +623,54 @@ mod tests {
         assert!(!matches_pattern("provider/*", "provider"));
         assert!(matches_pattern("*", "any/model"));
         assert!(!matches_pattern("exact", "exact/other"));
+    }
+
+    #[test]
+    fn access_schedule_validates_timezone_days_and_time_bounds() {
+        let valid = AccessScheduleConfig {
+            enabled: true,
+            from: "08:00".to_owned(),
+            until: "18:00".to_owned(),
+            days: vec![1, 2, 3, 4, 5],
+            tz: "America/Sao_Paulo".to_owned(),
+        };
+        assert!(valid.validate().is_ok());
+        for invalid in [
+            AccessScheduleConfig {
+                from: "24:00".to_owned(),
+                ..valid.clone()
+            },
+            AccessScheduleConfig {
+                days: vec![1, 1],
+                ..valid.clone()
+            },
+            AccessScheduleConfig {
+                tz: "Mars/Olympus".to_owned(),
+                ..valid.clone()
+            },
+        ] {
+            assert!(invalid.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn access_schedule_uses_iana_timezone_and_overnight_windows() {
+        let schedule = AccessScheduleConfig {
+            enabled: true,
+            from: "22:00".to_owned(),
+            until: "06:00".to_owned(),
+            days: vec![1],
+            tz: "America/Sao_Paulo".to_owned(),
+        }
+        .compile()
+        .unwrap()
+        .unwrap();
+        let at = |unix| std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix);
+        // 2024-03-11 23:00 and 2024-03-11 05:30 in Sao Paulo.
+        assert!(schedule.allows(at(1_710_208_800)));
+        assert!(schedule.allows(at(1_710_145_800)));
+        // 2024-03-11 12:00 in Sao Paulo.
+        assert!(!schedule.allows(at(1_710_169_200)));
     }
 
     #[test]

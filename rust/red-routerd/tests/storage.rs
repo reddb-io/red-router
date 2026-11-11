@@ -159,6 +159,9 @@ async fn exercise(backend: Backend, url: &str) {
         max_rpm: 600,
         max_rpd: 50_000,
         model_id_format: "flat".into(),
+        access_schedule_json:
+            r#"{"enabled":true,"from":"08:00","until":"18:00","days":[1,2,3,4,5],"tz":"America/Sao_Paulo"}"#
+                .into(),
         tenant_id: "acme".into(),
         created_by: "test-admin".into(),
         max_tokens_per_minute: 100_000,
@@ -640,6 +643,7 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "flat".into(),
+        access_schedule_json: String::new(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),
         max_tokens_per_minute: 0,
@@ -672,6 +676,61 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
 }
 
 #[tokio::test]
+async fn sqlite_client_schedule_revision_mismatch_fails_closed() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("schedule-revision.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    db.upsert_client_key(&StoredClientKey {
+        id: "client".into(),
+        label: "Client".into(),
+        key_hash: "44".repeat(32),
+        enabled: true,
+        expiry_unix: 0,
+        scopes_json: "[]".into(),
+        allowed_endpoints_json: "[]".into(),
+        allowed_models_json: "[]".into(),
+        blocked_models_json: "[]".into(),
+        allowed_provider_ids_json: "[]".into(),
+        max_concurrent: 0,
+        max_rpm: 0,
+        max_rpd: 0,
+        model_id_format: "prefixed".into(),
+        access_schedule_json:
+            r#"{"enabled":true,"from":"08:00","until":"18:00","days":[1],"tz":"UTC"}"#.into(),
+        tenant_id: "red".into(),
+        created_by: "test-admin".into(),
+        max_tokens_per_minute: 0,
+        max_tokens_per_day: 0,
+        max_monthly_microusd: 0,
+        reservation_tokens: 0,
+        reservation_microusd: 0,
+        revision: 1,
+    })
+    .await
+    .unwrap();
+    db.close().await.unwrap();
+
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query(
+        "UPDATE redrouter_control_client_key_schedules SET revision = 2 WHERE key_id = 'client'",
+    )
+    .execute(&mut raw)
+    .await
+    .unwrap();
+    raw.close().await.unwrap();
+
+    let reopened = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        reopened.client_keys().await.unwrap_err(),
+        "client key access schedule revision mismatch"
+    );
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("ownership-revision.sqlite");
@@ -693,6 +752,7 @@ async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "prefixed".into(),
+        access_schedule_json: String::new(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),
         max_tokens_per_minute: 0,

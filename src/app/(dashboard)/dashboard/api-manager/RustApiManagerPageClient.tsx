@@ -17,6 +17,11 @@ type Draft = {
   enabled: boolean;
   modelIdFormat: "prefixed" | "flat";
   expiresAt: string;
+  scheduleEnabled: boolean;
+  scheduleFrom: string;
+  scheduleUntil: string;
+  scheduleDays: string;
+  scheduleTz: string;
   scopes: string;
   allowedEndpoints: string;
   allowedModels: string;
@@ -37,6 +42,11 @@ const EMPTY_DRAFT: Draft = {
   enabled: true,
   modelIdFormat: "prefixed",
   expiresAt: "",
+  scheduleEnabled: false,
+  scheduleFrom: "08:00",
+  scheduleUntil: "18:00",
+  scheduleDays: "1,2,3,4,5",
+  scheduleTz: "UTC",
   scopes: "inference:chat",
   allowedEndpoints: "chat",
   allowedModels: "",
@@ -91,12 +101,33 @@ function expiresAtUnix(value: string): number | null {
 function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
   const label = draft.label.trim();
   if (!label) throw new Error("A key label is required");
+  const scheduleDays = list(draft.scheduleDays).map(Number);
+  if (
+    draft.scheduleEnabled &&
+    (scheduleDays.length === 0 ||
+      scheduleDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6))
+  ) {
+    throw new Error("Schedule days must use 0-6, where Sunday is 0");
+  }
+  const scheduleTz = draft.scheduleTz.trim();
+  if (draft.scheduleEnabled && !scheduleTz) {
+    throw new Error("An IANA timezone is required for the access schedule");
+  }
   return {
     label,
     ...(tenantId ? { tenant_id: tenantId } : {}),
     model_id_format: draft.modelIdFormat,
     enabled: draft.enabled,
     expires_at_unix: expiresAtUnix(draft.expiresAt),
+    access_schedule: draft.scheduleEnabled
+      ? {
+          enabled: true,
+          from: draft.scheduleFrom,
+          until: draft.scheduleUntil,
+          days: scheduleDays,
+          tz: scheduleTz,
+        }
+      : null,
     scopes: list(draft.scopes),
     allowed_endpoints: list(draft.allowedEndpoints),
     allowed_models: list(draft.allowedModels),
@@ -132,6 +163,11 @@ function keyDraft(key: RustClientKey): Draft {
     enabled: key.enabled,
     modelIdFormat: key.model_id_format,
     expiresAt: localExpiry(key.expires_at_unix),
+    scheduleEnabled: key.access_schedule?.enabled ?? false,
+    scheduleFrom: key.access_schedule?.from ?? "08:00",
+    scheduleUntil: key.access_schedule?.until ?? "18:00",
+    scheduleDays: key.access_schedule?.days.join(",") ?? "1,2,3,4,5",
+    scheduleTz: key.access_schedule?.tz ?? "UTC",
     scopes: key.scopes.join("\n"),
     allowedEndpoints: key.allowed_endpoints.join("\n"),
     allowedModels: key.allowed_models.join("\n"),
@@ -191,6 +227,56 @@ function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draf
           onChange={(e) => set("expiresAt", e.target.value)}
         />
       </label>
+      <div className="rounded-lg border border-black/10 dark:border-white/10 p-3 md:col-span-2 xl:col-span-3">
+        <label className="flex items-center gap-2 text-sm font-medium text-text">
+          <input
+            type="checkbox"
+            checked={draft.scheduleEnabled}
+            onChange={(e) => set("scheduleEnabled", e.target.checked)}
+          />
+          Restrict access by local schedule
+        </label>
+        {draft.scheduleEnabled && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className={labelClass}>
+              From
+              <input
+                className={inputClass}
+                type="time"
+                value={draft.scheduleFrom}
+                onChange={(e) => set("scheduleFrom", e.target.value)}
+              />
+            </label>
+            <label className={labelClass}>
+              Until
+              <input
+                className={inputClass}
+                type="time"
+                value={draft.scheduleUntil}
+                onChange={(e) => set("scheduleUntil", e.target.value)}
+              />
+            </label>
+            <label className={labelClass}>
+              Days (Sunday=0)
+              <input
+                className={inputClass}
+                value={draft.scheduleDays}
+                onChange={(e) => set("scheduleDays", e.target.value)}
+                placeholder="1,2,3,4,5"
+              />
+            </label>
+            <label className={labelClass}>
+              IANA timezone
+              <input
+                className={inputClass}
+                value={draft.scheduleTz}
+                onChange={(e) => set("scheduleTz", e.target.value)}
+                placeholder="America/Sao_Paulo"
+              />
+            </label>
+          </div>
+        )}
+      </div>
       <label className={labelClass}>
         Scopes (comma or newline)
         <textarea
@@ -541,6 +627,9 @@ export default function RustApiManagerPageClient() {
                   {key.allowed_models.length
                     ? `${key.allowed_models.length} model grants`
                     : "all models"}{" "}
+                  · {key.access_schedule?.enabled
+                    ? `${key.access_schedule.from}-${key.access_schedule.until} ${key.access_schedule.tz}`
+                    : "always available"}{" "}
                   · created by {key.created_by}
                 </p>
               </div>
