@@ -74,7 +74,7 @@ const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub(crate) const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
+pub(crate) const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
 pub(crate) const AGY_PROVIDER_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent";
 const AGY_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo";
@@ -149,6 +149,7 @@ struct Inner {
     oauth_refresh: OAuthRefreshConfig,
     native_usage: RwLock<Option<crate::native_usage::NativeUsage>>,
     thought_signatures: StdMutex<HashMap<(String, String), (String, i64)>>,
+    claude_sessions: StdMutex<HashMap<String, Arc<str>>>,
     context_relay_generations: StdMutex<HashSet<String>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
@@ -555,11 +556,11 @@ pub(crate) struct ParsedCodexAuth {
     pub(crate) expires_at_unix: u64,
 }
 
-struct ParsedClaudeAuth {
-    access_token: Zeroizing<String>,
-    refresh_token: Zeroizing<String>,
-    session_metadata: Zeroizing<String>,
-    expires_at_unix: u64,
+pub(crate) struct ParsedClaudeAuth {
+    pub(crate) access_token: Zeroizing<String>,
+    pub(crate) refresh_token: Zeroizing<String>,
+    pub(crate) session_metadata: Zeroizing<String>,
+    pub(crate) expires_at_unix: u64,
 }
 
 pub(crate) struct ParsedAgyAuth {
@@ -1880,6 +1881,7 @@ impl ControlPlane {
             oauth_refresh: oauth_refresh_config,
             native_usage: RwLock::new(native_usage),
             thought_signatures: StdMutex::new(HashMap::new()),
+            claude_sessions: StdMutex::new(HashMap::new()),
             context_relay_generations: StdMutex::new(HashSet::new()),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
@@ -4166,22 +4168,27 @@ impl ControlPlane {
             .claude_bootstrap_identity(parsed.access_token.as_str())
             .await;
         let email = input.email.or(bootstrap.email);
-        let identity = bootstrap
+        let account_id = bootstrap
             .account_id
-            .map(|value| format!("account:{value}"))
-            .or_else(|| {
-                email
-                    .as_deref()
-                    .map(|value| format!("email:{}", value.to_ascii_lowercase()))
-            });
-        if identity.is_none() && !input.overwrite_existing {
-            return Err("Claude account identity could not be verified");
-        }
-        let identity = identity.unwrap_or_else(|| {
-            let mut digest = Sha256::new();
-            digest.update(parsed.refresh_token.as_bytes());
-            format!("token:{}", hex::encode(digest.finalize()))
-        });
+            .filter(|value| valid_uuid(value))
+            .ok_or("Claude account identity could not be verified")?;
+        let identity = format!("account:{account_id}");
+        let mut session: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str())
+            .map_err(|_| "invalid Claude session metadata")?;
+        let session = session
+            .as_object_mut()
+            .ok_or("invalid Claude session metadata")?;
+        let mut device = Zeroizing::new([0_u8; 32]);
+        getrandom::fill(device.as_mut()).map_err(|_| "cannot generate Claude device identity")?;
+        session.insert(
+            "accountUUID".to_owned(),
+            serde_json::Value::String(account_id),
+        );
+        session.insert(
+            "cliUserID".to_owned(),
+            serde_json::Value::String(hex::encode(device.as_slice())),
+        );
+        let session = Zeroizing::new(serde_json::Value::Object(session.clone()).to_string());
         let provider_id = provider_import_id("claude", tenant_id, &identity);
         if expected_connection_id.is_some_and(|expected| expected != provider_id) {
             return Err("invalid provider OAuth connection");
@@ -4225,7 +4232,7 @@ impl ControlPlane {
                     oauth_provider: Some("claude".to_owned()),
                     refresh_token: Some(parsed.refresh_token.to_string()),
                 },
-                Some(parsed.session_metadata),
+                Some(session),
                 actor,
                 enforced_tenant,
             )
@@ -4243,7 +4250,7 @@ impl ControlPlane {
                 "provider": "claude",
                 "created": created,
                 "has_email": connection.account_email.is_some(),
-                "identity_verified": !identity.starts_with("token:"),
+                "identity_verified": true,
             })),
         )
         .await;
@@ -4544,10 +4551,17 @@ impl ControlPlane {
                 email: None,
             };
         };
-        let account_id = json_non_empty_string(value.get("account_uuid"))
+        let account = value
+            .get("oauth_account")
+            .and_then(serde_json::Value::as_object);
+        let account_id = account
+            .and_then(|account| json_non_empty_string(account.get("account_uuid")))
+            .or_else(|| json_non_empty_string(value.get("account_uuid")))
             .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
             .map(str::to_owned);
-        let email = json_non_empty_string(value.get("account_email"))
+        let email = account
+            .and_then(|account| json_non_empty_string(account.get("account_email")))
+            .or_else(|| json_non_empty_string(value.get("account_email")))
             .filter(|value| validate_provider_account_email(value).is_ok())
             .map(str::to_owned);
         ClaudeBootstrapIdentity { account_id, email }
@@ -7158,6 +7172,7 @@ impl ControlPlane {
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
+        let claude_identities = self.claude_identities().await?;
         let live = match self.0.database.active_provider().await? {
             Some(record) => {
                 let rate_limit_scope = resilience
@@ -7187,6 +7202,9 @@ impl ControlPlane {
                 live.circuit = Some(circuit);
                 live.availability = Some(self.availability_for(&record.id).await);
                 live.antigravity_project = antigravity_projects
+                    .get(&(record.id.clone(), record.updated_at))
+                    .cloned();
+                live.claude_identity = claude_identities
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
                 live.provider_id = Some(Arc::from(record.id));
@@ -7241,6 +7259,7 @@ impl ControlPlane {
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
+        let claude_identities = self.claude_identities().await?;
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -7307,6 +7326,9 @@ impl ControlPlane {
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     runtime.provider_name = Some(Arc::from(provider.provider.clone()));
                     runtime.antigravity_project = antigravity_projects
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .cloned();
+                    runtime.claude_identity = claude_identities
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
                     runtime.tenant_id = Arc::from(provider.tenant_id.clone());
@@ -7856,6 +7878,61 @@ impl ControlPlane {
             }
         }
         Ok(projects)
+    }
+
+    async fn claude_identities(
+        &self,
+    ) -> Result<HashMap<(String, i64), Arc<crate::ClaudeIdentity>>, &'static str> {
+        let mut identities = HashMap::new();
+        for record in self.0.database.provider_sessions().await? {
+            if record.provider != "claude" {
+                continue;
+            }
+            let aad = format!("{}:oauth-session", record.provider_id);
+            let metadata = decrypt(
+                &record.session_ciphertext,
+                &aad,
+                self.0.encryption_key.as_str(),
+            )?;
+            let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
+                .map_err(|_| "invalid Claude session metadata")?;
+            let device = json_non_empty_string(metadata.get("cliUserID"))
+                .ok_or("Claude device identity is missing")?;
+            let account = json_non_empty_string(metadata.get("accountUUID"))
+                .ok_or("Claude account identity is missing")?;
+            if device.len() != 64 || !device.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err("invalid Claude device identity");
+            }
+            if !valid_uuid(account) {
+                return Err("invalid Claude account identity");
+            }
+            let session_id = {
+                let mut sessions = self
+                    .0
+                    .claude_sessions
+                    .lock()
+                    .map_err(|_| "Claude session identity unavailable")?;
+                if let Some(session) = sessions.get(&record.provider_id) {
+                    session.clone()
+                } else {
+                    let session: Arc<str> = Arc::from(random_uuid_v4()?);
+                    sessions.insert(record.provider_id.clone(), session.clone());
+                    session
+                }
+            };
+            let identity = Arc::new(crate::ClaudeIdentity {
+                device_id: Arc::from(device.to_ascii_lowercase()),
+                account_uuid: Arc::from(account.to_ascii_lowercase()),
+                session_id,
+            });
+            if identities
+                .insert((record.provider_id, record.revision), identity)
+                .is_some()
+            {
+                return Err("duplicate Claude session metadata");
+            }
+        }
+        Ok(identities)
     }
 
     async fn oauth_status_settings(
@@ -10167,7 +10244,7 @@ pub(crate) fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth
     })
 }
 
-fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'static str> {
+pub(crate) fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'static str> {
     let document = raw.as_object().ok_or("invalid Claude auth file")?;
     let oauth = document
         .get("claudeAiOauth")
@@ -10630,6 +10707,30 @@ fn random_token(bytes: usize) -> Result<String, &'static str> {
     let mut value = Zeroizing::new(vec![0u8; bytes]);
     getrandom::fill(value.as_mut()).map_err(|_| "cannot generate OIDC login state")?;
     Ok(URL_SAFE_NO_PAD.encode(value.as_slice()))
+}
+
+fn random_uuid_v4() -> Result<String, &'static str> {
+    let mut value = [0_u8; 16];
+    getrandom::fill(&mut value).map_err(|_| "cannot generate Claude session identity")?;
+    value[6] = (value[6] & 0x0f) | 0x40;
+    value[8] = (value[8] & 0x3f) | 0x80;
+    let hex = hex::encode(value);
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    ))
+}
+
+fn valid_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
 }
 
 fn unique_cookie(headers: &HeaderMap, name: &str) -> Option<String> {

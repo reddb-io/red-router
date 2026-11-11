@@ -223,6 +223,7 @@ pub(crate) struct LiveProvider {
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
+    claude_identity: Option<Arc<ClaudeIdentity>>,
     tenant_id: Arc<str>,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
@@ -231,6 +232,13 @@ pub(crate) struct LiveProvider {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClaudeIdentity {
+    pub(crate) device_id: Arc<str>,
+    pub(crate) account_uuid: Arc<str>,
+    pub(crate) session_id: Arc<str>,
 }
 
 struct ProductFallback {
@@ -529,6 +537,7 @@ pub(crate) struct ModelTarget {
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
+    claude_identity: Option<Arc<ClaudeIdentity>>,
     rate_limit_scope: resilience::RateLimitScope,
     weight: u32,
     input_cost_per_million: Option<f64>,
@@ -1393,6 +1402,7 @@ impl ProxyState {
             provider_id: None,
             provider_name: None,
             antigravity_project: None,
+            claude_identity: None,
             tenant_id: Arc::from("red"),
             protocol,
             auth_scheme: auth_scheme.resolve(protocol)?,
@@ -1423,6 +1433,7 @@ impl ProxyState {
             provider_id: provider.provider_id.clone(),
             provider_name: provider.provider_name.clone(),
             antigravity_project: provider.antigravity_project.clone(),
+            claude_identity: provider.claude_identity.clone(),
             rate_limit_scope: provider.rate_limit_scope,
             weight: config.weight,
             input_cost_per_million: config.input_cost_per_million,
@@ -1850,6 +1861,7 @@ impl ProxyState {
                     provider_id: None,
                     provider_name: None,
                     antigravity_project: None,
+                    claude_identity: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
                     weight,
                     input_cost_per_million,
@@ -3180,6 +3192,70 @@ const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
 const CONTEXT_RELAY_SUMMARY_DEADLINE: Duration = Duration::from_secs(45);
 const ANTIGRAVITY_CLI_USER_AGENT: &str =
     "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
+const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
+const CLAUDE_SENTINEL: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
+const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
+
+fn claude_cli_payload(payload: &[u8], identity: &ClaudeIdentity) -> Result<Vec<u8>, ()> {
+    let mut value: serde_json::Value = serde_json::from_slice(payload).map_err(|_| ())?;
+    let object = value.as_object_mut().ok_or(())?;
+    let mut system = match object.remove("system") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(text)) => {
+            vec![serde_json::json!({"type":"text","text":text})]
+        }
+        Some(serde_json::Value::Array(values)) => values,
+        Some(_) => return Err(()),
+    };
+    system.retain(|block| {
+        block
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|text| {
+                !text.starts_with("x-anthropic-billing-header:")
+                    && !text.starts_with(CLAUDE_SENTINEL)
+            })
+    });
+    system.insert(
+        0,
+        serde_json::json!({"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.301; cc_entrypoint=cli; cch=00000;"}),
+    );
+    system.insert(1, serde_json::json!({"type":"text","text":CLAUDE_SENTINEL}));
+    object.insert("system".to_owned(), serde_json::Value::Array(system));
+    let metadata = object
+        .entry("metadata".to_owned())
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or(())?;
+    metadata.insert(
+        "user_id".to_owned(),
+        serde_json::Value::String(
+            serde_json::json!({
+                "device_id": identity.device_id.as_ref(),
+                "account_uuid": identity.account_uuid.as_ref(),
+                "session_id": identity.session_id.as_ref(),
+            })
+            .to_string(),
+        ),
+    );
+    serde_json::to_vec(&value).map_err(|_| ())
+}
+
+fn request_uuid_v4() -> Result<String, ()> {
+    let mut value = [0_u8; 16];
+    getrandom::fill(&mut value).map_err(|_| ())?;
+    value[6] = (value[6] & 0x0f) | 0x40;
+    value[8] = (value[8] & 0x3f) | 0x80;
+    let value = hex::encode(value);
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &value[0..8],
+        &value[8..12],
+        &value[12..16],
+        &value[16..20],
+        &value[20..32]
+    ))
+}
 
 #[derive(Clone)]
 struct ContextRelaySummaryTarget {
@@ -3192,6 +3268,7 @@ struct ContextRelaySummaryTarget {
     provider_name: String,
     model: String,
     antigravity_project: Option<Arc<str>>,
+    claude_identity: Option<Arc<ClaudeIdentity>>,
     rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
@@ -3370,6 +3447,7 @@ fn context_relay_summary_target(
         provider_name: provider,
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
         availability: target.availability.clone(),
@@ -3500,7 +3578,7 @@ async fn generate_context_relay_summary(
         "stream":false,
         "max_tokens":800
     });
-    let body = match target.protocol {
+    let mut body = match target.protocol {
         ProviderProtocol::OpenAi => {
             let mut body = serde_json::json!({
                 "model":target.model.clone(),
@@ -3547,6 +3625,24 @@ async fn generate_context_relay_summary(
         }
         _ => return ContextRelaySummaryOutcome::InvalidSuccess,
     };
+    let claude_request_id = if let Some(identity) = target.claude_identity.as_deref() {
+        let Ok(encoded) = serde_json::to_vec(&body) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        let Ok(encoded) = claude_cli_payload(&encoded, identity) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        let Ok(cloaked) = serde_json::from_slice(&encoded) else {
+            return ContextRelaySummaryOutcome::InvalidSuccess;
+        };
+        body = cloaked;
+        match request_uuid_v4() {
+            Ok(value) => Some(value),
+            Err(()) => return ContextRelaySummaryOutcome::InvalidSuccess,
+        }
+    } else {
+        None
+    };
     let antigravity = matches!(
         target.protocol,
         ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity
@@ -3582,6 +3678,18 @@ async fn generate_context_relay_summary(
             ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
         ) {
             request = request.header("anthropic-version", "2023-06-01");
+        }
+        if let Some(identity) = target.claude_identity.as_deref() {
+            request = request
+                .header("anthropic-beta", CLAUDE_OAUTH_BETA)
+                .header("anthropic-dangerous-direct-browser-access", "true")
+                .header("x-app", "cli")
+                .header(header::USER_AGENT, CLAUDE_CLI_USER_AGENT)
+                .header("x-stainless-timeout", "600")
+                .header("x-claude-code-session-id", identity.session_id.as_ref());
+            if let Some(request_id) = claude_request_id.as_deref() {
+                request = request.header("x-client-request-id", request_id);
+            }
         }
         if antigravity {
             request = request
@@ -3842,6 +3950,7 @@ fn internal_target_from_model(
             .to_ascii_lowercase(),
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
         availability: target.availability.clone(),
@@ -5816,6 +5925,46 @@ async fn proxy_request(
                 }
             };
         }
+        let claude_identity = target
+            .and_then(|target| target.claude_identity.as_deref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.claude_identity.as_deref())
+            });
+        if let Some(identity) = claude_identity {
+            if !matches!(
+                attempt_protocol,
+                ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+            ) {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Claude OAuth protocol is incompatible with this route",
+                );
+            }
+            payload = match claude_cli_payload(&payload, identity) {
+                Ok(payload) => payload,
+                Err(()) => {
+                    return error(
+                        StatusCode::BAD_REQUEST,
+                        "Claude OAuth requires a compatible Anthropic request body",
+                    )
+                }
+            };
+        }
+        let claude_request_id = if claude_identity.is_some() {
+            match request_uuid_v4() {
+                Ok(value) => Some(value),
+                Err(()) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Claude request identity unavailable",
+                    )
+                }
+            }
+        } else {
+            None
+        };
         let mut target_url = url.clone();
         if direct_product_model && protocol == ProviderProtocol::OpenAiEmbeddings {
             let Some(prefix) = target_url.path().strip_suffix("/chat/completions") else {
@@ -5882,17 +6031,45 @@ async fn proxy_request(
                 }
                 ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
             };
-            match &anthropic_headers {
-                Some((version, beta)) => {
-                    upstream = upstream.header("anthropic-version", version.clone());
-                    if let Some(beta) = beta {
-                        upstream = upstream.header("anthropic-beta", beta.clone());
+            if claude_identity.is_none() {
+                match &anthropic_headers {
+                    Some((version, beta)) => {
+                        upstream = upstream.header("anthropic-version", version.clone());
+                        if let Some(beta) = beta {
+                            upstream = upstream.header("anthropic-beta", beta.clone());
+                        }
                     }
+                    None if translate_anthropic => {
+                        upstream = upstream.header("anthropic-version", "2023-06-01");
+                    }
+                    None => {}
                 }
-                None if translate_anthropic => {
-                    upstream = upstream.header("anthropic-version", "2023-06-01");
+            }
+            if let Some(identity) = claude_identity {
+                let mut beta = anthropic_headers
+                    .as_ref()
+                    .and_then(|(_, beta)| beta.as_ref())
+                    .and_then(|beta| beta.to_str().ok())
+                    .unwrap_or("")
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                if !beta.iter().any(|value| value == CLAUDE_OAUTH_BETA) {
+                    beta.push(CLAUDE_OAUTH_BETA.to_owned());
                 }
-                None => {}
+                upstream = upstream
+                    .header("anthropic-version", "2023-06-01")
+                    .header("anthropic-beta", beta.join(","))
+                    .header("anthropic-dangerous-direct-browser-access", "true")
+                    .header("x-app", "cli")
+                    .header(header::USER_AGENT, CLAUDE_CLI_USER_AGENT)
+                    .header("x-stainless-timeout", "600")
+                    .header("x-claude-code-session-id", identity.session_id.as_ref());
+                if let Some(request_id) = claude_request_id.as_deref() {
+                    upstream = upstream.header("x-client-request-id", request_id);
+                }
             }
             if attempt_antigravity {
                 upstream = upstream
@@ -7092,6 +7269,7 @@ mod address_tests {
             provider_name: "google".to_owned(),
             model: "gemini-2.5-flash".to_owned(),
             antigravity_project: None,
+            claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
             availability: None,
@@ -7136,6 +7314,7 @@ mod address_tests {
             provider_name: "agy".to_owned(),
             model: "gemini-2.5-pro".to_owned(),
             antigravity_project: Some(Arc::from("relay-project")),
+            claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
             availability: None,
@@ -7204,6 +7383,37 @@ mod address_tests {
     }
 
     #[test]
+    fn claude_oauth_payload_preserves_one_cli_identity_prefix() {
+        let identity = ClaudeIdentity {
+            device_id: Arc::from(
+                "abababababababababababababababababababababababababababababababab",
+            ),
+            account_uuid: Arc::from("123e4567-e89b-42d3-a456-426614174000"),
+            session_id: Arc::from("123e4567-e89b-42d3-a456-426614174001"),
+        };
+        let first = claude_cli_payload(
+            br#"{"model":"claude-sonnet","system":"operator prompt","messages":[]}"#,
+            &identity,
+        )
+        .unwrap();
+        let second = claude_cli_payload(&first, &identity).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&second).unwrap();
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system.len(), 3);
+        assert!(system[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("x-anthropic-billing-header:"));
+        assert_eq!(system[1]["text"], CLAUDE_SENTINEL);
+        assert_eq!(system[2]["text"], "operator prompt");
+        let user_id: serde_json::Value =
+            serde_json::from_str(body["metadata"]["user_id"].as_str().unwrap()).unwrap();
+        assert_eq!(user_id["device_id"], identity.device_id.as_ref());
+        assert_eq!(user_id["account_uuid"], identity.account_uuid.as_ref());
+        assert_eq!(user_id["session_id"], identity.session_id.as_ref());
+    }
+
+    #[test]
     fn model_quota_overrides_provider_quota_without_locking_the_hot_path() {
         let provider_quota = Arc::new(TargetQuota::default());
         provider_quota.update(&storage::StoredProviderQuota {
@@ -7243,6 +7453,7 @@ mod address_tests {
             provider_id: Some(Arc::from("agy")),
             provider_name: Some(Arc::from("antigravity")),
             antigravity_project: None,
+            claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Model,
             weight: 1,
             input_cost_per_million: None,

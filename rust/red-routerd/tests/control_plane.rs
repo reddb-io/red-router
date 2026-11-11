@@ -999,8 +999,13 @@ async fn claude_oauth_refresh_server() -> (
                 if token == "unverified" {
                     StatusCode::UNAUTHORIZED.into_response()
                 } else {
+                    let account = match token {
+                        "one" => "123e4567-e89b-42d3-a456-426614174001",
+                        "two" => "123e4567-e89b-42d3-a456-426614174002",
+                        _ => "123e4567-e89b-42d3-a456-426614174003",
+                    };
                     Json(serde_json::json!({
-                        "account_uuid":format!("claude-account-{token}"),
+                        "account_uuid":account,
                         "account_email":format!("claude-{token}@example.com"),
                         "organization_uuid":"claude-organization-fixture"
                     }))
@@ -1230,7 +1235,7 @@ async fn provider_browser_oauth_server() -> (
                     "Bearer claude-access-browser"
                 );
                 Json(serde_json::json!({
-                    "account_uuid":"claude-browser-account",
+                    "account_uuid":"123e4567-e89b-42d3-a456-426614174004",
                     "account_email":"browser-claude@example.com"
                 }))
             }),

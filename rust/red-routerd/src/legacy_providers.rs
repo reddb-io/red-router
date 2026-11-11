@@ -4,6 +4,14 @@ use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::path::Path;
 use zeroize::Zeroizing;
 
+fn valid_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
 #[derive(serde::Serialize)]
 pub struct ProviderImport {
     pub imported: u64,
@@ -36,6 +44,18 @@ pub async fn adopt_antigravity(
     legacy_key: &str,
 ) -> Result<ProviderImport, &'static str> {
     adopt_oauth(destination, id, storage_key, legacy_key, "agy").await
+}
+
+/// Convert a staged Claude Code OAuth record while preserving its persisted
+/// device and account identity. The connection remains disabled until the
+/// operator verifies it and explicitly enables it.
+pub async fn adopt_claude(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+) -> Result<ProviderImport, &'static str> {
+    adopt_oauth(destination, id, storage_key, legacy_key, "claude").await
 }
 
 async fn adopt_oauth(
@@ -117,6 +137,30 @@ async fn adopt_oauth(
                 if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
             }
             (parsed.access_token, parsed.refresh_token, parsed.session_metadata, parsed.expires_at_unix, parsed.email, crate::control_plane::CODEX_PROVIDER_URL)
+        } else if provider == "claude" {
+            if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Claude identity token requires migration"); }
+            let allowed = ["accountUUID", "organizationUUID", "organizationName", "organizationType", "rateLimitTier", "scopes", "subscriptionType", "bootstrapEmail", "importedAt", "cliUserID", "userID"];
+            if specific.keys().any(|key| !allowed.contains(&key.as_str())) { return Err("legacy Claude configuration requires migration"); }
+            let account = specific.get("accountUUID").and_then(serde_json::Value::as_str).filter(|value| valid_uuid(value)).ok_or("legacy Claude account identity is missing")?;
+            let device = specific.get("cliUserID").or_else(|| specific.get("userID")).and_then(serde_json::Value::as_str)
+                .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                .ok_or("legacy Claude device identity is missing")?;
+            let expiry = text("token_expires_at")?.filter(|value| !value.is_empty()).or(text("expires_at")?.filter(|value| !value.is_empty())).ok_or("legacy OAuth expiry is missing")?;
+            let scopes = match specific.get("scopes") {
+                None | Some(serde_json::Value::Null) => text("scope")?.map(|scope| scope.split_whitespace().map(str::to_owned).collect::<Vec<_>>()).unwrap_or_default(),
+                Some(serde_json::Value::Array(values)) => values.iter().map(|value| value.as_str().map(str::to_owned).ok_or("invalid legacy Claude scopes")).collect::<Result<Vec<_>, _>>()?,
+                Some(_) => return Err("invalid legacy Claude scopes"),
+            };
+            let parsed = crate::control_plane::parse_claude_auth(serde_json::json!({"claudeAiOauth":{
+                "accessToken":access.as_str(),"refreshToken":refresh.as_str(),"expiresAt":expiry,"scopes":scopes,
+                "subscriptionType":specific.get("subscriptionType"),"rateLimitTier":specific.get("rateLimitTier")
+            }}))?;
+            let mut metadata: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str()).map_err(|_| "invalid Claude metadata")?;
+            metadata["accountUUID"] = serde_json::Value::String(account.to_ascii_lowercase());
+            metadata["cliUserID"] = serde_json::Value::String(device.to_ascii_lowercase());
+            let session = Zeroizing::new(metadata.to_string());
+            let email = specific.get("bootstrapEmail").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()).map(str::to_owned);
+            (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, email, crate::control_plane::CLAUDE_PROVIDER_URL)
         } else {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Antigravity identity token requires migration"); }
             if text("scope")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy Antigravity OAuth scope requires migration"); }

@@ -270,6 +270,15 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli"}).to_string()).execute(&mut input).await.unwrap();
     }
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
+        .bind(serde_json::json!({
+            "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
+            "cliUserID":"abababababababababababababababababababababababababababababababab",
+            "bootstrapEmail":"claude@example.com",
+            "scopes":["user:inference","user:sessions:claude_code"],
+            "subscriptionType":"pro",
+            "rateLimitTier":"tier-2"
+        }).to_string()).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -284,7 +293,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        6
+        7
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -374,5 +383,38 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         serde_json::from_str::<serde_json::Value>(&metadata).unwrap()["projectId"],
         "project-1"
     );
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_claude(&dest, "claude-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!((result.imported, result.enabled), (1, false));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|provider| provider.id == "claude-good")
+        .unwrap();
+    assert_eq!(provider.provider, "claude");
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.anthropic.com/v1/messages"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.provider_id == "claude-good")
+        .unwrap();
+    let metadata =
+        decrypt_rust_ciphertext(&session.session_ciphertext, "claude-good:oauth-session");
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(
+        metadata["accountUUID"],
+        "123e4567-e89b-42d3-a456-426614174000"
+    );
+    assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
     db.close().await.unwrap();
 }
