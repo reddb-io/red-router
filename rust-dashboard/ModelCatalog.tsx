@@ -16,7 +16,7 @@ async function read(path: string, init?: RequestInit) {
 export default function ModelCatalog() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [providerId, setProviderId] = useState("");
-  const [models, setModels] = useState<Model[] | null>(null);
+  const [result, setResult] = useState<{ providerId: string; catalog: Catalog; models: Model[] } | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -27,13 +27,15 @@ export default function ModelCatalog() {
     setCatalog(value);
     setProviderId((current) => value.providers.some((provider) => provider.id === current) ? current : "");
   }, []);
-  useEffect(() => { void load().catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load catalog.")); }, [load]);
+  useEffect(() => { void Promise.resolve().then(load).catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load catalog.")); }, [load]);
   useEffect(() => {
-    if (!providerId) { setModels(null); return; }
+    if (!providerId || !catalog) return;
     const controller = new AbortController();
-    setModels(null); setError("");
     void read(`/api/admin/model-catalog/${encodeURIComponent(providerId)}`, { signal: controller.signal })
-      .then(({ provider }) => { if (!controller.signal.aborted) setModels(provider.models); })
+      .then(({ provider }) => {
+        if (!Array.isArray(provider?.models)) throw new Error("Invalid provider catalog response.");
+        if (!controller.signal.aborted) setResult({ providerId, catalog, models: provider.models });
+      })
       .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Cannot load models."); });
     return () => controller.abort();
   }, [providerId, catalog]);
@@ -47,6 +49,7 @@ export default function ModelCatalog() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Cannot refresh catalog."); }
     finally { setBusy(false); }
   }
+  const models = result?.providerId === providerId && result.catalog === catalog ? result.models : null;
   const filtered = models?.filter((model) => `${model.id} ${model.name ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const number = (value?: number) => value == null ? "—" : value.toLocaleString();
   const price = (value?: number) => value == null ? "—" : `$${value}`;
@@ -59,7 +62,7 @@ export default function ModelCatalog() {
       <p>Snapshot: {catalog.manifest.fetchedAt} · {catalog.manifest.providers} providers · {catalog.manifest.providerModels} provider models · {catalog.snapshot.source}</p>
       {catalog.snapshot.last_error && <p role="alert">Last refresh failed: {catalog.snapshot.last_error}</p>}
       <button type="button" disabled={busy} onClick={() => void refresh()}>Refresh catalog</button>
-      <label className="block">Provider<select className={fieldClass} value={providerId} onChange={(event) => { setProviderId(event.target.value); setQuery(""); }}>
+      <label className="block">Provider<select className={fieldClass} value={providerId} onChange={(event) => { setProviderId(event.target.value); setQuery(""); setError(""); }}>
         <option value="">Select a provider</option>
         {catalog.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name || provider.id} ({provider.id})</option>)}
       </select></label>
