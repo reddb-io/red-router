@@ -14,6 +14,7 @@ pub mod legacy_archive;
 pub mod legacy_keys;
 pub mod legacy_preflight;
 pub mod legacy_providers;
+pub mod legacy_quota;
 mod native_usage;
 mod oidc;
 mod policy;

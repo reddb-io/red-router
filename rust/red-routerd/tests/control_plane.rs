@@ -1645,6 +1645,65 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
 }
 
 #[tokio::test]
+async fn migrated_key_cannot_be_enabled_before_quota_state_is_adopted() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("migration-gate.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let endpoint = format!("{base}/api/admin/client-keys/key-a");
+    let response = client
+        .put(&endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Key A", "api_key":RUST_CLIENT_KEY, "enabled":false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let db = sqlx::SqlitePool::connect(&url).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE redrouter_legacy_key_migration (key_id TEXT PRIMARY KEY,source_is_active INTEGER,source_is_banned INTEGER,source_revoked_at TEXT); INSERT INTO redrouter_legacy_key_migration VALUES ('key-a',1,0,NULL);").execute(&db).await.unwrap();
+    let enable = || {
+        client
+            .put(&endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"label":"Key A", "enabled":true}))
+    };
+    assert_eq!(
+        enable().send().await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::raw_sql("INSERT INTO redrouter_legacy_quota_baselines VALUES ('key-a','red',0,0,0,0); UPDATE redrouter_control_client_keys SET max_rpm=5 WHERE id='key-a'; UPDATE redrouter_control_client_key_quotas SET max_tokens_per_minute=200,max_tokens_per_day=1000,max_monthly_microusd=100,reservation_tokens=50,reservation_microusd=10 WHERE key_id='key-a';").execute(&db).await.unwrap();
+    assert_eq!(
+        enable().send().await.unwrap().status(),
+        StatusCode::BAD_REQUEST,
+        "enabling must not erase adopted limits"
+    );
+    let enable_with_limits = || {
+        client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"label":"Key A", "enabled":true, "max_requests_per_minute":5, "max_tokens_per_minute":200, "max_tokens_per_day":1000, "max_spend_per_month_usd":0.0001, "reservation_tokens":50, "reservation_spend_usd":0.00001}))
+    };
+    assert_eq!(
+        enable_with_limits().send().await.unwrap().status(),
+        StatusCode::OK
+    );
+    sqlx::query(
+        "UPDATE redrouter_legacy_key_migration SET source_is_banned=1 WHERE key_id='key-a'",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        enable_with_limits().send().await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    db.close().await;
+    task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_issues_hash_only_named_client_keys() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("issued-keys.sqlite")).unwrap();

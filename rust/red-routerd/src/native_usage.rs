@@ -612,19 +612,39 @@ impl NativeUsage {
             .checked_add(weighted_previous)
             .ok_or("usage counter overflow")?;
         let (day_start, month_start) = boundaries(reservation.now_ms)?;
-        let ledger = sqlx::query("SELECT COALESCE(SUM(CASE WHEN created_at_unix_ms >= $1 THEN tokens_input + tokens_output + tokens_reasoning ELSE 0 END),0) AS daily_tokens, COALESCE(SUM(CASE WHEN created_at_unix_ms >= $2 THEN amount_microusd ELSE 0 END),0) AS monthly_microusd FROM redrouter_usage_ledger WHERE key_id = $3")
+        // The legacy daily quota counts input + output. Reasoning is already a
+        // detail of output, while the separate TPM policy deliberately retains
+        // its existing product-specific accounting formula.
+        let ledger = sqlx::query("SELECT COALESCE(SUM(CASE WHEN created_at_unix_ms >= $1 THEN tokens_input + tokens_output ELSE 0 END),0) AS daily_tokens, COALESCE(SUM(CASE WHEN created_at_unix_ms >= $2 THEN amount_microusd ELSE 0 END),0) AS monthly_microusd FROM redrouter_usage_ledger WHERE key_id = $3")
             .bind(day_start)
             .bind(month_start)
             .bind(reservation.key_id)
             .fetch_one(&mut **connection)
             .await
             .map_err(|_| "usage ledger unavailable")?;
-        let used_day: i64 = ledger
+        let mut used_day: i64 = ledger
             .try_get("daily_tokens")
             .map_err(|_| "invalid usage ledger")?;
-        let used_month: i64 = ledger
+        let mut used_month: i64 = ledger
             .try_get("monthly_microusd")
             .map_err(|_| "invalid usage ledger")?;
+        if let Some(baseline) = sqlx::query("SELECT tenant_id,day_start_unix_ms,daily_tokens,month_start_unix_ms,monthly_microusd FROM redrouter_legacy_quota_baselines WHERE key_id = $1")
+            .bind(reservation.key_id)
+            .fetch_optional(&mut **connection)
+            .await
+            .map_err(|_| "legacy quota baseline unavailable")?
+        {
+            let tenant: String = baseline.try_get("tenant_id").map_err(|_| "invalid legacy quota baseline")?;
+            let legacy_day: i64 = baseline.try_get("day_start_unix_ms").map_err(|_| "invalid legacy quota baseline")?;
+            let daily: i64 = baseline.try_get("daily_tokens").map_err(|_| "invalid legacy quota baseline")?;
+            let legacy_month: i64 = baseline.try_get("month_start_unix_ms").map_err(|_| "invalid legacy quota baseline")?;
+            let monthly: i64 = baseline.try_get("monthly_microusd").map_err(|_| "invalid legacy quota baseline")?;
+            if tenant != reservation.tenant_id || daily < 0 || monthly < 0 || legacy_day > day_start || legacy_month > month_start {
+                return Err("invalid legacy quota baseline");
+            }
+            if legacy_day == day_start { used_day = used_day.checked_add(daily).ok_or("usage counter overflow")?; }
+            if legacy_month == month_start { used_month = used_month.checked_add(monthly).ok_or("usage counter overflow")?; }
+        }
         let token_total = |used: i64| {
             used.checked_add(pending_tokens)
                 .and_then(|value| value.checked_add(reservation.reserved_tokens))
@@ -1016,6 +1036,120 @@ mod tests {
             reservation_tokens: 60,
             reservation_microusd: 100_000,
         }
+    }
+
+    #[tokio::test]
+    async fn migrated_baseline_and_pending_reservations_reduce_available_quota() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let pool = database.sql_pool().unwrap();
+        let now = 1_700_000_000_000;
+        let (day, month) = boundaries(now).unwrap();
+        sqlx::query(
+            "INSERT INTO redrouter_legacy_quota_baselines VALUES ('key','tenant',$1,900,$2,800000)",
+        )
+        .bind(day)
+        .bind(month)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO redrouter_usage_reservations VALUES ('old','key','tenant','legacy','unknown',50,150000,$1,'dispatched')")
+            .bind(now).execute(pool).await.unwrap();
+        let usage = NativeUsage::new(database).unwrap();
+        let reservation = Reservation {
+            event_id: "new",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "gpt",
+            quota: NativeQuota {
+                max_tokens_per_minute: 0,
+                max_monthly_microusd: 0,
+                reservation_microusd: 0,
+                ..quota()
+            },
+            reserved_tokens: 60,
+            reserved_microusd: 0,
+            now_ms: now,
+        };
+        assert!(!usage.reserve(&reservation).await.unwrap());
+        let monthly = Reservation {
+            event_id: "monthly",
+            quota: NativeQuota {
+                max_tokens_per_minute: 0,
+                max_tokens_per_day: 0,
+                ..quota()
+            },
+            reserved_microusd: 100_000,
+            ..reservation
+        };
+        assert!(!usage.reserve(&monthly).await.unwrap());
+        let other = Reservation {
+            tenant_id: "other",
+            ..monthly
+        };
+        assert!(usage.reserve(&other).await.is_err());
+        let next_day = day + 86_400_000;
+        let expired = Reservation {
+            event_id: "next",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "gpt",
+            quota: NativeQuota {
+                max_tokens_per_minute: 0,
+                max_monthly_microusd: 0,
+                reservation_microusd: 0,
+                ..quota()
+            },
+            reserved_tokens: 60,
+            reserved_microusd: 0,
+            now_ms: next_day,
+        };
+        assert!(
+            usage.reserve(&expired).await.unwrap(),
+            "the daily baseline must expire but the existing hold remains"
+        );
+    }
+
+    #[tokio::test]
+    async fn daily_quota_does_not_count_reasoning_twice() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let pool = database.sql_pool().unwrap();
+        let now = 1_700_000_000_000;
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ('old','key','Key','tenant','openai','gpt',10,10,0,0,10,0,0,NULL,$1)")
+            .bind(now).execute(pool).await.unwrap();
+        let usage = NativeUsage::new(database).unwrap();
+        let quota = NativeQuota {
+            max_tokens_per_minute: 0,
+            max_tokens_per_day: 30,
+            max_monthly_microusd: 0,
+            reservation_tokens: 10,
+            reservation_microusd: 0,
+        };
+        assert!(usage
+            .reserve(&Reservation {
+                event_id: "new",
+                key_id: "key",
+                tenant_id: "tenant",
+                provider: "openai",
+                model: "gpt",
+                quota,
+                reserved_tokens: 10,
+                reserved_microusd: 0,
+                now_ms: now
+            })
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

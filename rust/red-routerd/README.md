@@ -411,9 +411,10 @@ ID format in one transaction; plaintext credentials are not copied. All imported
 keys start disabled while global policy migration remains incomplete. Their original
 active, banned and revoked state is retained in `redrouter_legacy_key_migration`;
 the command does not automatically activate them. The legacy database is opened
-read-only. Unknown key schemas, restrictions,
-quotas, budgets, groups, pending reservations, model mappings, key tags or usage
-attributes cause the entire import to fail closed. This command does not migrate
+read-only. Unknown key schemas, model restrictions, per-model quotas, budgets,
+groups, model mappings, key tags or usage attributes cause the entire import to fail
+closed. Supported key-wide quota limits and reservations are adopted separately.
+The server refuses to enable an imported key before that adoption. This command does not migrate
 provider credentials, usage history, quotas, their counters, or remaining policies;
 do not treat a successful partial key import as a complete cutover. It requires a
 quiescent snapshot: changes made to the legacy system afterward are not replicated.
@@ -449,6 +450,21 @@ administrator. Rust quota admission, current usage totals and export destination
 not yet consume them, and pending reservations are not reconciled automatically.
 Keep the original database and do not activate migrated quotas until accounting,
 tenant attribution and delivery state have been converted and verified.
+For a disabled key imported from that same offline snapshot, run
+`red-routerd adopt-legacy-quota-state --offline-confirmed KEY_ID RESERVATION_TOKENS RESERVATION_MICROUSD`
+with `RED_ROUTER_MIGRATION_DEST_PATH` set. The two reservation bounds are explicit
+upper bounds for each new request; choose them based on the allowed workloads. The
+command adopts supported TPM, RPM, daily-token and monthly-spend limits, current-day
+input/output tokens, current-month successful spend, current and previous minute
+counters and outstanding reservations in one transaction. It leaves the key disabled.
+The archived event history is not inserted into the native ledger, avoiding double
+counting. Legacy spend, pending spend and fractional counters round upward for quota
+enforcement, while a monthly spend limit rounds downward by at most one microdollar;
+original values remain in the archive. `reserved` and `dispatched` rows are both
+kept as unresolved holds. Native manual reconciliation for these holds is not yet
+available. The command refuses missing archives, unattributed current-period rows,
+enabled keys or existing native state. Keep both servers stopped throughout the
+archive, key import and adoption window; the archive must be from the same snapshot.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

@@ -6,7 +6,7 @@ use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
 use url::Url;
 
-async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, String) {
+pub async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, String) {
     let dir = TempDir::new().unwrap();
     let source = dir.path().join("legacy.sqlite");
     let dest = dir.path().join("rust.sqlite");
@@ -33,7 +33,8 @@ async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, String) 
           allow_auto_combos INTEGER DEFAULT 1, catalog_scope TEXT DEFAULT 'all', tenant_id TEXT DEFAULT 'red'
         );
         CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key));
-        CREATE TABLE api_key_quota_limits (id TEXT);
+        CREATE TABLE api_key_quota_limits (api_key_id TEXT PRIMARY KEY,tpm_limit INTEGER,rpm_limit INTEGER,monthly_amount_usd REAL);
+        INSERT INTO api_key_quota_limits VALUES ('first',200,5,0.01);
         CREATE TABLE api_key_token_limits (id TEXT);
         CREATE TABLE api_key_daily_token_limits (id TEXT);
         CREATE TABLE domain_budgets (id TEXT);
@@ -123,14 +124,14 @@ async fn any_unsupported_policy_rolls_back_all_keys_and_unknown_schema_fails_clo
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("UPDATE api_keys SET allowed_models='[]'; INSERT INTO api_key_quota_limits VALUES ('first');").execute(&mut input).await.unwrap();
+    sqlx::raw_sql("UPDATE api_keys SET allowed_models='[]'; INSERT INTO api_key_token_limits VALUES ('first');").execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     assert!(legacy_keys::import(&source, &dest).await.is_err());
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
     sqlx::raw_sql(
-        "DELETE FROM api_key_quota_limits; ALTER TABLE api_keys ADD COLUMN new_policy TEXT;",
+        "DELETE FROM api_key_token_limits; ALTER TABLE api_keys ADD COLUMN new_policy TEXT;",
     )
     .execute(&mut input)
     .await

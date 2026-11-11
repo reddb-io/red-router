@@ -53,14 +53,11 @@ const COLUMNS: &[&str] = &[
 // Even disabled or unmatched rows are rejected: deleting a policy or changing
 // a key later must not silently activate an incomplete migration.
 const POLICY_TABLES: &[&str] = &[
-    "api_key_quota_limits",
     "api_key_token_limits",
-    "api_key_daily_token_limits",
     "domain_budgets",
     "budget_assignments",
     "key_group_members",
     "api_key_context_sources",
-    "api_key_usage_reservations",
     "model_combo_mappings",
 ];
 
@@ -124,7 +121,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy policies")?;
             if count != 0 { return Err("legacy policy, quota or reservation requires migration; no keys imported"); }
         }
-        let settings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='settings' AND key='disabledModels' AND trim(value) NOT IN ('[]','null')) OR (namespace='api_key_tags')")
+        let settings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='settings' AND ((key IN ('disabledModels','modelVisibilityAllowlist','modelVisibilityDenylist') AND COALESCE(trim(value),'') NOT IN ('[]','null')) OR (key IN ('hidePaidModels','excludeTosAvoid','hideAutoCombos') AND COALESCE(trim(value),'') NOT IN ('false','null')) OR (key='freeAccessPolicy' AND COALESCE(trim(value),'') NOT IN ('\"off\"','null')) OR (key='proxyEnabled' AND COALESCE(trim(value),'') <> 'true'))) OR (namespace='api_key_tags')")
             .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy settings")?;
         if settings != 0 { return Err("legacy model policy or key tags require migration; no keys imported"); }
         for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {

@@ -6005,6 +6005,43 @@ impl ControlPlane {
         {
             return Err("client key tenant is unavailable");
         }
+        // Imported keys remain disabled until their historical consumption and
+        // unresolved reservations have been adopted into native accounting.
+        let mut imported_key = false;
+        if self.0.native_usage.read().await.is_some() {
+            let pool = self
+                .0
+                .database
+                .sql_pool()
+                .ok_or("legacy key migration state unavailable")?;
+            let has_marker: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_key_migration'")
+                .fetch_one(pool).await.map_err(|_| "legacy key migration state unavailable")?;
+            if has_marker != 0 {
+                let marker = sqlx::query("SELECT source_is_banned,source_revoked_at FROM redrouter_legacy_key_migration WHERE key_id=$1")
+                    .bind(id).fetch_optional(pool).await.map_err(|_| "legacy key migration state unavailable")?;
+                if let Some(marker) = marker {
+                    imported_key = true;
+                    if input.enabled {
+                        let banned: i64 = marker
+                            .try_get("source_is_banned")
+                            .map_err(|_| "invalid legacy key migration state")?;
+                        let revoked: Option<String> = marker
+                            .try_get("source_revoked_at")
+                            .map_err(|_| "invalid legacy key migration state")?;
+                        if banned != 0 || revoked.is_some() {
+                            return Err("revoked or banned legacy keys cannot be enabled");
+                        }
+                        let adopted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_quota_baselines WHERE key_id=$1 AND tenant_id=$2")
+                            .bind(id).bind(tenant_id).fetch_one(pool).await.map_err(|_| "legacy key migration state unavailable")?;
+                        if adopted != 1 {
+                            return Err(
+                                "legacy quota state must be adopted before enabling this key",
+                            );
+                        }
+                    }
+                }
+            }
+        }
         let key_hash = match input.api_key {
             Some(key) if (16..=512).contains(&key.len()) => {
                 let key = Zeroizing::new(key);
@@ -6022,15 +6059,28 @@ impl ControlPlane {
             .transpose()
             .map_err(|_| "client key expiry is out of range")?
             .unwrap_or(0);
+        let preserve_micros = |value: Option<f64>, previous: i64| {
+            if imported_key && previous > 0 && value == Some(previous as f64 / 1_000_000.0) {
+                Ok(previous)
+            } else {
+                optional_usd_micros(value)
+            }
+        };
         let native_quota = crate::native_usage::NativeQuota {
             max_tokens_per_minute: optional_limit(
                 input.max_tokens_per_minute,
                 9_007_199_254_740_991,
             )?,
             max_tokens_per_day: optional_limit(input.max_tokens_per_day, 9_007_199_254_740_991)?,
-            max_monthly_microusd: optional_usd_micros(input.max_spend_per_month_usd)?,
+            max_monthly_microusd: preserve_micros(
+                input.max_spend_per_month_usd,
+                existing.as_ref().map_or(0, |old| old.max_monthly_microusd),
+            )?,
             reservation_tokens: optional_limit(input.reservation_tokens, 9_007_199_254_740_991)?,
-            reservation_microusd: optional_usd_micros(input.reservation_spend_usd)?,
+            reservation_microusd: preserve_micros(
+                input.reservation_spend_usd,
+                existing.as_ref().map_or(0, |old| old.reservation_microusd),
+            )?,
         }
         .validate()?;
         if native_quota.enabled() && self.0.native_usage.read().await.is_none() {
@@ -6071,6 +6121,20 @@ impl ControlPlane {
             reservation_microusd: native_quota.reservation_microusd,
             revision: revision()?,
         };
+        if imported_key
+            && existing.as_ref().is_some_and(|old| {
+                old.expiry_unix != record.expiry_unix
+                    || old.max_rpm != record.max_rpm
+                    || old.max_rpd != record.max_rpd
+                    || old.max_tokens_per_minute != record.max_tokens_per_minute
+                    || old.max_tokens_per_day != record.max_tokens_per_day
+                    || old.max_monthly_microusd != record.max_monthly_microusd
+                    || old.reservation_tokens != record.reservation_tokens
+                    || old.reservation_microusd != record.reservation_microusd
+            })
+        {
+            return Err("migrated key expiry or quota changes require explicit reconciliation");
+        }
         self.0.database.upsert_client_key(&record).await?;
         let after = client_view(&record)?;
         self.record_audit_event(

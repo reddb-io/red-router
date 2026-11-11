@@ -19,6 +19,52 @@ mod legacy_key_tests;
 mod legacy_preflight_tests;
 #[path = "legacy_providers.rs"]
 mod legacy_provider_tests;
+#[path = "legacy_quota.rs"]
+mod legacy_quota_tests;
+
+#[tokio::test]
+async fn archived_quota_and_disabled_legacy_key_can_be_adopted_together() {
+    let (_directory, source, destination, url) = legacy_key_tests::fixture().await;
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE usage_history (id INTEGER PRIMARY KEY); CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY,api_key_id TEXT,tenant_id TEXT,timestamp TEXT,tokens_input INTEGER,tokens_output INTEGER,amount_usd REAL,success INTEGER); CREATE TABLE api_key_quota_counters (api_key_id TEXT,dimension_key TEXT,bucket_index INTEGER,consumed REAL,updated_at INTEGER); DROP TABLE api_key_daily_token_limits; CREATE TABLE api_key_daily_token_limits (api_key_id TEXT PRIMARY KEY,daily_tokens_limit INTEGER); INSERT INTO api_key_daily_token_limits VALUES ('first',1000); DROP TABLE api_key_usage_reservations; CREATE TABLE api_key_usage_reservations (id TEXT PRIMARY KEY,api_key_id TEXT,reserved_tokens INTEGER,reserved_usd REAL,created_at INTEGER,state TEXT,provider TEXT,model TEXT);").execute(&mut input).await.unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let timestamp = now
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    sqlx::query("INSERT INTO request_cost_ledger VALUES (1,'first','red',?,30,10,0.00000031,1)")
+        .bind(timestamp)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    red_routerd::legacy_archive::archive(&source, &destination)
+        .await
+        .unwrap();
+    let imported = red_routerd::legacy_keys::import(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!(imported.imported, 2);
+    let adopted = red_routerd::legacy_quota::adopt(&destination, "first", 50, 10)
+        .await
+        .unwrap();
+    assert_eq!((adopted.daily_tokens, adopted.monthly_microusd), (40, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let keys = db.client_keys().await.unwrap();
+    let key = keys.iter().find(|key| key.id == "first").unwrap();
+    assert!(!key.enabled);
+    assert_eq!(
+        (
+            key.max_rpm,
+            key.max_tokens_per_minute,
+            key.max_tokens_per_day,
+            key.max_monthly_microusd
+        ),
+        (5, 200, 1000, 9999)
+    );
+    db.close().await.unwrap();
+}
 
 async fn exercise(backend: Backend, url: &str) {
     let db = Database::connect(backend, url).await.unwrap();
