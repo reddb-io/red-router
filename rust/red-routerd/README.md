@@ -25,9 +25,9 @@ capacity (default 64); it is separate from any per-key policy or usage quota.
 
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
-priority, fill-first, round-robin, weighted, random, strict-random, least-used,
-power-of-two-choices, cost-optimized, context-optimized, reset-aware, reset-window,
-headroom, quota-weighted or last-known-good selection, opt-in
+priority, automatic, fill-first, round-robin, weighted, random, strict-random, least-used,
+power-of-two-choices, cost-optimized, context-optimized, cache-optimized, context-relay,
+fusion, reset-aware, reset-window, headroom, quota-weighted or last-known-good selection, opt-in
 fallback, and basic per-key route and model restrictions. It does not yet implement
 RedRouter's full provider selection, automatic quota collection, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
@@ -263,7 +263,8 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
   `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized`,
-  `reset-aware`, `reset-window`, `headroom`, `quota-weighted` or `lkgp`),
+  `cache-optimized`, `context-relay`, `fusion`, `reset-aware`, `reset-window`,
+  `headroom`, `quota-weighted` or `lkgp`),
   `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100. `least-used` and `p2c` use
@@ -277,6 +278,15 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   largest context window first. These optional target fields are stored in the
   combo JSON and returned by the admin API, so strategy changes and restarts do
   not lose their metadata.
+  `fusion` fans out non-streaming, tool-free panel requests to every eligible target,
+  starts a bounded grace period after quorum, and sends anonymized panel answers to a
+  configured judge target. Its optional `fusion` object persists `judgeModel`,
+  `minPanel`, `stragglerGraceMs` and `panelTimeoutMs`. The final judge request reuses
+  the normal proxy path, including streaming, translation, fallback, breakers and
+  SQLite usage accounting. Tool-bearing requests bypass fan-out and go directly to
+  the judge with their tool contract intact. Every physical panel and judge call is
+  recorded against the authenticated client quota; slow calls that finish after the
+  grace window still complete their health and usage bookkeeping.
 
 Provider and combo ownership is revision-coupled in the selected Rust database. A
 partially committed ownership update makes the control-plane snapshot unavailable

@@ -176,7 +176,7 @@
       "upstreamPaths": {
         "litellm": ["litellm/router.py", "litellm/router_strategy"]
       },
-      "remaining": "The Rust authority now covers durable priority/fill-first, round-robin, weighted, random/strict-random, least-used/P2C, cost-ranked, context-ranked and last-known-good combos plus provider breakers. Preserve RedRouter model/account failover while migrating reset/quota/cache/affinity strategies, retry boundaries, nested orchestration and catalog enrichment.",
+      "remaining": "The Rust authority now covers the 19 selectors advertised by the Rust capability boundary, including durable context relay and fusion panel/judge orchestration. Fusion persists dashboard tuning, bounds parallel fan-out with quorum grace, preserves tool-bearing requests, shares provider health/load controls and accounts every physical call in native SQLite usage. Preserve RedRouter model/account failover while completing pipeline/nested orchestration, product-database compatibility accounting and remaining catalog enrichment.",
       "acceptance": [
         "Do not retry a request after emitting upstream bytes or replay ambiguous billable writes.",
         "Account/model errors do not disable a whole provider.",

@@ -359,6 +359,91 @@ async fn usage_provider(
     )
 }
 
+async fn fusion_provider(
+    expected_key: &'static str,
+    panel_text: &'static str,
+    delay: Duration,
+) -> (
+    String,
+    Arc<Mutex<Vec<serde_json::Value>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let observed = bodies.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                let observed = observed.clone();
+                async move {
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {expected_key}")
+                    );
+                    let is_judge = body
+                        .get("messages")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|messages| {
+                            messages.iter().any(|message| {
+                                message
+                                    .get("content")
+                                    .and_then(serde_json::Value::as_str)
+                                    .is_some_and(|content| {
+                                        content.contains("=== PANEL RESPONSES ===")
+                                    })
+                            })
+                        });
+                    let streaming = is_judge
+                        && body.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
+                    observed.lock().unwrap().push(body);
+                    tokio::time::sleep(delay).await;
+                    let (content, prompt_tokens, completion_tokens) = if is_judge {
+                        ("fused-answer", 9, 4)
+                    } else {
+                        (panel_text, 3, 2)
+                    };
+                    let response = serde_json::json!({
+                        "id":"fusion-fixture",
+                        "choices":[{"message":{"role":"assistant","content":content}}],
+                        "usage":{
+                            "prompt_tokens":prompt_tokens,
+                            "completion_tokens":completion_tokens,
+                            "total_tokens":prompt_tokens + completion_tokens
+                        }
+                    });
+                    if streaming {
+                        let frames = format!(
+                            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                            serde_json::json!({
+                                "choices":[{"delta":{"content":content}}]
+                            }),
+                            serde_json::json!({
+                                "choices":[],
+                                "usage":response["usage"]
+                            })
+                        );
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header(header::CONTENT_TYPE, "text/event-stream")
+                            .body(Body::from(frames))
+                            .unwrap()
+                    } else {
+                        Json(response).into_response()
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        bodies,
+        task,
+    )
+}
+
 async fn models_dev_catalog_server() -> (
     String,
     Arc<AtomicUsize>,
@@ -4049,6 +4134,236 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     responses_task.abort();
     anthropic_task.abort();
     gemini_task.abort();
+}
+
+#[tokio::test]
+async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("fusion.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (judge_url, judge_bodies, judge_task) = fusion_provider(
+        "fusion-judge-secret",
+        "alpha evidence",
+        Duration::from_millis(15),
+    )
+    .await;
+    let (second_url, second_bodies, second_task) = fusion_provider(
+        "fusion-second-secret",
+        "beta evidence",
+        Duration::from_millis(25),
+    )
+    .await;
+    let (slow_url, slow_bodies, slow_task) = fusion_provider(
+        "fusion-slow-secret",
+        "late evidence",
+        Duration::from_millis(1_500),
+    )
+    .await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("fusion-judge", judge_url, "fusion-judge-secret"),
+        ("fusion-second", second_url, "fusion-second-secret"),
+        ("fusion-slow", slow_url, "fusion-slow-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/fusion-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Fusion workload",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["fusion-combo","judge-model","second-model","slow-model"],
+                "allowed_provider_ids":["fusion-judge","fusion-second","fusion-slow"],
+                "max_tokens_per_minute":1000,
+                "max_tokens_per_day":10000,
+                "reservation_tokens":50
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let invalid_judge = client
+        .put(format!("{base}/api/admin/combos/fusion-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "strategy":"fusion",
+            "fusion":{"judgeModel":"missing/model"},
+            "targets":[
+                {"provider_id":"fusion-judge","model":"judge-model"},
+                {"provider_id":"fusion-second","model":"second-model"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_judge.status(), StatusCode::BAD_REQUEST);
+    let configured = client
+        .put(format!("{base}/api/admin/combos/fusion-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "strategy":"fusion",
+            "fallback":true,
+            "fusion":{
+                "judgeModel":" fusion-judge/judge-model ",
+                "minPanel":2,
+                "stragglerGraceMs":100,
+                "panelTimeoutMs":4000
+            },
+            "targets":[
+                {"provider_id":"fusion-judge","model":"judge-model"},
+                {"provider_id":"fusion-second","model":"second-model"},
+                {"provider_id":"fusion-slow","model":"slow-model"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(
+        configured["combo"]["fusion"]["judgeModel"],
+        "fusion-judge/judge-model"
+    );
+    assert_eq!(configured["combo"]["fusion"]["minPanel"], 2);
+
+    let started = std::time::Instant::now();
+    let response = chat_model_with_body(
+        &client,
+        &base,
+        RUST_CLIENT_KEY,
+        serde_json::json!({
+            "model":"fusion-combo",
+            "messages":[{"role":"user","content":"compare the options"}],
+            "stream":true,
+            "stream_options":{"include_usage":true}
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = response.text().await.unwrap();
+    assert!(
+        started.elapsed() < Duration::from_millis(1_000),
+        "fusion waited for the straggler instead of honoring quorum grace"
+    );
+    assert!(response.contains("fused-answer"));
+    assert!(response.contains("data: [DONE]"));
+
+    {
+        let bodies = judge_bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 2);
+        let panel = bodies
+            .iter()
+            .find(|body| body["messages"].as_array().unwrap().len() == 1)
+            .unwrap();
+        assert_eq!(panel["stream"], false);
+        assert!(panel.get("tools").is_none());
+        assert!(panel.get("stream_options").is_none());
+        let judge = bodies
+            .iter()
+            .find(|body| body["messages"].as_array().unwrap().len() == 2)
+            .unwrap();
+        let prompt = judge["messages"][1]["content"].as_str().unwrap();
+        assert!(prompt.contains("[Source 1]"));
+        assert!(prompt.contains("[Source 2]"));
+        assert!(prompt.contains("alpha evidence"));
+        assert!(prompt.contains("beta evidence"));
+        assert!(!prompt.contains("fusion-judge"));
+        assert!(!prompt.contains("judge-model"));
+        assert_eq!(judge["stream"], true);
+    }
+    assert_eq!(second_bodies.lock().unwrap().len(), 1);
+    assert_eq!(slow_bodies.lock().unwrap().len(), 1);
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let ledger: (i64, i64) = sqlx::query_as(
+                "SELECT COUNT(*), COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id = ?",
+            )
+            .bind("fusion-client")
+            .fetch_one(&audit)
+            .await
+            .unwrap();
+            if ledger == (4, 28) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("all physical fusion calls were not accounted");
+
+    let judge_count = judge_bodies.lock().unwrap().len();
+    let second_count = second_bodies.lock().unwrap().len();
+    let slow_count = slow_bodies.lock().unwrap().len();
+    let tool_response = chat_model_with_body(
+        &client,
+        &base,
+        RUST_CLIENT_KEY,
+        serde_json::json!({
+            "model":"fusion-combo",
+            "messages":[{"role":"user","content":"look this up"}],
+            "tools":[{
+                "type":"function",
+                "function":{"name":"lookup","parameters":{"type":"object"}}
+            }],
+            "tool_choice":"auto"
+        }),
+    )
+    .await;
+    assert_eq!(tool_response.status(), StatusCode::OK);
+    let tool_response: serde_json::Value = tool_response.json().await.unwrap();
+    assert_eq!(
+        tool_response["choices"][0]["message"]["content"],
+        "alpha evidence"
+    );
+    assert_eq!(judge_bodies.lock().unwrap().len(), judge_count + 1);
+    assert_eq!(second_bodies.lock().unwrap().len(), second_count);
+    assert_eq!(slow_bodies.lock().unwrap().len(), slow_count);
+    let last_judge = judge_bodies.lock().unwrap().last().unwrap().clone();
+    assert_eq!(last_judge["tools"][0]["function"]["name"], "lookup");
+    assert_eq!(last_judge["tool_choice"], "auto");
+
+    let ledger: (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id = ?",
+    )
+    .bind("fusion-client")
+    .fetch_one(&audit)
+    .await
+    .unwrap();
+    assert_eq!(ledger, (5, 33));
+
+    audit.close().await;
+    gateway_task.abort();
+    judge_task.abort();
+    second_task.abort();
+    slow_task.abort();
 }
 
 #[tokio::test]

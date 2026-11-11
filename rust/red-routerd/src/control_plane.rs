@@ -928,6 +928,30 @@ pub struct ComboContextRelayConfig {
     pub relay_mode: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ComboFusionConfig {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub judge_model: String,
+    #[serde(default = "default_fusion_min_panel")]
+    pub min_panel: u32,
+    #[serde(default = "default_fusion_straggler_grace_ms")]
+    pub straggler_grace_ms: u64,
+    #[serde(default = "default_fusion_panel_timeout_ms")]
+    pub panel_timeout_ms: u64,
+}
+
+impl Default for ComboFusionConfig {
+    fn default() -> Self {
+        Self {
+            judge_model: String::new(),
+            min_panel: default_fusion_min_panel(),
+            straggler_grace_ms: default_fusion_straggler_grace_ms(),
+            panel_timeout_ms: default_fusion_panel_timeout_ms(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ContextRelayHandoff {
     pub summary: String,
@@ -965,6 +989,8 @@ pub struct ComboInput {
     pub auto: Option<ComboAutoConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_relay: Option<ComboContextRelayConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<ComboFusionConfig>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
@@ -981,6 +1007,8 @@ pub struct ComboView {
     pub auto: Option<ComboAutoConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_relay: Option<ComboContextRelayConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<ComboFusionConfig>,
     pub enabled: bool,
     pub revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -995,6 +1023,8 @@ struct StoredComboPayload {
     auto: Option<ComboAutoConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context_relay: Option<ComboContextRelayConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fusion: Option<ComboFusionConfig>,
 }
 
 #[derive(Deserialize)]
@@ -1244,6 +1274,18 @@ fn default_max_messages_for_summary() -> u32 {
 
 fn standard_relay_mode() -> String {
     "standard".to_owned()
+}
+
+fn default_fusion_min_panel() -> u32 {
+    2
+}
+
+fn default_fusion_straggler_grace_ms() -> u64 {
+    8_000
+}
+
+fn default_fusion_panel_timeout_ms() -> u64 {
+    90_000
 }
 
 fn default_quota_ttl_seconds() -> u64 {
@@ -5286,6 +5328,7 @@ impl ControlPlane {
         let catalog = self.model_catalog().await;
         enrich_combo_metadata(&mut input, &providers, &catalog)?;
         normalize_context_relay_config(&mut input);
+        normalize_fusion_config(&mut input);
         validate_combo(&input)?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
@@ -5305,16 +5348,18 @@ impl ControlPlane {
                 return Err("combo targets require enabled providers with the same protocol");
             }
         }
-        let targets_json = if input.auto.is_some() || input.context_relay.is_some() {
-            serde_json::to_string(&StoredComboPayload {
-                targets: input.targets.clone(),
-                auto: input.auto.clone(),
-                context_relay: input.context_relay.clone(),
-            })
-        } else {
-            serde_json::to_string(&input.targets)
-        }
-        .map_err(|_| "cannot encode combo targets")?;
+        let targets_json =
+            if input.auto.is_some() || input.context_relay.is_some() || input.fusion.is_some() {
+                serde_json::to_string(&StoredComboPayload {
+                    targets: input.targets.clone(),
+                    auto: input.auto.clone(),
+                    context_relay: input.context_relay.clone(),
+                    fusion: input.fusion.clone(),
+                })
+            } else {
+                serde_json::to_string(&input.targets)
+            }
+            .map_err(|_| "cannot encode combo targets")?;
         let record = StoredCombo {
             id: id.to_owned(),
             tenant_id,
@@ -6771,6 +6816,7 @@ impl ControlPlane {
                         }
                     });
             let context_relay = view.context_relay.clone().unwrap_or_default();
+            let fusion = view.fusion.clone().unwrap_or_default();
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
@@ -6855,6 +6901,7 @@ impl ControlPlane {
                 "context-optimized" => RouteStrategy::ContextOptimized,
                 "cache-optimized" => RouteStrategy::CacheOptimized,
                 "context-relay" => RouteStrategy::ContextRelay,
+                "fusion" => RouteStrategy::Fusion,
                 "reset-aware" => RouteStrategy::ResetAware,
                 "reset-window" => RouteStrategy::ResetWindow,
                 "headroom" => RouteStrategy::Headroom,
@@ -6884,6 +6931,7 @@ impl ControlPlane {
                     strategy,
                     auto_weights,
                     context_relay,
+                    fusion,
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
                     seed: if strategy == RouteStrategy::StrictRandom {
@@ -8378,11 +8426,14 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     } else {
         return Err("invalid combo targets");
     };
-    let (targets, auto, context_relay) = match payload {
-        StoredComboPayloadCompat::Legacy(targets) => (targets, None, None),
-        StoredComboPayloadCompat::Current(payload) => {
-            (payload.targets, payload.auto, payload.context_relay)
-        }
+    let (targets, auto, context_relay, fusion) = match payload {
+        StoredComboPayloadCompat::Legacy(targets) => (targets, None, None, None),
+        StoredComboPayloadCompat::Current(payload) => (
+            payload.targets,
+            payload.auto,
+            payload.context_relay,
+            payload.fusion,
+        ),
     };
     let input = ComboInput {
         tenant_id: Some(record.tenant_id.clone()),
@@ -8392,6 +8443,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         targets: targets.clone(),
         auto: auto.clone(),
         context_relay: context_relay.clone(),
+        fusion: fusion.clone(),
         enabled: record.enabled,
     };
     validate_combo(&input)?;
@@ -8404,6 +8456,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         targets,
         auto,
         context_relay,
+        fusion,
         enabled: record.enabled,
         revision: record.revision.to_string(),
         last_known_good: None,
@@ -8807,6 +8860,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "context-optimized"
             | "cache-optimized"
             | "context-relay"
+            | "fusion"
             | "reset-aware"
             | "reset-window"
             | "headroom"
@@ -8857,13 +8911,36 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             return Err("context relay configuration requires the context-relay strategy")
         }
     }
-    if input.strategy == "context-relay"
+    match (input.strategy.as_str(), input.fusion.as_ref()) {
+        ("fusion", Some(config)) => {
+            if config.judge_model.len() > 256
+                || config.judge_model.chars().any(char::is_control)
+                || !(1..=8).contains(&config.min_panel)
+                || !(100..=30_000).contains(&config.straggler_grace_ms)
+                || !(1_000..=120_000).contains(&config.panel_timeout_ms)
+                || config.straggler_grace_ms >= config.panel_timeout_ms
+            {
+                return Err("invalid fusion configuration");
+            }
+            if !config.judge_model.is_empty()
+                && !input.targets.iter().any(|target| {
+                    target.model == config.judge_model
+                        || format!("{}/{}", target.provider_id, target.model) == config.judge_model
+                })
+            {
+                return Err("fusion judge must be one of the combo targets");
+            }
+        }
+        ("fusion", None) | (_, None) => {}
+        (_, Some(_)) => return Err("fusion configuration requires the fusion strategy"),
+    }
+    if matches!(input.strategy.as_str(), "context-relay" | "fusion")
         && matches!(
             protocol,
             ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
         )
     {
-        return Err("context-relay requires a conversational protocol");
+        return Err("strategy requires a conversational protocol");
     }
     if input.targets.is_empty() || input.targets.len() > 8 {
         return Err("combo targets must contain 1-8 entries");
@@ -8947,6 +9024,12 @@ fn normalize_context_relay_config(input: &mut ComboInput) {
         }
     }
     config.handoff_providers = providers;
+}
+
+fn normalize_fusion_config(input: &mut ComboInput) {
+    if let Some(config) = input.fusion.as_mut() {
+        config.judge_model = config.judge_model.trim().to_owned();
+    }
 }
 
 fn enrich_combo_metadata(
@@ -11835,6 +11918,7 @@ mod tests {
             }],
             auto: None,
             context_relay: None,
+            fusion: None,
             enabled: true,
         };
 

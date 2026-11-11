@@ -32,7 +32,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use futures_util::{stream, stream::BoxStream, StreamExt};
+use futures_util::{stream, stream::BoxStream, stream::FuturesUnordered, StreamExt};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -69,6 +69,7 @@ const ROUTING_STRATEGIES: &[&str] = &[
     "context-optimized",
     "cache-optimized",
     "context-relay",
+    "fusion",
     "reset-aware",
     "reset-window",
     "headroom",
@@ -428,6 +429,7 @@ pub(crate) struct ModelRoute {
     strategy: RouteStrategy,
     auto_weights: AutoRouteWeights,
     context_relay: control_plane::ComboContextRelayConfig,
+    fusion: control_plane::ComboFusionConfig,
     fallback: bool,
     cursor: AtomicUsize,
     seed: usize,
@@ -468,6 +470,7 @@ pub(crate) enum RouteStrategy {
     ContextOptimized,
     CacheOptimized,
     ContextRelay,
+    Fusion,
     ResetAware,
     ResetWindow,
     Headroom,
@@ -560,7 +563,10 @@ struct ListedModel {
 impl ModelRoute {
     fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
         match self.strategy {
-            RouteStrategy::Priority | RouteStrategy::FillFirst | RouteStrategy::ContextRelay => 0,
+            RouteStrategy::Priority
+            | RouteStrategy::FillFirst
+            | RouteStrategy::ContextRelay
+            | RouteStrategy::Fusion => 0,
             RouteStrategy::RoundRobin => {
                 self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
             }
@@ -1618,6 +1624,7 @@ impl ProxyState {
                 }
                 Some(v) if v.as_str() == Some("cache-optimized") => RouteStrategy::CacheOptimized,
                 Some(v) if v.as_str() == Some("context-relay") => RouteStrategy::ContextRelay,
+                Some(v) if v.as_str() == Some("fusion") => RouteStrategy::Fusion,
                 Some(v) if v.as_str() == Some("reset-aware") => RouteStrategy::ResetAware,
                 Some(v) if v.as_str() == Some("reset-window") => RouteStrategy::ResetWindow,
                 Some(v) if v.as_str() == Some("headroom") => RouteStrategy::Headroom,
@@ -1625,13 +1632,14 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("lkgp") => RouteStrategy::Lkgp,
                 _ => return Err("unsupported route strategy"),
             };
-            if strategy == RouteStrategy::ContextRelay
-                && matches!(
-                    protocol,
-                    ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
-                )
-            {
-                return Err("context-relay requires a conversational protocol");
+            if matches!(
+                strategy,
+                RouteStrategy::ContextRelay | RouteStrategy::Fusion
+            ) && matches!(
+                protocol,
+                ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+            ) {
+                return Err("strategy requires a conversational protocol");
             }
             let fallback = match object.get("fallback") {
                 None => false,
@@ -1833,6 +1841,7 @@ impl ProxyState {
                         strategy,
                         auto_weights: AutoRouteWeights::default(),
                         context_relay: control_plane::ComboContextRelayConfig::default(),
+                        fusion: control_plane::ComboFusionConfig::default(),
                         fallback,
                         cursor: AtomicUsize::new(0),
                         seed: if strategy == RouteStrategy::StrictRandom {
@@ -3627,7 +3636,7 @@ async fn generate_context_relay_summary(
     })
 }
 
-async fn record_context_relay_provider_health(
+async fn record_internal_provider_health(
     target: &ContextRelaySummaryTarget,
     circuit_permit: Option<circuit::CircuitPermit>,
     availability_permit: Option<availability::AvailabilityPermit>,
@@ -3706,6 +3715,534 @@ async fn record_context_relay_provider_health(
         }
         resilience::ProviderFailureClass::Transient => Ok(()),
     }
+}
+
+#[derive(Debug)]
+struct FusionPanelAnswer {
+    target_index: usize,
+    text: String,
+}
+
+struct FusionPreparation {
+    judge_body: Option<serde_json::Value>,
+    attempt_order: [usize; MAX_ROUTE_TARGETS],
+}
+
+fn internal_target_from_model(
+    route: &ModelRoute,
+    target: &ModelTarget,
+) -> Option<ContextRelaySummaryTarget> {
+    Some(ContextRelaySummaryTarget {
+        client: target.client.clone(),
+        upstream: target.upstream.clone(),
+        provider_key: target.provider_key.clone(),
+        protocol: target.protocol,
+        auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
+        tenant_id: route.tenant_id.clone(),
+        provider_name: target
+            .provider_name
+            .as_deref()
+            .unwrap_or("openai-compatible")
+            .to_ascii_lowercase(),
+        model: target.model.clone(),
+        antigravity_project: target.antigravity_project.clone(),
+        rate_limit_scope: target.rate_limit_scope,
+        circuit: target.circuit.clone(),
+        availability: target.availability.clone(),
+        in_flight: target.in_flight.clone(),
+    })
+}
+
+fn fusion_request_has_tools(body: &serde_json::Value) -> bool {
+    body.get("tools")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|tools| !tools.is_empty())
+        && body.get("tool_choice").and_then(serde_json::Value::as_str) != Some("none")
+}
+
+fn fusion_judge_prompt(answers: &[FusionPanelAnswer]) -> String {
+    let panel = answers
+        .iter()
+        .enumerate()
+        .map(|(index, answer)| format!("[Source {}]\n{}", index + 1, answer.text))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        "You are the JUDGE in a model-fusion panel. {} expert models independently answered the user's most recent request. Their responses are below, anonymized by source.\n\nDo not mention the panel or sources. Produce one authoritative final answer addressed directly to the user. Internally analyze consensus, contradictions, partial coverage, unique insights and shared blind spots. Use your own reasoning: override an incorrect consensus, preserve a correct minority insight, and add important facts the panel missed. Be honest about uncertainty and avoid filler.\n\n=== PANEL RESPONSES ===\n{}\n=== END PANEL RESPONSES ===\n\nNow write the best final answer to the user's original request.",
+        answers.len(),
+        panel
+    )
+}
+
+fn fusion_append_judge_prompt(
+    body: &serde_json::Value,
+    prompt: String,
+) -> Option<serde_json::Value> {
+    let mut next = body.clone();
+    let object = next.as_object_mut()?;
+    if let Some(messages) = object
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        messages.push(serde_json::json!({"role":"user","content":prompt}));
+    } else if let Some(input) = object.get_mut("input") {
+        match input {
+            serde_json::Value::Array(input) => {
+                input.push(serde_json::json!({"role":"user","content":prompt}));
+            }
+            serde_json::Value::String(previous) => {
+                *input = serde_json::json!([
+                    {"role":"user","content":previous.clone()},
+                    {"role":"user","content":prompt}
+                ]);
+            }
+            _ => return None,
+        }
+    } else if let Some(contents) = object
+        .get_mut("contents")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        contents.push(serde_json::json!({
+            "role":"user",
+            "parts":[{"text":prompt}]
+        }));
+    } else {
+        object.insert(
+            "messages".to_owned(),
+            serde_json::json!([{"role":"user","content":prompt}]),
+        );
+    }
+    Some(next)
+}
+
+fn fusion_attempt_order(
+    eligible: &[&ModelTarget],
+    judge_index: usize,
+    answers: &[FusionPanelAnswer],
+) -> [usize; MAX_ROUTE_TARGETS] {
+    let mut order = [0; MAX_ROUTE_TARGETS];
+    order[0] = judge_index;
+    let mut output = 1;
+    for answer in answers {
+        if answer.target_index != judge_index && !order[..output].contains(&answer.target_index) {
+            order[output] = answer.target_index;
+            output += 1;
+        }
+    }
+    for index in 0..eligible.len() {
+        if index != judge_index && !order[..output].contains(&index) {
+            order[output] = index;
+            output += 1;
+        }
+    }
+    order
+}
+
+async fn execute_fusion_panel_target(
+    target_index: usize,
+    target: ContextRelaySummaryTarget,
+    mut body: serde_json::Value,
+    control: Option<control_plane::ControlPlane>,
+    identity: Option<policy::ClientIdentity>,
+    credits_mode: AntigravityCreditsMode,
+) -> Option<FusionPanelAnswer> {
+    let object = body.as_object_mut()?;
+    object.remove("tools");
+    object.remove("tool_choice");
+    object.remove("stream_options");
+    if matches!(
+        target.protocol,
+        ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+    ) {
+        object.remove("stream");
+    } else {
+        object.insert("stream".to_owned(), serde_json::Value::Bool(false));
+    }
+    let translate_anthropic = target.protocol == ProviderProtocol::OpenAiToAnthropic;
+    let translate_antigravity = target.protocol == ProviderProtocol::OpenAiToAntigravity;
+    let antigravity = matches!(
+        target.protocol,
+        ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity
+    );
+    let encoded = if translate_antigravity {
+        antigravity_translation::request(
+            &body,
+            &target.model,
+            target.antigravity_project.as_deref(),
+            None,
+        )
+        .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
+    } else if translate_anthropic {
+        translation::request(&body, &target.model)
+            .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
+    } else {
+        if !matches!(
+            target.protocol,
+            ProviderProtocol::Gemini | ProviderProtocol::Antigravity
+        ) {
+            body["model"] = serde_json::Value::String(target.model.clone());
+        }
+        serde_json::to_vec(&body).map_err(|_| ())
+    };
+    let mut payload = encoded.ok()?;
+    if antigravity {
+        payload =
+            antigravity_credits_payload(&payload, credits_mode == AntigravityCreditsMode::Always)
+                .ok()?;
+    }
+    let mut upstream = target.upstream.clone();
+    if target.protocol == ProviderProtocol::Gemini {
+        upstream.set_path(&format!(
+            "{}/{}:generateContent",
+            upstream.path(),
+            target.model
+        ));
+    } else if antigravity {
+        upstream.set_query(Some("alt=sse"));
+    }
+    let availability_permit = if let Some(availability) = &target.availability {
+        match availability.try_acquire(&target.model).await.ok()? {
+            availability::AvailabilityDecision::Permit(permit) => Some(permit),
+            availability::AvailabilityDecision::Blocked { .. } => return None,
+        }
+    } else {
+        None
+    };
+    let circuit_permit = if let Some(circuit) = &target.circuit {
+        match circuit.try_acquire().await.ok()? {
+            circuit::CircuitDecision::Permit(permit) => Some(permit),
+            circuit::CircuitDecision::Open { .. } => return None,
+        }
+    } else {
+        None
+    };
+    let accounting_attempt = match (control, identity) {
+        (Some(control), Some(identity)) => {
+            let (event_id, prices) = match control
+                .begin_native_usage(&identity, &target.provider_name, &target.model)
+                .await
+            {
+                Ok(attempt) => attempt,
+                Err(_) => {
+                    if let (Some(circuit), Some(permit)) = (&target.circuit, circuit_permit) {
+                        circuit.record_ignored(permit).await;
+                    }
+                    return None;
+                }
+            };
+            Some(UsageAttempt::Native {
+                control,
+                identity,
+                provider: target.provider_name.clone(),
+                model: target.model.clone(),
+                prices,
+                event_id,
+            })
+        }
+        _ => None,
+    };
+    let build_request = |include_project: bool, request_payload: &[u8]| {
+        let mut request = target
+            .client
+            .post(upstream.clone())
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(request_payload.to_vec());
+        request = match target.auth_scheme {
+            ProviderAuthScheme::Bearer => {
+                request.header(header::AUTHORIZATION, target.provider_key.clone())
+            }
+            ProviderAuthScheme::XApiKey => request.header("x-api-key", target.provider_key.clone()),
+            ProviderAuthScheme::XGoogApiKey => {
+                request.header("x-goog-api-key", target.provider_key.clone())
+            }
+            ProviderAuthScheme::Auto => return None,
+        };
+        if matches!(
+            target.protocol,
+            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+        ) {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
+        if antigravity {
+            request = request
+                .header(header::ACCEPT, "text/event-stream")
+                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            if include_project {
+                if let Some(project) = target.antigravity_project.as_deref() {
+                    request = request.header("x-goog-user-project", project);
+                }
+            }
+        }
+        Some(request)
+    };
+    let _load_guard = ProviderLoadGuard::new(target.in_flight.clone());
+    let Some(request) = build_request(true, &payload) else {
+        return None;
+    };
+    let response = match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
+        Ok(Ok(response)) => response,
+        _ => {
+            let _ = record_internal_provider_health(
+                &target,
+                circuit_permit,
+                availability_permit,
+                None,
+                None,
+                None,
+            )
+            .await;
+            return None;
+        }
+    };
+    let response = if antigravity
+        && response.status() == StatusCode::FORBIDDEN
+        && target.antigravity_project.is_some()
+    {
+        let Some(request) = build_request(false, &payload) else {
+            return None;
+        };
+        match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
+            Ok(Ok(response)) => response,
+            _ => {
+                let _ = record_internal_provider_health(
+                    &target,
+                    circuit_permit,
+                    availability_permit,
+                    None,
+                    None,
+                    None,
+                )
+                .await;
+                return None;
+            }
+        }
+    } else {
+        response
+    };
+    let mut response = inspect_provider_response(response).await;
+    if antigravity
+        && credits_mode == AntigravityCreditsMode::Retry
+        && response.status() == StatusCode::TOO_MANY_REQUESTS
+        && resilience::antigravity_credits_retry_eligible(response.error_body())
+    {
+        let credits_payload = antigravity_credits_payload(&payload, true).ok()?;
+        if let Some(request) = build_request(false, &credits_payload) {
+            if let Ok(Ok(retry)) =
+                tokio::time::timeout(ANTIGRAVITY_CREDITS_RETRY_TIMEOUT, request.send()).await
+            {
+                response = inspect_provider_response(retry).await;
+            }
+        }
+    }
+    if !response.status().is_success() {
+        let _ = record_internal_provider_health(
+            &target,
+            circuit_permit,
+            availability_permit,
+            Some(response.status()),
+            Some(response.headers()),
+            response.error_body(),
+        )
+        .await;
+        return None;
+    }
+    let Some(response) = response.into_streaming() else {
+        return None;
+    };
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_BODY_BYTES as u64)
+    {
+        let _ = record_internal_provider_health(
+            &target,
+            circuit_permit,
+            availability_permit,
+            Some(StatusCode::OK),
+            None,
+            None,
+        )
+        .await;
+        return None;
+    }
+    let read = async move {
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| ())?;
+            if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                return Err(());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok::<_, ()>(bytes)
+    };
+    let bytes = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+        Ok(Ok(bytes)) => bytes,
+        _ => {
+            let _ = record_internal_provider_health(
+                &target,
+                circuit_permit,
+                availability_permit,
+                None,
+                None,
+                None,
+            )
+            .await;
+            return None;
+        }
+    };
+    if record_internal_provider_health(
+        &target,
+        circuit_permit,
+        availability_permit,
+        Some(StatusCode::OK),
+        None,
+        None,
+    )
+    .await
+    .is_err()
+    {
+        return None;
+    }
+    let (value, usage) = if antigravity {
+        let translated = antigravity_translation::response(&bytes, &target.model)
+            .ok()?
+            .value;
+        let usage = accounting::ChatUsage::from_response(&translated).ok();
+        (translated, usage)
+    } else {
+        let raw: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let usage = match target.protocol {
+            ProviderProtocol::OpenAiResponses => {
+                accounting::ChatUsage::from_responses_response(&raw)
+            }
+            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
+                accounting::ChatUsage::from_anthropic_response(&raw)
+            }
+            ProviderProtocol::Gemini => accounting::ChatUsage::from_gemini_response(&raw),
+            _ => accounting::ChatUsage::from_response(&raw),
+        }
+        .ok();
+        let value = if translate_anthropic {
+            translation::response(&raw).ok()?
+        } else {
+            raw
+        };
+        (value, usage)
+    };
+    if let Some(accounting) = accounting_attempt {
+        let usage = usage.as_ref()?;
+        if accounting.record(None, usage).await.is_err() {
+            return None;
+        }
+    }
+    let text = context_relay_response_text(&value).trim().to_owned();
+    (!text.is_empty()).then_some(FusionPanelAnswer { target_index, text })
+}
+
+async fn prepare_fusion(
+    state: &ProxyState,
+    route: &ModelRoute,
+    eligible: &[&ModelTarget],
+    body: &serde_json::Value,
+    native_usage_identity: Option<&policy::ClientIdentity>,
+    product_usage_accounting: bool,
+) -> Result<FusionPreparation, Response> {
+    let judge_index = route
+        .fusion
+        .judge_model
+        .is_empty()
+        .then_some(0)
+        .or_else(|| {
+            eligible.iter().position(|target| {
+                target.model == route.fusion.judge_model
+                    || target.provider_id.as_deref().is_some_and(|provider| {
+                        format!("{provider}/{}", target.model) == route.fusion.judge_model
+                    })
+            })
+        })
+        .unwrap_or(0);
+    let direct = || FusionPreparation {
+        judge_body: None,
+        attempt_order: fusion_attempt_order(eligible, judge_index, &[]),
+    };
+    if eligible.len() == 1 || fusion_request_has_tools(body) {
+        return Ok(direct());
+    }
+    if product_usage_accounting {
+        return Err(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Fusion requires Rust-native usage accounting",
+        ));
+    }
+    let mut pending = FuturesUnordered::new();
+    for (target_index, target) in eligible.iter().enumerate() {
+        if target.credential_expires_at_unix > 0
+            && unix_time_ms() / 1_000 >= target.credential_expires_at_unix
+        {
+            continue;
+        }
+        let Some(target) = internal_target_from_model(route, target) else {
+            continue;
+        };
+        let body = body.clone();
+        let control = state.control_plane.clone();
+        let identity = native_usage_identity.cloned();
+        let credits_mode = state.antigravity_credits_mode;
+        pending.push(tokio::spawn(async move {
+            execute_fusion_panel_target(target_index, target, body, control, identity, credits_mode)
+                .await
+        }));
+    }
+    let minimum = usize::try_from(route.fusion.min_panel)
+        .unwrap_or(eligible.len())
+        .clamp(1, eligible.len());
+    let hard_deadline =
+        tokio::time::Instant::now() + Duration::from_millis(route.fusion.panel_timeout_ms);
+    let mut grace_deadline = None;
+    let mut answers = Vec::new();
+    while !pending.is_empty() {
+        let deadline = grace_deadline.unwrap_or(hard_deadline).min(hard_deadline);
+        let next = match tokio::time::timeout_at(deadline, pending.next()).await {
+            Ok(next) => next,
+            Err(_) => break,
+        };
+        if let Some(Ok(Some(answer))) = next {
+            answers.push(answer);
+            if answers.len() >= minimum && grace_deadline.is_none() {
+                grace_deadline = Some(
+                    tokio::time::Instant::now()
+                        + Duration::from_millis(route.fusion.straggler_grace_ms),
+                );
+            }
+        }
+    }
+    if answers.is_empty() {
+        return Err(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "All fusion panel models failed",
+        ));
+    }
+    answers.sort_by_key(|answer| answer.target_index);
+    let judge_index = if route.fusion.judge_model.is_empty()
+        && !answers
+            .iter()
+            .any(|answer| answer.target_index == judge_index)
+    {
+        answers[0].target_index
+    } else {
+        judge_index
+    };
+    let Some(judge_body) = fusion_append_judge_prompt(body, fusion_judge_prompt(&answers)) else {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "Fusion is incompatible with this request body",
+        ));
+    };
+    Ok(FusionPreparation {
+        judge_body: Some(judge_body),
+        attempt_order: fusion_attempt_order(eligible, judge_index, &answers),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3792,7 +4329,7 @@ fn spawn_context_relay_summary(
             let health = match &outcome {
                 ContextRelaySummaryOutcome::Generated(_)
                 | ContextRelaySummaryOutcome::InvalidSuccess => {
-                    record_context_relay_provider_health(
+                    record_internal_provider_health(
                         &summary_target,
                         circuit_permit,
                         availability_permit,
@@ -3807,7 +4344,7 @@ fn spawn_context_relay_summary(
                     headers,
                     error_body,
                 } => {
-                    record_context_relay_provider_health(
+                    record_internal_provider_health(
                         &summary_target,
                         circuit_permit,
                         availability_permit,
@@ -3818,7 +4355,7 @@ fn spawn_context_relay_summary(
                     .await
                 }
                 ContextRelaySummaryOutcome::TransportFailure => {
-                    record_context_relay_provider_health(
+                    record_internal_provider_health(
                         &summary_target,
                         circuit_permit,
                         availability_permit,
@@ -4388,11 +4925,36 @@ async fn proxy_request(
             }
         }
     }
+    let fusion_preparation = match route.filter(|route| route.strategy == RouteStrategy::Fusion) {
+        Some(route) => match prepare_fusion(
+            &state,
+            route,
+            &eligible,
+            &parsed,
+            native_usage_identity.as_ref(),
+            product_usage_accounting,
+        )
+        .await
+        {
+            Ok(preparation) => Some(preparation),
+            Err(response) => return response,
+        },
+        None => None,
+    };
+    if let Some(judge_body) = fusion_preparation
+        .as_ref()
+        .and_then(|preparation| preparation.judge_body.clone())
+    {
+        parsed = judge_body;
+    }
     let cache_affinity_key = route
         .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
         .and_then(|_| prompt_cache_affinity_key(&parsed));
-    let attempt_order =
+    let mut attempt_order =
         route.map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
+    if let Some(preparation) = fusion_preparation {
+        attempt_order = Some(preparation.attempt_order);
+    }
     let context_relay_previous = match (
         route.filter(|route| route.strategy == RouteStrategy::ContextRelay),
         context_relay_session_id.as_deref(),
@@ -5878,6 +6440,50 @@ mod address_tests {
             4,
         )
         .is_none());
+    }
+
+    #[test]
+    fn fusion_preserves_native_message_shapes_and_tool_bypass_semantics() {
+        let prompt = fusion_judge_prompt(&[
+            FusionPanelAnswer {
+                target_index: 0,
+                text: "first answer".to_owned(),
+            },
+            FusionPanelAnswer {
+                target_index: 1,
+                text: "second answer".to_owned(),
+            },
+        ]);
+        assert!(prompt.contains("[Source 1]\nfirst answer"));
+        assert!(prompt.contains("[Source 2]\nsecond answer"));
+
+        let gemini = fusion_append_judge_prompt(
+            &serde_json::json!({
+                "contents":[{"role":"user","parts":[{"text":"question"}]}]
+            }),
+            prompt.clone(),
+        )
+        .unwrap();
+        assert_eq!(gemini["contents"][0]["parts"][0]["text"], "question");
+        assert_eq!(gemini["contents"][1]["role"], "user");
+        assert_eq!(gemini["contents"][1]["parts"][0]["text"], prompt);
+
+        let responses = fusion_append_judge_prompt(
+            &serde_json::json!({"input":"question"}),
+            "judge".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(responses["input"][0]["content"], "question");
+        assert_eq!(responses["input"][1]["content"], "judge");
+
+        assert!(fusion_request_has_tools(&serde_json::json!({
+            "tools":[{"type":"function"}],
+            "tool_choice":"auto"
+        })));
+        assert!(!fusion_request_has_tools(&serde_json::json!({
+            "tools":[{"type":"function"}],
+            "tool_choice":"none"
+        })));
     }
 
     #[tokio::test]
