@@ -84,6 +84,27 @@ async fn run(
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
+    if command.as_deref() == Some("import-legacy-provider") {
+        let flag = args.next();
+        let id = args.next();
+        if flag.as_deref() != Some("--offline-confirmed") || id.is_none() || args.next().is_some() {
+            return Err("usage: red-routerd import-legacy-provider --offline-confirmed PROVIDER_ID (set RED_ROUTER_PRODUCT_DB_PATH, RED_ROUTER_MIGRATION_DEST_PATH and STORAGE_ENCRYPTION_KEY; stop both servers first)".into());
+        }
+        let source = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
+            .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
+        let secret = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);
+        let report = red_routerd::legacy_providers::import(
+            std::path::Path::new(&source),
+            std::path::Path::new(&destination),
+            id.as_deref().unwrap_or_default(),
+            &secret,
+        )
+        .await?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     if command.as_deref() == Some("import-legacy-keys") {
         if args.next().as_deref() != Some("--offline-confirmed") || args.next().is_some() {
             return Err("usage: red-routerd import-legacy-keys --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH and RED_ROUTER_MIGRATION_DEST_PATH; stop both servers first)".into());
@@ -214,7 +235,7 @@ async fn run(
         return Ok(());
     }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|import-legacy-pricing|import-legacy-keys|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|import-legacy-pricing|import-legacy-keys|import-legacy-provider|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())

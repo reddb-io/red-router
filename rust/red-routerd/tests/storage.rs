@@ -15,6 +15,8 @@ use url::Url;
 mod legacy_key_tests;
 #[path = "legacy_preflight.rs"]
 mod legacy_preflight_tests;
+#[path = "legacy_providers.rs"]
+mod legacy_provider_tests;
 
 async fn exercise(backend: Backend, url: &str) {
     let db = Database::connect(backend, url).await.unwrap();

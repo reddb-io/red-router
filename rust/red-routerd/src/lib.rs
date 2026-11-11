@@ -12,6 +12,7 @@ pub mod fastllm_plan;
 pub mod fastllm_supervisor;
 pub mod legacy_keys;
 pub mod legacy_preflight;
+pub mod legacy_providers;
 mod native_usage;
 mod oidc;
 mod policy;

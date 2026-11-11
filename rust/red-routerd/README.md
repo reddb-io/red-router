@@ -417,6 +417,16 @@ attributes cause the entire import to fail closed. This command does not migrate
 provider credentials, usage history, quotas, their counters, or remaining policies;
 do not treat a successful partial key import as a complete cutover. It requires a
 quiescent snapshot: changes made to the legacy system afterward are not replicated.
+For a single simple API-key provider, with both servers stopped and the same paths
+set, run `red-routerd import-legacy-provider --offline-confirmed PROVIDER_ID` with
+`STORAGE_ENCRYPTION_KEY` set to the key used by both databases. The credential is
+decrypted from the legacy format and re-encrypted for Rust with the provider ID as
+authenticated data; the imported connection starts disabled and its former active
+state is retained in `redrouter_legacy_provider_migration`. The operation rejects
+existing destination records, OAuth, custom endpoints, non-default routing or
+quota configuration and other unsupported metadata. It does not migrate session
+credentials, provider priorities, health history, combos or policies and is not a
+complete cutover.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

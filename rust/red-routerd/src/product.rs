@@ -900,7 +900,10 @@ async fn reserve_batch(
     Ok(results)
 }
 
-fn decrypt(stored: &str, encryption_key: Option<&str>) -> Result<Zeroizing<String>, &'static str> {
+pub(crate) fn decrypt(
+    stored: &str,
+    encryption_key: Option<&str>,
+) -> Result<Zeroizing<String>, &'static str> {
     if !stored.starts_with("enc:") {
         return Ok(Zeroizing::new(stored.to_owned()));
     }

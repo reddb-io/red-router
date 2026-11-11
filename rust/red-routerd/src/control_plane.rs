@@ -10349,7 +10349,7 @@ fn derive_key(secret: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, &'static
     Ok(key)
 }
 
-fn encrypt(value: &str, id: &str, secret: &str) -> Result<String, &'static str> {
+pub(crate) fn encrypt(value: &str, id: &str, secret: &str) -> Result<String, &'static str> {
     let mut salt = Zeroizing::new([0u8; 16]);
     let mut nonce = Zeroizing::new([0u8; 16]);
     getrandom::fill(salt.as_mut()).map_err(|_| "cannot generate credential salt")?;
