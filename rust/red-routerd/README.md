@@ -397,6 +397,12 @@ For a non-mutating inventory before migrating a legacy Next.js SQLite database, 
 It reads a single snapshot and reports counts without credentials or row contents. This
 is an inspection only; `migration_ready` remains false until data import and policy
 equivalence have been verified.
+To migrate the legacy pricing namespaces into an existing separate Rust SQLite database,
+set `RED_ROUTER_PRODUCT_DB_PATH` and `RED_ROUTER_MIGRATION_DEST_PATH` to the respective
+files and run `red-routerd import-legacy-pricing`. The source is read-only; inserts are
+atomic, reruns skip identical rows, and any conflicting destination value aborts the
+entire import without overwriting it. This transfers pricing only, not providers, keys,
+policies, usage history or destinations; use an offline migration window for cutover.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
