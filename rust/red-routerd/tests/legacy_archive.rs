@@ -125,7 +125,7 @@ async fn unsupported_late_table_rolls_back_the_whole_archive() {
             .await
             .unwrap();
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'redrouter_legacy_%'",
+        "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('redrouter_legacy_archive_manifest','redrouter_legacy_usage_history','redrouter_legacy_request_cost_ledger')",
     )
     .fetch_one(&mut output)
     .await

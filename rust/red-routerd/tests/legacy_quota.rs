@@ -135,4 +135,10 @@ async fn reservation_collision_rolls_back_the_entire_adoption() {
             .await
             .unwrap();
     assert_eq!(count, 0);
+    let limits: (i64, i64, i64, i64) = sqlx::query_as("SELECT max_tokens_per_minute,max_tokens_per_day,max_monthly_microusd,reservation_tokens FROM redrouter_control_client_key_quotas WHERE key_id='key-a'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(
+        limits,
+        (0, 0, 0, 0),
+        "a reservation collision must roll back the adopted limits"
+    );
 }

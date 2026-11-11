@@ -73,7 +73,7 @@ const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+pub(crate) const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
 const AGY_PROVIDER_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent";
@@ -545,14 +545,14 @@ struct ProviderAuthExport {
     content: String,
 }
 
-struct ParsedCodexAuth {
-    access_token: Zeroizing<String>,
-    refresh_token: Zeroizing<String>,
-    session_metadata: Zeroizing<String>,
-    account_id: String,
-    user_id: Option<String>,
-    email: Option<String>,
-    expires_at_unix: u64,
+pub(crate) struct ParsedCodexAuth {
+    pub(crate) access_token: Zeroizing<String>,
+    pub(crate) refresh_token: Zeroizing<String>,
+    pub(crate) session_metadata: Zeroizing<String>,
+    pub(crate) account_id: String,
+    pub(crate) user_id: Option<String>,
+    pub(crate) email: Option<String>,
+    pub(crate) expires_at_unix: u64,
 }
 
 struct ParsedClaudeAuth {
@@ -6035,7 +6035,7 @@ impl ControlPlane {
                             .bind(id).bind(tenant_id).fetch_one(pool).await.map_err(|_| "legacy key migration state unavailable")?;
                         if adopted != 1 {
                             return Err(
-                                "legacy quota state must be adopted before enabling this key",
+                                "legacy accounting adoption is required before enabling this key",
                             );
                         }
                     }
@@ -9832,7 +9832,7 @@ fn sanitize_auth_file_name(value: &str) -> String {
     }
 }
 
-fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static str> {
+pub(crate) fn parse_codex_auth(raw: serde_json::Value) -> Result<ParsedCodexAuth, &'static str> {
     let document = raw.as_object().ok_or("invalid Codex auth file")?;
     if document
         .get("auth_mode")

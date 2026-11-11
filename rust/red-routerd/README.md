@@ -437,6 +437,15 @@ destination. Staged records do not create a connection, refresh a token, or enab
 OAuth. If a source field was already encrypted by the legacy server, the original
 legacy encryption key remains necessary for a later conversion. Existing staging is
 never overwritten; unsupported SQLite field types and schemas abort the operation.
+For a staged Codex OAuth record, `red-routerd adopt-legacy-codex --offline-confirmed
+PROVIDER_ID` converts its access token, refresh token and ID-token session metadata
+to the native Rust format, preserving the provider ID and tenant. Set
+`STORAGE_ENCRYPTION_KEY` and, if the source used a different key,
+`RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY`. The command refuses a workspace that
+does not match the ID token, an unavailable tenant, conflicts, unsupported routing
+settings and unsafe provider status. It does not contact OpenAI or refresh tokens;
+the connection remains disabled, and the complete original record remains staged.
+Other OAuth providers and advanced routing settings still require conversion.
 To stage legacy usage history, cost ledger, quota counters, reservations and budget
 tables without rounding their stored values, stop both servers and run
 `red-routerd archive-legacy-usage --offline-confirmed` with the same source and

@@ -16,6 +16,125 @@ pub struct ProviderStage {
     pub staged: u64,
 }
 
+/// Convert a staged Codex OAuth record into Rust-owned encrypted credentials.
+/// It remains disabled, does not refresh tokens, and refuses routing settings
+/// that have not yet been translated.
+pub async fn adopt_codex(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+) -> Result<ProviderImport, &'static str> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("invalid provider identifier");
+    }
+    if !(16..=512).contains(&storage_key.len()) || !(16..=512).contains(&legacy_key.len()) {
+        return Err("invalid storage encryption key");
+    }
+    let path =
+        std::fs::canonicalize(destination).map_err(|_| "destination database does not exist")?;
+    let mut db = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(path))
+        .await
+        .map_err(|_| "cannot open destination database")?;
+    sqlx::query("PRAGMA busy_timeout = 5000")
+        .execute(&mut db)
+        .await
+        .map_err(|_| "cannot initialize destination database")?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut db)
+        .await
+        .map_err(|_| "cannot start OAuth adoption")?;
+    let result: Result<ProviderImport, &'static str> = async {
+        let ciphertext: String = sqlx::query_scalar("SELECT encrypted_record FROM redrouter_legacy_provider_records WHERE provider_id=?")
+            .bind(id).fetch_optional(&mut db).await.map_err(|_| "staged provider unavailable")?.ok_or("staged provider unavailable")?;
+        let plaintext = crate::control_plane::decrypt(&ciphertext, &format!("legacy-provider-stage:{id}"), storage_key)?;
+        let record: serde_json::Value = serde_json::from_str(&plaintext).map_err(|_| "invalid staged provider")?;
+        let object = record.as_object().ok_or("invalid staged provider")?;
+        let text = |name: &str| -> Result<Option<&str>, &'static str> {
+            match object.get(name) { Some(serde_json::Value::Null) => Ok(None), Some(serde_json::Value::String(value)) => Ok(Some(value)), _ => Err("unsupported staged provider schema") }
+        };
+        if text("id")? != Some(id) || text("provider")? != Some("codex") || text("auth_type")? != Some("oauth") { return Err("staged provider is not a Codex OAuth session"); }
+        let active = match object.get("is_active").and_then(serde_json::Value::as_i64) { Some(0) => false, Some(1) => true, _ => return Err("invalid staged provider status") };
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent"] {
+            match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
+        }
+        for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
+            if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
+        }
+        for field in ["rate_limited_until", "default_model", "group", "api_key"] {
+            if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider configuration requires migration"); }
+        }
+        if text("test_status")?.is_some_and(|status| !matches!(status, "" | "untested" | "success" | "active")) { return Err("legacy provider health requires migration"); }
+        let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
+        let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
+        if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_availability"] {
+            let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
+            let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut db).await.map_err(|_| "destination provider schema unavailable")?;
+            if count != 0 { return Err("destination provider already exists"); }
+        }
+        let token = |name| -> Result<Zeroizing<String>, &'static str> {
+            let stored = text(name)?.filter(|value| !value.is_empty()).ok_or("legacy OAuth token is missing")?;
+            crate::product::decrypt(stored, Some(legacy_key))
+        };
+        let access = token("access_token")?;
+        let refresh = token("refresh_token")?;
+        let id_token = token("id_token")?;
+        let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
+        let specific: serde_json::Value = match text("provider_specific_data")? {
+            None | Some("") => serde_json::json!({}),
+            Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy Codex metadata")?,
+        };
+        let specific = specific.as_object().ok_or("invalid legacy Codex metadata")?;
+        if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
+            if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
+        }
+        let mut expires = i64::try_from(parsed.expires_at_unix).map_err(|_| "invalid legacy OAuth expiry")?;
+        if expires <= 0 { return Err("invalid legacy OAuth expiry"); }
+        for field in ["expires_at", "token_expires_at"] {
+            if let Some(value) = text(field)?.filter(|value| !value.trim().is_empty()) {
+                let parsed = time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).map_err(|_| "invalid legacy OAuth expiry")?;
+                let candidate = parsed.unix_timestamp();
+                if candidate <= 0 { return Err("invalid legacy OAuth expiry"); }
+                expires = expires.min(candidate);
+            }
+        }
+        let label = text("display_name")?.filter(|value| !value.trim().is_empty()).or(text("name")?.filter(|value| !value.trim().is_empty())).unwrap_or(id).trim();
+        let email = text("email")?.filter(|value| !value.trim().is_empty()).or(parsed.email.as_deref()).unwrap_or("").trim();
+        if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
+        let access_cipher = crate::control_plane::encrypt(parsed.access_token.as_str(), id, storage_key)?;
+        let refresh_cipher = crate::control_plane::encrypt(parsed.refresh_token.as_str(), &format!("{id}:oauth-refresh"), storage_key)?;
+        let session_cipher = crate::control_plane::encrypt(parsed.session_metadata.as_str(), &format!("{id}:oauth-session"), storage_key)?;
+        sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut db).await.map_err(|_| "cannot initialize provider migration state")?;
+        sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
+        sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,'codex',?,?,0,1)").bind(id).bind(crate::control_plane::CODEX_PROVIDER_URL).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,'codex',?,0,1)").bind(id).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,'codex',?,1)").bind(id).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;
+        sqlx::query("INSERT INTO redrouter_provider_resilience VALUES (?,?,'connection',1)").bind(format!("{id}:1")).bind(id).execute(&mut db).await.map_err(|_| "cannot write provider resilience")?;
+        Ok(ProviderImport { imported: 1, enabled: false, source_enabled: active })
+    }.await;
+    match result {
+        Ok(report) => {
+            sqlx::query("COMMIT")
+                .execute(&mut db)
+                .await
+                .map_err(|_| "cannot commit OAuth adoption")?;
+            Ok(report)
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut db).await;
+            Err(error)
+        }
+    }
+}
+
 /// Stage every complete provider row, including OAuth tokens and provider-
 /// specific metadata, in a Rust-encrypted envelope. No staged row is activated
 /// or interpreted as a supported provider configuration.

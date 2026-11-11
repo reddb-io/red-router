@@ -228,3 +228,99 @@ async fn stages_complete_oauth_records_as_encrypted_inert_envelopes() {
         .await
         .is_err());
 }
+
+#[tokio::test]
+async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    let jwt = |payload: serde_json::Value| {
+        format!(
+            "{}.{}.signature",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#),
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+        )
+    };
+    let id_token = jwt(
+        serde_json::json!({"sub":"user-1", "email":"owner@example.com", "https://api.openai.com/auth":{"chatgpt_account_id":"workspace-1"}, "exp":2000000000}),
+    );
+    let access = jwt(serde_json::json!({"exp":2000000000}));
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,expires_at TEXT,token_expires_at TEXT);")
+        .execute(&mut input).await.unwrap();
+    for (id, workspace) in [
+        ("codex-good", "workspace-1"),
+        ("codex-wrong", "workspace-other"),
+    ] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace}).to_string()).execute(&mut input).await.unwrap();
+    }
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::stage(&source, &dest, STORAGE_KEY)
+            .await
+            .unwrap()
+            .staged,
+        2
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(db.providers().await.unwrap().is_empty());
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_codex(&dest, "codex-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert!(!providers[0].enabled);
+    assert_eq!(providers[0].provider, "codex");
+    assert_eq!(
+        decrypt_rust_ciphertext(&providers[0].credential_ciphertext, "codex-good"),
+        access
+    );
+    let oauth = db.provider_oauth().await.unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(
+            &oauth[0].refresh_token_ciphertext,
+            "codex-good:oauth-refresh"
+        ),
+        "private-refresh-token"
+    );
+    let sessions = db.provider_sessions().await.unwrap();
+    let metadata =
+        decrypt_rust_ciphertext(&sessions[0].session_ciphertext, "codex-good:oauth-session");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&metadata).unwrap()["id_token"],
+        id_token
+    );
+    db.close().await.unwrap();
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-good", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+}
