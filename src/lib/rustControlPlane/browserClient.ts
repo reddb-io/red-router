@@ -318,6 +318,8 @@ export type RustComboStrategy =
   | "context-optimized"
   | "cache-optimized"
   | "context-relay"
+  | "fusion"
+  | "pipeline"
   | "reset-aware"
   | "reset-window"
   | "headroom"
@@ -327,6 +329,7 @@ export type RustComboStrategy =
 export interface RustComboTarget {
   provider_id: string;
   model: string;
+  prompt?: string;
   weight?: number;
   input_cost_per_million?: number;
   output_cost_per_million?: number;
@@ -352,6 +355,18 @@ export interface RustComboContextRelayConfig {
   relayMode: "standard" | "schema-locked";
 }
 
+export interface RustComboFusionConfig {
+  judgeModel?: string;
+  minPanel: number;
+  stragglerGraceMs: number;
+  panelTimeoutMs: number;
+}
+
+export interface RustComboPipelineConfig {
+  maxRetries: number;
+  retryDelayMs: number;
+}
+
 export interface RustComboRoutePin {
   provider_id: string;
   model: string;
@@ -367,6 +382,8 @@ export interface RustCombo {
   targets: RustComboTarget[];
   auto?: RustComboAutoConfig;
   context_relay?: RustComboContextRelayConfig;
+  fusion?: RustComboFusionConfig;
+  pipeline?: RustComboPipelineConfig;
   enabled: boolean;
   revision: string;
   last_known_good?: RustComboRoutePin;
@@ -380,6 +397,8 @@ export interface RustComboInput {
   targets: RustComboTarget[];
   auto?: RustComboAutoConfig;
   context_relay?: RustComboContextRelayConfig;
+  fusion?: RustComboFusionConfig;
+  pipeline?: RustComboPipelineConfig;
   enabled: boolean;
 }
 
@@ -686,6 +705,8 @@ const RUST_COMBO_STRATEGIES: RustComboStrategy[] = [
   "context-optimized",
   "cache-optimized",
   "context-relay",
+  "fusion",
+  "pipeline",
   "reset-aware",
   "reset-window",
   "headroom",
@@ -704,6 +725,7 @@ function isRustComboTarget(value: unknown): value is RustComboTarget {
     hasOnlyKeys(target, [
       "provider_id",
       "model",
+      "prompt",
       "weight",
       "input_cost_per_million",
       "output_cost_per_million",
@@ -711,6 +733,11 @@ function isRustComboTarget(value: unknown): value is RustComboTarget {
     ]) &&
     typeof target.provider_id === "string" &&
     typeof target.model === "string" &&
+    (target.prompt === undefined ||
+      (typeof target.prompt === "string" &&
+        target.prompt.length > 0 &&
+        target.prompt.length <= 20_000 &&
+        !target.prompt.includes("\0"))) &&
     (target.weight === undefined || isNonNegativeInteger(target.weight)) &&
     isOptionalFiniteNumber(target.input_cost_per_million) &&
     isOptionalFiniteNumber(target.output_cost_per_million) &&
@@ -774,6 +801,40 @@ function isRustComboContextRelayConfig(value: unknown): value is RustComboContex
   );
 }
 
+function isRustComboFusionConfig(value: unknown): value is RustComboFusionConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(config, ["judgeModel", "minPanel", "stragglerGraceMs", "panelTimeoutMs"]) &&
+    (config.judgeModel === undefined ||
+      (typeof config.judgeModel === "string" &&
+        config.judgeModel.length <= 256 &&
+        !/[\u0000-\u001f\u007f]/.test(config.judgeModel))) &&
+    isNonNegativeInteger(config.minPanel) &&
+    (config.minPanel as number) >= 1 &&
+    (config.minPanel as number) <= 8 &&
+    isNonNegativeInteger(config.stragglerGraceMs) &&
+    (config.stragglerGraceMs as number) >= 100 &&
+    (config.stragglerGraceMs as number) <= 30_000 &&
+    isNonNegativeInteger(config.panelTimeoutMs) &&
+    (config.panelTimeoutMs as number) >= 1_000 &&
+    (config.panelTimeoutMs as number) <= 120_000 &&
+    (config.stragglerGraceMs as number) < (config.panelTimeoutMs as number)
+  );
+}
+
+function isRustComboPipelineConfig(value: unknown): value is RustComboPipelineConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(config, ["maxRetries", "retryDelayMs"]) &&
+    isNonNegativeInteger(config.maxRetries) &&
+    (config.maxRetries as number) <= 10 &&
+    isNonNegativeInteger(config.retryDelayMs) &&
+    (config.retryDelayMs as number) <= 60_000
+  );
+}
+
 function isRustCombo(value: unknown): value is RustCombo {
   if (!value || typeof value !== "object") return false;
   const combo = value as Record<string, unknown>;
@@ -787,6 +848,8 @@ function isRustCombo(value: unknown): value is RustCombo {
       "targets",
       "auto",
       "context_relay",
+      "fusion",
+      "pipeline",
       "enabled",
       "revision",
       "last_known_good",
@@ -801,6 +864,8 @@ function isRustCombo(value: unknown): value is RustCombo {
     (combo.auto === undefined || isRustComboAutoConfig(combo.auto)) &&
     (combo.context_relay === undefined ||
       isRustComboContextRelayConfig(combo.context_relay)) &&
+    (combo.fusion === undefined || isRustComboFusionConfig(combo.fusion)) &&
+    (combo.pipeline === undefined || isRustComboPipelineConfig(combo.pipeline)) &&
     typeof combo.enabled === "boolean" &&
     typeof combo.revision === "string" &&
     (combo.last_known_good === undefined || isRustComboRoutePin(combo.last_known_good))

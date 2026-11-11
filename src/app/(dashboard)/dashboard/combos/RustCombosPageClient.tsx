@@ -25,6 +25,7 @@ import {
 type TargetDraft = {
   providerId: string;
   model: string;
+  prompt: string;
   weight: string;
   inputCost: string;
   outputCost: string;
@@ -49,6 +50,16 @@ type Draft = {
     handoffProviders: string;
     maxMessagesForSummary: string;
     relayMode: "standard" | "schema-locked";
+  };
+  fusion: {
+    judgeModel: string;
+    minPanel: string;
+    stragglerGraceMs: string;
+    panelTimeoutMs: string;
+  };
+  pipeline: {
+    maxRetries: string;
+    retryDelayMs: string;
   };
   targets: TargetDraft[];
 };
@@ -79,6 +90,8 @@ const STRATEGIES: Array<{ value: RustComboStrategy; label: string }> = [
   { value: "context-optimized", label: "Context optimized" },
   { value: "cache-optimized", label: "Prompt cache affinity" },
   { value: "context-relay", label: "Context relay" },
+  { value: "fusion", label: "Fusion panel" },
+  { value: "pipeline", label: "Sequential pipeline" },
   { value: "reset-aware", label: "Reset aware" },
   { value: "reset-window", label: "Reset window" },
   { value: "headroom", label: "Quota headroom" },
@@ -89,6 +102,7 @@ const STRATEGIES: Array<{ value: RustComboStrategy; label: string }> = [
 const EMPTY_TARGET: TargetDraft = {
   providerId: "",
   model: "",
+  prompt: "",
   weight: "",
   inputCost: "",
   outputCost: "",
@@ -108,6 +122,16 @@ const EMPTY_DRAFT: Draft = {
     handoffProviders: "codex",
     maxMessagesForSummary: "30",
     relayMode: "standard",
+  },
+  fusion: {
+    judgeModel: "",
+    minPanel: "2",
+    stragglerGraceMs: "8000",
+    panelTimeoutMs: "90000",
+  },
+  pipeline: {
+    maxRetries: "0",
+    retryDelayMs: "1000",
   },
   targets: [{ ...EMPTY_TARGET }],
 };
@@ -140,9 +164,20 @@ function comboDraft(combo: RustCombo): Draft {
       maxMessagesForSummary: String(combo.context_relay?.maxMessagesForSummary ?? 30),
       relayMode: combo.context_relay?.relayMode ?? "standard",
     },
+    fusion: {
+      judgeModel: combo.fusion?.judgeModel ?? "",
+      minPanel: String(combo.fusion?.minPanel ?? 2),
+      stragglerGraceMs: String(combo.fusion?.stragglerGraceMs ?? 8_000),
+      panelTimeoutMs: String(combo.fusion?.panelTimeoutMs ?? 90_000),
+    },
+    pipeline: {
+      maxRetries: String(combo.pipeline?.maxRetries ?? 0),
+      retryDelayMs: String(combo.pipeline?.retryDelayMs ?? 1_000),
+    },
     targets: combo.targets.map((target) => ({
       providerId: target.provider_id,
       model: target.model,
+      prompt: target.prompt ?? "",
       weight: target.weight === undefined ? "" : String(target.weight),
       inputCost:
         target.input_cost_per_million === undefined ? "" : String(target.input_cost_per_million),
@@ -174,6 +209,14 @@ function optionalInteger(value: string, label: string, maximum: number): number 
 function requiredNumber(value: string, label: string, maximum: number): number {
   const parsed = optionalNumber(value, label, maximum);
   if (parsed === undefined) throw new Error(`${label} is required`);
+  return parsed;
+}
+
+function requiredInteger(value: string, label: string, minimum: number, maximum: number): number {
+  const parsed = requiredNumber(value, label, maximum);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    throw new Error(`${label} must be an integer between ${minimum} and ${maximum}`);
+  }
   return parsed;
 }
 
@@ -215,9 +258,14 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
       `Target ${index + 1} context window`,
       10_000_000
     );
+    const prompt = draft.strategy === "pipeline" ? target.prompt.trim() : "";
+    if (prompt.length > 20_000 || prompt.includes("\0")) {
+      throw new Error(`Target ${index + 1} requires a valid pipeline prompt`);
+    }
     return {
       provider_id: providerId,
       model,
+      ...(prompt ? { prompt } : {}),
       ...(weight === undefined ? {} : { weight }),
       ...(inputCost === undefined ? {} : { input_cost_per_million: inputCost }),
       ...(outputCost === undefined ? {} : { output_cost_per_million: outputCost }),
@@ -289,6 +337,50 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
   if (contextRelay && contextRelay.handoffProviders.length > 10) {
     throw new Error("Context relay accepts at most ten handoff providers");
   }
+  const fusion =
+    draft.strategy === "fusion"
+      ? {
+          judgeModel: draft.fusion.judgeModel.trim() || undefined,
+          minPanel: requiredInteger(draft.fusion.minPanel, "Minimum panel", 1, 8),
+          stragglerGraceMs: requiredInteger(
+            draft.fusion.stragglerGraceMs,
+            "Straggler grace",
+            100,
+            30_000
+          ),
+          panelTimeoutMs: requiredInteger(
+            draft.fusion.panelTimeoutMs,
+            "Panel timeout",
+            1_000,
+            120_000
+          ),
+        }
+      : undefined;
+  if (fusion && fusion.stragglerGraceMs >= fusion.panelTimeoutMs) {
+    throw new Error("Straggler grace must be shorter than the panel timeout");
+  }
+  if (
+    fusion?.judgeModel &&
+    !targets.some(
+      (target) =>
+        target.model === fusion.judgeModel ||
+        `${target.provider_id}/${target.model}` === fusion.judgeModel
+    )
+  ) {
+    throw new Error("Fusion judge must be one of the combo targets");
+  }
+  const pipeline =
+    draft.strategy === "pipeline"
+      ? {
+          maxRetries: requiredInteger(draft.pipeline.maxRetries, "Maximum retries", 0, 10),
+          retryDelayMs: requiredInteger(
+            draft.pipeline.retryDelayMs,
+            "Retry delay",
+            0,
+            60_000
+          ),
+        }
+      : undefined;
   return {
     protocol: draft.protocol,
     strategy: draft.strategy,
@@ -296,6 +388,8 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
     targets,
     ...(auto === undefined ? {} : { auto }),
     ...(contextRelay === undefined ? {} : { context_relay: contextRelay }),
+    ...(fusion === undefined ? {} : { fusion }),
+    ...(pipeline === undefined ? {} : { pipeline }),
     enabled: draft.enabled,
   };
 }
@@ -383,6 +477,8 @@ export default function RustCombosPageClient() {
       ...EMPTY_DRAFT,
       autoWeights: { ...EMPTY_DRAFT.autoWeights },
       contextRelay: { ...EMPTY_DRAFT.contextRelay },
+      fusion: { ...EMPTY_DRAFT.fusion },
+      pipeline: { ...EMPTY_DRAFT.pipeline },
       targets: [{ ...EMPTY_TARGET }],
     });
     setEditingId(null);
@@ -707,6 +803,134 @@ export default function RustCombosPageClient() {
           </div>
         )}
 
+        {draft.strategy === "fusion" && (
+          <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+            <div className="mb-3">
+              <strong className="text-sm text-text">Fusion panel</strong>
+              <p className="text-xs text-text-muted">
+                Rust queries the panel concurrently and asks one configured target to synthesize
+                the final answer.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className={labelClass}>
+                Judge model override
+                <input
+                  className={inputClass}
+                  value={draft.fusion.judgeModel}
+                  maxLength={256}
+                  placeholder="provider-id/model-id"
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      fusion: { ...current.fusion, judgeModel: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Minimum panel answers
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={draft.fusion.minPanel}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      fusion: { ...current.fusion, minPanel: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Straggler grace (ms)
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={100}
+                  max={30000}
+                  step={100}
+                  value={draft.fusion.stragglerGraceMs}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      fusion: { ...current.fusion, stragglerGraceMs: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Panel timeout (ms)
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={1000}
+                  max={120000}
+                  step={1000}
+                  value={draft.fusion.panelTimeoutMs}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      fusion: { ...current.fusion, panelTimeoutMs: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {draft.strategy === "pipeline" && (
+          <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+            <div className="mb-3">
+              <strong className="text-sm text-text">Sequential pipeline</strong>
+              <p className="text-xs text-text-muted">
+                Each target receives the previous stage output. The last target keeps the client
+                streaming and tool contract.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={labelClass}>
+                Transient retries per stage
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={draft.pipeline.maxRetries}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      pipeline: { ...current.pipeline, maxRetries: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                Retry delay (ms)
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={0}
+                  max={60000}
+                  step={100}
+                  value={draft.pipeline.retryDelayMs}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      pipeline: { ...current.pipeline, retryDelayMs: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-col gap-3">
           {draft.targets.map((target, index) => {
             const provider = providerById.get(target.providerId);
@@ -803,6 +1027,23 @@ export default function RustCombosPageClient() {
                         step={1}
                         value={target.weight}
                         onChange={(event) => setTarget(index, { weight: event.target.value })}
+                      />
+                    </label>
+                  )}
+                  {draft.strategy === "pipeline" && (
+                    <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
+                      Stage instruction (optional)
+                      <textarea
+                        className={inputClass}
+                        rows={3}
+                        maxLength={20000}
+                        value={target.prompt}
+                        placeholder={
+                          index === draft.targets.length - 1
+                            ? "Synthesize the final answer for the client"
+                            : "Review and improve the previous stage output"
+                        }
+                        onChange={(event) => setTarget(index, { prompt: event.target.value })}
                       />
                     </label>
                   )}
@@ -968,6 +1209,19 @@ export default function RustCombosPageClient() {
                 {combo.context_relay.handoffModel
                   ? `, summary model ${combo.context_relay.handoffModel}`
                   : ", active model for summaries"}
+              </div>
+            )}
+            {combo.fusion && (
+              <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
+                Fusion: minimum {combo.fusion.minPanel} answers, {combo.fusion.stragglerGraceMs} ms
+                grace, {combo.fusion.panelTimeoutMs} ms timeout
+                {combo.fusion.judgeModel ? `, judge ${combo.fusion.judgeModel}` : ""}
+              </div>
+            )}
+            {combo.pipeline && (
+              <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
+                Pipeline: {combo.pipeline.maxRetries} transient retries per stage, {" "}
+                {combo.pipeline.retryDelayMs} ms delay
               </div>
             )}
             {combo.last_known_good && (

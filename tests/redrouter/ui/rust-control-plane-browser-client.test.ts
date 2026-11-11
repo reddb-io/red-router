@@ -103,6 +103,41 @@ const combo: RustCombo = {
   },
 };
 
+const fusionCombo: RustCombo = {
+  ...combo,
+  id: "review-panel",
+  strategy: "fusion",
+  targets: [
+    { provider_id: provider.id, model: "openai/gpt-5" },
+    { provider_id: provider.id, model: "anthropic/claude-sonnet-4.5" },
+  ],
+  auto: undefined,
+  fusion: {
+    judgeModel: `${provider.id}/openai/gpt-5`,
+    minPanel: 2,
+    stragglerGraceMs: 8_000,
+    panelTimeoutMs: 90_000,
+  },
+  last_known_good: undefined,
+};
+
+const pipelineCombo: RustCombo = {
+  ...combo,
+  id: "coding-pipeline",
+  strategy: "pipeline",
+  targets: [
+    {
+      provider_id: provider.id,
+      model: "openai/gpt-5",
+      prompt: "Review the proposed implementation.",
+    },
+    { provider_id: provider.id, model: "openai/gpt-5-mini" },
+  ],
+  auto: undefined,
+  pipeline: { maxRetries: 2, retryDelayMs: 500 },
+  last_known_good: undefined,
+};
+
 const providerQuota: RustProviderQuota = {
   provider_id: "claude-team",
   session: { remaining_percent: 72.5, reset_at_unix_ms: 1_900_000_000_000 },
@@ -444,13 +479,13 @@ describe("Rust control-plane browser client", () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ combos: [combo] }))
+      .mockResolvedValueOnce(Response.json({ combos: [combo, fusionCombo, pipelineCombo] }))
       .mockResolvedValueOnce(Response.json({ combo }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustCombos()).resolves.toEqual([combo]);
+    await expect(listRustCombos()).resolves.toEqual([combo, fusionCombo, pipelineCombo]);
     await expect(
       replaceRustCombo(combo.id, {
         protocol: combo.protocol,
@@ -476,6 +511,36 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls.map(([path]) => String(path))).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^\/api\/combos(?:\/|$)/)])
     );
+  });
+
+  it("rejects malformed Rust fusion and pipeline contracts", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          combos: [
+            {
+              ...fusionCombo,
+              fusion: { ...fusionCombo.fusion, stragglerGraceMs: 90_000 },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          combos: [
+            {
+              ...pipelineCombo,
+              pipeline: { maxRetries: 11, retryDelayMs: 500 },
+            },
+          ],
+        })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustCombos()).rejects.toThrow("Invalid Rust combo response");
+    await expect(listRustCombos()).rejects.toThrow("Invalid Rust combo response");
   });
 
   it("rotates OAuth credentials with a generation and keeps both tokens write-only", async () => {

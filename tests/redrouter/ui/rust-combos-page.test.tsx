@@ -328,4 +328,115 @@ describe("Rust combo manager", () => {
       enabled: combo.enabled,
     });
   });
+
+  it("edits and persists Rust sequential pipeline settings and stage prompts", async () => {
+    const pipelineCombo = {
+      ...combo,
+      strategy: "pipeline",
+      targets: [
+        {
+          ...combo.targets[0],
+          prompt: "Review the implementation.",
+        },
+      ],
+      pipeline: { maxRetries: 1, retryDelayMs: 500 },
+      last_known_good: undefined,
+    };
+    api.listRustCombos.mockResolvedValue([pipelineCombo]);
+    api.replaceRustCombo.mockResolvedValue(pipelineCombo);
+    const container = await mount();
+    const edit = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Edit"
+    );
+    await act(async () => {
+      edit?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Sequential pipeline");
+    const retries = container.querySelector('input[max="10"]') as HTMLInputElement;
+    const delay = container.querySelector('input[max="60000"]') as HTMLInputElement;
+    const prompt = container.querySelector("textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      setInput(retries, "2");
+      setInput(delay, "750");
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(prompt, "  Produce the final client answer.  ");
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save combo"
+    );
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.replaceRustCombo).toHaveBeenCalledWith(combo.id, {
+      protocol: combo.protocol,
+      strategy: "pipeline",
+      fallback: combo.fallback,
+      targets: [
+        {
+          ...combo.targets[0],
+          prompt: "Produce the final client answer.",
+        },
+      ],
+      pipeline: { maxRetries: 2, retryDelayMs: 750 },
+      enabled: combo.enabled,
+    });
+  });
+
+  it("edits and persists a Rust fusion panel with a configured judge", async () => {
+    const fusionCombo = {
+      ...combo,
+      strategy: "fusion",
+      fusion: {
+        judgeModel: `${provider.id}/${combo.targets[0].model}`,
+        minPanel: 1,
+        stragglerGraceMs: 8_000,
+        panelTimeoutMs: 90_000,
+      },
+      last_known_good: undefined,
+    };
+    api.listRustCombos.mockResolvedValue([fusionCombo]);
+    api.replaceRustCombo.mockResolvedValue(fusionCombo);
+    const container = await mount();
+    const edit = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Edit"
+    );
+    await act(async () => {
+      edit?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Fusion panel");
+    const judge = container.querySelector(
+      'input[placeholder="provider-id/model-id"]'
+    ) as HTMLInputElement;
+    const minPanel = container.querySelector('input[max="8"]') as HTMLInputElement;
+    await act(async () => {
+      setInput(judge, combo.targets[0].model);
+      setInput(minPanel, "1");
+    });
+    const save = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save combo"
+    );
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.replaceRustCombo).toHaveBeenCalledWith(combo.id, {
+      protocol: combo.protocol,
+      strategy: "fusion",
+      fallback: combo.fallback,
+      targets: combo.targets,
+      fusion: {
+        judgeModel: combo.targets[0].model,
+        minPanel: 1,
+        stragglerGraceMs: 8_000,
+        panelTimeoutMs: 90_000,
+      },
+      enabled: combo.enabled,
+    });
+  });
 });
