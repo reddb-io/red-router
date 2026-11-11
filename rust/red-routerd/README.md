@@ -381,7 +381,7 @@ S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
 The Rust dashboard can be built with `npm ci` and `npm run build:rust-dashboard`.
 This produces `.build/rust-dashboard`, a static bundle using the existing Rust-backed
-providers, combos and client-key views. It uses Rust's OIDC browser session and requires
+providers, combos, client-key and usage-destination views. It uses Rust's OIDC browser session and requires
 OIDC browser login to be configured; the remaining Next dashboard views are not yet ported.
 Set `RED_ROUTER_SPA_DIR` to that directory or another prepared static build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid

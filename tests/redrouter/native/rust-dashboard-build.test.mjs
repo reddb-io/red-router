@@ -19,7 +19,7 @@ test("Rust dashboard builds a standalone static bundle with the migrated pages",
     const files = await readdir(join(output, "assets"));
     assert.ok(files.some((file) => file.endsWith(".css")), "dashboard stylesheet is emitted");
     const javascript = (await Promise.all(files.filter((file) => file.endsWith(".js")).map((file) => readFile(join(output, "assets", file), "utf8")))).join("\n");
-    for (const route of ["/api/auth/config", "/api/admin/providers", "/api/admin/combos", "/api/admin/client-keys"]) {
+    for (const route of ["/api/auth/config", "/api/admin/providers", "/api/admin/combos", "/api/admin/client-keys", "/api/usage-sinks/types"]) {
       assert.ok(javascript.includes(route), `missing Rust API ${route}`);
     }
   } finally {
