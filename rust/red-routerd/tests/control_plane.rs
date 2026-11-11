@@ -9270,8 +9270,14 @@ async fn rust_owns_dashboard_model_token_limit_crud() {
         .send()
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::OK);
-    let created: serde_json::Value = created.json().await.unwrap();
+    let created_status = created.status();
+    let created_body = created.text().await.unwrap();
+    assert_eq!(
+        created_status,
+        StatusCode::OK,
+        "model token limit creation failed: {created_body}"
+    );
+    let created: serde_json::Value = serde_json::from_str(&created_body).unwrap();
     let id = created["limit"]["id"].as_str().unwrap().to_owned();
     assert_eq!(created["limit"]["resetTime"], "02:30");
     let listed = client

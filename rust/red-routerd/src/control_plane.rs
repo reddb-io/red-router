@@ -11333,7 +11333,7 @@ pub async fn put_token_limit(
             StatusCode::SERVICE_UNAVAILABLE,
             "Token limit storage unavailable",
         ),
-        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid token limit configuration"),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, error),
     }
 }
 
