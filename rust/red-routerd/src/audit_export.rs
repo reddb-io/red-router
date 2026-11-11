@@ -698,6 +698,8 @@ fn usage_webhook_payload(
             "apiKey": {"id": event.key_id, "name": event.key_name},
             "provider": event.provider,
             "model": event.model,
+            "usageKind": event.usage_kind,
+            "searchUnits": event.search_units,
             "status": "ok",
             "tokens": {
                 "promptTokens": event.tokens_input,
@@ -1148,6 +1150,8 @@ fn bigquery_usage_request(events: &[&StoredUsageExportEvent]) -> Result<Vec<u8>,
                     "api_key_name": event.key_name,
                     "provider": event.provider,
                     "model": event.model,
+                    "usage_kind": event.usage_kind,
+                    "search_units": event.search_units,
                     "tokens_input": event.tokens_input,
                     "tokens_output": event.tokens_output,
                     "tokens_cache_read": event.tokens_cache_read,
@@ -1260,6 +1264,8 @@ mod tests {
             key_name: "Agent fleet".to_owned(),
             provider: "openrouter".to_owned(),
             model: "openai/gpt-5".to_owned(),
+            usage_kind: "tokens".to_owned(),
+            search_units: 0,
             tokens_input: 100,
             tokens_output: 40,
             tokens_cache_read: 20,
@@ -1315,9 +1321,40 @@ mod tests {
         assert_eq!(row["json"]["api_key_name"], "Agent fleet");
         assert_eq!(row["json"]["provider"], "openrouter");
         assert_eq!(row["json"]["model"], "openai/gpt-5");
+        assert_eq!(row["json"]["usage_kind"], "tokens");
+        assert_eq!(row["json"]["search_units"], 0);
         assert_eq!(row["json"]["tokens_total"], 150);
         assert_eq!(row["json"]["amount_microusd"], 1234);
         assert!(row["json"].get("api_key").is_none());
+    }
+
+    #[test]
+    fn usage_exports_preserve_rerank_units_without_tokens() {
+        let mut event = usage_event("rerank-one");
+        event.provider = "cohere".to_owned();
+        event.model = "rerank-v3.5".to_owned();
+        event.usage_kind = "rerank".to_owned();
+        event.search_units = 3;
+        event.tokens_input = 0;
+        event.tokens_output = 0;
+        event.tokens_cache_read = 0;
+        event.tokens_cache_creation = 0;
+        event.tokens_reasoning = 0;
+        event.pricing_snapshot =
+            Some(r#"{"source":"dashboard-user","unit":"search-unit"}"#.to_owned());
+        let bigquery: serde_json::Value =
+            serde_json::from_slice(&bigquery_usage_request(&[&event]).unwrap()).unwrap();
+        assert_eq!(bigquery["rows"][0]["json"]["usage_kind"], "rerank");
+        assert_eq!(bigquery["rows"][0]["json"]["search_units"], 3);
+        assert_eq!(bigquery["rows"][0]["json"]["tokens_total"], 0);
+        let webhook: serde_json::Value = serde_json::from_slice(
+            &usage_webhook_payload("sink-one", "Billing", &event, false).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(webhook["event"]["usageKind"], "rerank");
+        assert_eq!(webhook["event"]["searchUnits"], 3);
+        assert_eq!(webhook["event"]["tokens"]["promptTokens"], 0);
+        assert_eq!(webhook["event"]["tokens"]["completionTokens"], 0);
     }
 
     #[test]
@@ -1361,6 +1398,8 @@ mod tests {
         assert_eq!(payload["event"]["apiKey"]["name"], "Agent fleet");
         assert_eq!(payload["event"]["provider"], "openrouter");
         assert_eq!(payload["event"]["model"], "openai/gpt-5");
+        assert_eq!(payload["event"]["usageKind"], "tokens");
+        assert_eq!(payload["event"]["searchUnits"], 0);
         assert_eq!(payload["event"]["tokens"]["reasoningTokens"], 10);
         assert_eq!(payload["test"], true);
         assert!(!String::from_utf8(encoded).unwrap().contains("whsec_"));

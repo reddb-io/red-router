@@ -80,7 +80,7 @@ const CREATE_CLIENT_KEY_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_con
 const LIST_CLIENT_KEY_QUOTAS: &str = "SELECT key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision FROM redrouter_control_client_key_quotas ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_quotas (key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO UPDATE SET max_tokens_per_minute = $2, max_tokens_per_day = $3, max_monthly_microusd = $4, reservation_tokens = $5, reservation_microusd = $6, revision = $7";
 const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL)";
-const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL)";
+const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL)";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_REQUEST_RATE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_rate_counters (key_id TEXT NOT NULL, window_seconds BIGINT NOT NULL, bucket_index BIGINT NOT NULL, consumed_requests BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, window_seconds, bucket_index))";
 const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
@@ -340,6 +340,8 @@ pub struct StoredUsageExportEvent {
     pub key_name: String,
     pub provider: String,
     pub model: String,
+    pub usage_kind: String,
+    pub search_units: i64,
     pub tokens_input: i64,
     pub tokens_output: i64,
     pub tokens_cache_read: i64,
@@ -2004,7 +2006,7 @@ impl Database {
             return Err("usage export requires SQLite storage");
         };
         let limit = i64::try_from(limit).map_err(|_| "invalid usage export cursor")?;
-        sqlx::query("SELECT event_id,created_at_unix_ms,tenant_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot FROM redrouter_usage_ledger WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC,event_id ASC LIMIT $3")
+        sqlx::query("SELECT event_id,created_at_unix_ms,tenant_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot FROM redrouter_usage_ledger WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC,event_id ASC LIMIT $3")
             .bind(after_created_at_unix_ms)
             .bind(after_event_id)
             .bind(limit)
@@ -4076,6 +4078,34 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
             .await
             .map_err(|_| "cannot migrate usage database")?;
         }
+        let usage_kind: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('redrouter_usage_ledger') WHERE name = 'usage_kind'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| "cannot inspect usage database")?;
+        if usage_kind == 0 {
+            sqlx::query(
+                "ALTER TABLE redrouter_usage_ledger ADD COLUMN usage_kind TEXT NOT NULL DEFAULT 'tokens'",
+            )
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot migrate usage database")?;
+        }
+        let search_units: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('redrouter_usage_ledger') WHERE name = 'search_units'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| "cannot inspect usage database")?;
+        if search_units == 0 {
+            sqlx::query(
+                "ALTER TABLE redrouter_usage_ledger ADD COLUMN search_units BIGINT NOT NULL DEFAULT 0",
+            )
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| "cannot migrate usage database")?;
+        }
         let export_config_json: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pragma_table_info('redrouter_control_usage_exports') WHERE name = 'config_json'",
         )
@@ -5059,6 +5089,14 @@ fn read_sql_usage_export_event(
     if (pricing_known == 1) != pricing_snapshot.is_some() {
         return Err("invalid usage export event");
     }
+    let usage_kind: String = text("usage_kind")?;
+    let search_units: i64 = integer("search_units")?;
+    if !matches!(usage_kind.as_str(), "tokens" | "rerank")
+        || search_units < 0
+        || (usage_kind == "tokens" && search_units != 0)
+    {
+        return Err("invalid usage export event");
+    }
     Ok(StoredUsageExportEvent {
         event_id: text("event_id")?,
         created_at_unix_ms: integer("created_at_unix_ms")?,
@@ -5067,6 +5105,8 @@ fn read_sql_usage_export_event(
         key_name: text("key_name")?,
         provider: text("provider")?,
         model: text("model")?,
+        usage_kind,
+        search_units,
         tokens_input: integer("tokens_input")?,
         tokens_output: integer("tokens_output")?,
         tokens_cache_read: integer("tokens_cache_read")?,

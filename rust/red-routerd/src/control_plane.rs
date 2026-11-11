@@ -3179,6 +3179,8 @@ impl ControlPlane {
                     provider,
                     model,
                     quota,
+                    reserved_tokens: quota.reservation_tokens,
+                    reserved_microusd: quota.reservation_microusd,
                     now_ms: unix_time_ms()?,
                 })
                 .await?;
@@ -3215,6 +3217,95 @@ impl ControlPlane {
                 model,
                 usage: usage_event,
                 prices,
+                kind: crate::native_usage::UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
+                now_ms: unix_time_ms()?,
+                reserved: identity.usage_quota.is_some(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn begin_native_rerank_usage(
+        &self,
+        identity: &crate::policy::ClientIdentity,
+        provider: &str,
+        model: &str,
+    ) -> Result<(String, Option<crate::native_usage::RerankPrice>), &'static str> {
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        let price = self.native_rerank_price(provider, model).await?;
+        if identity
+            .usage_quota
+            .is_some_and(|quota| quota.max_monthly_microusd > 0)
+            && price.is_none()
+        {
+            return Err("native spend quota requires rerank pricing");
+        }
+        let event_id = format!("usage_{}", random_token(16)?);
+        if let Some(quota) = identity.usage_quota {
+            let allowed = usage
+                .reserve(&crate::native_usage::Reservation {
+                    event_id: &event_id,
+                    key_id: &identity.id,
+                    tenant_id: &identity.tenant_id,
+                    provider,
+                    model,
+                    quota,
+                    reserved_tokens: 0,
+                    reserved_microusd: quota.reservation_microusd,
+                    now_ms: unix_time_ms()?,
+                })
+                .await?;
+            if !allowed {
+                return Err("native usage quota exceeded");
+            }
+        }
+        Ok((event_id, price))
+    }
+
+    pub(crate) async fn record_native_rerank_usage(
+        &self,
+        event_id: &str,
+        identity: &crate::policy::ClientIdentity,
+        provider: &str,
+        model: &str,
+        search_units: u64,
+        price: Option<&crate::native_usage::RerankPrice>,
+    ) -> Result<(), &'static str> {
+        let store = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        let zero = crate::accounting::ChatUsage {
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        store
+            .settle(&crate::native_usage::UsageEvent {
+                event_id,
+                key_id: &identity.id,
+                key_name: &identity.name,
+                tenant_id: &identity.tenant_id,
+                provider,
+                model,
+                usage: &zero,
+                prices: None,
+                kind: crate::native_usage::UsageKind::Rerank,
+                search_units,
+                rerank_price: price,
                 now_ms: unix_time_ms()?,
                 reserved: identity.usage_quota.is_some(),
             })
@@ -3261,6 +3352,9 @@ impl ControlPlane {
                 model,
                 usage: usage_event,
                 prices: attempt.prices.as_ref(),
+                kind: crate::native_usage::UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
                 now_ms: unix_time_ms()?,
                 reserved: false,
             })
@@ -3291,6 +3385,56 @@ impl ControlPlane {
             "reasoning": cost.reasoning,
         }))
         .map(Some)
+    }
+
+    async fn native_rerank_price(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Result<Option<crate::native_usage::RerankPrice>, &'static str> {
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("native rerank pricing requires SQLite storage")?;
+        let rows = sqlx::query("SELECT namespace,value FROM key_value WHERE namespace IN ('pricing','models_dev_pricing','pricing_synced') AND lower(key) = lower($1) ORDER BY CASE namespace WHEN 'pricing' THEN 1 WHEN 'models_dev_pricing' THEN 2 ELSE 3 END")
+            .bind(provider)
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "rerank pricing unavailable")?;
+        for row in rows {
+            let namespace: String = row
+                .try_get("namespace")
+                .map_err(|_| "invalid rerank pricing")?;
+            let raw: String = row.try_get("value").map_err(|_| "invalid rerank pricing")?;
+            let Ok(models) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let Some(record) = models.get(model).and_then(serde_json::Value::as_object) else {
+                continue;
+            };
+            let value = record
+                .get("search_unit_cost")
+                .or_else(|| record.get("input_cost_per_query"));
+            let Some(value) = value else {
+                continue;
+            };
+            let per_search_unit = value
+                .as_f64()
+                .filter(|price| price.is_finite() && *price >= 0.0)
+                .ok_or("invalid rerank pricing")?;
+            let source = match namespace.as_str() {
+                "pricing" => "dashboard-user",
+                "models_dev_pricing" => "models.dev",
+                "pricing_synced" => "litellm",
+                _ => return Err("invalid rerank pricing"),
+            };
+            return Ok(Some(crate::native_usage::RerankPrice {
+                per_search_unit,
+                source,
+            }));
+        }
+        Ok(None)
     }
 
     pub(crate) async fn routes(
@@ -6593,6 +6737,8 @@ impl ControlPlane {
             key_name: "Red Router destination test".to_owned(),
             provider: "red-router".to_owned(),
             model: "destination-test".to_owned(),
+            usage_kind: "tokens".to_owned(),
+            search_units: 0,
             tokens_input: 0,
             tokens_output: 0,
             tokens_cache_read: 0,

@@ -774,6 +774,35 @@ async fn embeddings_provider(expected_key: &'static str) -> (String, tokio::task
     (format!("http://{address}/v1/embeddings"), task)
 }
 
+async fn rerank_usage_provider(
+    expected_key: &'static str,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v2/rerank",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                assert_eq!(
+                    headers["authorization"].to_str().unwrap(),
+                    format!("Bearer {expected_key}")
+                );
+                assert_eq!(body["model"], "rerank-v3.5");
+                Json(serde_json::json!({
+                    "id":"rerank-fixture",
+                    "results":[{"index":1,"relevance_score":0.9}],
+                    "meta":{
+                        "api_version":{"version":"2"},
+                        "billed_units":{"search_units":3}
+                    }
+                }))
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v2/rerank"), task)
+}
+
 async fn responses_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/v1/responses",
@@ -4038,10 +4067,16 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let file = Url::from_file_path(directory.path().join("protocols.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    sqlx::query("INSERT INTO key_value(namespace,key,value) VALUES ('pricing','cohere',?)")
+        .bind(r#"{"rerank-v3.5":{"search_unit_cost":0.002}}"#)
+        .execute(database.sql_pool().unwrap())
+        .await
+        .unwrap();
     let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
         .await
         .unwrap();
     let (provider_url, provider_task) = embeddings_provider("embedding-secret").await;
+    let (rerank_url, rerank_task) = rerank_usage_provider("rerank-secret").await;
     let (responses_url, responses_task) = responses_provider("responses-secret").await;
     let (anthropic_url, anthropic_task) = anthropic_usage_provider("anthropic-usage-secret").await;
     let (gemini_url, gemini_task) = gemini_usage_provider("gemini-usage-secret").await;
@@ -4080,6 +4115,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
             gemini_url,
             "gemini-usage-secret",
         ),
+        ("rerank-provider", "cohere", rerank_url, "rerank-secret"),
     ] {
         assert_eq!(
             client
@@ -4129,10 +4165,10 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
                 serde_json::json!({
                     "label":"Embedding client",
                     "api_key":RUST_CLIENT_KEY,
-                    "scopes":["inference:embeddings","inference:chat"],
-                    "allowed_endpoints":["embeddings","chat"],
-                    "allowed_models":["embedding-combo","text-embedding-3-small","responses-combo","gpt-4.1","anthropic-combo","claude-sonnet-4-5","gemini-combo","gemini-2.5-flash"],
-                    "allowed_provider_ids":["embedding-provider","responses-provider","anthropic-provider","gemini-provider"],
+                    "scopes":["inference:embeddings","inference:rerank","inference:chat"],
+                    "allowed_endpoints":["embeddings","rerank","chat"],
+                    "allowed_models":["embedding-combo","text-embedding-3-small","responses-combo","gpt-4.1","anthropic-combo","claude-sonnet-4-5","gemini-combo","gemini-2.5-flash","rerank-combo","rerank-v3.5"],
+                    "allowed_provider_ids":["embedding-provider","responses-provider","anthropic-provider","gemini-provider","rerank-provider"],
                     "max_tokens_per_minute":80,
                     "max_tokens_per_day":100,
                     "reservation_tokens":10
@@ -4179,6 +4215,12 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
             "gemini",
             "gemini-provider",
             "gemini-2.5-flash",
+        ),
+        (
+            "rerank-combo",
+            "cohere-rerank",
+            "rerank-provider",
+            "rerank-v3.5",
         ),
     ] {
         assert_eq!(
@@ -4335,6 +4377,25 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     assert_eq!(gemini.status(), StatusCode::OK);
     let gemini: serde_json::Value = serde_json::from_str(&gemini.text().await.unwrap()).unwrap();
     assert_eq!(gemini["usageMetadata"]["thoughtsTokenCount"], 1);
+    let rerank = client
+        .post(format!("{base}/v1/rerank"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "model":"rerank-combo",
+                "query":"needle",
+                "documents":["first","second"],
+                "top_n":1
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rerank.status(), StatusCode::OK);
+    let rerank: serde_json::Value = serde_json::from_str(&rerank.text().await.unwrap()).unwrap();
+    assert_eq!(rerank["meta"]["billed_units"]["search_units"], 3);
     let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
     let ledger: (i64, i64, i64, i64) = sqlx::query_as(
         "SELECT COUNT(*), SUM(tokens_input), SUM(tokens_output), SUM(tokens_reasoning) FROM redrouter_usage_ledger WHERE key_id='embedding-client'",
@@ -4342,7 +4403,23 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     .fetch_one(&audit)
     .await
     .unwrap();
-    assert_eq!(ledger, (7, 24, 14, 4));
+    assert_eq!(ledger, (8, 24, 14, 4));
+    let rerank_ledger: (String, i64, i64, i64, String) = sqlx::query_as("SELECT usage_kind,search_units,tokens_input + tokens_output + tokens_reasoning,amount_microusd,pricing_snapshot FROM redrouter_usage_ledger WHERE key_id='embedding-client' AND usage_kind='rerank'")
+        .fetch_one(&audit)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            rerank_ledger.0.as_str(),
+            rerank_ledger.1,
+            rerank_ledger.2,
+            rerank_ledger.3
+        ),
+        ("rerank", 3, 0, 6_000)
+    );
+    let rerank_pricing: serde_json::Value = serde_json::from_str(&rerank_ledger.4).unwrap();
+    assert_eq!(rerank_pricing["unit"], "search-unit");
+    assert_eq!(rerank_pricing["source"], "dashboard-user");
     audit.close().await;
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
@@ -4356,6 +4433,7 @@ async fn rust_control_plane_routes_durable_non_chat_protocols() {
     responses_task.abort();
     anthropic_task.abort();
     gemini_task.abort();
+    rerank_task.abort();
 }
 
 #[tokio::test]

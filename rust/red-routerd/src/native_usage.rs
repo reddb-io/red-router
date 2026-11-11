@@ -73,6 +73,8 @@ pub(crate) struct Reservation<'a> {
     pub(crate) provider: &'a str,
     pub(crate) model: &'a str,
     pub(crate) quota: NativeQuota,
+    pub(crate) reserved_tokens: i64,
+    pub(crate) reserved_microusd: i64,
     pub(crate) now_ms: i64,
 }
 
@@ -85,8 +87,32 @@ pub(crate) struct UsageEvent<'a> {
     pub(crate) model: &'a str,
     pub(crate) usage: &'a ChatUsage,
     pub(crate) prices: Option<&'a TokenPrices>,
+    pub(crate) kind: UsageKind,
+    pub(crate) search_units: u64,
+    pub(crate) rerank_price: Option<&'a RerankPrice>,
     pub(crate) now_ms: i64,
     pub(crate) reserved: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UsageKind {
+    Tokens,
+    Rerank,
+}
+
+impl UsageKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Tokens => "tokens",
+            Self::Rerank => "rerank",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RerankPrice {
+    pub(crate) per_search_unit: f64,
+    pub(crate) source: &'static str,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -97,6 +123,8 @@ pub(crate) struct UsageLedgerEntry {
     pub(crate) tenant_id: String,
     pub(crate) provider: String,
     pub(crate) model: String,
+    pub(crate) usage_kind: String,
+    pub(crate) search_units: i64,
     pub(crate) tokens_input: i64,
     pub(crate) tokens_output: i64,
     pub(crate) tokens_cache_read: i64,
@@ -120,6 +148,7 @@ pub(crate) struct UsageReport {
     pub(crate) tokens_cache_read: i64,
     pub(crate) tokens_cache_creation: i64,
     pub(crate) tokens_reasoning: i64,
+    pub(crate) search_units: i64,
     pub(crate) amount_microusd: i64,
     pub(crate) pending_request_count: i64,
     pub(crate) pending_reserved_tokens: i64,
@@ -356,7 +385,7 @@ impl NativeUsage {
         let cursor_event_id = cursor
             .as_ref()
             .map_or("", |(_, event_id)| event_id.as_str());
-        let mut totals = QueryBuilder::<Any>::new("SELECT COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        let mut totals = QueryBuilder::<Any>::new("SELECT COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(search_units),0) AS search_units, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
         totals
             .push_bind(from_unix_ms)
             .push(" AND created_at_unix_ms < ")
@@ -378,7 +407,7 @@ impl NativeUsage {
             .fetch_one(pool)
             .await
             .map_err(|_| "usage reservations unavailable")?;
-        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
+        let mut rows = QueryBuilder::<Any>::new("SELECT event_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms FROM redrouter_usage_ledger WHERE created_at_unix_ms >= ");
         rows.push_bind(from_unix_ms)
             .push(" AND created_at_unix_ms < ")
             .push_bind(to_unix_ms);
@@ -426,6 +455,14 @@ impl NativeUsage {
                 {
                     return Err("invalid usage ledger");
                 }
+                let usage_kind = text(row, "usage_kind")?;
+                let search_units = integer(row, "search_units")?;
+                if !matches!(usage_kind.as_str(), "tokens" | "rerank")
+                    || search_units < 0
+                    || (usage_kind == "tokens" && search_units != 0)
+                {
+                    return Err("invalid usage ledger");
+                }
                 Ok(UsageLedgerEntry {
                     event_id: text(row, "event_id")?,
                     key_id: text(row, "key_id")?,
@@ -433,6 +470,8 @@ impl NativeUsage {
                     tenant_id: text(row, "tenant_id")?,
                     provider: text(row, "provider")?,
                     model: text(row, "model")?,
+                    usage_kind,
+                    search_units,
                     tokens_input: integer(row, "tokens_input")?,
                     tokens_output: integer(row, "tokens_output")?,
                     tokens_cache_read: integer(row, "tokens_cache_read")?,
@@ -461,6 +500,7 @@ impl NativeUsage {
             tokens_cache_read: integer(&totals, "tokens_cache_read")?,
             tokens_cache_creation: integer(&totals, "tokens_cache_creation")?,
             tokens_reasoning: integer(&totals, "tokens_reasoning")?,
+            search_units: integer(&totals, "search_units")?,
             amount_microusd: integer(&totals, "amount_microusd")?,
             pending_request_count: integer(&pending, "request_count")?,
             pending_reserved_tokens: integer(&pending, "reserved_tokens")?,
@@ -497,6 +537,18 @@ impl NativeUsage {
         )?;
         validate_route(reservation.provider, reservation.model)?;
         let quota = reservation.quota.validate()?;
+        if !(0..=MAX_SAFE_INTEGER).contains(&reservation.reserved_tokens)
+            || !(0..=MAX_SAFE_INTEGER).contains(&reservation.reserved_microusd)
+            || (quota.max_tokens_per_minute > 0
+                && reservation.reserved_tokens > quota.max_tokens_per_minute)
+            || (quota.max_tokens_per_day > 0
+                && reservation.reserved_tokens > quota.max_tokens_per_day)
+            || (quota.max_monthly_microusd > 0
+                && (reservation.reserved_microusd == 0
+                    || reservation.reserved_microusd > quota.max_monthly_microusd))
+        {
+            return Err("invalid usage reservation bounds");
+        }
         if !quota.enabled()
             || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&reservation.now_ms)
         {
@@ -575,11 +627,11 @@ impl NativeUsage {
             .map_err(|_| "invalid usage ledger")?;
         let token_total = |used: i64| {
             used.checked_add(pending_tokens)
-                .and_then(|value| value.checked_add(quota.reservation_tokens))
+                .and_then(|value| value.checked_add(reservation.reserved_tokens))
         };
         let spend_total = used_month
             .checked_add(pending_microusd)
-            .and_then(|value| value.checked_add(quota.reservation_microusd));
+            .and_then(|value| value.checked_add(reservation.reserved_microusd));
         let denied = (quota.max_tokens_per_minute > 0
             && token_total(used_minute).is_none_or(|value| value > quota.max_tokens_per_minute))
             || (quota.max_tokens_per_day > 0
@@ -595,8 +647,8 @@ impl NativeUsage {
             .bind(reservation.tenant_id)
             .bind(reservation.provider)
             .bind(reservation.model)
-            .bind(quota.reservation_tokens)
-            .bind(quota.reservation_microusd)
+            .bind(reservation.reserved_tokens)
+            .bind(reservation.reserved_microusd)
             .bind(reservation.now_ms)
             .execute(&mut **connection)
             .await
@@ -617,19 +669,43 @@ impl NativeUsage {
         if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&event.now_ms) {
             return Err("invalid usage event");
         }
-        let tokens =
-            i64::try_from(event.usage.billable_tokens()?).map_err(|_| "invalid token usage")?;
-        let amount_microusd = match event.prices {
-            Some(prices) => usd_to_micros(prices.cost_usd(event.usage)?)?,
-            None => 0,
+        let tokens = match event.kind {
+            UsageKind::Tokens => {
+                if event.search_units != 0 || event.rerank_price.is_some() {
+                    return Err("invalid token usage event");
+                }
+                i64::try_from(event.usage.billable_tokens()?).map_err(|_| "invalid token usage")?
+            }
+            UsageKind::Rerank => {
+                if event.usage.billable_tokens()? != 0 || event.prices.is_some() {
+                    return Err("invalid rerank usage event");
+                }
+                0
+            }
         };
-        let pricing_snapshot = native_pricing_snapshot(event.prices, event.now_ms)?;
+        let search_units = i64::try_from(event.search_units).map_err(|_| "invalid rerank usage")?;
+        let amount_microusd = match (event.kind, event.prices, event.rerank_price) {
+            (UsageKind::Tokens, Some(prices), None) => {
+                usd_to_micros(prices.cost_usd(event.usage)?)?
+            }
+            (UsageKind::Rerank, None, Some(price)) => {
+                if !price.per_search_unit.is_finite() || price.per_search_unit < 0.0 {
+                    return Err("invalid rerank price");
+                }
+                usd_to_micros(price.per_search_unit * event.search_units as f64)?
+            }
+            (UsageKind::Tokens, None, None) | (UsageKind::Rerank, None, None) => 0,
+            _ => return Err("invalid usage pricing"),
+        };
+        let pricing_snapshot =
+            native_pricing_snapshot(event.kind, event.prices, event.rerank_price, event.now_ms)?;
         let mut connection = self.begin().await?;
         let result = self
             .settle_in(
                 &mut connection,
                 event,
                 tokens,
+                search_units,
                 amount_microusd,
                 pricing_snapshot.as_deref(),
             )
@@ -654,6 +730,7 @@ impl NativeUsage {
         connection: &mut PoolConnection<Any>,
         event: &UsageEvent<'_>,
         tokens: i64,
+        search_units: i64,
         amount_microusd: i64,
         pricing_snapshot: Option<&str>,
     ) -> Result<bool, &'static str> {
@@ -724,20 +801,22 @@ impl NativeUsage {
         let cache_creation =
             i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)")
             .bind(event.event_id)
             .bind(event.key_id)
             .bind(event.key_name)
             .bind(event.tenant_id)
             .bind(event.provider)
             .bind(event.model)
+            .bind(event.kind.as_str())
+            .bind(search_units)
             .bind(input)
             .bind(output)
             .bind(cache_read)
             .bind(cache_creation)
             .bind(reasoning)
             .bind(amount_microusd)
-            .bind(i64::from(event.prices.is_some()))
+            .bind(i64::from(event.prices.is_some() || event.rerank_price.is_some()))
             .bind(pricing_snapshot)
             .bind(event.now_ms)
             .execute(&mut **connection)
@@ -863,38 +942,58 @@ fn usd_to_micros(usd: f64) -> Result<i64, &'static str> {
 }
 
 fn native_pricing_snapshot(
+    kind: UsageKind,
     prices: Option<&TokenPrices>,
+    rerank_price: Option<&RerankPrice>,
     captured_at_unix_ms: i64,
 ) -> Result<Option<String>, &'static str> {
-    let Some(prices) = prices else {
-        return Ok(None);
-    };
-    if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&captured_at_unix_ms)
-        || [
-            prices.input,
-            prices.output,
-            prices.cache_read,
-            prices.cache_creation,
-            prices.reasoning,
-        ]
-        .into_iter()
-        .any(|price| !price.is_finite() || price < 0.0)
-    {
+    if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&captured_at_unix_ms) {
         return Err("invalid usage price snapshot");
     }
-    serde_json::to_string(&serde_json::json!({
-        "currency": "USD",
-        "unit": "million-tokens",
-        "source": "models.dev",
-        "capturedAtUnixMs": captured_at_unix_ms,
-        "input": prices.input,
-        "output": prices.output,
-        "cacheRead": prices.cache_read,
-        "cacheWrite": prices.cache_creation,
-        "reasoning": prices.reasoning,
-    }))
-    .map(Some)
-    .map_err(|_| "invalid usage price snapshot")
+    let snapshot = match (kind, prices, rerank_price) {
+        (UsageKind::Tokens, Some(prices), None) => {
+            if [
+                prices.input,
+                prices.output,
+                prices.cache_read,
+                prices.cache_creation,
+                prices.reasoning,
+            ]
+            .into_iter()
+            .any(|price| !price.is_finite() || price < 0.0)
+            {
+                return Err("invalid usage price snapshot");
+            }
+            serde_json::json!({
+                "currency": "USD",
+                "unit": "million-tokens",
+                "source": "models.dev",
+                "capturedAtUnixMs": captured_at_unix_ms,
+                "input": prices.input,
+                "output": prices.output,
+                "cacheRead": prices.cache_read,
+                "cacheWrite": prices.cache_creation,
+                "reasoning": prices.reasoning,
+            })
+        }
+        (UsageKind::Rerank, None, Some(price)) => {
+            if !price.per_search_unit.is_finite() || price.per_search_unit < 0.0 {
+                return Err("invalid usage price snapshot");
+            }
+            serde_json::json!({
+                "currency": "USD",
+                "unit": "search-unit",
+                "source": price.source,
+                "capturedAtUnixMs": captured_at_unix_ms,
+                "searchUnit": price.per_search_unit,
+            })
+        }
+        (UsageKind::Tokens, None, None) | (UsageKind::Rerank, None, None) => return Ok(None),
+        _ => return Err("invalid usage price snapshot"),
+    };
+    serde_json::to_string(&snapshot)
+        .map(Some)
+        .map_err(|_| "invalid usage price snapshot")
 }
 
 #[cfg(test)]
@@ -941,6 +1040,8 @@ mod tests {
                             provider: "openai",
                             model: "gpt-4.1",
                             quota: quota(),
+                            reserved_tokens: 60,
+                            reserved_microusd: 100_000,
                             now_ms: 1_700_000_000_000,
                         })
                         .await
@@ -1098,6 +1199,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rerank_reservations_do_not_consume_token_headroom() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database).unwrap();
+        let token_quota = NativeQuota {
+            max_tokens_per_minute: 60,
+            max_tokens_per_day: 60,
+            max_monthly_microusd: 0,
+            reservation_tokens: 60,
+            reservation_microusd: 0,
+        };
+        assert!(usage
+            .reserve(&Reservation {
+                event_id: "rerank-reservation",
+                key_id: "key",
+                tenant_id: "tenant",
+                provider: "cohere",
+                model: "rerank-v3.5",
+                quota: token_quota,
+                reserved_tokens: 0,
+                reserved_microusd: 0,
+                now_ms: 1_700_000_000_000,
+            })
+            .await
+            .unwrap());
+        assert!(usage
+            .reserve(&Reservation {
+                event_id: "token-reservation",
+                key_id: "key",
+                tenant_id: "tenant",
+                provider: "openai",
+                model: "gpt-4.1",
+                quota: token_quota,
+                reserved_tokens: 60,
+                reserved_microusd: 0,
+                now_ms: 1_700_000_000_000,
+            })
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
     async fn settlement_survives_restart_and_counts_tokens_and_spend() {
         let folder = TempDir::new().unwrap();
         let url = sqlite_url(&folder);
@@ -1111,6 +1258,8 @@ mod tests {
                 provider: "openai",
                 model: "gpt-4.1",
                 quota: quota(),
+                reserved_tokens: 60,
+                reserved_microusd: 100_000,
                 now_ms: 1_700_000_000_000,
             })
             .await
@@ -1139,6 +1288,9 @@ mod tests {
                 model: "gpt-4.1",
                 usage: &tokens,
                 prices: Some(&prices),
+                kind: UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
                 now_ms: 1_700_000_000_100,
                 reserved: true,
             })
@@ -1173,6 +1325,8 @@ mod tests {
                 provider: "openai",
                 model: "gpt-4.1",
                 quota: quota(),
+                reserved_tokens: 60,
+                reserved_microusd: 100_000,
                 now_ms: 1_700_000_000_200,
             })
             .await
@@ -1185,6 +1339,8 @@ mod tests {
                 provider: "openai",
                 model: "gpt-4.1",
                 quota: quota(),
+                reserved_tokens: 60,
+                reserved_microusd: 100_000,
                 now_ms: 1_700_000_000_300,
             })
             .await
@@ -1217,6 +1373,9 @@ mod tests {
                 model: "openai/gpt-5",
                 usage: &tokens,
                 prices: None,
+                kind: UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
                 now_ms: 1_700_000_000_100,
                 reserved: false,
             })
@@ -1261,6 +1420,8 @@ mod tests {
                 provider: "openai",
                 model: "text-embedding-3-small",
                 quota: token_only,
+                reserved_tokens: 60,
+                reserved_microusd: 0,
                 now_ms: 1_700_000_000_000,
             })
             .await
@@ -1289,6 +1450,9 @@ mod tests {
                 model: "text-embedding-3-small",
                 usage: &tokens,
                 prices: Some(&prices),
+                kind: UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
                 now_ms: 1_700_000_000_100,
                 reserved: true,
             })
@@ -1301,5 +1465,57 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(ledger, (4, 80));
+    }
+
+    #[tokio::test]
+    async fn rerank_usage_preserves_search_units_without_fabricating_tokens() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let zero = ChatUsage {
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        let price = RerankPrice {
+            per_search_unit: 0.002,
+            source: "dashboard-user",
+        };
+        assert!(usage
+            .settle(&UsageEvent {
+                event_id: "rerank-one",
+                key_id: "agent-key",
+                key_name: "Retrieval fleet",
+                tenant_id: "tenant",
+                provider: "cohere",
+                model: "rerank-v3.5",
+                usage: &zero,
+                prices: None,
+                kind: UsageKind::Rerank,
+                search_units: 3,
+                rerank_price: Some(&price),
+                now_ms: 1_700_000_000_100,
+                reserved: false,
+            })
+            .await
+            .unwrap());
+        let row: (String, i64, i64, i64, String) = sqlx::query_as("SELECT usage_kind,search_units,tokens_input + tokens_output + tokens_reasoning,amount_microusd,pricing_snapshot FROM redrouter_usage_ledger WHERE event_id='rerank-one'")
+            .fetch_one(database.sql_pool().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            (row.0.as_str(), row.1, row.2, row.3),
+            ("rerank", 3, 0, 6_000)
+        );
+        let snapshot: serde_json::Value = serde_json::from_str(&row.4).unwrap();
+        assert_eq!(snapshot["unit"], "search-unit");
+        assert_eq!(snapshot["source"], "dashboard-user");
+        assert_eq!(snapshot["searchUnit"], 0.002);
     }
 }

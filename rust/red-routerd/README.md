@@ -226,7 +226,7 @@ no-store`. The required `label` is durable operator metadata and may describe th
 Native SQLite quotas are enforced entirely by Rust. Every attempt acquires a durable
 `BEGIN IMMEDIATE` reservation before dispatch; independent Rust processes sharing the
 same file therefore cannot pass the same remaining budget concurrently. Successful
-OpenAI-compatible chat, Responses, embedding, native Anthropic and native Gemini responses
+OpenAI-compatible chat, Responses, embedding, Cohere-compatible rerank, native Anthropic and native Gemini responses
 atomically append to `redrouter_usage_ledger`, update the weighted token window and release
 the reservation. Chat streaming requires `stream_options.include_usage=true`; `[DONE]` is
 forwarded only after settlement. Responses streaming settles the typed `response.completed`
@@ -236,9 +236,13 @@ Gemini streaming holds its final usage-bearing response until a clean upstream E
 and only then forwards that response. A failed, interrupted, crashed or oversized attempt keeps
 its dispatched reservation for explicit reconciliation rather than silently making budget
 available; enabling native quotas never silently forwards an unaccounted terminal event.
-Money is stored as integer micro-USD. Prices come from the active exact-ID models.dev
-snapshot, and spend-governed requests fail closed when catalog pricing is unavailable.
-Every priced native ledger row also freezes the complete per-million-token price vector,
+Money is stored as integer micro-USD. Token prices come from the active exact-ID models.dev
+snapshot. Rerank prices use the dashboard override first and then persisted models.dev or
+LiteLLM pricing, accepting the legacy `input_cost_per_query` and current
+`search_unit_cost` fields. Spend-governed requests fail closed when the applicable price is
+unavailable. Rerank usage is stored as search units, never fabricated token counts; a priced
+response without Cohere `meta.billed_units.search_units` also fails closed. Every priced
+native ledger row freezes the applicable token-price vector or per-search-unit price,
 its source and capture time. Usage reports return that immutable snapshot so later catalog
 changes cannot rewrite the explanation of historical spend. Existing priced rows created
 before this schema are marked as legacy snapshots with unavailable detail rather than being
@@ -257,7 +261,8 @@ This never deletes the financial usage ledger or uncertain reservations, so cost
 and BigQuery delivery do not lose source events. Tenant administrators cannot trigger
 global maintenance.
 
-- `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
+- `GET /api/admin/usage` reports Rust-owned token and rerank ledger totals, including
+  `usage_kind` and `search_units`, pending reservations and the
   newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
   `from_unix_ms`, `to_unix_ms` and `limit` filters support dashboard drill-down without
   exposing credentials. A returned `next_cursor` continues a stable descending export

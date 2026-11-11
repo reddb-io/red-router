@@ -47,8 +47,8 @@ features must not be implemented only there.
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness                                                                                                                    |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry                                                                                                                                          |
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                                                            |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key request/token/day/monthly-spend admission, access schedules and chat/Responses JSON+SSE plus embedding/Anthropic/Gemini settlement; budgets and non-SQLite quota stores remain                         |
-| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining rerank paths remain                 |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key request/token/day/monthly-spend admission, access schedules and chat/Responses JSON+SSE plus embedding/rerank/Anthropic/Gemini settlement; budgets and non-SQLite quota stores remain                  |
+| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/rerank/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining modal unit types remain      |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware Antigravity quota snapshots, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout                                                    |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains                                                                                                             |
@@ -63,7 +63,7 @@ their Rust migration state:
 
 | Next.js change                                             | Rust state                                                                                                                      | Remaining acceptance work                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Frozen model-price snapshots in usage export               | Product bridge and native Rust ledger persist the exact price vector used at settlement                                         | Cover the remaining protocol-specific unit prices                                                |
+| Frozen model-price snapshots in usage export               | Product bridge and native Rust ledger persist exact token vectors and rerank search-unit prices used at settlement              | Cover the remaining protocol-specific unit prices                                                |
 | Preserve unpriced chat and streaming consumption           | Implemented as explicit opt-in with `pricing_known = 0`                                                                         | Complete the remaining protocol sinks and retention policy                                       |
 | Durable embedding usage                                    | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses                                          | Add protocol-wide fixtures outside embeddings                                                    |
 | Operator/key reporting attributes                          | Implemented for product-SQLite chat, streaming and embeddings                                                                   | Move attributes and the ledger behind the Rust-owned storage repository                          |
@@ -232,7 +232,9 @@ Uncertain attempts remain reserved. Other storage engines keep the portable quot
 configuration record but fail closed if a key tries to activate it until an equivalent
 atomic ledger implementation exists. The authenticated Rust management API exposes a
 bounded, non-cacheable usage report with exact token/micro-USD totals, pending reservations
-and recent ledger entries. Stable composite cursors page the immutable descending ledger
+and recent ledger entries. Token and Cohere-compatible rerank events retain distinct
+`usage_kind` values; rerank records carry provider-billed search units with zero fabricated
+tokens. Stable composite cursors page the immutable descending ledger
 without loading an unbounded export into memory while totals continue to cover the complete
 selected window. Global admins can filter by tenant and key; `tenant-admin` callers are
 unconditionally restricted to their bound tenant.
@@ -242,9 +244,11 @@ global-admin maintenance trigger for catching up larger backlogs. The immutable 
 and uncertain reservations are deliberately excluded: the legacy retention contract preserves
 financial records independently, and deleting them before archival/export would destroy audit
 and BigQuery guarantees.
-Each priced native ledger row stores the complete models.dev token-price vector and capture
-time used for settlement. Reports return that frozen JSON object instead of joining against
-the current catalog. The SQLite migration serializes with `BEGIN IMMEDIATE`; pre-snapshot
+Each priced native ledger row stores the complete models.dev token-price vector or the
+persisted dashboard/models.dev/LiteLLM per-search-unit rerank price and capture time used for
+settlement. Reports and BigQuery/webhook exports preserve the usage kind and search-unit
+count instead of reclassifying rerank work as tokens. Reports return the frozen JSON object
+instead of joining against the current catalog. The SQLite migration serializes with `BEGIN IMMEDIATE`; pre-snapshot
 priced rows receive an explicit legacy marker, while unpriced rows remain distinguishable
 from free usage.
 

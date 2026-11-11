@@ -538,8 +538,8 @@ async fn sqlite_usage_schema_backfills_legacy_price_snapshots() {
 
     let options = SqliteConnectOptions::new().filename(&path);
     let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT event_id, key_name, pricing_snapshot FROM redrouter_usage_ledger ORDER BY event_id",
+    let rows: Vec<(String, String, String, i64, Option<String>)> = sqlx::query_as(
+        "SELECT event_id, key_name, usage_kind, search_units, pricing_snapshot FROM redrouter_usage_ledger ORDER BY event_id",
     )
     .fetch_all(&mut raw)
     .await
@@ -550,9 +550,11 @@ async fn sqlite_usage_schema_backfills_legacy_price_snapshots() {
             (
                 "priced".into(),
                 "key".into(),
+                "tokens".into(),
+                0,
                 Some(r#"{"source":"legacy","available":false}"#.into()),
             ),
-            ("unpriced".into(), "key".into(), None),
+            ("unpriced".into(), "key".into(), "tokens".into(), 0, None),
         ]
     );
     raw.close().await.unwrap();
@@ -594,6 +596,8 @@ async fn sqlite_usage_export_preserves_key_and_model_attribution() {
     assert_eq!(events[0].key_name, "Agent fleet");
     assert_eq!(events[0].provider, "openrouter");
     assert_eq!(events[0].model, "openai/gpt-5");
+    assert_eq!(events[0].usage_kind, "tokens");
+    assert_eq!(events[0].search_units, 0);
     assert_eq!(events[0].tokens_input, 100);
     assert_eq!(events[0].tokens_output, 40);
     assert_eq!(events[0].amount_microusd, 1234);

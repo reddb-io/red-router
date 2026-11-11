@@ -248,6 +248,14 @@ enum UsageAttempt {
         prices: Option<accounting::TokenPrices>,
         event_id: String,
     },
+    NativeRerank {
+        control: control_plane::ControlPlane,
+        identity: policy::ClientIdentity,
+        provider: String,
+        model: String,
+        price: Option<native_usage::RerankPrice>,
+        event_id: String,
+    },
 }
 
 impl UsageAttempt {
@@ -287,6 +295,7 @@ impl UsageAttempt {
                 prices,
                 event_id,
             }),
+            Self::NativeRerank { .. } => Err("rerank usage is not a token stream"),
         }
     }
 
@@ -4965,6 +4974,9 @@ async fn proxy_request(
         .filter(|identity| identity.usage_quota.is_some() || state.native_usage_reporting)
         .cloned();
     let usage_accounting = product_usage_accounting || native_usage_identity.is_some();
+    let native_rerank_accounting = protocol == ProviderProtocol::CohereRerank
+        && native_usage_identity.is_some()
+        && !product_usage_accounting;
     if product_usage_accounting && !state.product_client_keys {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -4981,24 +4993,26 @@ async fn proxy_request(
         ProviderProtocol::Antigravity => true,
         _ => false,
     };
+    let usage_protocol_supported = matches!(
+        protocol,
+        ProviderProtocol::OpenAi
+            | ProviderProtocol::OpenAiResponses
+            | ProviderProtocol::OpenAiEmbeddings
+            | ProviderProtocol::Anthropic
+            | ProviderProtocol::Gemini
+            | ProviderProtocol::Antigravity
+    ) || native_rerank_accounting;
     if usage_accounting
-        && (!matches!(
-            protocol,
-            ProviderProtocol::OpenAi
-                | ProviderProtocol::OpenAiResponses
-                | ProviderProtocol::OpenAiEmbeddings
-                | ProviderProtocol::Anthropic
-                | ProviderProtocol::Gemini
-                | ProviderProtocol::Antigravity
-        ) || (protocol == ProviderProtocol::OpenAi
-            && (!matches!(
-                parsed.get("stream"),
-                None | Some(serde_json::Value::Bool(_))
-            ) || (accounting_stream
-                && parsed
-                    .pointer("/stream_options/include_usage")
-                    .and_then(serde_json::Value::as_bool)
-                    != Some(true))))
+        && (!usage_protocol_supported
+            || (protocol == ProviderProtocol::OpenAi
+                && (!matches!(
+                    parsed.get("stream"),
+                    None | Some(serde_json::Value::Bool(_))
+                ) || (accounting_stream
+                    && parsed
+                        .pointer("/stream_options/include_usage")
+                        .and_then(serde_json::Value::as_bool)
+                        != Some(true))))
             || (protocol == ProviderProtocol::OpenAiResponses
                 && !matches!(
                     parsed.get("stream"),
@@ -5586,32 +5600,61 @@ async fn proxy_request(
                 );
             };
             let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
-            let (event_id, prices) = match control
-                .begin_native_usage(identity, provider, target_model)
-                .await
-            {
-                Ok(attempt) => attempt,
-                Err("native usage quota exceeded") => {
-                    return error(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "Client token or spend quota exceeded",
-                    )
-                }
-                Err(_) => {
-                    return error(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "Native usage reservation unavailable",
-                    )
-                }
-            };
-            Some(UsageAttempt::Native {
-                control: control.clone(),
-                identity: identity.clone(),
-                provider: provider.to_owned(),
-                model: target_model.to_owned(),
-                prices,
-                event_id,
-            })
+            if protocol == ProviderProtocol::CohereRerank {
+                let (event_id, price) = match control
+                    .begin_native_rerank_usage(identity, provider, target_model)
+                    .await
+                {
+                    Ok(attempt) => attempt,
+                    Err("native usage quota exceeded") => {
+                        return error(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            "Client token or spend quota exceeded",
+                        )
+                    }
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Native rerank usage reservation unavailable",
+                        )
+                    }
+                };
+                Some(UsageAttempt::NativeRerank {
+                    control: control.clone(),
+                    identity: identity.clone(),
+                    provider: provider.to_owned(),
+                    model: target_model.to_owned(),
+                    price,
+                    event_id,
+                })
+            } else {
+                let (event_id, prices) = match control
+                    .begin_native_usage(identity, provider, target_model)
+                    .await
+                {
+                    Ok(attempt) => attempt,
+                    Err("native usage quota exceeded") => {
+                        return error(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            "Client token or spend quota exceeded",
+                        )
+                    }
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Native usage reservation unavailable",
+                        )
+                    }
+                };
+                Some(UsageAttempt::Native {
+                    control: control.clone(),
+                    identity: identity.clone(),
+                    provider: provider.to_owned(),
+                    model: target_model.to_owned(),
+                    prices,
+                    event_id,
+                })
+            }
         } else {
             None
         };
@@ -6490,6 +6533,12 @@ async fn proxy_request(
                         prices,
                         event_id,
                     },
+                    UsageAttempt::NativeRerank { .. } => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Rerank usage cannot be streamed",
+                        )
+                    }
                 };
                 let body = usage_stream::forward(
                     response,
@@ -6529,84 +6578,86 @@ async fn proxy_request(
                 Ok(Ok(bytes)) => bytes,
                 _ => return error(StatusCode::BAD_GATEWAY, "Invalid provider response"),
             };
-            let usage = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|v| {
-                    if v.get("service_tier")
-                        .is_some_and(|tier| !tier.is_null() && tier.as_str() != Some("default"))
-                    {
-                        return None;
-                    }
-                    match protocol {
-                        ProviderProtocol::OpenAiEmbeddings => {
-                            accounting::ChatUsage::from_embedding_response(&v).ok()
-                        }
-                        ProviderProtocol::OpenAiResponses => {
-                            accounting::ChatUsage::from_responses_response(&v).ok()
-                        }
-                        ProviderProtocol::Anthropic => {
-                            accounting::ChatUsage::from_anthropic_response(&v).ok()
-                        }
-                        ProviderProtocol::Gemini => {
-                            accounting::ChatUsage::from_gemini_response(&v).ok()
-                        }
-                        ProviderProtocol::Antigravity => {
-                            accounting::ChatUsage::from_gemini_response(
-                                v.get("response").unwrap_or(&v),
-                            )
-                            .ok()
-                        }
-                        _ => accounting::ChatUsage::from_response(&v).ok(),
-                    }
-                });
-            let Some(usage) = usage else {
-                return error(
-                    StatusCode::BAD_GATEWAY,
-                    "Provider response is missing valid token usage",
-                );
-            };
             let recorded = match accounting_attempt {
-                UsageAttempt::Product {
-                    connection,
-                    model,
-                    prices,
-                    event_id,
-                } => {
-                    let Some(access) = &product_access else {
-                        return error(
-                            StatusCode::SERVICE_UNAVAILABLE,
-                            "Usage accounting unavailable",
-                        );
-                    };
-                    connection
-                        .record_usage(
-                            &event_id,
-                            &access.key_id,
-                            &model,
-                            &usage,
-                            prices.as_ref(),
-                            &access.usage_attributes,
-                        )
-                        .await
-                }
-                UsageAttempt::Native {
+                UsageAttempt::NativeRerank {
                     control,
                     identity,
                     provider,
                     model,
-                    prices,
+                    price,
                     event_id,
                 } => {
+                    let value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        Ok(value) => value,
+                        Err(_) => return error(StatusCode::BAD_GATEWAY, "Invalid rerank response"),
+                    };
+                    let search_units = match value.pointer("/meta/billed_units/search_units") {
+                        Some(value) => match value.as_u64() {
+                            Some(units) => units,
+                            None => {
+                                return error(
+                                    StatusCode::BAD_GATEWAY,
+                                    "Provider response contains invalid rerank usage",
+                                )
+                            }
+                        },
+                        None if price.is_some() => {
+                            return error(
+                                StatusCode::BAD_GATEWAY,
+                                "Priced rerank response is missing billed search units",
+                            )
+                        }
+                        None => 0,
+                    };
                     control
-                        .record_native_usage(
+                        .record_native_rerank_usage(
                             &event_id,
                             &identity,
                             &provider,
                             &model,
-                            &usage,
-                            prices.as_ref(),
+                            search_units,
+                            price.as_ref(),
                         )
                         .await
+                }
+                token_attempt @ (UsageAttempt::Product { .. } | UsageAttempt::Native { .. }) => {
+                    let usage = serde_json::from_slice::<serde_json::Value>(&bytes)
+                        .ok()
+                        .and_then(|v| {
+                            if v.get("service_tier").is_some_and(|tier| {
+                                !tier.is_null() && tier.as_str() != Some("default")
+                            }) {
+                                return None;
+                            }
+                            match protocol {
+                                ProviderProtocol::OpenAiEmbeddings => {
+                                    accounting::ChatUsage::from_embedding_response(&v).ok()
+                                }
+                                ProviderProtocol::OpenAiResponses => {
+                                    accounting::ChatUsage::from_responses_response(&v).ok()
+                                }
+                                ProviderProtocol::Anthropic => {
+                                    accounting::ChatUsage::from_anthropic_response(&v).ok()
+                                }
+                                ProviderProtocol::Gemini => {
+                                    accounting::ChatUsage::from_gemini_response(&v).ok()
+                                }
+                                ProviderProtocol::Antigravity => {
+                                    accounting::ChatUsage::from_gemini_response(
+                                        v.get("response").unwrap_or(&v),
+                                    )
+                                    .ok()
+                                }
+                                _ => accounting::ChatUsage::from_response(&v).ok(),
+                            }
+                        });
+                    let Some(usage) = usage else {
+                        return error(
+                            StatusCode::BAD_GATEWAY,
+                            "Provider response is missing valid token usage",
+                        );
+                    };
+                    token_attempt.record(product_access.as_ref(), &usage).await
                 }
             };
             if recorded.is_err() {
