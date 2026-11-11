@@ -5212,7 +5212,24 @@ async fn proxy_request(
             );
         }
     }
-    if !policy.allow_request() {
+    let request_allowed = if let (Some(identity), Some(control)) =
+        (policy.identity(), state.control_plane.as_ref())
+    {
+        match control.admit_client_request(identity).await {
+            Ok(Some(allowed)) => allowed,
+            Ok(None) => policy.allow_request(),
+            Err(reason) => {
+                eprintln!("client request rate-limit accounting failed: {reason}");
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Client rate-limit accounting unavailable",
+                );
+            }
+        }
+    } else {
+        policy.allow_request()
+    };
+    if !request_allowed {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
     }
     if let (Some(access), Some(connection)) = (&product_access, &state.product_connection) {

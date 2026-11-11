@@ -219,6 +219,10 @@ Independent Rust replicas refresh the client-key/tenant snapshot from the shared
 on a bounded two-second cadence. A malformed or partially committed generation makes that
 replica reject client authentication until a complete snapshot can be read; disabling a
 tenant therefore retires its keys across the cluster without reviving environment keys.
+On SQLite, durable request-per-minute and request-per-day policies are admitted through
+atomic `BEGIN IMMEDIATE` weighted-window counters shared by every Rust process using the
+same file. Keys without those limits remain on the no-database-read inference path. Other
+storage engines retain process-local request counters until equivalent atomic drivers exist.
 The same revision-coupling applies to the native quota sidecar. SQLite-backed keys can own
 token-per-minute, token-per-day and monthly micro-USD limits plus explicit per-attempt
 reservation bounds. Admission and settlement are Rust-owned and use durable immediate

@@ -39,6 +39,8 @@ pub(crate) struct ClientIdentity {
     pub tenant_id: Arc<str>,
     pub role: &'static str,
     pub id_format: Arc<str>,
+    pub max_requests_per_minute: Option<usize>,
+    pub max_requests_per_day: Option<usize>,
     pub usage_quota: Option<crate::native_usage::NativeQuota>,
 }
 
@@ -261,6 +263,8 @@ impl ClientPolicies {
                             "standard"
                         },
                         id_format: Arc::from(policy.model_id_format),
+                        max_requests_per_minute: policy.max_requests_per_minute,
+                        max_requests_per_day: policy.max_requests_per_day,
                         usage_quota: policy.usage_quota,
                     }),
                     enabled: policy.enabled,

@@ -136,6 +136,125 @@ impl NativeUsage {
         Ok(Self { database })
     }
 
+    pub(crate) async fn admit_request(
+        &self,
+        key_id: &str,
+        max_requests_per_minute: i64,
+        max_requests_per_day: i64,
+        now_ms: i64,
+    ) -> Result<bool, &'static str> {
+        if key_id.is_empty()
+            || key_id.len() > 128
+            || !(0..=MAX_SAFE_INTEGER).contains(&max_requests_per_minute)
+            || !(0..=MAX_SAFE_INTEGER).contains(&max_requests_per_day)
+            || (max_requests_per_minute == 0 && max_requests_per_day == 0)
+            || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&now_ms)
+        {
+            return Err("invalid request rate limit");
+        }
+        let mut connection = self.begin().await?;
+        let result = self
+            .admit_request_in(
+                &mut connection,
+                key_id,
+                max_requests_per_minute,
+                max_requests_per_day,
+                now_ms,
+            )
+            .await;
+        match result {
+            Ok(allowed) => {
+                sqlx::query("COMMIT")
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(|_| "request rate-limit storage unavailable")?;
+                Ok(allowed)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn admit_request_in(
+        &self,
+        connection: &mut PoolConnection<Any>,
+        key_id: &str,
+        max_requests_per_minute: i64,
+        max_requests_per_day: i64,
+        now_ms: i64,
+    ) -> Result<bool, &'static str> {
+        let limits = [
+            (60_i64, max_requests_per_minute),
+            (86_400_i64, max_requests_per_day),
+        ];
+        let mut active_windows = [(0_i64, 0_i64, false); 2];
+        for (index, (window_seconds, limit)) in limits
+            .into_iter()
+            .filter(|(_, limit)| *limit > 0)
+            .enumerate()
+        {
+            let window_ms = window_seconds
+                .checked_mul(1_000)
+                .ok_or("request rate-limit overflow")?;
+            let bucket = now_ms / window_ms;
+            let counters = sqlx::query("SELECT COALESCE(SUM(CASE WHEN bucket_index = $1 THEN consumed_requests ELSE 0 END),0) AS current_requests, COALESCE(SUM(CASE WHEN bucket_index = $2 THEN consumed_requests ELSE 0 END),0) AS previous_requests FROM redrouter_request_rate_counters WHERE key_id = $3 AND window_seconds = $4 AND bucket_index IN ($1,$2)")
+                .bind(bucket)
+                .bind(bucket - 1)
+                .bind(key_id)
+                .bind(window_seconds)
+                .fetch_one(&mut **connection)
+                .await
+                .map_err(|_| "request rate-limit counters unavailable")?;
+            let current: i64 = counters
+                .try_get("current_requests")
+                .map_err(|_| "invalid request rate-limit counter")?;
+            let previous: i64 = counters
+                .try_get("previous_requests")
+                .map_err(|_| "invalid request rate-limit counter")?;
+            if current < 0 || previous < 0 {
+                return Err("invalid request rate-limit counter");
+            }
+            let previous_weight = window_ms - now_ms.rem_euclid(window_ms);
+            let weighted_previous = previous
+                .checked_mul(previous_weight)
+                .and_then(|value| value.checked_add(window_ms - 1))
+                .map(|value| value / window_ms)
+                .ok_or("request rate-limit overflow")?;
+            let used = current
+                .checked_add(weighted_previous)
+                .ok_or("request rate-limit overflow")?;
+            if used >= limit {
+                return Ok(false);
+            }
+            active_windows[index] = (window_seconds, bucket, current == 0);
+        }
+        for (window_seconds, bucket, first_in_bucket) in active_windows
+            .into_iter()
+            .filter(|(window_seconds, _, _)| *window_seconds > 0)
+        {
+            sqlx::query("INSERT INTO redrouter_request_rate_counters (key_id,window_seconds,bucket_index,consumed_requests,updated_at_unix_ms) VALUES ($1,$2,$3,1,$4) ON CONFLICT (key_id,window_seconds,bucket_index) DO UPDATE SET consumed_requests = redrouter_request_rate_counters.consumed_requests + 1, updated_at_unix_ms = $4")
+                .bind(key_id)
+                .bind(window_seconds)
+                .bind(bucket)
+                .bind(now_ms)
+                .execute(&mut **connection)
+                .await
+                .map_err(|_| "cannot update request rate-limit counter")?;
+            if first_in_bucket {
+                sqlx::query("DELETE FROM redrouter_request_rate_counters WHERE key_id = $1 AND window_seconds = $2 AND bucket_index < $3")
+                    .bind(key_id)
+                    .bind(window_seconds)
+                    .bind(bucket - 1)
+                    .execute(&mut **connection)
+                    .await
+                    .map_err(|_| "cannot prune request rate-limit counters")?;
+            }
+        }
+        Ok(true)
+    }
+
     pub(crate) async fn report(
         &self,
         tenant_id: Option<&str>,
@@ -768,6 +887,59 @@ mod tests {
             admitted += usize::from(task.await.unwrap());
         }
         assert_eq!(admitted, 1);
+    }
+
+    #[tokio::test]
+    async fn independent_proxies_share_atomic_request_rate_limits() {
+        let folder = TempDir::new().unwrap();
+        let url = sqlite_url(&folder);
+        let first = NativeUsage::new(Arc::new(
+            Database::connect(Backend::Sqlite, &url).await.unwrap(),
+        ))
+        .unwrap();
+        let second = NativeUsage::new(Arc::new(
+            Database::connect(Backend::Sqlite, &url).await.unwrap(),
+        ))
+        .unwrap();
+        let tasks = (0..16)
+            .map(|index| {
+                let usage = if index % 2 == 0 {
+                    first.clone()
+                } else {
+                    second.clone()
+                };
+                tokio::spawn(async move {
+                    usage
+                        .admit_request("shared-key", 4, 0, 1_700_000_030_000)
+                        .await
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut admitted = 0;
+        for task in tasks {
+            admitted += usize::from(task.await.unwrap());
+        }
+        assert_eq!(admitted, 4);
+    }
+
+    #[tokio::test]
+    async fn request_rate_limits_enforce_minute_and_day_windows() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let usage = NativeUsage::new(database).unwrap();
+        let now = 1_700_000_030_000;
+        assert!(usage.admit_request("minute-key", 2, 0, now).await.unwrap());
+        assert!(usage.admit_request("minute-key", 2, 0, now).await.unwrap());
+        assert!(!usage.admit_request("minute-key", 2, 0, now).await.unwrap());
+
+        assert!(usage.admit_request("day-key", 0, 2, now).await.unwrap());
+        assert!(usage.admit_request("day-key", 0, 2, now).await.unwrap());
+        assert!(!usage.admit_request("day-key", 0, 2, now).await.unwrap());
     }
 
     #[tokio::test]

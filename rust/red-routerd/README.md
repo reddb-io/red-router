@@ -245,6 +245,11 @@ before this schema are marked as legacy snapshots with unavailable detail rather
 silently recomputed.
 The operational ledger is SQLite-only for now; configuring native token/spend quotas on
 RedDB or PostgreSQL is rejected instead of falling back to process-local counters.
+Durable keys' request-per-minute and request-per-day limits use the same SQLite
+serialization boundary and conservative weighted rolling-window counters, so independent
+Rust processes sharing one file cannot collectively exceed a key's limit. Keys without
+request limits do not touch these counters. RedDB/PostgreSQL durable keys and environment-only
+policies retain process-local request counters until their shared counter drivers are implemented.
 
 - `GET /api/admin/usage` reports Rust-owned ledger totals, pending reservations and the
   newest entries for a bounded time window. Optional `tenant_id`, `key_id`,
@@ -907,8 +912,9 @@ rate limits. Do not assume policy parity with the current RedRouter.
 1–10,000 admitted requests per rolling 60-second or 24-hour window, respectively.
 When both are set, both must allow the request. Requests rejected before routing do not count;
 fallback attempts for one request count once. The limit returns HTTP 429 when full,
-is held in this process's memory, resets on restart, and is not shared between
-multiple proxy instances.
+is held in this process's memory for this environment-only policy format, resets on restart,
+and is not shared between multiple proxy instances. Rust-owned durable keys use atomic shared
+SQLite counters instead, as described above.
 
 For OpenRouter, use `https://openrouter.ai/api/v1/chat/completions` as the upstream
 URL and an OpenRouter API key as the provider key. For example, after starting the

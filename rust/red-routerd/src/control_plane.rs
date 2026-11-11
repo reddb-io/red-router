@@ -3059,6 +3059,35 @@ impl ControlPlane {
         }
     }
 
+    pub(crate) async fn admit_client_request(
+        &self,
+        identity: &crate::policy::ClientIdentity,
+    ) -> Result<Option<bool>, &'static str> {
+        let usage = self.0.native_usage.read().await.clone();
+        let Some(usage) = usage else {
+            return Ok(None);
+        };
+        let minute = identity
+            .max_requests_per_minute
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "invalid client request rate limit")?
+            .unwrap_or(0);
+        let day = identity
+            .max_requests_per_day
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "invalid client request rate limit")?
+            .unwrap_or(0);
+        if minute == 0 && day == 0 {
+            return Ok(Some(true));
+        }
+        usage
+            .admit_request(&identity.id, minute, day, unix_time_ms()?)
+            .await
+            .map(Some)
+    }
+
     pub(crate) async fn begin_native_usage(
         &self,
         identity: &crate::policy::ClientIdentity,
