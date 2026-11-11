@@ -60,6 +60,7 @@ const PROVIDER_QUOTA_POLL_GAP: Duration = Duration::from_millis(500);
 const PROVIDER_QUOTA_LEASE_MS: i64 = 15_000;
 const PROVIDER_QUOTA_TTL_SECONDS: u64 = 180;
 const PROVIDER_QUOTA_MAX_BODY_BYTES: usize = 512 * 1024;
+const CONTEXT_RELAY_GENERATION_LEASE_MS: i64 = 60_000;
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -333,6 +334,12 @@ pub struct ControlPlane(Arc<Inner>);
 pub(crate) struct ContextRelayGenerationGuard {
     inner: Arc<Inner>,
     record_id: String,
+}
+
+pub(crate) struct ContextRelayGenerationLease {
+    _local: ContextRelayGenerationGuard,
+    record_id: String,
+    owner: String,
 }
 
 impl Drop for ContextRelayGenerationGuard {
@@ -7020,7 +7027,7 @@ impl ControlPlane {
         }))
     }
 
-    pub(crate) fn begin_context_relay_generation(
+    fn begin_context_relay_generation_local(
         &self,
         combo_id: &str,
         session_id: &str,
@@ -7038,6 +7045,50 @@ impl ControlPlane {
             inner: self.0.clone(),
             record_id,
         }))
+    }
+
+    pub(crate) async fn acquire_context_relay_generation(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+    ) -> Result<Option<ContextRelayGenerationLease>, &'static str> {
+        let Some(local) = self.begin_context_relay_generation_local(combo_id, session_id)? else {
+            return Ok(None);
+        };
+        let now_unix_ms = unix_time_ms()?;
+        let lease_until_unix_ms = now_unix_ms
+            .checked_add(CONTEXT_RELAY_GENERATION_LEASE_MS)
+            .ok_or("invalid context relay generation lease")?;
+        let owner = random_token(18)?;
+        let record_id = context_relay_record_id(combo_id, session_id);
+        if !self
+            .0
+            .database
+            .acquire_context_relay_generation_lease(
+                &record_id,
+                &owner,
+                now_unix_ms,
+                lease_until_unix_ms,
+            )
+            .await?
+        {
+            return Ok(None);
+        }
+        Ok(Some(ContextRelayGenerationLease {
+            _local: local,
+            record_id,
+            owner,
+        }))
+    }
+
+    pub(crate) async fn release_context_relay_generation(
+        &self,
+        lease: &ContextRelayGenerationLease,
+    ) -> Result<(), &'static str> {
+        self.0
+            .database
+            .release_context_relay_generation_lease(&lease.record_id, &lease.owner)
+            .await
     }
 
     pub(crate) async fn record_context_relay_handoff(

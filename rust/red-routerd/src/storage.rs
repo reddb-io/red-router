@@ -111,6 +111,9 @@ const UPSERT_CONTEXT_RELAY_SESSION: &str = "INSERT INTO redrouter_context_relay_
 const CREATE_CONTEXT_RELAY_HANDOFFS: &str = "CREATE TABLE IF NOT EXISTS redrouter_context_relay_handoffs (record_id TEXT PRIMARY KEY, combo_id TEXT NOT NULL, summary TEXT NOT NULL, key_decisions_json TEXT NOT NULL, task_progress TEXT NOT NULL, active_entities_json TEXT NOT NULL, message_count BIGINT NOT NULL, source_model TEXT NOT NULL, summary_model TEXT NOT NULL, generated_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL)";
 const READ_CONTEXT_RELAY_HANDOFF: &str = "SELECT combo_id, summary, key_decisions_json, task_progress, active_entities_json, message_count, source_model, summary_model, generated_at_unix_ms, expires_at_unix_ms FROM redrouter_context_relay_handoffs WHERE record_id = $1";
 const UPSERT_CONTEXT_RELAY_HANDOFF: &str = "INSERT INTO redrouter_context_relay_handoffs (record_id, combo_id, summary, key_decisions_json, task_progress, active_entities_json, message_count, source_model, summary_model, generated_at_unix_ms, expires_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (record_id) DO UPDATE SET combo_id = $2, summary = $3, key_decisions_json = $4, task_progress = $5, active_entities_json = $6, message_count = $7, source_model = $8, summary_model = $9, generated_at_unix_ms = $10, expires_at_unix_ms = $11";
+const CREATE_CONTEXT_RELAY_GENERATION_LEASES: &str = "CREATE TABLE IF NOT EXISTS redrouter_context_relay_generation_leases (record_id TEXT PRIMARY KEY, owner TEXT NOT NULL, lease_until_unix_ms BIGINT NOT NULL)";
+const ACQUIRE_CONTEXT_RELAY_GENERATION_LEASE: &str = "INSERT INTO redrouter_context_relay_generation_leases (record_id, owner, lease_until_unix_ms) VALUES ($1,$2,$3) ON CONFLICT (record_id) DO UPDATE SET owner = $2, lease_until_unix_ms = $3 WHERE redrouter_context_relay_generation_leases.lease_until_unix_ms <= $4 OR redrouter_context_relay_generation_leases.owner = $2";
+const RELEASE_CONTEXT_RELAY_GENERATION_LEASE: &str = "UPDATE redrouter_context_relay_generation_leases SET lease_until_unix_ms = 0 WHERE record_id = $1 AND owner = $2";
 const CREATE_PROVIDER_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_quotas (provider_id TEXT PRIMARY KEY, session_remaining_ppm BIGINT NOT NULL, session_reset_unix_ms BIGINT NOT NULL, weekly_remaining_ppm BIGINT NOT NULL, weekly_reset_unix_ms BIGINT NOT NULL, limit_reached BIGINT NOT NULL, observed_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDER_QUOTAS: &str = "SELECT provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision FROM redrouter_provider_quotas ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_QUOTA: &str = "INSERT INTO redrouter_provider_quotas (provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET session_remaining_ppm = $2, session_reset_unix_ms = $3, weekly_remaining_ppm = $4, weekly_reset_unix_ms = $5, limit_reached = $6, observed_at_unix_ms = $7, expires_at_unix_ms = $8, revision = $9";
@@ -602,6 +605,7 @@ impl Database {
                         CREATE_ROUTE_PINS,
                         CREATE_CONTEXT_RELAY_SESSIONS,
                         CREATE_CONTEXT_RELAY_HANDOFFS,
+                        CREATE_CONTEXT_RELAY_GENERATION_LEASES,
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_PROVIDER_MODEL_QUOTAS,
                         CREATE_BREAKERS,
@@ -725,6 +729,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(CREATE_CONTEXT_RELAY_HANDOFFS)
                     .await?;
+                db.remote_schema_query(CREATE_CONTEXT_RELAY_GENERATION_LEASES)
+                    .await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_MODEL_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
@@ -786,6 +792,7 @@ impl Database {
                     CREATE_ROUTE_PINS,
                     CREATE_CONTEXT_RELAY_SESSIONS,
                     CREATE_CONTEXT_RELAY_HANDOFFS,
+                    CREATE_CONTEXT_RELAY_GENERATION_LEASES,
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_PROVIDER_MODEL_QUOTAS,
                     CREATE_BREAKERS,
@@ -2906,6 +2913,47 @@ impl Database {
                 .map_err(|_| "cannot write context relay handoff")?;
             }
         }
+        Ok(())
+    }
+
+    pub async fn acquire_context_relay_generation_lease(
+        &self,
+        record_id: &str,
+        owner: &str,
+        now_unix_ms: i64,
+        lease_until_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        let Self::Sql(pool) = self else {
+            // RedDB still has the per-process guard. A cross-process lease will
+            // be enabled when its query result exposes an atomic affected-row
+            // count equivalent to SQLite/PostgreSQL.
+            return Ok(true);
+        };
+        let result = sqlx::query(ACQUIRE_CONTEXT_RELAY_GENERATION_LEASE)
+            .bind(record_id)
+            .bind(owner)
+            .bind(lease_until_unix_ms)
+            .bind(now_unix_ms)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot acquire context relay generation lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn release_context_relay_generation_lease(
+        &self,
+        record_id: &str,
+        owner: &str,
+    ) -> Result<(), &'static str> {
+        let Self::Sql(pool) = self else {
+            return Ok(());
+        };
+        sqlx::query(RELEASE_CONTEXT_RELAY_GENERATION_LEASE)
+            .bind(record_id)
+            .bind(owner)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot release context relay generation lease")?;
         Ok(())
     }
 

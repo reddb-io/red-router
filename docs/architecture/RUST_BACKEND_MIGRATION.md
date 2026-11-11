@@ -362,12 +362,16 @@ this payload extension retain the legacy defaults. On a model switch, Rust can n
 a bounded structured summary asynchronously through an authorized OpenAI Chat, Responses,
 Anthropic or translated Anthropic target. The summary is stored with a five-hour TTL and
 reused through the protocol-native handoff channel; one process coalesces concurrent
-generation for the same combo/session. Generation failure stays outside the client response
-path, and a missing summary still produces a marker that explicitly forbids invented context.
+generation for the same combo/session. SQLite and PostgreSQL additionally coordinate that
+generation across Rust replicas with an expiring durable lease; an old owner cannot release
+its successor's lease, and a crashed owner cannot strand future generation. The summary call
+has a deadline shorter than the lease so a slow response cannot outlive its ownership.
+Generation failure stays outside the client response path, and a missing summary still
+produces a marker that explicitly forbids invented context.
 The same path pre-generates a handoff when fresh provider/model session telemetry crosses the
 configured warning threshold but remains below the 95% exhaustion boundary, using the quota
 reset as the handoff expiry when available. Native Gemini/Antigravity summary generation and
-cross-replica generation leases remain follow-up work.
+the RedDB cross-process lease remain follow-up work.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

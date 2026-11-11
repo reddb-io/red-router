@@ -3116,6 +3116,7 @@ const CONTEXT_RELAY_SUMMARY_TTL_MS: i64 = 5 * 60 * 60 * 1_000;
 const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
 const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
+const CONTEXT_RELAY_SUMMARY_DEADLINE: Duration = Duration::from_secs(45);
 
 #[derive(Clone)]
 struct ContextRelaySummaryTarget {
@@ -3494,34 +3495,45 @@ fn spawn_context_relay_summary(
                 }
             }
         }
-        let generation_guard = match control.begin_context_relay_generation(&combo_id, &session_id)
+        let generation_lease = match control
+            .acquire_context_relay_generation(&combo_id, &session_id)
+            .await
         {
-            Ok(Some(guard)) => guard,
+            Ok(Some(lease)) => lease,
             Ok(None) => return,
             Err(_) => {
                 eprintln!("context relay generation state unavailable");
                 return;
             }
         };
-        let _generation_guard = generation_guard;
-        let Some((handoff, summary_model)) =
-            generate_context_relay_summary(summary_target, history, source_model, message_count)
+        let generated = tokio::time::timeout(
+            CONTEXT_RELAY_SUMMARY_DEADLINE,
+            generate_context_relay_summary(summary_target, history, source_model, message_count),
+        )
+        .await
+        .ok()
+        .flatten();
+        if let Some((handoff, summary_model)) = generated {
+            if control
+                .record_context_relay_handoff(
+                    &combo_id,
+                    &session_id,
+                    &handoff,
+                    &summary_model,
+                    expires_at_unix_ms,
+                )
                 .await
-        else {
-            return;
-        };
+                .is_err()
+            {
+                eprintln!("context relay handoff persistence unavailable");
+            }
+        }
         if control
-            .record_context_relay_handoff(
-                &combo_id,
-                &session_id,
-                &handoff,
-                &summary_model,
-                expires_at_unix_ms,
-            )
+            .release_context_relay_generation(&generation_lease)
             .await
             .is_err()
         {
-            eprintln!("context relay handoff persistence unavailable");
+            eprintln!("context relay generation lease release unavailable");
         }
     });
 }

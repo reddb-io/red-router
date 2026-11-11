@@ -809,6 +809,55 @@ async fn sqlite_audit_sink_lease_serializes_cursor_progress() {
     db.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn sqlite_context_relay_generation_lease_serializes_replicas() {
+    let temp = TempDir::new().unwrap();
+    let file = Url::from_file_path(temp.path().join("context-relay-lease.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let first = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let second = Database::connect(Backend::Sqlite, &url).await.unwrap();
+
+    assert_context_relay_generation_lease(&first, &second).await;
+    first.close().await.unwrap();
+    second.close().await.unwrap();
+}
+
+async fn assert_context_relay_generation_lease(first: &Database, second: &Database) {
+    assert!(first
+        .acquire_context_relay_generation_lease("relay", "owner-a", 100, 1_000)
+        .await
+        .unwrap());
+    assert!(!second
+        .acquire_context_relay_generation_lease("relay", "owner-b", 200, 1_200)
+        .await
+        .unwrap());
+
+    first
+        .release_context_relay_generation_lease("relay", "owner-a")
+        .await
+        .unwrap();
+    assert!(second
+        .acquire_context_relay_generation_lease("relay", "owner-b", 500, 1_500)
+        .await
+        .unwrap());
+
+    // A stale owner cannot release the current owner's lease.
+    first
+        .release_context_relay_generation_lease("relay", "owner-a")
+        .await
+        .unwrap();
+    assert!(!first
+        .acquire_context_relay_generation_lease("relay", "owner-c", 600, 1_600)
+        .await
+        .unwrap());
+
+    // A crashed owner cannot strand generation permanently.
+    assert!(first
+        .acquire_context_relay_generation_lease("relay", "owner-c", 1_500, 2_500)
+        .await
+        .unwrap());
+}
+
 #[cfg(feature = "reddb-embedded")]
 #[tokio::test]
 async fn embedded_reddb_configuration_survives_restart() {
@@ -852,6 +901,22 @@ async fn remote(backend: Backend, variable: &str) {
 #[tokio::test]
 async fn remote_postgres_configuration_survives_reconnect() {
     remote(Backend::Postgres, "RED_ROUTER_TEST_POSTGRES_URL").await;
+}
+
+#[tokio::test]
+async fn remote_postgres_context_relay_generation_lease_serializes_replicas() {
+    let Ok(url) = std::env::var("RED_ROUTER_TEST_POSTGRES_URL") else {
+        return;
+    };
+    assert_eq!(
+        std::env::var("RED_ROUTER_TEST_DISPOSABLE").as_deref(),
+        Ok("1")
+    );
+    let first = Database::connect(Backend::Postgres, &url).await.unwrap();
+    let second = Database::connect(Backend::Postgres, &url).await.unwrap();
+    assert_context_relay_generation_lease(&first, &second).await;
+    first.close().await.unwrap();
+    second.close().await.unwrap();
 }
 
 #[tokio::test]
