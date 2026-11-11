@@ -239,7 +239,9 @@ available; enabling native quotas never silently forwards an unaccounted termina
 Money is stored as integer micro-USD. Token prices come from the active exact-ID models.dev
 snapshot. Rerank prices use the dashboard override first and then persisted models.dev or
 LiteLLM pricing, accepting the legacy `input_cost_per_query` and current
-`search_unit_cost` fields. Spend-governed requests fail closed when the applicable price is
+`search_unit_cost` fields. Rust creates the compatible SQLite key/value table when starting
+from an empty database, so the same persisted pricing contract works with or without the
+legacy application having initialized the file. Spend-governed requests fail closed when the applicable price is
 unavailable. Rerank usage is stored as search units, never fabricated token counts; a priced
 response without Cohere `meta.billed_units.search_units` also fails closed. Every priced
 native ledger row freezes the applicable token-price vector or per-search-unit price,
