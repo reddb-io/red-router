@@ -9,6 +9,11 @@ use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
 use url::Url;
 
+// Keep the read-only legacy inspection contract in the Windows storage job as
+// well as its standalone integration test.
+#[path = "legacy_preflight.rs"]
+mod legacy_preflight_tests;
+
 async fn exercise(backend: Backend, url: &str) {
     let db = Database::connect(backend, url).await.unwrap();
     assert_eq!(
