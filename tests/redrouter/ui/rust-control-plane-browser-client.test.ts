@@ -7,6 +7,7 @@ import {
   configureRustProviderHealth,
   configureRustProviderQuota,
   deleteRustClientKey,
+  deleteRustIdentityBinding,
   deleteRustTokenLimit,
   disableRustCombo,
   disableRustProvider,
@@ -18,15 +19,19 @@ import {
   listRustCombos,
   listRustProviderHealth,
   listRustClientKeys,
+  listRustIdentityBindings,
   listRustTokenLimits,
   listRustProviderQuotas,
   listRustProviders,
+  listRustTenants,
   readRustCatalogProvider,
   readRustModelCatalog,
   readRustUsageSummary,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   replaceRustClientKey,
+  replaceRustIdentityBinding,
+  replaceRustTenant,
   replaceRustCombo,
   replaceRustProvider,
   refreshRustModelCatalog,
@@ -43,8 +48,10 @@ import {
   testRustProvider,
   type RustClientKey,
   type RustCombo,
+  type RustIdentityBinding,
   type RustProvider,
   type RustProviderQuota,
+  type RustTenant,
   type RustTokenLimit,
 } from "@/lib/rustControlPlane/browserClient";
 
@@ -93,6 +100,23 @@ const tokenLimit: RustTokenLimit = {
   periodStartAt: 1_800_000_000_000,
   nextResetAt: 1_800_086_400_000,
   remaining: 88_000,
+};
+
+const tenant: RustTenant = {
+  id: "acme",
+  slug: "acme",
+  name: "Acme",
+  enabled: true,
+  revision: "1700000000000000002",
+};
+
+const identityBinding: RustIdentityBinding = {
+  id: "acme-manager",
+  subject: "oidc:v1:fixture",
+  tenant_id: tenant.id,
+  role: "tenant-admin",
+  enabled: true,
+  revision: "1700000000000000003",
 };
 
 const provider: RustProvider = {
@@ -453,6 +477,69 @@ describe("Rust control-plane browser client", () => {
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
     expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "PUT" });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("manages organizations and OIDC identity bindings through the global Rust authority", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ tenants: [tenant] }))
+      .mockResolvedValueOnce(Response.json({ tenant: { ...tenant, name: "Acme Cloud" } }))
+      .mockResolvedValueOnce(Response.json({ identity_bindings: [identityBinding] }))
+      .mockResolvedValueOnce(
+        Response.json({ identity_binding: { ...identityBinding, role: "issuer" } })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustTenants()).resolves.toEqual([tenant]);
+    await expect(
+      replaceRustTenant(tenant.id, { slug: tenant.slug, name: "Acme Cloud", enabled: true })
+    ).resolves.toMatchObject({ name: "Acme Cloud" });
+    await expect(listRustIdentityBindings()).resolves.toEqual([identityBinding]);
+    await expect(
+      replaceRustIdentityBinding(identityBinding.id, {
+        subject: identityBinding.subject,
+        tenant_id: tenant.id,
+        role: "issuer",
+        enabled: true,
+      })
+    ).resolves.toMatchObject({ role: "issuer" });
+    await expect(deleteRustIdentityBinding(identityBinding.id)).resolves.toBeUndefined();
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/tenants",
+      "/api/admin/tenants/acme",
+      "/api/admin/identity-bindings",
+      "/api/admin/identity-bindings/acme-manager",
+      "/api/admin/identity-bindings/acme-manager",
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
+      slug: "acme",
+      name: "Acme Cloud",
+      enabled: true,
+    });
+    expect(fetch.mock.calls[3]?.[1]).toMatchObject({ method: "PUT" });
+    expect(fetch.mock.calls[4]?.[1]).toMatchObject({ method: "DELETE" });
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(new Headers(init.headers).get("x-red-router-csrf")).toBe("fixture-token");
+    }
+  });
+
+  it("rejects malformed organization and identity-binding responses", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ tenants: [{ ...tenant, extra: "unexpected" }] }))
+      .mockResolvedValueOnce(
+        Response.json({ identity_bindings: [{ ...identityBinding, role: "owner" }] })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(listRustTenants()).rejects.toThrow("Invalid Rust tenant response");
+    await expect(listRustIdentityBindings()).rejects.toThrow(
+      "Invalid Rust identity-binding response"
+    );
   });
 
   it("manages per-model token limits through the authenticated Rust compatibility route", async () => {

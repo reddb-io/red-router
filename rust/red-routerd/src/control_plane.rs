@@ -11706,7 +11706,7 @@ pub async fn list_tenants(State(state): State<ProxyState>, headers: HeaderMap) -
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    if control.authorized_admin_actor(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.tenant_views().await {
@@ -11725,7 +11725,7 @@ pub async fn list_identity_bindings(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    if control.authorized_admin_actor(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.identity_binding_views().await {

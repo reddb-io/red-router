@@ -3006,6 +3006,19 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
         "acme-manager",
         "manager@acme.example",
     );
+    for path in ["/api/admin/tenants", "/api/admin/identity-bindings"] {
+        assert_eq!(
+            client
+                .get(format!("{base}{path}"))
+                .bearer_auth(&manager)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED,
+            "tenant administrators must not enumerate global identity configuration"
+        );
+    }
     for (id, tenant_id, upstream_url, api_key, bearer) in [
         (
             "oidc-red-provider",

@@ -52,6 +52,40 @@ export interface RustIssuedClientKey {
   warning: string;
 }
 
+export interface RustTenant {
+  id: string;
+  slug: string;
+  name: string;
+  enabled: boolean;
+  revision: string;
+}
+
+export interface RustTenantInput {
+  slug: string;
+  name: string;
+  enabled: boolean;
+}
+
+export type RustIdentityRole = "admin" | "tenant-admin" | "issuer";
+
+export interface RustIdentityBinding {
+  id: string;
+  subject: string;
+  tenant_id: string;
+  role: RustIdentityRole;
+  enabled: boolean;
+  revision: string;
+}
+
+export interface RustIdentityBindingInput {
+  subject?: string;
+  oidc_issuer?: string;
+  oidc_subject?: string;
+  tenant_id: string;
+  role: RustIdentityRole;
+  enabled: boolean;
+}
+
 export type RustTokenLimitInterval = "daily" | "weekly" | "monthly";
 
 export interface RustTokenLimit {
@@ -704,6 +738,33 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     isOptionalNumber(key.reservation_tokens) &&
     isOptionalNumber(key.reservation_spend_usd) &&
     typeof key.revision === "string"
+  );
+}
+
+function isRustTenant(value: unknown): value is RustTenant {
+  if (!value || typeof value !== "object") return false;
+  const tenant = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(tenant, ["id", "slug", "name", "enabled", "revision"]) &&
+    typeof tenant.id === "string" &&
+    typeof tenant.slug === "string" &&
+    typeof tenant.name === "string" &&
+    typeof tenant.enabled === "boolean" &&
+    typeof tenant.revision === "string"
+  );
+}
+
+function isRustIdentityBinding(value: unknown): value is RustIdentityBinding {
+  if (!value || typeof value !== "object") return false;
+  const binding = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(binding, ["id", "subject", "tenant_id", "role", "enabled", "revision"]) &&
+    typeof binding.id === "string" &&
+    typeof binding.subject === "string" &&
+    typeof binding.tenant_id === "string" &&
+    (binding.role === "admin" || binding.role === "tenant-admin" || binding.role === "issuer") &&
+    typeof binding.enabled === "boolean" &&
+    typeof binding.revision === "string"
   );
 }
 
@@ -1375,6 +1436,61 @@ function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };
+}
+
+export async function listRustTenants(): Promise<RustTenant[]> {
+  const value = await rustAdminJson("/api/admin/tenants");
+  const tenants =
+    value && typeof value === "object" ? (value as { tenants?: unknown }).tenants : null;
+  if (!Array.isArray(tenants) || !tenants.every(isRustTenant)) {
+    throw new Error("Invalid Rust tenant response");
+  }
+  return tenants;
+}
+
+export async function replaceRustTenant(id: string, input: RustTenantInput): Promise<RustTenant> {
+  const value = await rustAdminJson(
+    `/api/admin/tenants/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const tenant = value && typeof value === "object" ? (value as { tenant?: unknown }).tenant : null;
+  if (!isRustTenant(tenant)) throw new Error("Invalid Rust tenant response");
+  return tenant;
+}
+
+export async function listRustIdentityBindings(): Promise<RustIdentityBinding[]> {
+  const value = await rustAdminJson("/api/admin/identity-bindings");
+  const bindings =
+    value && typeof value === "object"
+      ? (value as { identity_bindings?: unknown }).identity_bindings
+      : null;
+  if (!Array.isArray(bindings) || !bindings.every(isRustIdentityBinding)) {
+    throw new Error("Invalid Rust identity-binding response");
+  }
+  return bindings;
+}
+
+export async function replaceRustIdentityBinding(
+  id: string,
+  input: RustIdentityBindingInput
+): Promise<RustIdentityBinding> {
+  const value = await rustAdminJson(
+    `/api/admin/identity-bindings/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const binding =
+    value && typeof value === "object"
+      ? (value as { identity_binding?: unknown }).identity_binding
+      : null;
+  if (!isRustIdentityBinding(binding)) throw new Error("Invalid Rust identity-binding response");
+  return binding;
+}
+
+export async function deleteRustIdentityBinding(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/identity-bindings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) await rustError(response);
 }
 
 export async function listRustClientKeys(): Promise<RustClientKey[]> {
