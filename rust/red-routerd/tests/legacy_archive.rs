@@ -20,8 +20,12 @@ async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
     sqlx::raw_sql(r#"
         CREATE TABLE usage_history (id INTEGER PRIMARY KEY, provider TEXT, payload BLOB, exact_usd REAL, note TEXT);
         INSERT INTO usage_history VALUES (7,'openai',x'0001FF',0.00000031,NULL), (9,'other',x'',4.75,'text');
-        CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY, api_key_id TEXT, amount_usd REAL, tenant_id TEXT, usage_attributes TEXT);
-        INSERT INTO request_cost_ledger VALUES (4,'key-a',0.00000031,'acme','{"team":"infra"}');
+        CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY, api_key_id TEXT, amount_usd REAL, tenant_id TEXT, usage_attributes TEXT, provider TEXT, model TEXT, timestamp TEXT, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, pricing_known INTEGER, success INTEGER);
+        INSERT INTO request_cost_ledger VALUES
+          (4,'key-a',0.00000031,'acme','{"team":"infra"}','openai','gpt','2026-01-01T00:00:00Z',10,5,1,1,1),
+          (5,'key-b',0.50,'acme','{}','openai','gpt','2026-01-02T00:00:00Z',11,6,2,1,1),
+          (6,'key-c',0.25,'other','{}','openai','gpt','2026-01-03T00:00:00Z',12,7,3,1,1),
+          (7,'key-d',0.10,NULL,'{}','openai','gpt','2026-01-04T00:00:00Z',13,8,4,1,1);
         CREATE TABLE api_key_quota_counters (api_key_id TEXT, dimension_key TEXT, bucket_index INTEGER, consumed REAL);
         INSERT INTO api_key_quota_counters VALUES ('key-a','key-quota:tpm',42,17.5);
         CREATE TABLE api_key_usage_reservations (id TEXT PRIMARY KEY, state TEXT, reserved_usd REAL);
@@ -131,4 +135,55 @@ async fn unsupported_late_table_rolls_back_the_whole_archive() {
         "the manifest and earlier tables must roll back together"
     );
     output.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn historic_ledger_pages_enforce_tenant_and_preserve_exact_cost() {
+    let (_dir, source, destination) = fixture().await;
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(
+        !legacy_archive::usage_page(&db, Some("acme"), None, None, 1)
+            .await
+            .unwrap()
+            .available
+    );
+    db.close().await.unwrap();
+    legacy_archive::archive(&source, &destination)
+        .await
+        .unwrap();
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let first = legacy_archive::usage_page(&db, Some("acme"), None, None, 1)
+        .await
+        .unwrap();
+    assert!(first.available);
+    assert_eq!(first.entries.len(), 1);
+    assert_eq!(first.entries[0].row_id, "5");
+    assert_eq!(first.next_cursor.as_deref(), Some("5"));
+    let next = legacy_archive::usage_page(&db, Some("acme"), None, Some(5), 1)
+        .await
+        .unwrap();
+    assert_eq!(next.entries[0].row_id, "4");
+    assert_eq!(next.entries[0].amount_usd, 0.00000031);
+    assert_eq!(next.entries[0].tokens_input, "10");
+    assert!(next.next_cursor.is_none());
+    let other = legacy_archive::usage_page(&db, Some("other"), None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(other.entries.len(), 1);
+    assert_eq!(other.entries[0].key_id, "key-c");
+    let global = legacy_archive::usage_page(&db, None, None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(global.entries.len(), 4);
+    assert!(global.entries.iter().any(|entry| entry.tenant_id.is_none()));
+    let mismatch = legacy_archive::usage_page(&db, Some("acme"), Some("key-c"), None, 10)
+        .await
+        .unwrap();
+    assert!(mismatch.entries.is_empty());
+    assert!(legacy_archive::usage_page(&db, None, None, None, 101)
+        .await
+        .is_err());
+    db.close().await.unwrap();
 }

@@ -176,3 +176,30 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
   await expect(page.getByRole("status")).toHaveText("Catalog updated.");
   expect(refreshes).toBe(1);
 });
+
+test("static dashboard reads staged historical costs from the Rust API", async ({ page, context }) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  const queries: string[] = [];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === "/api/auth/config") {
+      await route.fulfill({ json: { backend: "rust", control_plane_enabled: true, oidc_browser_login: true, password_login: false } });
+    } else if (url.pathname === "/api/admin/legacy-usage") {
+      expect(request.headers()["x-red-router-csrf"]).toBe("fixture-csrf");
+      queries.push(url.search);
+      const second = url.searchParams.has("cursor");
+      await route.fulfill({ json: { legacy_usage: { available: true, next_cursor: second ? null : "12", entries: [{
+        row_id: second ? "11" : "12", key_id: "key-a", tenant_id: "acme", provider: "openai", model: "gpt",
+        timestamp: "2026-01-01T00:00:00Z", tokens_input: "10", tokens_output: "5", tokens_reasoning: "1",
+        amount_usd: 0.00000031, pricing_known: true, success: true,
+      }] } } });
+    } else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/legacy-usage`);
+  await expect(page.getByRole("heading", { name: "Historical usage" })).toBeVisible();
+  await expect(page.getByText("$3.1e-7")).toBeVisible();
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(page.getByRole("button", { name: "First page" })).toBeVisible();
+  expect(queries.some((query) => new URLSearchParams(query).get("cursor") === "12")).toBe(true);
+});

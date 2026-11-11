@@ -720,6 +720,15 @@ pub struct UsageReportQuery {
     pub cursor: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyUsageQuery {
+    pub tenant_id: Option<String>,
+    pub key_id: Option<String>,
+    pub cursor: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UsageExportConfigInput {
@@ -10895,6 +10904,51 @@ pub async fn test_usage_export(
             "requests": []
         }))
         .into_response(),
+    }
+}
+
+pub async fn get_legacy_usage_report(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<LegacyUsageQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let tenant = match (scope.tenant_id.as_deref(), query.tenant_id.as_deref()) {
+        (Some(tenant), Some(requested)) if tenant != requested => {
+            return api_error(StatusCode::BAD_REQUEST, "Invalid legacy usage query")
+        }
+        (Some(tenant), _) => Some(tenant),
+        (None, requested) => requested,
+    };
+    if tenant.is_some_and(|value| validate_id(value).is_err()) {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid legacy usage query");
+    }
+    match crate::legacy_archive::usage_page(
+        &control.0.database,
+        tenant,
+        query.key_id.as_deref(),
+        query.cursor,
+        query.limit.unwrap_or(50),
+    )
+    .await
+    {
+        Ok(page) => {
+            let mut response = Json(serde_json::json!({"legacy_usage": page})).into_response();
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response
+        }
+        Err("invalid legacy usage query") => {
+            api_error(StatusCode::BAD_REQUEST, "Invalid legacy usage query")
+        }
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Legacy usage unavailable"),
     }
 }
 

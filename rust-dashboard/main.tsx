@@ -10,6 +10,7 @@ const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
 const OidcSettings = lazy(() => import("./OidcSettings"));
 const ModelCatalog = lazy(() => import("./ModelCatalog"));
+const LegacyUsage = lazy(() => import("./LegacyUsage"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
@@ -18,6 +19,7 @@ const pages = [
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
   { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
   { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
+  { path: "/dashboard/legacy-usage", label: "Historical usage", component: LegacyUsage },
   { path: "/dashboard/oidc", label: "Single sign-on", component: OidcSettings },
 ];
 

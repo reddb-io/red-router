@@ -3183,7 +3183,57 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .await
             .unwrap();
     }
+    sqlx::raw_sql("CREATE TABLE redrouter_legacy_request_cost_ledger (__legacy_rowid INTEGER,api_key_id TEXT,tenant_id TEXT,provider TEXT,model TEXT,timestamp TEXT,tokens_input INTEGER,tokens_output INTEGER,tokens_reasoning INTEGER,amount_usd REAL,pricing_known INTEGER,success INTEGER); INSERT INTO redrouter_legacy_request_cost_ledger VALUES (1,'acme-key','acme','openai','gpt','2026-01-01',1,2,0,0.00000031,1,1),(2,'red-key','red','openai','gpt','2026-01-01',1,2,0,0.25,1,1),(3,'unknown-key',NULL,'openai','gpt','2026-01-01',1,2,0,0.5,1,1);").execute(&usage_db).await.unwrap();
     usage_db.close().await;
+    let legacy_usage = client
+        .get(format!("{base}/api/admin/legacy-usage"))
+        .bearer_auth(&manager)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy_usage.status(), StatusCode::OK);
+    let legacy_usage: serde_json::Value =
+        serde_json::from_str(&legacy_usage.text().await.unwrap()).unwrap();
+    assert_eq!(
+        legacy_usage["legacy_usage"]["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        legacy_usage["legacy_usage"]["entries"][0]["tenant_id"],
+        "acme"
+    );
+    assert_eq!(
+        legacy_usage["legacy_usage"]["entries"][0]["amount_usd"],
+        0.00000031
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/legacy-usage?tenant_id=red"))
+            .bearer_auth(&manager)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let global_legacy = client
+        .get(format!("{base}/api/admin/legacy-usage"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    let global_legacy: serde_json::Value =
+        serde_json::from_str(&global_legacy.text().await.unwrap()).unwrap();
+    assert_eq!(
+        global_legacy["legacy_usage"]["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
     let scoped_usage = client
         .get(format!("{base}/api/admin/usage"))
         .bearer_auth(&manager)

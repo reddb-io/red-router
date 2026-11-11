@@ -1,5 +1,6 @@
 //! Offline, lossless staging of legacy usage, quota and budget tables.
-//! These tables are not consulted by the native admission or reporting paths.
+//! Archived ledger rows have a separate read-only report; they are never used
+//! by native quota admission or native usage exports.
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::path::Path;
 use url::Url;
@@ -132,6 +133,12 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
             let mismatch: i64 = sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM {source_table} s LEFT JOIN {target_table} d ON s.rowid=d.__legacy_rowid WHERE d.__legacy_rowid IS NULL OR {differences} LIMIT 1)"))
                 .fetch_one(&mut *tx).await.map_err(|_| "cannot verify archived values")?;
             if mismatch != 0 { return Err("legacy archive verification failed"); }
+            if table == "request_cost_ledger" && names.iter().any(|name| name == "tenant_id") && names.iter().any(|name| name == "api_key_id") {
+                for (suffix, fields) in [("tenant", "tenant_id,__legacy_rowid DESC"), ("key", "api_key_id,__legacy_rowid DESC"), ("tenant_key", "tenant_id,api_key_id,__legacy_rowid DESC")] {
+                    sqlx::query(&format!("CREATE INDEX {} ON {} ({fields})", ident(&format!("{dest}_{suffix}")), ident(&dest)))
+                        .execute(&mut *tx).await.map_err(|_| "cannot index legacy usage")?;
+                }
+            }
             sqlx::query("INSERT INTO redrouter_legacy_archive_manifest VALUES (?,?)").bind(table).bind(source_count)
                 .execute(&mut *tx).await.map_err(|_| "cannot write archive manifest")?;
             report.push(ArchivedTable { source: table, rows: Some(source_count) });
@@ -154,4 +161,122 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
 
 fn ident(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LegacyUsageEntry {
+    pub row_id: String,
+    pub key_id: String,
+    pub tenant_id: Option<String>,
+    pub provider: String,
+    pub model: String,
+    pub timestamp: String,
+    pub tokens_input: String,
+    pub tokens_output: String,
+    pub tokens_reasoning: String,
+    pub amount_usd: f64,
+    pub pricing_known: bool,
+    pub success: bool,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LegacyUsagePage {
+    pub available: bool,
+    pub entries: Vec<LegacyUsageEntry>,
+    pub next_cursor: Option<String>,
+}
+
+/// Read only the cost ledger. Tenant-bound callers can never receive rows with
+/// another or unknown tenant; only a global administrator can see unknowns.
+pub async fn usage_page(
+    database: &crate::storage::Database,
+    tenant: Option<&str>,
+    key: Option<&str>,
+    cursor: Option<i64>,
+    limit: i64,
+) -> Result<LegacyUsagePage, &'static str> {
+    if !(1..=100).contains(&limit)
+        || key.is_some_and(|value| {
+            value.is_empty() || value.len() > 128 || value.chars().any(char::is_control)
+        })
+    {
+        return Err("invalid legacy usage query");
+    }
+    if !database.is_sqlite().await {
+        return Err("legacy usage unavailable");
+    }
+    let pool = database.sql_pool().ok_or("legacy usage unavailable")?;
+    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_request_cost_ledger'")
+        .fetch_one(pool).await.map_err(|_| "legacy usage unavailable")?;
+    if exists == 0 {
+        return Ok(LegacyUsagePage {
+            available: false,
+            entries: Vec::new(),
+            next_cursor: None,
+        });
+    }
+    let mut query = sqlx::QueryBuilder::<sqlx::Any>::new("SELECT __legacy_rowid,api_key_id,tenant_id,provider,model,timestamp,tokens_input,tokens_output,tokens_reasoning,amount_usd,pricing_known,success FROM main.redrouter_legacy_request_cost_ledger WHERE 1=1");
+    if let Some(tenant) = tenant {
+        query.push(" AND tenant_id = ").push_bind(tenant);
+    }
+    if let Some(key) = key {
+        query.push(" AND api_key_id = ").push_bind(key);
+    }
+    if let Some(cursor) = cursor {
+        query.push(" AND __legacy_rowid < ").push_bind(cursor);
+    }
+    query
+        .push(" ORDER BY __legacy_rowid DESC LIMIT ")
+        .push_bind(limit + 1);
+    let rows = query
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|_| "legacy usage unavailable")?;
+    let more = rows.len() > limit as usize;
+    let mut entries = Vec::with_capacity(rows.len().min(limit as usize));
+    for row in rows.iter().take(limit as usize) {
+        let integer = |name| {
+            row.try_get::<i64, _>(name)
+                .map_err(|_| "invalid legacy usage")
+        };
+        let text = |name| {
+            row.try_get::<String, _>(name)
+                .map_err(|_| "invalid legacy usage")
+        };
+        let amount: f64 = row
+            .try_get("amount_usd")
+            .map_err(|_| "invalid legacy usage")?;
+        let pricing = integer("pricing_known")?;
+        let success = integer("success")?;
+        if !amount.is_finite() || !matches!(pricing, 0 | 1) || !matches!(success, 0 | 1) {
+            return Err("invalid legacy usage");
+        }
+        entries.push(LegacyUsageEntry {
+            row_id: integer("__legacy_rowid")?.to_string(),
+            key_id: text("api_key_id")?,
+            tenant_id: row
+                .try_get("tenant_id")
+                .map_err(|_| "invalid legacy usage")?,
+            provider: text("provider")?,
+            model: text("model")?,
+            timestamp: text("timestamp")?,
+            tokens_input: integer("tokens_input")?.to_string(),
+            tokens_output: integer("tokens_output")?.to_string(),
+            tokens_reasoning: integer("tokens_reasoning")?.to_string(),
+            amount_usd: amount,
+            pricing_known: pricing == 1,
+            success: success == 1,
+        });
+    }
+    let next_cursor = if more {
+        entries.last().map(|entry| entry.row_id.clone())
+    } else {
+        None
+    };
+    Ok(LegacyUsagePage {
+        available: true,
+        entries,
+        next_cursor,
+    })
 }

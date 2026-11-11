@@ -443,7 +443,9 @@ destination paths. The source is attached read-only; rows and SQLite value types
 checked before the destination transaction commits. Tables and their row counts are
 recorded in `redrouter_legacy_archive_manifest`; source tables that do not exist are
 marked with a NULL count. Existing archives are never overwritten. These are inert
-staging tables: Rust quota admission, dashboard reports and export destinations do
+staging tables: the historical-usage dashboard can read the cost ledger, scoped to
+the authenticated tenant; records with unknown tenant are visible only to a global
+administrator. Rust quota admission, current usage totals and export destinations do
 not yet consume them, and pending reservations are not reconciled automatically.
 Keep the original database and do not activate migrated quotas until accounting,
 tenant attribution and delivery state have been converted and verified.
