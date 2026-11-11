@@ -3728,6 +3728,11 @@ struct FusionPreparation {
     attempt_order: [usize; MAX_ROUTE_TARGETS],
 }
 
+struct FusionFailure {
+    status: StatusCode,
+    message: &'static str,
+}
+
 fn internal_target_from_model(
     route: &ModelRoute,
     target: &ModelTarget,
@@ -3976,9 +3981,7 @@ async fn execute_fusion_panel_target(
         Some(request)
     };
     let _load_guard = ProviderLoadGuard::new(target.in_flight.clone());
-    let Some(request) = build_request(true, &payload) else {
-        return None;
-    };
+    let request = build_request(true, &payload)?;
     let response = match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
         Ok(Ok(response)) => response,
         _ => {
@@ -3998,9 +4001,7 @@ async fn execute_fusion_panel_target(
         && response.status() == StatusCode::FORBIDDEN
         && target.antigravity_project.is_some()
     {
-        let Some(request) = build_request(false, &payload) else {
-            return None;
-        };
+        let request = build_request(false, &payload)?;
         match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
             Ok(Ok(response)) => response,
             _ => {
@@ -4046,9 +4047,7 @@ async fn execute_fusion_panel_target(
         .await;
         return None;
     }
-    let Some(response) = response.into_streaming() else {
-        return None;
-    };
+    let response = response.into_streaming()?;
     if response
         .content_length()
         .is_some_and(|length| length > MAX_BODY_BYTES as u64)
@@ -4147,7 +4146,7 @@ async fn prepare_fusion(
     body: &serde_json::Value,
     native_usage_identity: Option<&policy::ClientIdentity>,
     product_usage_accounting: bool,
-) -> Result<FusionPreparation, Response> {
+) -> Result<FusionPreparation, FusionFailure> {
     let judge_index = route
         .fusion
         .judge_model
@@ -4170,10 +4169,10 @@ async fn prepare_fusion(
         return Ok(direct());
     }
     if product_usage_accounting {
-        return Err(error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Fusion requires Rust-native usage accounting",
-        ));
+        return Err(FusionFailure {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "Fusion requires Rust-native usage accounting",
+        });
     }
     let mut pending = FuturesUnordered::new();
     for (target_index, target) in eligible.iter().enumerate() {
@@ -4218,10 +4217,10 @@ async fn prepare_fusion(
         }
     }
     if answers.is_empty() {
-        return Err(error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "All fusion panel models failed",
-        ));
+        return Err(FusionFailure {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "All fusion panel models failed",
+        });
     }
     answers.sort_by_key(|answer| answer.target_index);
     let judge_index = if route.fusion.judge_model.is_empty()
@@ -4234,10 +4233,10 @@ async fn prepare_fusion(
         judge_index
     };
     let Some(judge_body) = fusion_append_judge_prompt(body, fusion_judge_prompt(&answers)) else {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "Fusion is incompatible with this request body",
-        ));
+        return Err(FusionFailure {
+            status: StatusCode::BAD_REQUEST,
+            message: "Fusion is incompatible with this request body",
+        });
     };
     Ok(FusionPreparation {
         judge_body: Some(judge_body),
@@ -4937,7 +4936,7 @@ async fn proxy_request(
         .await
         {
             Ok(preparation) => Some(preparation),
-            Err(response) => return response,
+            Err(failure) => return error(failure.status, failure.message),
         },
         None => None,
     };
