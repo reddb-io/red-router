@@ -425,10 +425,30 @@ pub(crate) struct ModelRoute {
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
     strategy: RouteStrategy,
+    auto_weights: AutoRouteWeights,
     fallback: bool,
     cursor: AtomicUsize,
     seed: usize,
     last_good: AtomicUsize,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct AutoRouteWeights {
+    pub(crate) quota: f64,
+    pub(crate) cost: f64,
+    pub(crate) context: f64,
+    pub(crate) load: f64,
+}
+
+impl Default for AutoRouteWeights {
+    fn default() -> Self {
+        Self {
+            quota: 0.30,
+            cost: 0.25,
+            context: 0.15,
+            load: 0.30,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -721,7 +741,8 @@ impl ModelRoute {
     ) -> bool {
         match self.strategy {
             RouteStrategy::Auto => {
-                auto_route_score(candidate, now_unix_ms) > auto_route_score(current, now_unix_ms)
+                auto_route_score(candidate, now_unix_ms, self.auto_weights)
+                    > auto_route_score(current, now_unix_ms, self.auto_weights)
             }
             RouteStrategy::CostOptimized => {
                 let candidate_cost = candidate.input_cost_per_million.unwrap_or(f64::INFINITY)
@@ -1007,7 +1028,7 @@ fn quota_reset(target: &ModelTarget, now_unix_ms: i64) -> i64 {
     }
 }
 
-fn auto_route_score(target: &ModelTarget, now_unix_ms: i64) -> f64 {
+fn auto_route_score(target: &ModelTarget, now_unix_ms: i64, weights: AutoRouteWeights) -> f64 {
     let quota = quota_score(target, now_unix_ms);
     if !quota.is_finite() {
         return f64::NEG_INFINITY;
@@ -1027,10 +1048,12 @@ fn auto_route_score(target: &ModelTarget, now_unix_ms: i64) -> f64 {
     // Health and availability are hard gates before ordering. The remaining
     // score is deliberately small and allocation-free: quota/capacity, cost,
     // usable context and live load cover the signals the Rust snapshot owns.
-    0.30 * quota.clamp(0.0, 1.0)
-        + 0.25 * cost.clamp(0.0, 1.0)
-        + 0.15 * context.clamp(0.0, 1.0)
-        + 0.30 * load
+    let total = weights.quota + weights.cost + weights.context + weights.load;
+    (weights.quota * quota.clamp(0.0, 1.0)
+        + weights.cost * cost.clamp(0.0, 1.0)
+        + weights.context * context.clamp(0.0, 1.0)
+        + weights.load * load)
+        / total
 }
 
 fn pseudo_random(counter: usize) -> usize {
@@ -1796,6 +1819,7 @@ impl ProxyState {
                         targets,
                         protocol,
                         strategy,
+                        auto_weights: AutoRouteWeights::default(),
                         fallback,
                         cursor: AtomicUsize::new(0),
                         seed: if strategy == RouteStrategy::StrictRandom {

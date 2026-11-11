@@ -90,9 +90,10 @@ const combo: RustCombo = {
   id: "agent-route",
   tenant_id: "red",
   protocol: "openai",
-  strategy: "priority",
+  strategy: "auto",
   fallback: true,
   targets: [{ provider_id: provider.id, model: "openai/gpt-5", context_window_tokens: 400_000 }],
+  auto: { weights: { quota: 0.3, cost: 0.25, context: 0.15, load: 0.3 } },
   enabled: true,
   revision: "1700000000000000003",
   last_known_good: {
@@ -456,6 +457,7 @@ describe("Rust control-plane browser client", () => {
         strategy: combo.strategy,
         fallback: combo.fallback,
         targets: combo.targets,
+        auto: combo.auto,
         enabled: combo.enabled,
       })
     ).resolves.toEqual(combo);

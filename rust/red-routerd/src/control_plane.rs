@@ -869,6 +869,21 @@ pub struct ComboTarget {
     pub context_window_tokens: Option<u64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboAutoWeights {
+    pub quota: f64,
+    pub cost: f64,
+    pub context: f64,
+    pub load: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboAutoConfig {
+    pub weights: ComboAutoWeights,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComboInput {
@@ -880,6 +895,8 @@ pub struct ComboInput {
     #[serde(default)]
     pub fallback: bool,
     pub targets: Vec<ComboTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<ComboAutoConfig>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
@@ -892,10 +909,27 @@ pub struct ComboView {
     pub strategy: String,
     pub fallback: bool,
     pub targets: Vec<ComboTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto: Option<ComboAutoConfig>,
     pub enabled: bool,
     pub revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_known_good: Option<RoutePinView>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredComboPayload {
+    targets: Vec<ComboTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auto: Option<ComboAutoConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredComboPayloadCompat {
+    Legacy(Vec<ComboTarget>),
+    Current(StoredComboPayload),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -5135,14 +5169,22 @@ impl ControlPlane {
                 return Err("combo targets require enabled providers with the same protocol");
             }
         }
+        let targets_json = if input.auto.is_some() {
+            serde_json::to_string(&StoredComboPayload {
+                targets: input.targets.clone(),
+                auto: input.auto.clone(),
+            })
+        } else {
+            serde_json::to_string(&input.targets)
+        }
+        .map_err(|_| "cannot encode combo targets")?;
         let record = StoredCombo {
             id: id.to_owned(),
             tenant_id,
             protocol: input.protocol,
             strategy: input.strategy,
             fallback: input.fallback,
-            targets_json: serde_json::to_string(&input.targets)
-                .map_err(|_| "cannot encode combo targets")?,
+            targets_json,
             enabled: input.enabled,
             revision: revision()?,
         };
@@ -6580,6 +6622,17 @@ impl ControlPlane {
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
             let view = combo_view(record)?;
+            let auto_weights =
+                view.auto
+                    .as_ref()
+                    .map_or_else(crate::AutoRouteWeights::default, |config| {
+                        crate::AutoRouteWeights {
+                            quota: config.weights.quota,
+                            cost: config.weights.cost,
+                            context: config.weights.context,
+                            load: config.weights.load,
+                        }
+                    });
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
@@ -6690,6 +6743,7 @@ impl ControlPlane {
                     targets,
                     protocol,
                     strategy,
+                    auto_weights,
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
                     seed: if strategy == RouteStrategy::StrictRandom {
@@ -7987,10 +8041,15 @@ fn webhook_usage_url(config_json: &str) -> Result<String, &'static str> {
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
-    let targets: Vec<ComboTarget> = if record.targets_json.len() <= 256 * 1024 {
-        serde_json::from_str(&record.targets_json).map_err(|_| "invalid combo targets")?
+    let payload = if record.targets_json.len() <= 256 * 1024 {
+        serde_json::from_str::<StoredComboPayloadCompat>(&record.targets_json)
+            .map_err(|_| "invalid combo targets")?
     } else {
         return Err("invalid combo targets");
+    };
+    let (targets, auto) = match payload {
+        StoredComboPayloadCompat::Legacy(targets) => (targets, None),
+        StoredComboPayloadCompat::Current(payload) => (payload.targets, payload.auto),
     };
     let input = ComboInput {
         tenant_id: Some(record.tenant_id.clone()),
@@ -7998,6 +8057,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         strategy: record.strategy.clone(),
         fallback: record.fallback,
         targets: targets.clone(),
+        auto: auto.clone(),
         enabled: record.enabled,
     };
     validate_combo(&input)?;
@@ -8008,6 +8068,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         strategy: record.strategy.clone(),
         fallback: record.fallback,
         targets,
+        auto,
         enabled: record.enabled,
         revision: record.revision.to_string(),
         last_known_good: None,
@@ -8417,6 +8478,25 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "lkgp"
     ) {
         return Err("unsupported combo strategy");
+    }
+    match (input.strategy.as_str(), input.auto.as_ref()) {
+        ("auto", Some(config)) => {
+            let weights = [
+                config.weights.quota,
+                config.weights.cost,
+                config.weights.context,
+                config.weights.load,
+            ];
+            if weights
+                .iter()
+                .any(|weight| !weight.is_finite() || !(0.0..=1.0).contains(weight))
+                || weights.iter().sum::<f64>() <= 0.0
+            {
+                return Err("invalid auto strategy weights");
+            }
+        }
+        ("auto", None) | (_, None) => {}
+        (_, Some(_)) => return Err("auto configuration requires the auto strategy"),
     }
     if input.targets.is_empty() || input.targets.len() > 8 {
         return Err("combo targets must contain 1-8 entries");
@@ -11346,6 +11426,7 @@ mod tests {
                 output_cost_per_million: None,
                 context_window_tokens: None,
             }],
+            auto: None,
             enabled: true,
         };
 

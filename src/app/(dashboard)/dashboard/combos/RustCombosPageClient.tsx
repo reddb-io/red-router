@@ -37,6 +37,12 @@ type Draft = {
   strategy: RustComboStrategy;
   fallback: boolean;
   enabled: boolean;
+  autoWeights: {
+    quota: string;
+    cost: string;
+    context: string;
+    load: string;
+  };
   targets: TargetDraft[];
 };
 
@@ -87,6 +93,7 @@ const EMPTY_DRAFT: Draft = {
   strategy: "priority",
   fallback: true,
   enabled: true,
+  autoWeights: { quota: "0.3", cost: "0.25", context: "0.15", load: "0.3" },
   targets: [{ ...EMPTY_TARGET }],
 };
 
@@ -105,6 +112,12 @@ function comboDraft(combo: RustCombo): Draft {
     strategy: combo.strategy,
     fallback: combo.fallback,
     enabled: combo.enabled,
+    autoWeights: {
+      quota: String(combo.auto?.weights.quota ?? 0.3),
+      cost: String(combo.auto?.weights.cost ?? 0.25),
+      context: String(combo.auto?.weights.context ?? 0.15),
+      load: String(combo.auto?.weights.load ?? 0.3),
+    },
     targets: combo.targets.map((target) => ({
       providerId: target.provider_id,
       model: target.model,
@@ -133,6 +146,12 @@ function optionalInteger(value: string, label: string, maximum: number): number 
   if (parsed !== undefined && (!Number.isSafeInteger(parsed) || parsed < 1)) {
     throw new Error(`${label} must be a positive integer`);
   }
+  return parsed;
+}
+
+function requiredNumber(value: string, label: string, maximum: number): number {
+  const parsed = optionalNumber(value, label, maximum);
+  if (parsed === undefined) throw new Error(`${label} is required`);
   return parsed;
 }
 
@@ -193,11 +212,29 @@ function comboInput(draft: Draft, providers: RustProvider[]): RustComboInput {
   ) {
     throw new Error("Weighted target values must total exactly 100");
   }
+  const auto =
+    draft.strategy === "auto"
+      ? {
+          weights: {
+            quota: requiredNumber(draft.autoWeights.quota, "Quota weight", 1),
+            cost: requiredNumber(draft.autoWeights.cost, "Cost weight", 1),
+            context: requiredNumber(draft.autoWeights.context, "Context weight", 1),
+            load: requiredNumber(draft.autoWeights.load, "Load weight", 1),
+          },
+        }
+      : undefined;
+  if (
+    auto &&
+    Object.values(auto.weights).reduce((total, weight) => total + weight, 0) <= 0
+  ) {
+    throw new Error("Auto weights must be between 0 and 1 and contain a positive total");
+  }
   return {
     protocol: draft.protocol,
     strategy: draft.strategy,
     fallback: draft.fallback,
     targets,
+    ...(auto === undefined ? {} : { auto }),
     enabled: draft.enabled,
   };
 }
@@ -455,6 +492,45 @@ export default function RustCombosPageClient() {
           </div>
         </div>
 
+        {draft.strategy === "auto" && (
+          <div className="mt-4 rounded-lg border border-black/10 p-3 dark:border-white/10">
+            <div className="mb-3">
+              <strong className="text-sm text-text">Automatic routing weights</strong>
+              <p className="text-xs text-text-muted">
+                Values are normalized by Rust. Set a signal to zero to ignore it.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {(
+                [
+                  ["quota", "Quota capacity"],
+                  ["cost", "Lower cost"],
+                  ["context", "Context window"],
+                  ["load", "Live concurrency"],
+                ] as const
+              ).map(([field, label]) => (
+                <label className={labelClass} key={field}>
+                  {label}
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={draft.autoWeights[field]}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        autoWeights: { ...current.autoWeights, [field]: event.target.value },
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-col gap-3">
           {draft.targets.map((target, index) => {
             const provider = providerById.get(target.providerId);
@@ -554,7 +630,7 @@ export default function RustCombosPageClient() {
                       />
                     </label>
                   )}
-                  {draft.strategy === "cost-optimized" && (
+                  {(draft.strategy === "cost-optimized" || draft.strategy === "auto") && (
                     <>
                       <label className={labelClass}>
                         Input USD / million
@@ -582,7 +658,7 @@ export default function RustCombosPageClient() {
                       </label>
                     </>
                   )}
-                  {draft.strategy === "context-optimized" && (
+                  {(draft.strategy === "context-optimized" || draft.strategy === "auto") && (
                     <label className={labelClass}>
                       Context window tokens
                       <input
@@ -703,6 +779,12 @@ export default function RustCombosPageClient() {
                 );
               })}
             </div>
+            {combo.auto && (
+              <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
+                Auto weights: quota {combo.auto.weights.quota}, cost {combo.auto.weights.cost},
+                context {combo.auto.weights.context}, load {combo.auto.weights.load}
+              </div>
+            )}
             {combo.last_known_good && (
               <div className="mt-3 rounded-lg bg-black/[0.03] p-3 text-xs text-text-muted dark:bg-white/[0.04]">
                 Last known good: {combo.last_known_good.provider_id} / {combo.last_known_good.model}

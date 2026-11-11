@@ -345,7 +345,9 @@ prefix. This preserves account locality without a per-conversation database look
 The Rust-owned `auto` strategy ranks the already-authorized, healthy target snapshot by
 quota capacity, catalog-enriched cost and context, and current in-flight load. Selection
 is allocation-free after the fixed eight-target deck is built and performs no storage or
-network reads in the request path.
+network reads in the request path. Operators can assign independent normalized weights to
+those four signals. The configuration is stored with the combo payload, survives restart
+and live reload, and legacy array-only combo payloads retain the balanced defaults.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

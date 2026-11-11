@@ -4276,19 +4276,20 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
                 serde_json::json!({
                     "strategy":"auto",
                     "fallback":true,
+                    "auto":{"weights":{"quota":0.0,"cost":0.0,"context":1.0,"load":0.0}},
                     "targets":[
                         {
                             "provider_id":"first",
                             "model":"upstream-model",
-                            "input_cost_per_million":5.0,
-                            "output_cost_per_million":15.0,
+                            "input_cost_per_million":0.0,
+                            "output_cost_per_million":0.0,
                             "context_window_tokens":128000
                         },
                         {
                             "provider_id":"second",
                             "model":"upstream-model",
-                            "input_cost_per_million":0.5,
-                            "output_cost_per_million":1.5,
+                            "input_cost_per_million":100.0,
+                            "output_cost_per_million":100.0,
                             "context_window_tokens":1000000
                         }
                     ]
@@ -4308,6 +4309,48 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .await
             .unwrap(),
         "combo-second"
+    );
+    let persisted_auto = database
+        .combos()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|combo| combo.id == "agent-combo")
+        .unwrap();
+    let persisted_auto: serde_json::Value =
+        serde_json::from_str(&persisted_auto.targets_json).unwrap();
+    assert_eq!(persisted_auto["auto"]["weights"]["context"], 1.0);
+    let reloaded_control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (reloaded_auto_base, reloaded_auto_task) = gateway(reloaded_control).await;
+    assert_eq!(
+        chat_model(&client, &reloaded_auto_base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    reloaded_auto_task.abort();
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"priority",
+                    "auto":{"weights":{"quota":0.25,"cost":0.25,"context":0.25,"load":0.25}},
+                    "targets":[{"provider_id":"first","model":"upstream-model"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
     );
     assert_eq!(
         client

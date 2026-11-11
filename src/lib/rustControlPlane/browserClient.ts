@@ -332,6 +332,17 @@ export interface RustComboTarget {
   context_window_tokens?: number;
 }
 
+export interface RustComboAutoWeights {
+  quota: number;
+  cost: number;
+  context: number;
+  load: number;
+}
+
+export interface RustComboAutoConfig {
+  weights: RustComboAutoWeights;
+}
+
 export interface RustComboRoutePin {
   provider_id: string;
   model: string;
@@ -345,6 +356,7 @@ export interface RustCombo {
   strategy: RustComboStrategy;
   fallback: boolean;
   targets: RustComboTarget[];
+  auto?: RustComboAutoConfig;
   enabled: boolean;
   revision: string;
   last_known_good?: RustComboRoutePin;
@@ -356,6 +368,7 @@ export interface RustComboInput {
   strategy: RustComboStrategy;
   fallback: boolean;
   targets: RustComboTarget[];
+  auto?: RustComboAutoConfig;
   enabled: boolean;
 }
 
@@ -705,6 +718,24 @@ function isRustComboRoutePin(value: unknown): value is RustComboRoutePin {
   );
 }
 
+function isRustComboAutoConfig(value: unknown): value is RustComboAutoConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  if (!hasOnlyKeys(config, ["weights"]) || !config.weights || typeof config.weights !== "object") {
+    return false;
+  }
+  const weights = config.weights as Record<string, unknown>;
+  const values = [weights.quota, weights.cost, weights.context, weights.load];
+  return (
+    hasOnlyKeys(weights, ["quota", "cost", "context", "load"]) &&
+    values.every(
+      (weight) =>
+        typeof weight === "number" && Number.isFinite(weight) && weight >= 0 && weight <= 1
+    ) &&
+    (values as number[]).reduce((total, weight) => total + weight, 0) > 0
+  );
+}
+
 function isRustCombo(value: unknown): value is RustCombo {
   if (!value || typeof value !== "object") return false;
   const combo = value as Record<string, unknown>;
@@ -716,6 +747,7 @@ function isRustCombo(value: unknown): value is RustCombo {
       "strategy",
       "fallback",
       "targets",
+      "auto",
       "enabled",
       "revision",
       "last_known_good",
@@ -727,6 +759,7 @@ function isRustCombo(value: unknown): value is RustCombo {
     typeof combo.fallback === "boolean" &&
     Array.isArray(combo.targets) &&
     combo.targets.every(isRustComboTarget) &&
+    (combo.auto === undefined || isRustComboAutoConfig(combo.auto)) &&
     typeof combo.enabled === "boolean" &&
     typeof combo.revision === "string" &&
     (combo.last_known_good === undefined || isRustComboRoutePin(combo.last_known_good))

@@ -226,4 +226,43 @@ describe("Rust combo manager", () => {
     confirm.mockRestore();
     expect(api.disableRustCombo).toHaveBeenCalledWith(combo.id);
   });
+
+  it("edits and persists Rust automatic routing weights", async () => {
+    const autoCombo = {
+      ...combo,
+      strategy: "auto",
+      auto: { weights: { quota: 0.3, cost: 0.25, context: 0.15, load: 0.3 } },
+      last_known_good: undefined,
+    };
+    api.listRustCombos.mockResolvedValue([autoCombo]);
+    api.replaceRustCombo.mockResolvedValue(autoCombo);
+    const container = await mount();
+    const edit = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Edit"
+    );
+    await act(async () => {
+      edit?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Automatic routing weights");
+    const weights = container.querySelectorAll('input[type="number"][max="1"]');
+    expect(weights).toHaveLength(4);
+    await act(async () => setInput(weights[0] as HTMLInputElement, "0.6"));
+    const save = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save combo"
+    );
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.replaceRustCombo).toHaveBeenCalledWith(combo.id, {
+      protocol: combo.protocol,
+      strategy: "auto",
+      fallback: combo.fallback,
+      targets: combo.targets,
+      auto: { weights: { quota: 0.6, cost: 0.25, context: 0.15, load: 0.3 } },
+      enabled: combo.enabled,
+    });
+  });
 });
