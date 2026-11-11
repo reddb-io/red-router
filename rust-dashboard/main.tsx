@@ -45,7 +45,7 @@ function Dashboard() {
     <main className="mx-auto max-w-lg p-8">
       <h1 className="text-2xl font-semibold">RedRouter</h1>
       {config.oidc_browser_login ? (
-        <a className="mt-6 inline-block rounded bg-primary px-4 py-2 text-white" href="/api/auth/oidc/login">Sign in with OpenID Connect</a>
+        <button className="mt-6 inline-block rounded bg-primary px-4 py-2 text-white" type="button" onClick={() => window.location.assign("/api/auth/oidc/login")}>Sign in with OpenID Connect</button>
       ) : <p className="mt-4">Configure OpenID Connect browser login in the Rust control plane to use this dashboard.</p>}
     </main>
   );
