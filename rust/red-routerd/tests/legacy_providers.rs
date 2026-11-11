@@ -253,7 +253,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,project_id TEXT,token_type TEXT,scope TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
         .execute(&mut input).await.unwrap();
     for (id, workspace) in [
         ("codex-good", "workspace-1"),
@@ -266,6 +266,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
+    for (id, project) in [("agy-good", "project-1"), ("agy-wrong", "project-other")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli"}).to_string()).execute(&mut input).await.unwrap();
+    }
     input.close().await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -280,7 +284,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        4
+        6
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -294,6 +298,11 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-proxy", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_antigravity(&dest, "agy-wrong", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
     );
@@ -337,4 +346,33 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .is_err()
     );
+    let result = legacy_providers::adopt_antigravity(&dest, "agy-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    let provider = providers
+        .iter()
+        .find(|provider| provider.id == "agy-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "agy-good"),
+        "agy-private-access"
+    );
+    let sessions = db.provider_sessions().await.unwrap();
+    let session = sessions
+        .iter()
+        .find(|session| session.provider_id == "agy-good")
+        .unwrap();
+    let metadata = decrypt_rust_ciphertext(&session.session_ciphertext, "agy-good:oauth-session");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&metadata).unwrap()["projectId"],
+        "project-1"
+    );
+    db.close().await.unwrap();
 }

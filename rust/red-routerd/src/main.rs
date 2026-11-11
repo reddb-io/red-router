@@ -84,11 +84,14 @@ async fn run(
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
-    if command.as_deref() == Some("adopt-legacy-codex") {
+    if matches!(
+        command.as_deref(),
+        Some("adopt-legacy-codex" | "adopt-legacy-antigravity")
+    ) {
         let flag = args.next();
         let id = args.next();
         if flag.as_deref() != Some("--offline-confirmed") || id.is_none() || args.next().is_some() {
-            return Err("usage: red-routerd adopt-legacy-codex --offline-confirmed PROVIDER_ID (set RED_ROUTER_MIGRATION_DEST_PATH, STORAGE_ENCRYPTION_KEY and optionally RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY; stop all servers first)".into());
+            return Err("usage: red-routerd adopt-legacy-codex|adopt-legacy-antigravity --offline-confirmed PROVIDER_ID (set RED_ROUTER_MIGRATION_DEST_PATH, STORAGE_ENCRYPTION_KEY and optionally RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY; stop all servers first)".into());
         }
         let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
             .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
@@ -97,13 +100,23 @@ async fn run(
             env::var("RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY")
                 .unwrap_or_else(|_| secret.to_string()),
         );
-        let report = red_routerd::legacy_providers::adopt_codex(
-            std::path::Path::new(&destination),
-            id.as_deref().unwrap_or_default(),
-            &secret,
-            &legacy_secret,
-        )
-        .await?;
+        let report = if command.as_deref() == Some("adopt-legacy-codex") {
+            red_routerd::legacy_providers::adopt_codex(
+                std::path::Path::new(&destination),
+                id.as_deref().unwrap_or_default(),
+                &secret,
+                &legacy_secret,
+            )
+            .await?
+        } else {
+            red_routerd::legacy_providers::adopt_antigravity(
+                std::path::Path::new(&destination),
+                id.as_deref().unwrap_or_default(),
+                &secret,
+                &legacy_secret,
+            )
+            .await?
+        };
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }

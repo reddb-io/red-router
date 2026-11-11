@@ -25,6 +25,26 @@ pub async fn adopt_codex(
     storage_key: &str,
     legacy_key: &str,
 ) -> Result<ProviderImport, &'static str> {
+    adopt_oauth(destination, id, storage_key, legacy_key, "codex").await
+}
+
+/// Convert a staged Antigravity OAuth record without refreshing credentials.
+pub async fn adopt_antigravity(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+) -> Result<ProviderImport, &'static str> {
+    adopt_oauth(destination, id, storage_key, legacy_key, "agy").await
+}
+
+async fn adopt_oauth(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+    provider: &str,
+) -> Result<ProviderImport, &'static str> {
     if id.is_empty()
         || id.len() > 128
         || !id
@@ -58,7 +78,7 @@ pub async fn adopt_codex(
         let text = |name: &str| -> Result<Option<&str>, &'static str> {
             match object.get(name) { Some(serde_json::Value::Null) => Ok(None), Some(serde_json::Value::String(value)) => Ok(Some(value)), _ => Err("unsupported staged provider schema") }
         };
-        if text("id")? != Some(id) || text("provider")? != Some("codex") || text("auth_type")? != Some("oauth") { return Err("staged provider is not a Codex OAuth session"); }
+        if text("id")? != Some(id) || text("provider")? != Some(provider) || text("auth_type")? != Some("oauth") { return Err("staged provider is not the expected OAuth session"); }
         let active = match object.get("is_active").and_then(serde_json::Value::as_i64) { Some(0) => false, Some(1) => true, _ => return Err("invalid staged provider status") };
         for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "priority", "global_priority", "backoff_level", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
@@ -84,20 +104,39 @@ pub async fn adopt_codex(
         };
         let access = token("access_token")?;
         let refresh = token("refresh_token")?;
-        let id_token = token("id_token")?;
-        let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
         let specific: serde_json::Value = match text("provider_specific_data")? {
             None | Some("") => serde_json::json!({}),
-            Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy Codex metadata")?,
+            Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy OAuth metadata")?,
         };
-        let specific = specific.as_object().ok_or("invalid legacy Codex metadata")?;
-        if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) {
-            return Err("legacy Codex configuration requires migration");
-        }
-        if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
-            if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
-        }
-        let mut expires = i64::try_from(parsed.expires_at_unix).map_err(|_| "invalid legacy OAuth expiry")?;
+        let specific = specific.as_object().ok_or("invalid legacy OAuth metadata")?;
+        let (access, refresh, session, parsed_expiry, parsed_email, upstream) = if provider == "codex" {
+            let id_token = token("id_token")?;
+            let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
+            if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) { return Err("legacy Codex configuration requires migration"); }
+            if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
+                if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
+            }
+            (parsed.access_token, parsed.refresh_token, parsed.session_metadata, parsed.expires_at_unix, parsed.email, crate::control_plane::CODEX_PROVIDER_URL)
+        } else {
+            if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Antigravity identity token requires migration"); }
+            if text("scope")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy Antigravity OAuth scope requires migration"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "projectId" | "clientProfile" | "authMethod" | "tokenType")) { return Err("legacy Antigravity configuration requires migration"); }
+            if specific.get("clientProfile").is_some_and(|value| !value.is_null() && value.as_str() != Some("cli")) { return Err("legacy Antigravity client profile requires migration"); }
+            let direct = text("project_id")?.filter(|value| !value.trim().is_empty());
+            let nested = match specific.get("projectId") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_str().ok_or("invalid Antigravity project")?).filter(|value| !value.trim().is_empty()) };
+            if direct.is_some() && nested.is_some() && direct != nested { return Err("legacy Antigravity project requires reconciliation"); }
+            let project = direct.or(nested).filter(|value| value.len() <= 256 && value.trim() == *value && *value != "__REQUIRES_GCP_PROJECT__" && !value.chars().any(char::is_control)).ok_or("legacy Antigravity project is missing")?;
+            let expiry = text("token_expires_at")?.filter(|value| !value.is_empty()).or(text("expires_at")?.filter(|value| !value.is_empty())).ok_or("legacy OAuth expiry is missing")?;
+            let token_type = text("token_type")?.filter(|value| !value.is_empty()).unwrap_or("Bearer");
+            if let Some(value) = specific.get("tokenType").filter(|value| !value.is_null()) {
+                if !value.as_str().is_some_and(|value| value.eq_ignore_ascii_case(token_type)) { return Err("legacy Antigravity token type requires reconciliation"); }
+            }
+            let parsed = crate::control_plane::parse_agy_auth(serde_json::json!({"access_token":access.as_str(),"refresh_token":refresh.as_str(),"expiry":expiry,"token_type":token_type,"auth_method":specific.get("authMethod")}))?;
+            let metadata: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str()).map_err(|_| "invalid Antigravity metadata")?;
+            let session = Zeroizing::new(serde_json::json!({"clientProfile":"cli","tokenType":metadata["tokenType"],"authMethod":metadata["authMethod"],"projectId":project}).to_string());
+            (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, None, crate::control_plane::AGY_PROVIDER_URL)
+        };
+        let mut expires = i64::try_from(parsed_expiry).map_err(|_| "invalid legacy OAuth expiry")?;
         if expires <= 0 { return Err("invalid legacy OAuth expiry"); }
         for field in ["expires_at", "token_expires_at"] {
             if let Some(value) = text(field)?.filter(|value| !value.trim().is_empty()) {
@@ -108,18 +147,18 @@ pub async fn adopt_codex(
             }
         }
         let label = text("display_name")?.filter(|value| !value.trim().is_empty()).or(text("name")?.filter(|value| !value.trim().is_empty())).unwrap_or(id).trim();
-        let email = text("email")?.filter(|value| !value.trim().is_empty()).or(parsed.email.as_deref()).unwrap_or("").trim();
+        let email = text("email")?.filter(|value| !value.trim().is_empty()).or(parsed_email.as_deref()).unwrap_or("").trim();
         if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
-        let access_cipher = crate::control_plane::encrypt(parsed.access_token.as_str(), id, storage_key)?;
-        let refresh_cipher = crate::control_plane::encrypt(parsed.refresh_token.as_str(), &format!("{id}:oauth-refresh"), storage_key)?;
-        let session_cipher = crate::control_plane::encrypt(parsed.session_metadata.as_str(), &format!("{id}:oauth-session"), storage_key)?;
+        let access_cipher = crate::control_plane::encrypt(access.as_str(), id, storage_key)?;
+        let refresh_cipher = crate::control_plane::encrypt(refresh.as_str(), &format!("{id}:oauth-refresh"), storage_key)?;
+        let session_cipher = crate::control_plane::encrypt(session.as_str(), &format!("{id}:oauth-session"), storage_key)?;
         sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut db).await.map_err(|_| "cannot initialize provider migration state")?;
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
-        sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,'codex',?,?,0,1)").bind(id).bind(crate::control_plane::CODEX_PROVIDER_URL).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
+        sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
-        sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,'codex',?,0,1)").bind(id).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
-        sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,'codex',?,1)").bind(id).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,?,?,0,1)").bind(id).bind(provider).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
+        sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,?,?,1)").bind(id).bind(provider).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;
         sqlx::query("INSERT INTO redrouter_provider_resilience VALUES (?,?,'connection',1)").bind(format!("{id}:1")).bind(id).execute(&mut db).await.map_err(|_| "cannot write provider resilience")?;
         Ok(ProviderImport { imported: 1, enabled: false, source_enabled: active })
     }.await;

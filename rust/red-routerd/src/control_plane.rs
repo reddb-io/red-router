@@ -75,7 +75,7 @@ const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub(crate) const CODEX_PROVIDER_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CLAUDE_PROVIDER_URL: &str = "https://api.anthropic.com/v1/messages";
-const AGY_PROVIDER_URL: &str =
+pub(crate) const AGY_PROVIDER_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent";
 const AGY_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo";
 const AGY_LOAD_CODE_ASSIST_URL: &str =
@@ -562,11 +562,11 @@ struct ParsedClaudeAuth {
     expires_at_unix: u64,
 }
 
-struct ParsedAgyAuth {
-    access_token: Zeroizing<String>,
-    refresh_token: Zeroizing<String>,
-    session_metadata: Zeroizing<String>,
-    expires_at_unix: u64,
+pub(crate) struct ParsedAgyAuth {
+    pub(crate) access_token: Zeroizing<String>,
+    pub(crate) refresh_token: Zeroizing<String>,
+    pub(crate) session_metadata: Zeroizing<String>,
+    pub(crate) expires_at_unix: u64,
 }
 
 #[derive(Default)]
@@ -9971,7 +9971,7 @@ fn parse_claude_auth(raw: serde_json::Value) -> Result<ParsedClaudeAuth, &'stati
     })
 }
 
-fn parse_agy_auth(raw: serde_json::Value) -> Result<ParsedAgyAuth, &'static str> {
+pub(crate) fn parse_agy_auth(raw: serde_json::Value) -> Result<ParsedAgyAuth, &'static str> {
     let document = raw.as_object().ok_or("invalid Antigravity auth file")?;
     let token = document
         .get("token")
