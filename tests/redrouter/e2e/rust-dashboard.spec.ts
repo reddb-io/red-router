@@ -145,3 +145,34 @@ test("static dashboard manages OIDC through Rust without exposing or clearing th
   expect((saved?.browser as Record<string, unknown>).client_secret).toBeUndefined();
   expect(calls).not.toContain("/api/settings");
 });
+
+test("static dashboard browses and refreshes the Rust models.dev catalog", async ({ page, context }) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  let refreshes = 0;
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/auth/config") await route.fulfill({ json: { backend: "rust", control_plane_enabled: true, oidc_browser_login: true, password_login: false } });
+    else if (path === "/api/admin/model-catalog/refresh") {
+      expect(request.headers()["x-red-router-csrf"]).toBe("fixture-csrf");
+      refreshes++;
+      await route.fulfill({ json: { snapshot: { changed: true } } });
+    } else if (path === "/api/admin/model-catalog") {
+      await route.fulfill({ json: { manifest: { fetchedAt: "2026-01-01", providers: 1, providerModels: 2 }, snapshot: { source: "models.dev" }, providers: [{ id: "example", name: "Example" }] } });
+    } else if (path === "/api/admin/model-catalog/example") {
+      await route.fulfill({ json: { provider: { id: "example", models: [
+        { id: "alpha", limit: { context: 128000, output: 4096 }, cost: { input: 1.25, output: 3 }, modalities: { input: ["text", "image"], output: ["text"] }, tool_call: true },
+        { id: "beta" },
+      ] } } });
+    } else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/model-catalog`);
+  await page.getByLabel("Provider", { exact: true }).selectOption("example");
+  await expect(page.getByText("128,000")).toBeVisible();
+  await expect(page.getByText("$1.25")).toBeVisible();
+  await page.getByLabel("Filter models").fill("alpha");
+  await expect(page.getByText("beta")).not.toBeVisible();
+  await page.getByRole("button", { name: "Refresh catalog" }).click();
+  await expect(page.getByRole("status")).toHaveText("Catalog updated.");
+  expect(refreshes).toBe(1);
+});

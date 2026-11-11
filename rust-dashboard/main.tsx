@@ -9,9 +9,11 @@ const Keys = lazy(() => import("../src/app/(dashboard)/dashboard/api-manager/Rus
 const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
 const OidcSettings = lazy(() => import("./OidcSettings"));
+const ModelCatalog = lazy(() => import("./ModelCatalog"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
+  { path: "/dashboard/model-catalog", label: "Model catalog", component: ModelCatalog },
   { path: "/dashboard/combos", label: "Combos", component: Combos },
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
   { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
