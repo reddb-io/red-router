@@ -363,6 +363,7 @@ async fn fusion_provider(
     expected_key: &'static str,
     panel_text: &'static str,
     delay: Duration,
+    release: Option<Arc<tokio::sync::Notify>>,
 ) -> (
     String,
     Arc<Mutex<Vec<serde_json::Value>>>,
@@ -375,6 +376,7 @@ async fn fusion_provider(
         post(
             move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
                 let observed = observed.clone();
+                let release = release.clone();
                 async move {
                     assert_eq!(
                         headers["authorization"].to_str().unwrap(),
@@ -397,6 +399,9 @@ async fn fusion_provider(
                         && body.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
                     observed.lock().unwrap().push(body);
                     tokio::time::sleep(delay).await;
+                    if let Some(release) = release {
+                        release.notified().await;
+                    }
                     let (content, prompt_tokens, completion_tokens) = if is_judge {
                         ("fused-answer", 9, 4)
                     } else {
@@ -4560,18 +4565,22 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
         "fusion-judge-secret",
         "alpha evidence",
         Duration::from_millis(15),
+        None,
     )
     .await;
     let (second_url, second_bodies, second_task) = fusion_provider(
         "fusion-second-secret",
         "beta evidence",
         Duration::from_millis(25),
+        None,
     )
     .await;
+    let release_slow = Arc::new(tokio::sync::Notify::new());
     let (slow_url, slow_bodies, slow_task) = fusion_provider(
         "fusion-slow-secret",
         "late evidence",
-        Duration::from_millis(1_500),
+        Duration::ZERO,
+        Some(release_slow.clone()),
     )
     .await;
     let (base, gateway_task) = gateway(control).await;
@@ -4645,7 +4654,7 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
                 "judgeModel":" fusion-judge/judge-model ",
                 "minPanel":2,
                 "stragglerGraceMs":100,
-                "panelTimeoutMs":4000
+                "panelTimeoutMs":30000
             },
             "targets":[
                 {"provider_id":"fusion-judge","model":"judge-model"},
@@ -4664,25 +4673,24 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
     );
     assert_eq!(configured["combo"]["fusion"]["minPanel"], 2);
 
-    let started = std::time::Instant::now();
-    let response = chat_model_with_body(
-        &client,
-        &base,
-        RUST_CLIENT_KEY,
-        serde_json::json!({
-            "model":"fusion-combo",
-            "messages":[{"role":"user","content":"compare the options"}],
-            "stream":true,
-            "stream_options":{"include_usage":true}
-        }),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let response = response.text().await.unwrap();
-    assert!(
-        started.elapsed() < Duration::from_millis(1_000),
-        "fusion waited for the straggler instead of honoring quorum grace"
-    );
+    let response = tokio::time::timeout(Duration::from_secs(10), async {
+        let response = chat_model_with_body(
+            &client,
+            &base,
+            RUST_CLIENT_KEY,
+            serde_json::json!({
+                "model":"fusion-combo",
+                "messages":[{"role":"user","content":"compare the options"}],
+                "stream":true,
+                "stream_options":{"include_usage":true}
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        response.text().await.unwrap()
+    })
+    .await
+    .expect("fusion waited for the blocked straggler instead of honoring quorum grace");
     assert!(response.contains("fused-answer"));
     assert!(response.contains("data: [DONE]"));
 
@@ -4712,7 +4720,8 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
     assert_eq!(second_bodies.lock().unwrap().len(), 1);
     assert_eq!(slow_bodies.lock().unwrap().len(), 1);
 
-    tokio::time::timeout(Duration::from_secs(3), async {
+    release_slow.notify_one();
+    tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let ledger: (i64, i64) = sqlx::query_as(
                 "SELECT COUNT(*), COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id = ?",
