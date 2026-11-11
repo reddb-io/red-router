@@ -3112,19 +3112,379 @@ fn context_relay_xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+const CONTEXT_RELAY_SUMMARY_TTL_MS: i64 = 5 * 60 * 60 * 1_000;
+const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
+const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
+
+#[derive(Clone)]
+struct ContextRelaySummaryTarget {
+    client: reqwest::Client,
+    upstream: reqwest::Url,
+    provider_key: HeaderValue,
+    protocol: ProviderProtocol,
+    auth_scheme: ProviderAuthScheme,
+    provider_name: String,
+    model: String,
+}
+
+fn context_relay_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .map(context_relay_text)
+            .filter(|value| !value.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        serde_json::Value::Object(value) => ["text", "content", "parts"]
+            .into_iter()
+            .filter_map(|key| value.get(key))
+            .map(context_relay_text)
+            .find(|value| !value.trim().is_empty())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+fn context_relay_history(
+    body: &serde_json::Value,
+    maximum_messages: usize,
+    schema_locked: bool,
+) -> Option<(String, usize)> {
+    let object = body.as_object()?;
+    let messages = object
+        .get("messages")
+        .or_else(|| object.get("input"))
+        .or_else(|| object.get("contents"));
+    let mut entries = match messages {
+        Some(serde_json::Value::Array(messages)) => messages
+            .iter()
+            .filter_map(|message| {
+                let role = message
+                    .get("role")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                let content = message
+                    .get("content")
+                    .or_else(|| message.get("parts"))
+                    .map(context_relay_text)
+                    .unwrap_or_default();
+                (!content.trim().is_empty()).then(|| (role.to_owned(), content))
+            })
+            .collect::<Vec<_>>(),
+        Some(serde_json::Value::String(input)) if !input.trim().is_empty() => {
+            vec![("user".to_owned(), input.clone())]
+        }
+        _ => Vec::new(),
+    };
+    let message_count = entries.len();
+    if !schema_locked {
+        if let Some(instructions) = object
+            .get("instructions")
+            .or_else(|| object.get("system"))
+            .or_else(|| object.get("systemInstruction"))
+        {
+            let content = context_relay_text(instructions);
+            if !content.trim().is_empty() {
+                entries.insert(0, ("system".to_owned(), content));
+            }
+        }
+    }
+    let (systems, mut conversation): (Vec<_>, Vec<_>) = entries
+        .into_iter()
+        .partition(|(role, _)| matches!(role.as_str(), "system" | "developer"));
+    if schema_locked {
+        conversation = conversation
+            .into_iter()
+            .rev()
+            .take(maximum_messages)
+            .collect::<Vec<_>>();
+        conversation.reverse();
+    } else {
+        let mut recent = conversation
+            .into_iter()
+            .rev()
+            .take(maximum_messages)
+            .collect::<Vec<_>>();
+        recent.reverse();
+        conversation = systems.into_iter().chain(recent).collect();
+    }
+    let mut history = conversation
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, content))| {
+            format!(
+                "[{}] {}:\n{}",
+                index + 1,
+                role.to_ascii_uppercase(),
+                content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if history.chars().count() > CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS {
+        history = history
+            .chars()
+            .rev()
+            .take(CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+    }
+    (!history.trim().is_empty()).then_some((history, message_count))
+}
+
+fn context_relay_summary_target(
+    route: &ModelRoute,
+    eligible: &[&ModelTarget],
+    successful: &ModelTarget,
+) -> Option<ContextRelaySummaryTarget> {
+    if route.context_relay.handoff_providers.is_empty() {
+        return None;
+    }
+    let target = if route.context_relay.handoff_model.is_empty() {
+        successful
+    } else {
+        eligible.iter().copied().find(|target| {
+            target.model == route.context_relay.handoff_model
+                || target.provider_name.as_deref().is_some_and(|provider| {
+                    format!("{provider}/{}", target.model) == route.context_relay.handoff_model
+                })
+        })?
+    };
+    let provider = target.provider_name.as_deref()?.to_ascii_lowercase();
+    if !route
+        .context_relay
+        .handoff_providers
+        .iter()
+        .any(|allowed| allowed == &provider)
+        || !matches!(
+            target.protocol,
+            ProviderProtocol::OpenAi
+                | ProviderProtocol::OpenAiResponses
+                | ProviderProtocol::Anthropic
+                | ProviderProtocol::OpenAiToAnthropic
+        )
+    {
+        return None;
+    }
+    Some(ContextRelaySummaryTarget {
+        client: target.client.clone(),
+        upstream: target.upstream.clone(),
+        provider_key: target.provider_key.clone(),
+        protocol: target.protocol,
+        auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
+        provider_name: provider,
+        model: target.model.clone(),
+    })
+}
+
+fn context_relay_target_changed(previous: &(String, String), target: &ModelTarget) -> bool {
+    target.provider_id.as_deref() != Some(previous.0.as_str()) || target.model != previous.1
+}
+
+fn context_relay_response_text(value: &serde_json::Value) -> String {
+    if let Some(content) = value
+        .pointer("/choices/0/message/content")
+        .map(context_relay_text)
+        .filter(|content| !content.trim().is_empty())
+    {
+        return content;
+    }
+    for pointer in ["/output", "/content", "/candidates/0/content/parts"] {
+        if let Some(content) = value
+            .pointer(pointer)
+            .map(context_relay_text)
+            .filter(|content| !content.trim().is_empty())
+        {
+            return content;
+        }
+    }
+    String::new()
+}
+
+fn context_relay_bounded_string(value: &serde_json::Value, maximum: usize) -> String {
+    value
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(maximum)
+        .collect()
+}
+
+fn context_relay_string_list(
+    value: Option<&serde_json::Value>,
+    maximum_items: usize,
+) -> Vec<String> {
+    value
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .take(maximum_items)
+        .map(|value| value.chars().take(240).collect())
+        .collect()
+}
+
+fn parse_context_relay_summary(
+    response: &serde_json::Value,
+    source_model: &str,
+    message_count: usize,
+) -> Option<control_plane::ContextRelayHandoff> {
+    let mut content = context_relay_response_text(response).trim().to_owned();
+    if content.starts_with("```") {
+        content = content
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .to_owned();
+    }
+    if serde_json::from_str::<serde_json::Value>(&content).is_err() {
+        let start = content.find('{')?;
+        let end = content.rfind('}')?;
+        content = content.get(start..=end)?.to_owned();
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let summary = context_relay_bounded_string(parsed.get("summary")?, 2_000);
+    if summary.is_empty() {
+        return None;
+    }
+    Some(control_plane::ContextRelayHandoff {
+        summary,
+        key_decisions: context_relay_string_list(parsed.get("keyDecisions"), 8),
+        task_progress: parsed
+            .get("taskProgress")
+            .map_or_else(String::new, |value| {
+                context_relay_bounded_string(value, 1_200)
+            }),
+        active_entities: context_relay_string_list(parsed.get("activeEntities"), 10),
+        message_count,
+        source_model: source_model.to_owned(),
+    })
+}
+
+async fn generate_context_relay_summary(
+    target: ContextRelaySummaryTarget,
+    history: String,
+    source_model: String,
+    message_count: usize,
+) -> Option<(control_plane::ContextRelayHandoff, String)> {
+    let prompt = format!(
+        "You are a context summarizer. Analyze the conversation below and return ONLY a JSON object with this exact structure: {{\"summary\":\"dense continuation summary, maximum 200 words\",\"keyDecisions\":[\"decision\"],\"taskProgress\":\"done, pending, and next steps\",\"activeEntities\":[\"file, feature, or topic\"]}}. Do not invent facts.\n\nCONVERSATION HISTORY:\n{history}"
+    );
+    let body = match target.protocol {
+        ProviderProtocol::OpenAi => {
+            let mut body = serde_json::json!({
+                "model":target.model.clone(),
+                "messages":[{"role":"user","content":prompt}],
+                "stream":false
+            });
+            let token_limit = if target.provider_name == "openai" {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            body[token_limit] = serde_json::json!(800);
+            body
+        }
+        ProviderProtocol::OpenAiResponses => serde_json::json!({
+            "model":target.model.clone(),
+            "input":prompt,
+            "stream":false,
+            "max_output_tokens":800
+        }),
+        ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => serde_json::json!({
+            "model":target.model.clone(),
+            "messages":[{"role":"user","content":prompt}],
+            "stream":false,
+            "max_tokens":800
+        }),
+        _ => return None,
+    };
+    let mut request = target
+        .client
+        .post(target.upstream)
+        .header(header::CONTENT_TYPE, "application/json")
+        .json(&body);
+    request = match target.auth_scheme {
+        ProviderAuthScheme::Bearer => request.header(header::AUTHORIZATION, target.provider_key),
+        ProviderAuthScheme::XApiKey => request.header("x-api-key", target.provider_key),
+        ProviderAuthScheme::XGoogApiKey => request.header("x-goog-api-key", target.provider_key),
+        ProviderAuthScheme::Auto => return None,
+    };
+    if matches!(
+        target.protocol,
+        ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+    ) {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
+    let response = tokio::time::timeout(Duration::from_secs(30), request.send())
+        .await
+        .ok()?
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES as u64)
+    {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.ok()?;
+        if bytes.len().saturating_add(chunk.len()) > CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let response: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let handoff = parse_context_relay_summary(&response, &source_model, message_count)?;
+    Some((handoff, target.model))
+}
+
 fn inject_context_relay_handoff(
     body: &mut serde_json::Value,
     protocol: ProviderProtocol,
     previous_model: &str,
     current_model: &str,
+    handoff: Option<&control_plane::ContextRelayHandoff>,
 ) -> Result<(), ()> {
     let object = body.as_object_mut().ok_or(())?;
-    let content = format!(
-        "<context_handoff>\n<transfer_reason>Model routing: {} → {}</transfer_reason>\n<previous_model>{}</previous_model>\n<current_model>{}</current_model>\n<note>No prior-session summary is available for this handoff. Use only the conversation context supplied by the client and do not invent missing details.</note>\n</context_handoff>",
-        context_relay_xml(previous_model),
-        context_relay_xml(current_model),
-        context_relay_xml(previous_model),
-        context_relay_xml(current_model),
+    let previous_model = context_relay_xml(previous_model);
+    let current_model = context_relay_xml(current_model);
+    let content = handoff.map_or_else(
+        || format!(
+            "<context_handoff>\n<transfer_reason>Model routing: {previous_model} → {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<note>No prior-session summary is available for this handoff. Use only the conversation context supplied by the client and do not invent missing details.</note>\n</context_handoff>"
+        ),
+        |handoff| {
+            let decisions = handoff
+                .key_decisions
+                .iter()
+                .map(|decision| format!("  - {}", context_relay_xml(decision)))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let entities = handoff
+                .active_entities
+                .iter()
+                .map(|entity| context_relay_xml(entity))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "<context_handoff>\n<transfer_reason>Model routing: {previous_model} → {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<session_summary>{}</session_summary>\n<task_progress>{}</task_progress>\n<key_decisions>\n{decisions}\n</key_decisions>\n<active_context>{entities}</active_context>\n<messages_processed>{}</messages_processed>\n<summary_source_model>{}</summary_source_model>\n</context_handoff>\n\nContinue from the structured summary without inventing details that are not present in it or in the client conversation.",
+                context_relay_xml(&handoff.summary),
+                context_relay_xml(&handoff.task_progress),
+                handoff.message_count,
+                context_relay_xml(&handoff.source_model),
+            )
+        },
     );
     match protocol {
         ProviderProtocol::OpenAiResponses => {
@@ -3624,6 +3984,28 @@ async fn proxy_request(
         }
         _ => None,
     };
+    let context_relay_handoff = match (
+        context_relay_previous.as_ref().is_some_and(|previous| {
+            eligible
+                .iter()
+                .any(|target| context_relay_target_changed(previous, target))
+        }),
+        context_relay_session_id.as_deref(),
+        state.control_plane.as_ref(),
+    ) {
+        (true, Some(session_id), Some(control)) => {
+            match control.context_relay_handoff(&model, session_id).await {
+                Ok(handoff) => handoff,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Context relay handoff state unavailable",
+                    )
+                }
+            }
+        }
+        _ => None,
+    };
     let attempts = if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {
@@ -3946,24 +4328,23 @@ async fn proxy_request(
         let (client, url, provider_key, mut payload) = match target {
             Some(target) => {
                 let mut attempt_parsed = parsed.clone();
-                if offset == 0 {
-                    if let Some((_, previous_model)) = context_relay_previous
-                        .as_ref()
-                        .filter(|(_, previous_model)| previous_model.as_str() != target.model)
+                if let Some((_, previous_model)) = context_relay_previous
+                    .as_ref()
+                    .filter(|previous| context_relay_target_changed(previous, target))
+                {
+                    if inject_context_relay_handoff(
+                        &mut attempt_parsed,
+                        protocol,
+                        previous_model,
+                        &target.model,
+                        context_relay_handoff.as_ref(),
+                    )
+                    .is_err()
                     {
-                        if inject_context_relay_handoff(
-                            &mut attempt_parsed,
-                            protocol,
-                            previous_model,
-                            &target.model,
-                        )
-                        .is_err()
-                        {
-                            return error(
-                                StatusCode::BAD_REQUEST,
-                                "Context relay is incompatible with this request body",
-                            );
-                        }
+                        return error(
+                            StatusCode::BAD_REQUEST,
+                            "Context relay is incompatible with this request body",
+                        );
                     }
                 }
                 if attempt_protocol == ProviderProtocol::Antigravity {
@@ -4425,6 +4806,63 @@ async fn proxy_request(
                             .is_err()
                         {
                             eprintln!("context relay session persistence unavailable");
+                        }
+                        if context_relay_handoff.is_none() {
+                            if let (Some(route), Some((_, previous_model))) = (
+                                route.filter(|route| route.strategy == RouteStrategy::ContextRelay),
+                                context_relay_previous.as_ref().filter(|previous| {
+                                    context_relay_target_changed(previous, target)
+                                }),
+                            ) {
+                                if let (Some(summary_target), Some((history, message_count))) = (
+                                    context_relay_summary_target(route, &eligible, target),
+                                    context_relay_history(
+                                        &parsed,
+                                        route.context_relay.max_messages_for_summary as usize,
+                                        route.context_relay.relay_mode == "schema-locked",
+                                    ),
+                                ) {
+                                    if let Ok(Some(generation_guard)) =
+                                        control.begin_context_relay_generation(&model, session_id)
+                                    {
+                                        let control = control.clone();
+                                        let combo_id = model.clone();
+                                        let session_id = session_id.to_owned();
+                                        let source_model = previous_model.clone();
+                                        tokio::spawn(async move {
+                                            let _generation_guard = generation_guard;
+                                            let Some((handoff, summary_model)) =
+                                                generate_context_relay_summary(
+                                                    summary_target,
+                                                    history,
+                                                    source_model,
+                                                    message_count,
+                                                )
+                                                .await
+                                            else {
+                                                return;
+                                            };
+                                            let expires_at = unix_time_ms()
+                                                .saturating_add(CONTEXT_RELAY_SUMMARY_TTL_MS);
+                                            if control
+                                                .record_context_relay_handoff(
+                                                    &combo_id,
+                                                    &session_id,
+                                                    &handoff,
+                                                    &summary_model,
+                                                    expires_at,
+                                                )
+                                                .await
+                                                .is_err()
+                                            {
+                                                eprintln!(
+                                                    "context relay handoff persistence unavailable"
+                                                );
+                                            }
+                                        });
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -4948,6 +5386,7 @@ mod address_tests {
             ProviderProtocol::OpenAiResponses,
             "old<&",
             "new",
+            None,
         )
         .unwrap();
         let instructions = responses["instructions"].as_str().unwrap();
@@ -4958,8 +5397,14 @@ mod address_tests {
             "system":"existing",
             "messages":[{"role":"user","content":"hello"}]
         });
-        inject_context_relay_handoff(&mut anthropic, ProviderProtocol::Anthropic, "old", "new")
-            .unwrap();
+        inject_context_relay_handoff(
+            &mut anthropic,
+            ProviderProtocol::Anthropic,
+            "old",
+            "new",
+            None,
+        )
+        .unwrap();
         assert_eq!(anthropic["system"][0]["text"], "existing");
         assert!(anthropic["system"][1]["text"]
             .as_str()
@@ -4968,11 +5413,51 @@ mod address_tests {
         assert_eq!(anthropic["messages"][0]["content"], "hello");
 
         let mut gemini = serde_json::json!({"contents":[]});
-        inject_context_relay_handoff(&mut gemini, ProviderProtocol::Gemini, "old", "new").unwrap();
+        inject_context_relay_handoff(&mut gemini, ProviderProtocol::Gemini, "old", "new", None)
+            .unwrap();
         assert!(gemini["systemInstruction"]["parts"][0]["text"]
             .as_str()
             .unwrap()
             .contains("<context_handoff>"));
+
+        let mut chat = serde_json::json!({"messages":[{"role":"user","content":"next"}]});
+        let handoff = control_plane::ContextRelayHandoff {
+            summary: "Migrating <Next> to Rust".to_owned(),
+            key_decisions: vec!["Rust owns persistence".to_owned()],
+            task_progress: "Relay storage is ready".to_owned(),
+            active_entities: vec!["red-routerd".to_owned()],
+            message_count: 7,
+            source_model: "old".to_owned(),
+        };
+        inject_context_relay_handoff(
+            &mut chat,
+            ProviderProtocol::OpenAi,
+            "old",
+            "new",
+            Some(&handoff),
+        )
+        .unwrap();
+        let content = chat["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("<session_summary>Migrating &lt;Next&gt; to Rust"));
+        assert!(content.contains("<messages_processed>7</messages_processed>"));
+        assert_eq!(chat["messages"][1]["content"], "next");
+    }
+
+    #[test]
+    fn context_relay_accepts_only_structured_provider_summaries() {
+        let response = serde_json::json!({
+            "choices":[{"message":{"content":"```json\n{\"summary\":\"Continue the Rust port.\",\"keyDecisions\":[\"SQLite remains the default\"],\"taskProgress\":\"Persistence is migrated.\",\"activeEntities\":[\"red-routerd\"]}\n```"}}]
+        });
+        let parsed = parse_context_relay_summary(&response, "source-model", 4).unwrap();
+        assert_eq!(parsed.summary, "Continue the Rust port.");
+        assert_eq!(parsed.key_decisions, ["SQLite remains the default"]);
+        assert_eq!(parsed.message_count, 4);
+        assert!(parse_context_relay_summary(
+            &serde_json::json!({"choices":[{"message":{"content":"invented prose"}}]}),
+            "source-model",
+            4,
+        )
+        .is_none());
     }
 
     #[test]

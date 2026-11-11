@@ -1,9 +1,9 @@
 use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
-    StoredClientKey, StoredCombo, StoredContextRelaySession, StoredIdentityBinding,
-    StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-    StoredProviderModelQuota, StoredProviderQuota, StoredProviderSession, StoredResilience,
-    StoredRoutePin, StoredTenant, StoredUsageExport,
+    StoredClientKey, StoredCombo, StoredContextRelayHandoff, StoredContextRelaySession,
+    StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig,
+    StoredProvider, StoredProviderModelQuota, StoredProviderQuota, StoredProviderSession,
+    StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -216,6 +216,28 @@ async fn exercise(backend: Backend, url: &str) {
             .unwrap(),
         Some(relay_session.clone())
     );
+    let relay_handoff = StoredContextRelayHandoff {
+        record_id: relay_session.record_id.clone(),
+        combo_id: "agent-combo".into(),
+        summary: "The migration is active.".into(),
+        key_decisions_json: "[\"Rust owns persistence\"]".into(),
+        task_progress: "Storage is complete; provider generation is next.".into(),
+        active_entities_json: "[\"red-routerd\"]".into(),
+        message_count: 12,
+        source_model: "openai/model".into(),
+        summary_model: "openai/summary".into(),
+        generated_at_unix_ms: 1_700_000_000_000,
+        expires_at_unix_ms: 1_700_018_000_000,
+    };
+    db.upsert_context_relay_handoff(&relay_handoff)
+        .await
+        .unwrap();
+    assert_eq!(
+        db.context_relay_handoff(&relay_handoff.record_id)
+            .await
+            .unwrap(),
+        Some(relay_handoff.clone())
+    );
     let quota = StoredProviderQuota {
         provider_id: "first".into(),
         session_remaining_ppm: 750_000,
@@ -364,6 +386,13 @@ async fn exercise(backend: Backend, url: &str) {
             .await
             .unwrap(),
         Some(relay_session)
+    );
+    assert_eq!(
+        reopened
+            .context_relay_handoff(&relay_handoff.record_id)
+            .await
+            .unwrap(),
+        Some(relay_handoff)
     );
     reopened.delete_route_pin("agent-combo").await.unwrap();
     assert!(reopened.route_pins().await.unwrap().is_empty());

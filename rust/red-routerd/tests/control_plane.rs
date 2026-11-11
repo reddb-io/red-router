@@ -274,8 +274,24 @@ async fn captured_provider(
                         headers["authorization"].to_str().unwrap(),
                         format!("Bearer {expected_key}")
                     );
+                    let is_summary = body
+                        .pointer("/messages/0/content")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|content| content.contains("context summarizer"));
                     observed.lock().unwrap().push(body);
-                    label
+                    if is_summary {
+                        Json(serde_json::json!({
+                            "choices":[{"message":{"content":serde_json::json!({
+                                "summary":"The user is migrating the Red Router backend from Next.js to Rust.",
+                                "keyDecisions":["Rust owns proxy persistence"],
+                                "taskProgress":"Context relay persistence is complete and provider handoff is being validated.",
+                                "activeEntities":["red-routerd","context-relay"]
+                            }).to_string()}}]
+                        }))
+                        .into_response()
+                    } else {
+                        label.into_response()
+                    }
                 }
             },
         ),
@@ -4049,6 +4065,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         captured_provider("relay-second-secret", "relay-second").await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let persisted_state = sqlx::SqlitePool::connect(&url).await.unwrap();
 
     for (id, upstream_url, api_key) in [
         ("relay-first", first_url, "relay-first-secret"),
@@ -4079,7 +4096,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
                 "api_key":RUST_CLIENT_KEY,
                 "scopes":["inference:chat"],
                 "allowed_endpoints":["chat"],
-                "allowed_models":["relay-combo","first-model","second-model"],
+                "allowed_models":["relay-combo","shared-model"],
                 "allowed_provider_ids":["relay-first","relay-second"]
             }))
             .send()
@@ -4097,15 +4114,15 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
                 "fallback":true,
                 "context_relay":{
                     "handoffThreshold":0.8,
-                    "handoffModel":"  openai/summary-model  ",
-                    "handoffProviders":[" CODEX ","codex","OpenAI"],
+                    "handoffModel":"  shared-model  ",
+                    "handoffProviders":[" OPENAI-COMPATIBLE ","openai-compatible","OpenAI"],
                     "maxMessagesForSummary":24,
                     "relayMode":"schema-locked"
                 },
                 "targets":[{"provider_id":provider_id,"model":model}]
             }))
     };
-    let configured = replace_combo("relay-first", "first-model")
+    let configured = replace_combo("relay-first", "shared-model")
         .send()
         .await
         .unwrap();
@@ -4117,11 +4134,11 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
     );
     assert_eq!(
         configured["combo"]["context_relay"]["handoffModel"],
-        "openai/summary-model"
+        "shared-model"
     );
     assert_eq!(
         configured["combo"]["context_relay"]["handoffProviders"],
-        serde_json::json!(["codex", "openai"])
+        serde_json::json!(["openai-compatible", "openai"])
     );
     assert_eq!(
         configured["combo"]["context_relay"]["maxMessagesForSummary"],
@@ -4150,7 +4167,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
     );
 
     assert_eq!(
-        replace_combo("relay-second", "second-model")
+        replace_combo("relay-second", "shared-model")
             .send()
             .await
             .unwrap()
@@ -4175,9 +4192,77 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         let messages = bodies[0]["messages"].as_array().unwrap();
         assert_eq!(messages[0]["role"], "system");
         let handoff = messages[0]["content"].as_str().unwrap();
-        assert!(handoff.contains("<previous_model>first-model</previous_model>"));
-        assert!(handoff.contains("<current_model>second-model</current_model>"));
+        assert!(handoff.contains("<previous_model>shared-model</previous_model>"));
+        assert!(handoff.contains("<current_model>shared-model</current_model>"));
         assert_eq!(messages[1]["content"], "what is next?");
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if second_bodies.lock().unwrap().len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Rust context relay summary generation timed out");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let persisted: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM redrouter_context_relay_handoffs WHERE combo_id = ?",
+            )
+            .bind("relay-combo")
+            .fetch_one(&persisted_state)
+            .await
+            .unwrap();
+            if persisted == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Rust context relay summary persistence timed out");
+    {
+        let bodies = second_bodies.lock().unwrap();
+        assert_eq!(bodies[1]["model"], "shared-model");
+        assert_eq!(bodies[1]["stream"], false);
+        assert!(bodies[1]["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("CONVERSATION HISTORY"));
+    }
+
+    assert_eq!(
+        replace_combo("relay-first", "shared-model")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let third = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header("x-session-id", "agent-session-1")
+        .json(&serde_json::json!({
+            "model":"relay-combo",
+            "messages":[{"role":"user","content":"continue after the summary"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+    assert_eq!(third.text().await.unwrap(), "relay-first");
+    {
+        let bodies = first_bodies.lock().unwrap();
+        let messages = bodies[1]["messages"].as_array().unwrap();
+        let handoff = messages[0]["content"].as_str().unwrap();
+        assert!(handoff.contains("<session_summary>The user is migrating"));
+        assert!(handoff.contains("<key_decisions>"));
+        assert!(handoff.contains("Rust owns proxy persistence"));
+        assert!(handoff.contains("<summary_source_model>shared-model</summary_source_model>"));
+        assert_eq!(messages[1]["content"], "continue after the summary");
     }
 
     let invalid = client
@@ -4190,7 +4275,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         .await
         .unwrap();
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(second_bodies.lock().unwrap().len(), 1);
+    assert_eq!(second_bodies.lock().unwrap().len(), 2);
 
     let invalid_config = client
         .put(format!("{base}/api/admin/combos/relay-combo"))
@@ -4213,6 +4298,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
     gateway_task.abort();
     first_task.abort();
     second_task.abort();
+    persisted_state.close().await;
 }
 
 #[tokio::test]

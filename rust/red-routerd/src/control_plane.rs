@@ -5,11 +5,12 @@ use crate::{
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredAuditEvent, StoredClientKey, StoredCombo, StoredContextRelaySession,
-        StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
-        StoredOidcConfig, StoredProvider, StoredProviderAuth, StoredProviderModelQuota,
-        StoredProviderOAuth, StoredProviderOAuthStatus, StoredProviderQuota, StoredProviderSession,
-        StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+        StoredAuditEvent, StoredClientKey, StoredCombo, StoredContextRelayHandoff,
+        StoredContextRelaySession, StoredIdentityBinding, StoredModelCatalogSnapshot,
+        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
+        StoredProviderModelQuota, StoredProviderOAuth, StoredProviderOAuthStatus,
+        StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant,
+        StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -141,6 +142,7 @@ struct Inner {
     oauth_refresh: OAuthRefreshConfig,
     native_usage: RwLock<Option<crate::native_usage::NativeUsage>>,
     thought_signatures: StdMutex<HashMap<(String, String), (String, i64)>>,
+    context_relay_generations: StdMutex<HashSet<String>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -327,6 +329,19 @@ impl AuthenticatedActor {
 
 #[derive(Clone)]
 pub struct ControlPlane(Arc<Inner>);
+
+pub(crate) struct ContextRelayGenerationGuard {
+    inner: Arc<Inner>,
+    record_id: String,
+}
+
+impl Drop for ContextRelayGenerationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut generations) = self.inner.context_relay_generations.lock() {
+            generations.remove(&self.record_id);
+        }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -897,6 +912,16 @@ pub struct ComboContextRelayConfig {
     pub max_messages_for_summary: u32,
     #[serde(default = "standard_relay_mode")]
     pub relay_mode: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ContextRelayHandoff {
+    pub summary: String,
+    pub key_decisions: Vec<String>,
+    pub task_progress: String,
+    pub active_entities: Vec<String>,
+    pub message_count: usize,
+    pub source_model: String,
 }
 
 impl Default for ComboContextRelayConfig {
@@ -1694,6 +1719,7 @@ impl ControlPlane {
             oauth_refresh: oauth_refresh_config,
             native_usage: RwLock::new(native_usage),
             thought_signatures: StdMutex::new(HashMap::new()),
+            context_relay_generations: StdMutex::new(HashSet::new()),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -6953,6 +6979,118 @@ impl ControlPlane {
             .await
     }
 
+    pub(crate) async fn context_relay_handoff(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+    ) -> Result<Option<ContextRelayHandoff>, &'static str> {
+        let record = self
+            .0
+            .database
+            .context_relay_handoff(&context_relay_record_id(combo_id, session_id))
+            .await?;
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        if record.combo_id != combo_id || record.expires_at_unix_ms <= unix_time_ms()? {
+            return Ok(None);
+        }
+        if record.summary.is_empty()
+            || record.summary.chars().count() > 2_000
+            || record.task_progress.chars().count() > 1_200
+            || record.message_count < 0
+            || record.message_count > 100_000
+            || record.source_model.is_empty()
+            || record.source_model.chars().count() > 256
+            || record.summary_model.is_empty()
+            || record.summary_model.chars().count() > 256
+        {
+            return Err("invalid context relay handoff");
+        }
+        let key_decisions = parse_context_relay_list(&record.key_decisions_json, 8)?;
+        let active_entities = parse_context_relay_list(&record.active_entities_json, 10)?;
+        Ok(Some(ContextRelayHandoff {
+            summary: record.summary,
+            key_decisions,
+            task_progress: record.task_progress,
+            active_entities,
+            message_count: usize::try_from(record.message_count)
+                .map_err(|_| "invalid context relay handoff")?,
+            source_model: record.source_model,
+        }))
+    }
+
+    pub(crate) fn begin_context_relay_generation(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+    ) -> Result<Option<ContextRelayGenerationGuard>, &'static str> {
+        let record_id = context_relay_record_id(combo_id, session_id);
+        let mut generations = self
+            .0
+            .context_relay_generations
+            .lock()
+            .map_err(|_| "context relay generation state unavailable")?;
+        if !generations.insert(record_id.clone()) {
+            return Ok(None);
+        }
+        Ok(Some(ContextRelayGenerationGuard {
+            inner: self.0.clone(),
+            record_id,
+        }))
+    }
+
+    pub(crate) async fn record_context_relay_handoff(
+        &self,
+        combo_id: &str,
+        session_id: &str,
+        handoff: &ContextRelayHandoff,
+        summary_model: &str,
+        expires_at_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        if handoff.summary.is_empty()
+            || handoff.summary.chars().count() > 2_000
+            || handoff.task_progress.chars().count() > 1_200
+            || handoff.key_decisions.len() > 8
+            || handoff.active_entities.len() > 10
+            || handoff
+                .key_decisions
+                .iter()
+                .chain(&handoff.active_entities)
+                .any(|value| value.is_empty() || value.chars().count() > 240)
+            || handoff.message_count > 100_000
+            || handoff.source_model.is_empty()
+            || handoff.source_model.chars().count() > 256
+            || summary_model.is_empty()
+            || summary_model.chars().count() > 256
+        {
+            return Err("invalid context relay handoff");
+        }
+        let generated_at_unix_ms = unix_time_ms()?;
+        if expires_at_unix_ms <= generated_at_unix_ms {
+            return Err("invalid context relay handoff expiry");
+        }
+        self.0
+            .database
+            .upsert_context_relay_handoff(&StoredContextRelayHandoff {
+                record_id: context_relay_record_id(combo_id, session_id),
+                combo_id: combo_id.to_owned(),
+                summary: handoff.summary.clone(),
+                key_decisions_json: serde_json::to_string(&handoff.key_decisions)
+                    .map_err(|_| "cannot encode context relay handoff")?,
+                task_progress: handoff.task_progress.clone(),
+                active_entities_json: serde_json::to_string(&handoff.active_entities)
+                    .map_err(|_| "cannot encode context relay handoff")?,
+                message_count: i64::try_from(handoff.message_count)
+                    .map_err(|_| "invalid context relay handoff")?,
+                source_model: handoff.source_model.clone(),
+                summary_model: summary_model.to_owned(),
+                generated_at_unix_ms,
+                expires_at_unix_ms,
+            })
+            .await
+    }
+
     async fn clear_route_pin(
         &self,
         combo_id: &str,
@@ -9416,6 +9554,22 @@ fn context_relay_record_id(combo_id: &str, session_id: &str) -> String {
     digest.update(b"\0");
     digest.update(session_id.as_bytes());
     hex::encode(digest.finalize())
+}
+
+fn parse_context_relay_list(value: &str, maximum: usize) -> Result<Vec<String>, &'static str> {
+    if value.len() > 16 * 1024 {
+        return Err("invalid context relay handoff");
+    }
+    let values: Vec<String> =
+        serde_json::from_str(value).map_err(|_| "invalid context relay handoff")?;
+    if values.len() > maximum
+        || values
+            .iter()
+            .any(|value| value.is_empty() || value.chars().count() > 240)
+    {
+        return Err("invalid context relay handoff");
+    }
+    Ok(values)
 }
 
 fn unix_time_seconds() -> Result<u64, &'static str> {

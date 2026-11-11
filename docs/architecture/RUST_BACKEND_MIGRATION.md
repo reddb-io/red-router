@@ -358,9 +358,14 @@ shared by Rust processes using the same database and survives restart. The Rust 
 contract and SPA now also persist the legacy handoff threshold, optional summary model,
 provider allowlist, summary-message bound and schema-locked/standard relay mode. Values are
 normalized and validated before the route snapshot changes, while combos created before
-this payload extension retain the legacy defaults. Structured LLM summary generation and
-Codex quota-triggered pre-generation remain the next context-relay slice; the current marker
-explicitly forbids inventing context when no summary exists.
+this payload extension retain the legacy defaults. On a model switch, Rust can now generate
+a bounded structured summary asynchronously through an authorized OpenAI Chat, Responses,
+Anthropic or translated Anthropic target. The summary is stored with a five-hour TTL and
+reused through the protocol-native handoff channel; one process coalesces concurrent
+generation for the same combo/session. Generation failure stays outside the client response
+path, and a missing summary still produces a marker that explicitly forbids invented context.
+Native Gemini/Antigravity summary generation, cross-replica generation leases and Codex
+quota-triggered pre-generation remain follow-up work.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 
