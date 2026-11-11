@@ -68,6 +68,7 @@ const POLICY_TABLES: &[&str] = &[
 pub struct KeyImport {
     pub imported: u64,
     pub disabled: u64,
+    pub source_enabled: u64,
 }
 
 /// Source and destination must be offline for cutover. Only current-schema keys
@@ -134,8 +135,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
         let rows = sqlx::query("SELECT k.*, unixepoch(k.expires_at) AS __expiry, (SELECT value FROM key_value WHERE namespace='api_key_id_format' AND key=k.id) AS __format, (SELECT value FROM key_value WHERE namespace='api_key_usage_attributes' AND key=k.id) AS __attributes FROM api_keys k ORDER BY k.id LIMIT 10001")
             .fetch_all(&mut *snapshot).await.map_err(|_| "cannot read legacy keys")?;
         if rows.len() > 10_000 { return Err("too many legacy keys; no keys imported"); }
+        sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_key_migration (key_id TEXT PRIMARY KEY, source_is_active BIGINT NOT NULL, source_is_banned BIGINT NOT NULL, source_revoked_at TEXT)")
+            .execute(&mut *target).await.map_err(|_| "cannot initialize key migration state")?;
+        let migration_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_key_migration")
+            .fetch_one(&mut *target).await.map_err(|_| "cannot inspect key migration state")?;
+        if migration_rows != 0 { return Err("destination key migration state must be empty; no keys imported"); }
         let mut hashes = HashSet::new();
-        let mut disabled = 0u64;
+        let mut source_enabled = 0u64;
         for row in &rows {
             let get = |name: &str| row.try_get::<Option<String>, _>(name).map_err(|_| "invalid legacy key");
             let number = |name: &str| row.try_get::<Option<i64>, _>(name).map_err(|_| "invalid legacy key");
@@ -180,8 +186,9 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             let active = number("is_active")?;
             let banned = number("is_banned")?;
             if !matches!(active, Some(0 | 1)) || !matches!(banned, Some(0 | 1)) { return Err("invalid legacy key status"); }
-            let enabled = active == Some(1) && banned == Some(0) && get("revoked_at")?.is_none();
-            if !enabled { disabled += 1; }
+            let revoked = get("revoked_at")?;
+            let enabled = active == Some(1) && banned == Some(0) && revoked.is_none();
+            if enabled { source_enabled += 1; }
             let expiry = match get("expires_at")? {
                 None => 0,
                 Some(value) if value.trim().is_empty() => 0,
@@ -194,13 +201,15 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
             sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]','[]','[]','[]',0,0,0,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(i64::from(enabled)).bind(expiry).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
+                .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,'',1)").bind(&id).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_ownership (key_id,tenant_id,created_by,revision) VALUES (?,?,'legacy-migration',1)").bind(&id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write key ownership")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_quotas (key_id,max_tokens_per_minute,max_tokens_per_day,max_monthly_microusd,reservation_tokens,reservation_microusd,revision) VALUES (?,0,0,0,0,0,1)").bind(&id).execute(&mut *target).await.map_err(|_| "cannot write key quota")?;
         }
-        Ok(KeyImport { imported: rows.len() as u64, disabled })
+        Ok(KeyImport { imported: rows.len() as u64, disabled: rows.len() as u64, source_enabled })
     }.await;
     match result {
         Ok(report) => {

@@ -406,9 +406,12 @@ policies, usage history or destinations; use an offline migration window for cut
 For an initial subset of legacy client keys, stop both servers and set the same two
 paths, then run `red-routerd import-legacy-keys --offline-confirmed`. This requires
 an initialized Rust SQLite destination with empty client-key tables and existing,
-enabled tenants. It copies IDs, names, SHA-256 key digests, tenant, enabled/revoked
-status, expiry and model ID format in one transaction; plaintext credentials are not
-copied. The legacy database is opened read-only. Unknown key schemas, restrictions,
+enabled tenants. It copies IDs, names, SHA-256 key digests, tenant, expiry and model
+ID format in one transaction; plaintext credentials are not copied. All imported
+keys start disabled while global policy migration remains incomplete. Their original
+active, banned and revoked state is retained in `redrouter_legacy_key_migration`;
+the command does not automatically activate them. The legacy database is opened
+read-only. Unknown key schemas, restrictions,
 quotas, budgets, groups, pending reservations, model mappings, key tags or usage
 attributes cause the entire import to fail closed. This command does not migrate
 provider credentials, usage history, quotas, their counters, or remaining policies;

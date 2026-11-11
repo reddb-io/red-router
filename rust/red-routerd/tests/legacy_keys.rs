@@ -66,7 +66,10 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     let (_dir, source, dest, url) = fixture().await;
     let before = tokio::fs::read(&source).await.unwrap();
     let report = legacy_keys::import(&source, &dest).await.unwrap();
-    assert_eq!((report.imported, report.disabled), (2, 1));
+    assert_eq!(
+        (report.imported, report.disabled, report.source_enabled),
+        (2, 2, 1)
+    );
     assert_eq!(before, tokio::fs::read(&source).await.unwrap());
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let records = db.client_keys().await.unwrap();
@@ -75,7 +78,7 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     assert_eq!(first.tenant_id, "red");
     assert_eq!(first.model_id_format, "flat");
     assert_eq!(first.expiry_unix, 1_893_456_000);
-    assert!(first.enabled);
+    assert!(!first.enabled);
     assert_eq!(
         first.key_hash,
         hex::encode(Sha256::digest(b"secret-credential-123456"))
@@ -89,6 +92,12 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     );
     assert!(!format!("{records:?}").contains("secret-credential"));
     db.close().await.unwrap();
+    let mut target = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let status: (i64, i64, Option<String>) = sqlx::query_as("SELECT source_is_active,source_is_banned,source_revoked_at FROM redrouter_legacy_key_migration WHERE key_id='second'").fetch_one(&mut target).await.unwrap();
+    assert_eq!(status, (1, 1, None));
+    target.close().await.unwrap();
     assert!(
         legacy_keys::import(&source, &dest).await.is_err(),
         "must not overwrite existing keys"
