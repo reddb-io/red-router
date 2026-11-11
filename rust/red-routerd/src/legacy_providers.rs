@@ -60,13 +60,13 @@ pub async fn adopt_codex(
         };
         if text("id")? != Some(id) || text("provider")? != Some("codex") || text("auth_type")? != Some("oauth") { return Err("staged provider is not a Codex OAuth session"); }
         let active = match object.get("is_active").and_then(serde_json::Value::as_i64) { Some(0) => false, Some(1) => true, _ => return Err("invalid staged provider status") };
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent"] {
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "priority", "global_priority", "backoff_level", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
         for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
         }
-        for field in ["rate_limited_until", "default_model", "group", "api_key"] {
+        for field in ["rate_limited_until", "default_model", "group", "api_key", "error_code", "last_error", "last_error_type", "last_error_source"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider configuration requires migration"); }
         }
         if text("test_status")?.is_some_and(|status| !matches!(status, "" | "untested" | "success" | "active")) { return Err("legacy provider health requires migration"); }
@@ -91,6 +91,9 @@ pub async fn adopt_codex(
             Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy Codex metadata")?,
         };
         let specific = specific.as_object().ok_or("invalid legacy Codex metadata")?;
+        if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) {
+            return Err("legacy Codex configuration requires migration");
+        }
         if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
             if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
         }

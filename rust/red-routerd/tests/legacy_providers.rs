@@ -253,7 +253,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,expires_at TEXT,token_expires_at TEXT);")
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
         .execute(&mut input).await.unwrap();
     for (id, workspace) in [
         ("codex-good", "workspace-1"),
@@ -262,6 +262,8 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
             .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace}).to_string()).execute(&mut input).await.unwrap();
     }
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-extra','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -276,10 +278,15 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        2
+        3
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-extra", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
     );

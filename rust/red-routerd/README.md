@@ -443,7 +443,7 @@ to the native Rust format, preserving the provider ID and tenant. Set
 `STORAGE_ENCRYPTION_KEY` and, if the source used a different key,
 `RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY`. The command refuses a workspace that
 does not match the ID token, an unavailable tenant, conflicts, unsupported routing
-settings and unsafe provider status. It does not contact OpenAI or refresh tokens;
+or provider-specific settings and unsafe provider status. It does not contact OpenAI or refresh tokens;
 the connection remains disabled, and the complete original record remains staged.
 Other OAuth providers and advanced routing settings still require conversion.
 To stage legacy usage history, cost ledger, quota counters, reservations and budget
