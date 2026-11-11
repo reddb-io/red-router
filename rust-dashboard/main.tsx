@@ -8,6 +8,7 @@ const Combos = lazy(() => import("../src/app/(dashboard)/dashboard/combos/RustCo
 const Keys = lazy(() => import("../src/app/(dashboard)/dashboard/api-manager/RustApiManagerPageClient"));
 const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
+const OidcSettings = lazy(() => import("./OidcSettings"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
@@ -15,6 +16,7 @@ const pages = [
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
   { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
   { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
+  { path: "/dashboard/oidc", label: "Single sign-on", component: OidcSettings },
 ];
 
 function Dashboard() {

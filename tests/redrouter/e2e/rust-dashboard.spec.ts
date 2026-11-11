@@ -111,3 +111,37 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await expect(page.getByRole("status")).toHaveText("Usage destination saved.");
   expect(created).toMatchObject({ name: "Billing", type: "webhook", mode: "instant", apiKeyIds: ["key-one"], config: { url: "https://billing.example.com/usage", secret: "fixture-secret-123456789" } });
 });
+
+test("static dashboard manages OIDC through Rust without exposing or clearing the saved secret", async ({ page, context }) => {
+  const calls: string[] = [];
+  let saved: Record<string, unknown> | undefined;
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    calls.push(path);
+    if (path === "/api/auth/config") {
+      await route.fulfill({ json: { backend: "rust", control_plane_enabled: true, oidc_browser_login: true, password_login: false } });
+    } else if (path === "/api/admin/oidc/discover") {
+      expect(request.headers()["x-red-router-csrf"]).toBe("fixture-csrf");
+      await route.fulfill({ json: { discovery: { issuer: "https://id.example", jwks_uri: "https://id.example/keys", authorization_endpoint: "https://id.example/authorize", token_endpoint: "https://id.example/token" } } });
+    } else if (path === "/api/admin/oidc" && request.method() === "PUT") {
+      expect(request.headers()["x-red-router-csrf"]).toBe("fixture-csrf");
+      saved = request.postDataJSON();
+      await route.fulfill({ json: { oidc: { browser: { has_client_secret: true } } } });
+    } else if (path === "/api/admin/oidc") {
+      await route.fulfill({ json: { oidc: { enabled: true, issuer: "https://id.example", audience: "router", jwks_uri: "https://id.example/old-keys", required_claims: {}, allowed_subjects: [], browser: { public_origin: origin, client_id: "router", authorization_endpoint: "https://id.example/authorize", token_endpoint: "https://id.example/token", scopes: ["openid"], has_client_secret: true } } } });
+    } else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/oidc`);
+  await expect(page.getByLabel("Client secret (leave blank to keep existing)")).toHaveValue("");
+  await page.getByRole("button", { name: "Discover endpoints" }).click();
+  await expect(page.getByLabel("JWKS URL")).toHaveValue("https://id.example/keys");
+  await page.getByLabel("Allowed subjects (one per line)").fill("alice\nbob");
+  await page.getByLabel("Required claims (JSON)").fill('{"groups":["admins"]}');
+  await page.getByRole("button", { name: "Save OIDC settings" }).click();
+  await expect(page.getByRole("status")).toContainText("Sign in again");
+  expect(saved).toMatchObject({ issuer: "https://id.example", jwks_uri: "https://id.example/keys", allowed_subjects: ["alice", "bob"], required_claims: { groups: ["admins"] }, browser: { client_id: "router" } });
+  expect((saved?.browser as Record<string, unknown>).client_secret).toBeUndefined();
+  expect(calls).not.toContain("/api/settings");
+});
