@@ -27,7 +27,7 @@ It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
 priority, automatic, fill-first, round-robin, weighted, random, strict-random, least-used,
 power-of-two-choices, cost-optimized, context-optimized, cache-optimized, context-relay,
-fusion, reset-aware, reset-window, headroom, quota-weighted or last-known-good selection, opt-in
+fusion, pipeline, reset-aware, reset-window, headroom, quota-weighted or last-known-good selection, opt-in
 fallback, and basic per-key route and model restrictions. It does not yet implement
 RedRouter's full provider selection, automatic quota collection, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
@@ -263,7 +263,7 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
   `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized`,
-  `cache-optimized`, `context-relay`, `fusion`, `reset-aware`, `reset-window`,
+  `cache-optimized`, `context-relay`, `fusion`, `pipeline`, `reset-aware`, `reset-window`,
   `headroom`, `quota-weighted` or `lkgp`),
   `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
@@ -287,6 +287,14 @@ RedDB or PostgreSQL is rejected instead of falling back to process-local counter
   the judge with their tool contract intact. Every physical panel and judge call is
   recorded against the authenticated client quota; slow calls that finish after the
   grace window still complete their health and usage bookkeeping.
+  Pipeline executes targets sequentially in dashboard order. Each target may carry
+  an optional prompt; the first step receives the original conversation and every
+  later step receives only the previous answer as its user turn. Intermediate calls
+  are buffered with streaming, tools and stream options removed, while the final call
+  re-enters the normal proxy path and preserves the client's streaming and tool
+  contract. The optional pipeline object persists maxRetries and retryDelayMs; only
+  intermediate 429/502/503/504 responses are retried. Successful physical calls are
+  independently recorded in the SQLite usage ledger.
 
 Provider and combo ownership is revision-coupled in the selected Rust database. A
 partially committed ownership update makes the control-plane snapshot unavailable

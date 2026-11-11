@@ -379,6 +379,14 @@ stored as a free summary. Other storage backends continue the summary path witho
 SQLite-specific ledger entry until native usage accounting is generalized beyond SQLite.
 Generation failure stays outside the client response path, and a missing summary still
 produces a marker that explicitly forbids invented context.
+The Rust-owned pipeline strategy now persists the dashboard's ordered per-target
+instructions and optional transient retry policy. It executes each intermediate target
+through the same provider authentication, translation, availability, breaker, load and
+SQLite accounting controls as ordinary inference, threads the complete text into the next
+target using the native Chat Completions, Responses, Anthropic or Gemini body shape, and
+returns only the final target through the normal streaming/tool-capable proxy loop.
+Intermediate failure is explicit and fail-closed; only 429/502/503/504 may consume the
+configured bounded retry budget.
 The same path pre-generates a handoff when fresh provider/model session telemetry crosses the
 configured warning threshold but remains below the 95% exhaustion boundary, using the quota
 reset as the handoff expiry when available. The RedDB cross-process lease remains follow-up

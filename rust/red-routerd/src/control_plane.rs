@@ -889,6 +889,8 @@ pub struct ComboTarget {
     pub provider_id: String,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weight: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_million: Option<f64>,
@@ -941,6 +943,24 @@ pub struct ComboFusionConfig {
     pub panel_timeout_ms: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ComboPipelineConfig {
+    #[serde(default)]
+    pub max_retries: u32,
+    #[serde(default = "default_pipeline_retry_delay_ms")]
+    pub retry_delay_ms: u64,
+}
+
+impl Default for ComboPipelineConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 0,
+            retry_delay_ms: default_pipeline_retry_delay_ms(),
+        }
+    }
+}
+
 impl Default for ComboFusionConfig {
     fn default() -> Self {
         Self {
@@ -991,6 +1011,8 @@ pub struct ComboInput {
     pub context_relay: Option<ComboContextRelayConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion: Option<ComboFusionConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<ComboPipelineConfig>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
@@ -1009,6 +1031,8 @@ pub struct ComboView {
     pub context_relay: Option<ComboContextRelayConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fusion: Option<ComboFusionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<ComboPipelineConfig>,
     pub enabled: bool,
     pub revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1025,6 +1049,8 @@ struct StoredComboPayload {
     context_relay: Option<ComboContextRelayConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fusion: Option<ComboFusionConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pipeline: Option<ComboPipelineConfig>,
 }
 
 #[derive(Deserialize)]
@@ -1286,6 +1312,10 @@ fn default_fusion_straggler_grace_ms() -> u64 {
 
 fn default_fusion_panel_timeout_ms() -> u64 {
     90_000
+}
+
+fn default_pipeline_retry_delay_ms() -> u64 {
+    1_000
 }
 
 fn default_quota_ttl_seconds() -> u64 {
@@ -5329,6 +5359,7 @@ impl ControlPlane {
         enrich_combo_metadata(&mut input, &providers, &catalog)?;
         normalize_context_relay_config(&mut input);
         normalize_fusion_config(&mut input);
+        normalize_pipeline_config(&mut input);
         validate_combo(&input)?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
@@ -5348,18 +5379,22 @@ impl ControlPlane {
                 return Err("combo targets require enabled providers with the same protocol");
             }
         }
-        let targets_json =
-            if input.auto.is_some() || input.context_relay.is_some() || input.fusion.is_some() {
-                serde_json::to_string(&StoredComboPayload {
-                    targets: input.targets.clone(),
-                    auto: input.auto.clone(),
-                    context_relay: input.context_relay.clone(),
-                    fusion: input.fusion.clone(),
-                })
-            } else {
-                serde_json::to_string(&input.targets)
-            }
-            .map_err(|_| "cannot encode combo targets")?;
+        let targets_json = if input.auto.is_some()
+            || input.context_relay.is_some()
+            || input.fusion.is_some()
+            || input.pipeline.is_some()
+        {
+            serde_json::to_string(&StoredComboPayload {
+                targets: input.targets.clone(),
+                auto: input.auto.clone(),
+                context_relay: input.context_relay.clone(),
+                fusion: input.fusion.clone(),
+                pipeline: input.pipeline.clone(),
+            })
+        } else {
+            serde_json::to_string(&input.targets)
+        }
+        .map_err(|_| "cannot encode combo targets")?;
         let record = StoredCombo {
             id: id.to_owned(),
             tenant_id,
@@ -6817,6 +6852,7 @@ impl ControlPlane {
                     });
             let context_relay = view.context_relay.clone().unwrap_or_default();
             let fusion = view.fusion.clone().unwrap_or_default();
+            let pipeline = view.pipeline.clone().unwrap_or_default();
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
@@ -6879,6 +6915,7 @@ impl ControlPlane {
                         input_cost_per_million: target.input_cost_per_million,
                         output_cost_per_million: target.output_cost_per_million,
                         context_window_tokens: target.context_window_tokens,
+                        prompt: target.prompt,
                     },
                     quota,
                     model_quota,
@@ -6902,6 +6939,7 @@ impl ControlPlane {
                 "cache-optimized" => RouteStrategy::CacheOptimized,
                 "context-relay" => RouteStrategy::ContextRelay,
                 "fusion" => RouteStrategy::Fusion,
+                "pipeline" => RouteStrategy::Pipeline,
                 "reset-aware" => RouteStrategy::ResetAware,
                 "reset-window" => RouteStrategy::ResetWindow,
                 "headroom" => RouteStrategy::Headroom,
@@ -6932,6 +6970,7 @@ impl ControlPlane {
                     auto_weights,
                     context_relay,
                     fusion,
+                    pipeline,
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
                     seed: if strategy == RouteStrategy::StrictRandom {
@@ -8426,13 +8465,14 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     } else {
         return Err("invalid combo targets");
     };
-    let (targets, auto, context_relay, fusion) = match payload {
-        StoredComboPayloadCompat::Legacy(targets) => (targets, None, None, None),
+    let (targets, auto, context_relay, fusion, pipeline) = match payload {
+        StoredComboPayloadCompat::Legacy(targets) => (targets, None, None, None, None),
         StoredComboPayloadCompat::Current(payload) => (
             payload.targets,
             payload.auto,
             payload.context_relay,
             payload.fusion,
+            payload.pipeline,
         ),
     };
     let input = ComboInput {
@@ -8444,6 +8484,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         auto: auto.clone(),
         context_relay: context_relay.clone(),
         fusion: fusion.clone(),
+        pipeline: pipeline.clone(),
         enabled: record.enabled,
     };
     validate_combo(&input)?;
@@ -8457,6 +8498,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         auto,
         context_relay,
         fusion,
+        pipeline,
         enabled: record.enabled,
         revision: record.revision.to_string(),
         last_known_good: None,
@@ -8861,6 +8903,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "cache-optimized"
             | "context-relay"
             | "fusion"
+            | "pipeline"
             | "reset-aware"
             | "reset-window"
             | "headroom"
@@ -8934,12 +8977,22 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         ("fusion", None) | (_, None) => {}
         (_, Some(_)) => return Err("fusion configuration requires the fusion strategy"),
     }
-    if matches!(input.strategy.as_str(), "context-relay" | "fusion")
-        && matches!(
-            protocol,
-            ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
-        )
-    {
+    match (input.strategy.as_str(), input.pipeline.as_ref()) {
+        ("pipeline", Some(config)) => {
+            if config.max_retries > 10 || config.retry_delay_ms > 60_000 {
+                return Err("invalid pipeline configuration");
+            }
+        }
+        ("pipeline", None) | (_, None) => {}
+        (_, Some(_)) => return Err("pipeline configuration requires the pipeline strategy"),
+    }
+    if matches!(
+        input.strategy.as_str(),
+        "context-relay" | "fusion" | "pipeline"
+    ) && matches!(
+        protocol,
+        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+    ) {
         return Err("strategy requires a conversational protocol");
     }
     if input.targets.is_empty() || input.targets.len() > 8 {
@@ -8958,6 +9011,11 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             ) && !crate::valid_gemini_model(&target.model))
         {
             return Err("invalid combo target model");
+        }
+        if target.prompt.as_ref().is_some_and(|prompt| {
+            prompt.is_empty() || prompt.len() > 20_000 || prompt.contains('\0')
+        }) {
+            return Err("invalid combo target prompt");
         }
         match (input.strategy.as_str(), target.weight) {
             ("weighted", Some(1..=100)) => {}
@@ -9029,6 +9087,14 @@ fn normalize_context_relay_config(input: &mut ComboInput) {
 fn normalize_fusion_config(input: &mut ComboInput) {
     if let Some(config) = input.fusion.as_mut() {
         config.judge_model = config.judge_model.trim().to_owned();
+    }
+}
+
+fn normalize_pipeline_config(input: &mut ComboInput) {
+    for target in &mut input.targets {
+        if let Some(prompt) = target.prompt.as_mut() {
+            *prompt = prompt.trim().to_owned();
+        }
     }
 }
 
@@ -11911,6 +11977,7 @@ mod tests {
             targets: vec![ComboTarget {
                 provider_id: "first".to_owned(),
                 model: "gpt-3.5-turbo".to_owned(),
+                prompt: None,
                 weight: None,
                 input_cost_per_million: Some(99.0),
                 output_cost_per_million: None,
@@ -11919,6 +11986,7 @@ mod tests {
             auto: None,
             context_relay: None,
             fusion: None,
+            pipeline: None,
             enabled: true,
         };
 

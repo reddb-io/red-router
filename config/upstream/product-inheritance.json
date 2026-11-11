@@ -176,7 +176,7 @@
       "upstreamPaths": {
         "litellm": ["litellm/router.py", "litellm/router_strategy"]
       },
-      "remaining": "The Rust authority now covers the 19 selectors advertised by the Rust capability boundary, including durable context relay and fusion panel/judge orchestration. Fusion persists dashboard tuning, bounds parallel fan-out with quorum grace, preserves tool-bearing requests, shares provider health/load controls and accounts every physical call in native SQLite usage. Preserve RedRouter model/account failover while completing pipeline/nested orchestration, product-database compatibility accounting and remaining catalog enrichment.",
+      "remaining": "The Rust authority now covers the 20 selectors advertised by the Rust capability boundary, including durable context relay, fusion panel/judge orchestration and ordered pipeline execution. Fusion persists dashboard tuning, bounds parallel fan-out with quorum grace, preserves tool-bearing requests, shares provider health/load controls and accounts every physical call in native SQLite usage. Pipeline persists per-step prompts and bounded transient retries, threads protocol-native intermediate text, preserves the final tool/streaming contract and accounts every successful physical call in native SQLite usage. Preserve RedRouter model/account failover while completing nested orchestration, product-database compatibility accounting and remaining catalog enrichment.",
       "acceptance": [
         "Do not retry a request after emitting upstream bytes or replay ambiguous billable writes.",
         "Account/model errors do not disable a whole provider.",

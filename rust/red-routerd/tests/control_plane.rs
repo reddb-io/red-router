@@ -444,6 +444,81 @@ async fn fusion_provider(
     )
 }
 
+async fn pipeline_provider(
+    expected_key: &'static str,
+    response_text: &'static str,
+    transient_first: bool,
+) -> (
+    String,
+    Arc<Mutex<Vec<serde_json::Value>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let observed = bodies.clone();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let request_count = requests.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                let observed = observed.clone();
+                let request_count = request_count.clone();
+                async move {
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {expected_key}")
+                    );
+                    observed.lock().unwrap().push(body.clone());
+                    let request = request_count.fetch_add(1, Ordering::SeqCst);
+                    if transient_first && request == 0 {
+                        return (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            Json(serde_json::json!({"error":{"message":"retry me"}})),
+                        )
+                            .into_response();
+                    }
+                    let usage = serde_json::json!({
+                        "prompt_tokens":3,
+                        "completion_tokens":2,
+                        "total_tokens":5
+                    });
+                    if body.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+                        let frames = format!(
+                            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                            serde_json::json!({
+                                "choices":[{"delta":{"content":response_text}}]
+                            }),
+                            serde_json::json!({"choices":[],"usage":usage})
+                        );
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header(header::CONTENT_TYPE, "text/event-stream")
+                            .body(Body::from(frames))
+                            .unwrap()
+                    } else {
+                        Json(serde_json::json!({
+                            "id":"pipeline-fixture",
+                            "choices":[{
+                                "message":{"role":"assistant","content":response_text}
+                            }],
+                            "usage":usage
+                        }))
+                        .into_response()
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        bodies,
+        task,
+    )
+}
+
 async fn models_dev_catalog_server() -> (
     String,
     Arc<AtomicUsize>,
@@ -4364,6 +4439,185 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
     judge_task.abort();
     second_task.abort();
     slow_task.abort();
+}
+
+#[tokio::test]
+async fn pipeline_chains_targets_retries_transients_streams_final_and_accounts_each_call() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("pipeline.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (draft_url, draft_bodies, draft_task) =
+        pipeline_provider("pipeline-draft-secret", "draft-output", true).await;
+    let (final_url, final_bodies, final_task) =
+        pipeline_provider("pipeline-final-secret", "final-output", false).await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("pipeline-draft", draft_url, "pipeline-draft-secret"),
+        ("pipeline-final", final_url, "pipeline-final-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/pipeline-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Pipeline workload",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["pipeline-combo","draft-model","final-model"],
+                "allowed_provider_ids":["pipeline-draft","pipeline-final"],
+                "max_tokens_per_minute":1000,
+                "max_tokens_per_day":10000,
+                "reservation_tokens":50
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    let invalid = client
+        .put(format!("{base}/api/admin/combos/pipeline-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "strategy":"pipeline",
+            "pipeline":{"maxRetries":11,"retryDelayMs":1},
+            "targets":[
+                {"provider_id":"pipeline-draft","model":"draft-model"},
+                {"provider_id":"pipeline-final","model":"final-model"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let configured = client
+        .put(format!("{base}/api/admin/combos/pipeline-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "strategy":"pipeline",
+            "fallback":true,
+            "pipeline":{"maxRetries":1,"retryDelayMs":1},
+            "targets":[
+                {
+                    "provider_id":"pipeline-draft",
+                    "model":"draft-model",
+                    "prompt":"  Produce a draft  "
+                },
+                {
+                    "provider_id":"pipeline-final",
+                    "model":"final-model",
+                    "prompt":"  Polish the draft  "
+                }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(configured["combo"]["pipeline"]["maxRetries"], 1);
+    assert_eq!(
+        configured["combo"]["targets"][0]["prompt"],
+        "Produce a draft"
+    );
+
+    let response = chat_model_with_body(
+        &client,
+        &base,
+        RUST_CLIENT_KEY,
+        serde_json::json!({
+            "model":"pipeline-combo",
+            "messages":[{"role":"user","content":"write the answer"}],
+            "stream":true,
+            "stream_options":{"include_usage":true},
+            "tools":[{
+                "type":"function",
+                "function":{"name":"lookup","parameters":{"type":"object"}}
+            }],
+            "tool_choice":"auto"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = response.text().await.unwrap();
+    assert!(response.contains("final-output"));
+    assert!(response.contains("data: [DONE]"));
+
+    {
+        let bodies = draft_bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 2);
+        for body in bodies.iter() {
+            assert_eq!(body["stream"], false);
+            assert!(body.get("tools").is_none());
+            assert!(body.get("tool_choice").is_none());
+            assert!(body.get("stream_options").is_none());
+            assert_eq!(body["messages"][0]["role"], "system");
+            assert_eq!(body["messages"][0]["content"], "Produce a draft");
+            assert_eq!(body["messages"][1]["content"], "write the answer");
+        }
+    }
+    {
+        let bodies = final_bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        let body = &bodies[0];
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][0]["content"], "Polish the draft");
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert_eq!(body["messages"][1]["content"], "draft-output");
+        assert_eq!(body["tools"][0]["function"]["name"], "lookup");
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let ledger: (i64, i64) = sqlx::query_as(
+                "SELECT COUNT(*), COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id = ?",
+            )
+            .bind("pipeline-client")
+            .fetch_one(&audit)
+            .await
+            .unwrap();
+            if ledger == (2, 10) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("all successful physical pipeline calls were not accounted");
+
+    audit.close().await;
+    gateway_task.abort();
+    draft_task.abort();
+    final_task.abort();
 }
 
 #[tokio::test]

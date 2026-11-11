@@ -70,6 +70,7 @@ const ROUTING_STRATEGIES: &[&str] = &[
     "cache-optimized",
     "context-relay",
     "fusion",
+    "pipeline",
     "reset-aware",
     "reset-window",
     "headroom",
@@ -430,6 +431,7 @@ pub(crate) struct ModelRoute {
     auto_weights: AutoRouteWeights,
     context_relay: control_plane::ComboContextRelayConfig,
     fusion: control_plane::ComboFusionConfig,
+    pipeline: control_plane::ComboPipelineConfig,
     fallback: bool,
     cursor: AtomicUsize,
     seed: usize,
@@ -471,6 +473,7 @@ pub(crate) enum RouteStrategy {
     CacheOptimized,
     ContextRelay,
     Fusion,
+    Pipeline,
     ResetAware,
     ResetWindow,
     Headroom,
@@ -517,6 +520,7 @@ pub(crate) struct ModelTarget {
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
     context_window_tokens: Option<u64>,
+    prompt: Option<String>,
     quota: Option<Arc<TargetQuota>>,
     model_quota: Option<Arc<TargetQuota>>,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
@@ -531,6 +535,7 @@ pub(crate) struct ControlTargetConfig {
     pub(crate) input_cost_per_million: Option<f64>,
     pub(crate) output_cost_per_million: Option<f64>,
     pub(crate) context_window_tokens: Option<u64>,
+    pub(crate) prompt: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -566,7 +571,8 @@ impl ModelRoute {
             RouteStrategy::Priority
             | RouteStrategy::FillFirst
             | RouteStrategy::ContextRelay
-            | RouteStrategy::Fusion => 0,
+            | RouteStrategy::Fusion
+            | RouteStrategy::Pipeline => 0,
             RouteStrategy::RoundRobin => {
                 self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
             }
@@ -1408,6 +1414,7 @@ impl ProxyState {
             input_cost_per_million: config.input_cost_per_million,
             output_cost_per_million: config.output_cost_per_million,
             context_window_tokens: config.context_window_tokens,
+            prompt: config.prompt,
             quota: Some(quota),
             model_quota: Some(model_quota),
             circuit: provider.circuit.clone(),
@@ -1625,6 +1632,7 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("cache-optimized") => RouteStrategy::CacheOptimized,
                 Some(v) if v.as_str() == Some("context-relay") => RouteStrategy::ContextRelay,
                 Some(v) if v.as_str() == Some("fusion") => RouteStrategy::Fusion,
+                Some(v) if v.as_str() == Some("pipeline") => RouteStrategy::Pipeline,
                 Some(v) if v.as_str() == Some("reset-aware") => RouteStrategy::ResetAware,
                 Some(v) if v.as_str() == Some("reset-window") => RouteStrategy::ResetWindow,
                 Some(v) if v.as_str() == Some("headroom") => RouteStrategy::Headroom,
@@ -1634,7 +1642,7 @@ impl ProxyState {
             };
             if matches!(
                 strategy,
-                RouteStrategy::ContextRelay | RouteStrategy::Fusion
+                RouteStrategy::ContextRelay | RouteStrategy::Fusion | RouteStrategy::Pipeline
             ) && matches!(
                 protocol,
                 ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
@@ -1666,6 +1674,7 @@ impl ProxyState {
                         "input_cost_per_million",
                         "output_cost_per_million",
                         "context_window_tokens",
+                        "prompt",
                     ]
                     .contains(&k.as_str())
                 }) {
@@ -1758,6 +1767,19 @@ impl ProxyState {
                             .ok_or("invalid target context metadata")
                     })
                     .transpose()?;
+                let prompt = target
+                    .get("prompt")
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::trim)
+                            .filter(|value| {
+                                !value.is_empty() && value.len() <= 20_000 && !value.contains('\0')
+                            })
+                            .map(str::to_owned)
+                            .ok_or("invalid target prompt")
+                    })
+                    .transpose()?;
                 if strategy == RouteStrategy::CostOptimized
                     && (input_cost_per_million.is_none() || output_cost_per_million.is_none())
                 {
@@ -1819,6 +1841,7 @@ impl ProxyState {
                     input_cost_per_million,
                     output_cost_per_million,
                     context_window_tokens,
+                    prompt,
                     quota: None,
                     model_quota: None,
                     circuit: None,
@@ -1842,6 +1865,7 @@ impl ProxyState {
                         auto_weights: AutoRouteWeights::default(),
                         context_relay: control_plane::ComboContextRelayConfig::default(),
                         fusion: control_plane::ComboFusionConfig::default(),
+                        pipeline: control_plane::ComboPipelineConfig::default(),
                         fallback,
                         cursor: AtomicUsize::new(0),
                         seed: if strategy == RouteStrategy::StrictRandom {
@@ -3733,6 +3757,45 @@ struct FusionFailure {
     message: &'static str,
 }
 
+struct PipelinePreparation {
+    body: serde_json::Value,
+    attempt_order: [usize; MAX_ROUTE_TARGETS],
+}
+
+struct PipelineFailure {
+    status: StatusCode,
+    message: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InternalTargetFailure {
+    status: Option<StatusCode>,
+}
+
+impl InternalTargetFailure {
+    const fn internal() -> Self {
+        Self { status: None }
+    }
+
+    const fn upstream(status: StatusCode) -> Self {
+        Self {
+            status: Some(status),
+        }
+    }
+
+    fn retryable(self) -> bool {
+        matches!(
+            self.status,
+            Some(
+                StatusCode::TOO_MANY_REQUESTS
+                    | StatusCode::BAD_GATEWAY
+                    | StatusCode::SERVICE_UNAVAILABLE
+                    | StatusCode::GATEWAY_TIMEOUT
+            )
+        )
+    }
+}
+
 fn internal_target_from_model(
     route: &ModelRoute,
     target: &ModelTarget,
@@ -3843,6 +3906,131 @@ fn fusion_attempt_order(
     order
 }
 
+fn pipeline_attempt_order(final_index: usize, target_count: usize) -> [usize; MAX_ROUTE_TARGETS] {
+    let mut order = [0; MAX_ROUTE_TARGETS];
+    order[0] = final_index;
+    let mut output = 1;
+    for index in 0..target_count {
+        if index != final_index {
+            order[output] = index;
+            output += 1;
+        }
+    }
+    order
+}
+
+fn pipeline_prepend_system_instruction(
+    body: &serde_json::Value,
+    prompt: Option<&str>,
+    protocol: ProviderProtocol,
+) -> Option<serde_json::Value> {
+    let Some(prompt) = prompt.filter(|prompt| !prompt.is_empty()) else {
+        return Some(body.clone());
+    };
+    let mut next = body.clone();
+    let object = next.as_object_mut()?;
+    if protocol == ProviderProtocol::Anthropic {
+        let system = object
+            .get("system")
+            .and_then(serde_json::Value::as_str)
+            .map_or_else(
+                || prompt.to_owned(),
+                |system| format!("{prompt}\n\n{system}"),
+            );
+        object.insert("system".to_owned(), serde_json::Value::String(system));
+    } else if let Some(input) = object.get_mut("input") {
+        match input {
+            serde_json::Value::Array(input) => {
+                input.insert(0, serde_json::json!({"role":"system","content":prompt}));
+            }
+            serde_json::Value::String(previous) => {
+                *input = serde_json::json!([
+                    {"role":"system","content":prompt},
+                    {"role":"user","content":previous.clone()}
+                ]);
+            }
+            _ => return None,
+        }
+    } else if let Some(contents) = object
+        .get_mut("contents")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        contents.insert(
+            0,
+            serde_json::json!({"role":"user","parts":[{"text":prompt}]}),
+        );
+    } else if let Some(messages) = object
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        messages.insert(0, serde_json::json!({"role":"system","content":prompt}));
+    } else {
+        object.insert(
+            "messages".to_owned(),
+            serde_json::json!([{"role":"system","content":prompt}]),
+        );
+    }
+    Some(next)
+}
+
+fn pipeline_transform_body(
+    body: &serde_json::Value,
+    prompt: Option<&str>,
+    input: &str,
+    protocol: ProviderProtocol,
+) -> Option<serde_json::Value> {
+    let mut next = body.clone();
+    let object = next.as_object_mut()?;
+    if protocol == ProviderProtocol::Anthropic {
+        match prompt {
+            Some(prompt) if !prompt.is_empty() => {
+                object.insert(
+                    "system".to_owned(),
+                    serde_json::Value::String(prompt.to_owned()),
+                );
+            }
+            _ => {
+                object.remove("system");
+            }
+        }
+        object.insert(
+            "messages".to_owned(),
+            serde_json::json!([{"role":"user","content":input}]),
+        );
+        object.remove("input");
+        object.remove("contents");
+    } else if object.contains_key("input") {
+        let mut turns = Vec::new();
+        if let Some(prompt) = prompt.filter(|prompt| !prompt.is_empty()) {
+            turns.push(serde_json::json!({"role":"system","content":prompt}));
+        }
+        turns.push(serde_json::json!({"role":"user","content":input}));
+        object.insert("input".to_owned(), serde_json::Value::Array(turns));
+        object.remove("messages");
+        object.remove("contents");
+    } else if object.contains_key("contents") {
+        let text = prompt
+            .filter(|prompt| !prompt.is_empty())
+            .map_or_else(|| input.to_owned(), |prompt| format!("{prompt}\n\n{input}"));
+        object.insert(
+            "contents".to_owned(),
+            serde_json::json!([{"role":"user","parts":[{"text":text}]}]),
+        );
+        object.remove("messages");
+        object.remove("input");
+    } else {
+        let mut turns = Vec::new();
+        if let Some(prompt) = prompt.filter(|prompt| !prompt.is_empty()) {
+            turns.push(serde_json::json!({"role":"system","content":prompt}));
+        }
+        turns.push(serde_json::json!({"role":"user","content":input}));
+        object.insert("messages".to_owned(), serde_json::Value::Array(turns));
+        object.remove("input");
+        object.remove("contents");
+    }
+    Some(next)
+}
+
 async fn execute_fusion_panel_target(
     target_index: usize,
     target: ContextRelaySummaryTarget,
@@ -3850,8 +4038,10 @@ async fn execute_fusion_panel_target(
     control: Option<control_plane::ControlPlane>,
     identity: Option<policy::ClientIdentity>,
     credits_mode: AntigravityCreditsMode,
-) -> Option<FusionPanelAnswer> {
-    let object = body.as_object_mut()?;
+) -> Result<FusionPanelAnswer, InternalTargetFailure> {
+    let object = body
+        .as_object_mut()
+        .ok_or_else(InternalTargetFailure::internal)?;
     object.remove("tools");
     object.remove("tool_choice");
     object.remove("stream_options");
@@ -3889,11 +4079,11 @@ async fn execute_fusion_panel_target(
         }
         serde_json::to_vec(&body).map_err(|_| ())
     };
-    let mut payload = encoded.ok()?;
+    let mut payload = encoded.map_err(|_| InternalTargetFailure::internal())?;
     if antigravity {
         payload =
             antigravity_credits_payload(&payload, credits_mode == AntigravityCreditsMode::Always)
-                .ok()?;
+                .map_err(|_| InternalTargetFailure::internal())?;
     }
     let mut upstream = target.upstream.clone();
     if target.protocol == ProviderProtocol::Gemini {
@@ -3906,17 +4096,27 @@ async fn execute_fusion_panel_target(
         upstream.set_query(Some("alt=sse"));
     }
     let availability_permit = if let Some(availability) = &target.availability {
-        match availability.try_acquire(&target.model).await.ok()? {
+        match availability
+            .try_acquire(&target.model)
+            .await
+            .map_err(|_| InternalTargetFailure::internal())?
+        {
             availability::AvailabilityDecision::Permit(permit) => Some(permit),
-            availability::AvailabilityDecision::Blocked { .. } => return None,
+            availability::AvailabilityDecision::Blocked { .. } => {
+                return Err(InternalTargetFailure::internal())
+            }
         }
     } else {
         None
     };
     let circuit_permit = if let Some(circuit) = &target.circuit {
-        match circuit.try_acquire().await.ok()? {
+        match circuit
+            .try_acquire()
+            .await
+            .map_err(|_| InternalTargetFailure::internal())?
+        {
             circuit::CircuitDecision::Permit(permit) => Some(permit),
-            circuit::CircuitDecision::Open { .. } => return None,
+            circuit::CircuitDecision::Open { .. } => return Err(InternalTargetFailure::internal()),
         }
     } else {
         None
@@ -3932,7 +4132,7 @@ async fn execute_fusion_panel_target(
                     if let (Some(circuit), Some(permit)) = (&target.circuit, circuit_permit) {
                         circuit.record_ignored(permit).await;
                     }
-                    return None;
+                    return Err(InternalTargetFailure::internal());
                 }
             };
             Some(UsageAttempt::Native {
@@ -3981,7 +4181,7 @@ async fn execute_fusion_panel_target(
         Some(request)
     };
     let _load_guard = ProviderLoadGuard::new(target.in_flight.clone());
-    let request = build_request(true, &payload)?;
+    let request = build_request(true, &payload).ok_or_else(InternalTargetFailure::internal)?;
     let response = match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
         Ok(Ok(response)) => response,
         _ => {
@@ -3994,14 +4194,14 @@ async fn execute_fusion_panel_target(
                 None,
             )
             .await;
-            return None;
+            return Err(InternalTargetFailure::internal());
         }
     };
     let response = if antigravity
         && response.status() == StatusCode::FORBIDDEN
         && target.antigravity_project.is_some()
     {
-        let request = build_request(false, &payload)?;
+        let request = build_request(false, &payload).ok_or_else(InternalTargetFailure::internal)?;
         match tokio::time::timeout(HEADER_TIMEOUT, request.send()).await {
             Ok(Ok(response)) => response,
             _ => {
@@ -4014,7 +4214,7 @@ async fn execute_fusion_panel_target(
                     None,
                 )
                 .await;
-                return None;
+                return Err(InternalTargetFailure::internal());
             }
         }
     } else {
@@ -4026,7 +4226,8 @@ async fn execute_fusion_panel_target(
         && response.status() == StatusCode::TOO_MANY_REQUESTS
         && resilience::antigravity_credits_retry_eligible(response.error_body())
     {
-        let credits_payload = antigravity_credits_payload(&payload, true).ok()?;
+        let credits_payload = antigravity_credits_payload(&payload, true)
+            .map_err(|_| InternalTargetFailure::internal())?;
         if let Some(request) = build_request(false, &credits_payload) {
             if let Ok(Ok(retry)) =
                 tokio::time::timeout(ANTIGRAVITY_CREDITS_RETRY_TIMEOUT, request.send()).await
@@ -4045,9 +4246,11 @@ async fn execute_fusion_panel_target(
             response.error_body(),
         )
         .await;
-        return None;
+        return Err(InternalTargetFailure::upstream(response.status()));
     }
-    let response = response.into_streaming()?;
+    let response = response
+        .into_streaming()
+        .ok_or_else(InternalTargetFailure::internal)?;
     if response
         .content_length()
         .is_some_and(|length| length > MAX_BODY_BYTES as u64)
@@ -4061,7 +4264,7 @@ async fn execute_fusion_panel_target(
             None,
         )
         .await;
-        return None;
+        return Err(InternalTargetFailure::internal());
     }
     let read = async move {
         let mut bytes = Vec::new();
@@ -4087,7 +4290,7 @@ async fn execute_fusion_panel_target(
                 None,
             )
             .await;
-            return None;
+            return Err(InternalTargetFailure::internal());
         }
     };
     if record_internal_provider_health(
@@ -4101,16 +4304,17 @@ async fn execute_fusion_panel_target(
     .await
     .is_err()
     {
-        return None;
+        return Err(InternalTargetFailure::internal());
     }
     let (value, usage) = if antigravity {
         let translated = antigravity_translation::response(&bytes, &target.model)
-            .ok()?
+            .map_err(|_| InternalTargetFailure::internal())?
             .value;
         let usage = accounting::ChatUsage::from_response(&translated).ok();
         (translated, usage)
     } else {
-        let raw: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let raw: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| InternalTargetFailure::internal())?;
         let usage = match target.protocol {
             ProviderProtocol::OpenAiResponses => {
                 accounting::ChatUsage::from_responses_response(&raw)
@@ -4123,20 +4327,23 @@ async fn execute_fusion_panel_target(
         }
         .ok();
         let value = if translate_anthropic {
-            translation::response(&raw).ok()?
+            translation::response(&raw).map_err(|_| InternalTargetFailure::internal())?
         } else {
             raw
         };
         (value, usage)
     };
     if let Some(accounting) = accounting_attempt {
-        let usage = usage.as_ref()?;
+        let usage = usage.as_ref().ok_or_else(InternalTargetFailure::internal)?;
         if accounting.record(None, usage).await.is_err() {
-            return None;
+            return Err(InternalTargetFailure::internal());
         }
     }
     let text = context_relay_response_text(&value).trim().to_owned();
-    (!text.is_empty()).then_some(FusionPanelAnswer { target_index, text })
+    if text.is_empty() {
+        return Err(InternalTargetFailure::internal());
+    }
+    Ok(FusionPanelAnswer { target_index, text })
 }
 
 async fn prepare_fusion(
@@ -4206,7 +4413,7 @@ async fn prepare_fusion(
             Ok(next) => next,
             Err(_) => break,
         };
-        if let Some(Ok(Some(answer))) = next {
+        if let Some(Ok(Ok(answer))) = next {
             answers.push(answer);
             if answers.len() >= minimum && grace_deadline.is_none() {
                 grace_deadline = Some(
@@ -4241,6 +4448,103 @@ async fn prepare_fusion(
     Ok(FusionPreparation {
         judge_body: Some(judge_body),
         attempt_order: fusion_attempt_order(eligible, judge_index, &answers),
+    })
+}
+
+async fn prepare_pipeline(
+    state: &ProxyState,
+    route: &ModelRoute,
+    eligible: &[&ModelTarget],
+    body: &serde_json::Value,
+    native_usage_identity: Option<&policy::ClientIdentity>,
+    product_usage_accounting: bool,
+) -> Result<PipelinePreparation, PipelineFailure> {
+    if product_usage_accounting && eligible.len() > 1 {
+        return Err(PipelineFailure {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "Pipeline requires Rust-native usage accounting",
+        });
+    }
+    let final_index = eligible.len() - 1;
+    let attempt_order = pipeline_attempt_order(final_index, eligible.len());
+    if eligible.len() == 1 {
+        let body = pipeline_prepend_system_instruction(
+            body,
+            eligible[0].prompt.as_deref(),
+            route.protocol,
+        )
+        .ok_or(PipelineFailure {
+            status: StatusCode::BAD_REQUEST,
+            message: "Pipeline is incompatible with this request body",
+        })?;
+        return Ok(PipelinePreparation {
+            body,
+            attempt_order,
+        });
+    }
+    let mut previous = String::new();
+    for (index, target) in eligible[..final_index].iter().enumerate() {
+        if target.credential_expires_at_unix > 0
+            && unix_time_ms() / 1_000 >= target.credential_expires_at_unix
+        {
+            return Err(PipelineFailure {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: "Pipeline provider credential expired",
+            });
+        }
+        let step_body = if index == 0 {
+            pipeline_prepend_system_instruction(body, target.prompt.as_deref(), route.protocol)
+        } else {
+            pipeline_transform_body(body, target.prompt.as_deref(), &previous, route.protocol)
+        }
+        .ok_or(PipelineFailure {
+            status: StatusCode::BAD_REQUEST,
+            message: "Pipeline is incompatible with this request body",
+        })?;
+        let target = internal_target_from_model(route, target).ok_or(PipelineFailure {
+            status: StatusCode::BAD_GATEWAY,
+            message: "Pipeline step could not be prepared",
+        })?;
+        let mut retry = 0;
+        let answer = loop {
+            match execute_fusion_panel_target(
+                index,
+                target.clone(),
+                step_body.clone(),
+                state.control_plane.clone(),
+                native_usage_identity.cloned(),
+                state.antigravity_credits_mode,
+            )
+            .await
+            {
+                Ok(answer) => break answer,
+                Err(failure) if failure.retryable() && retry < route.pipeline.max_retries => {
+                    retry += 1;
+                    tokio::time::sleep(Duration::from_millis(route.pipeline.retry_delay_ms)).await;
+                }
+                Err(failure) => {
+                    return Err(PipelineFailure {
+                        status: failure.status.unwrap_or(StatusCode::BAD_GATEWAY),
+                        message: "Pipeline intermediate step failed",
+                    });
+                }
+            }
+        };
+        previous = answer.text;
+    }
+    let body = pipeline_transform_body(
+        body,
+        eligible[final_index].prompt.as_deref(),
+        &previous,
+        route.protocol,
+    )
+    .ok_or(PipelineFailure {
+        status: StatusCode::BAD_REQUEST,
+        message: "Pipeline is incompatible with this request body",
+    })?;
+    Ok(PipelinePreparation {
+        body,
+        attempt_order,
     })
 }
 
@@ -4940,11 +5244,31 @@ async fn proxy_request(
         },
         None => None,
     };
+    let pipeline_preparation = match route.filter(|route| route.strategy == RouteStrategy::Pipeline)
+    {
+        Some(route) => match prepare_pipeline(
+            &state,
+            route,
+            &eligible,
+            &parsed,
+            native_usage_identity.as_ref(),
+            product_usage_accounting,
+        )
+        .await
+        {
+            Ok(preparation) => Some(preparation),
+            Err(failure) => return error(failure.status, failure.message),
+        },
+        None => None,
+    };
     if let Some(judge_body) = fusion_preparation
         .as_ref()
         .and_then(|preparation| preparation.judge_body.clone())
     {
         parsed = judge_body;
+    }
+    if let Some(preparation) = pipeline_preparation.as_ref() {
+        parsed = preparation.body.clone();
     }
     let cache_affinity_key = route
         .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
@@ -4952,6 +5276,9 @@ async fn proxy_request(
     let mut attempt_order =
         route.map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
     if let Some(preparation) = fusion_preparation {
+        attempt_order = Some(preparation.attempt_order);
+    }
+    if let Some(preparation) = pipeline_preparation {
         attempt_order = Some(preparation.attempt_order);
     }
     let context_relay_previous = match (
@@ -4994,7 +5321,9 @@ async fn proxy_request(
         }
         _ => None,
     };
-    let attempts = if state.product_combo.is_some() {
+    let attempts = if route.is_some_and(|route| route.strategy == RouteStrategy::Pipeline) {
+        1
+    } else if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {
         1 + state.product_fallbacks.len() - selected_product
@@ -6485,6 +6814,82 @@ mod address_tests {
         })));
     }
 
+    #[test]
+    fn pipeline_threads_protocol_native_bodies_and_preserves_final_contract() {
+        let chat = serde_json::json!({
+            "messages":[{"role":"user","content":"original"}],
+            "stream":true,
+            "tools":[{"type":"function"}]
+        });
+        let first =
+            pipeline_prepend_system_instruction(&chat, Some("draft"), ProviderProtocol::OpenAi)
+                .unwrap();
+        assert_eq!(first["messages"][0]["role"], "system");
+        assert_eq!(first["messages"][1]["content"], "original");
+        let final_chat =
+            pipeline_transform_body(&chat, Some("polish"), "drafted", ProviderProtocol::OpenAi)
+                .unwrap();
+        assert_eq!(final_chat["messages"][0]["content"], "polish");
+        assert_eq!(final_chat["messages"][1]["content"], "drafted");
+        assert_eq!(final_chat["stream"], true);
+        assert_eq!(final_chat["tools"][0]["type"], "function");
+
+        let responses = pipeline_prepend_system_instruction(
+            &serde_json::json!({"input":"original","stream":true}),
+            Some("draft"),
+            ProviderProtocol::OpenAiResponses,
+        )
+        .unwrap();
+        assert_eq!(responses["input"][0]["role"], "system");
+        assert_eq!(responses["input"][1]["content"], "original");
+        let responses = pipeline_transform_body(
+            &responses,
+            Some("polish"),
+            "drafted",
+            ProviderProtocol::OpenAiResponses,
+        )
+        .unwrap();
+        assert_eq!(responses["input"][0]["content"], "polish");
+        assert_eq!(responses["input"][1]["content"], "drafted");
+
+        let gemini = pipeline_transform_body(
+            &serde_json::json!({
+                "contents":[{"role":"user","parts":[{"text":"original"}]}]
+            }),
+            Some("polish"),
+            "drafted",
+            ProviderProtocol::Gemini,
+        )
+        .unwrap();
+        assert_eq!(
+            gemini["contents"][0]["parts"][0]["text"],
+            "polish\n\ndrafted"
+        );
+
+        let anthropic = pipeline_prepend_system_instruction(
+            &serde_json::json!({
+                "system":"existing",
+                "messages":[{"role":"user","content":"original"}]
+            }),
+            Some("draft"),
+            ProviderProtocol::Anthropic,
+        )
+        .unwrap();
+        assert_eq!(anthropic["system"], "draft\n\nexisting");
+        assert_eq!(anthropic["messages"][0]["role"], "user");
+        let anthropic = pipeline_transform_body(
+            &anthropic,
+            Some("polish"),
+            "drafted",
+            ProviderProtocol::Anthropic,
+        )
+        .unwrap();
+        assert_eq!(anthropic["system"], "polish");
+        assert_eq!(anthropic["messages"][0]["content"], "drafted");
+
+        assert_eq!(pipeline_attempt_order(2, 3)[..3], [2, 0, 1]);
+    }
+
     #[tokio::test]
     async fn context_relay_generates_native_gemini_and_antigravity_summaries() {
         let gemini_bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -6756,6 +7161,7 @@ mod address_tests {
             input_cost_per_million: None,
             output_cost_per_million: None,
             context_window_tokens: None,
+            prompt: None,
             quota: Some(provider_quota.clone()),
             model_quota: Some(model_quota.clone()),
             circuit: None,
