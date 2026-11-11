@@ -9186,6 +9186,73 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
 }
 
 #[tokio::test]
+async fn rust_owns_dashboard_model_token_limit_crud() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("model-limits.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let key = client
+        .put(format!("{base}/api/admin/client-keys/model-budget"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "label":"Model budget","api_key":RUST_CLIENT_KEY,"enabled":false,
+            "max_tokens_per_day":1000,"reservation_tokens":60
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(key.status(), StatusCode::OK);
+    let created = client
+        .post(format!("{base}/api/usage/token-limits"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "apiKeyId":"model-budget","scopeType":"model","scopeValue":"gpt-4.1",
+            "tokenLimit":100,"resetInterval":"daily","resetTime":"02:30","enabled":true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let created: serde_json::Value = created.json().await.unwrap();
+    let id = created["limit"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(created["limit"]["resetTime"], "02:30");
+    let listed = client
+        .get(format!(
+            "{base}/api/usage/token-limits?apiKeyId=model-budget"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed: serde_json::Value = listed.json().await.unwrap();
+    assert_eq!(listed["limits"][0]["scopeValue"], "gpt-4.1");
+    let enabled = client
+        .put(format!("{base}/api/admin/client-keys/model-budget"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "label":"Model budget","enabled":true,"max_tokens_per_day":1000,"reservation_tokens":101
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(enabled.status(), StatusCode::BAD_REQUEST);
+    let deleted = client
+        .delete(format!("{base}/api/usage/token-limits?id={id}"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK);
+    gateway_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_applies_live_quota_strategies_without_route_reloads() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("quota-routing.sqlite")).unwrap();

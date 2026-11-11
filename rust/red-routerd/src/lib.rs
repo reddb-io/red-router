@@ -2159,6 +2159,12 @@ pub fn router(state: ProxyState) -> Router {
             "/api/admin/client-keys/{id}",
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
         )
+        .route(
+            "/api/usage/token-limits",
+            get(control_plane::token_limits)
+                .post(control_plane::put_token_limit)
+                .delete(control_plane::delete_token_limit),
+        )
         .route("/api/admin/usage", get(control_plane::get_usage_report))
         .route(
             "/api/admin/legacy-usage",

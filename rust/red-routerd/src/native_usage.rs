@@ -999,7 +999,7 @@ fn boundaries(now_ms: i64) -> Result<(i64, i64), &'static str> {
     ))
 }
 
-fn model_window_start(
+pub(crate) fn model_window_start(
     now_ms: i64,
     interval: &str,
     reset_minutes: i64,

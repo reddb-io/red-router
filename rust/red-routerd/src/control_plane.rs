@@ -710,6 +710,27 @@ pub struct ClientKeyIssueInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TokenLimitInput {
+    pub id: Option<String>,
+    pub api_key_id: String,
+    pub scope_type: String,
+    pub scope_value: String,
+    pub token_limit: i64,
+    pub reset_interval: String,
+    pub reset_time: Option<String>,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenLimitQuery {
+    pub api_key_id: Option<String>,
+    pub id: Option<String>,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UsageReportQuery {
     pub tenant_id: Option<String>,
@@ -7900,6 +7921,169 @@ impl ControlPlane {
             .collect()
     }
 
+    async fn token_limit_views(
+        &self,
+        key_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, &'static str> {
+        validate_id(key_id)?;
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("token limits require SQLite storage")?;
+        let owner: Option<String> = sqlx::query_scalar(
+            "SELECT tenant_id FROM redrouter_control_client_key_ownership WHERE key_id=$1",
+        )
+        .bind(key_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| "token limit storage unavailable")?;
+        let owner = owner.ok_or("client key not found")?;
+        if tenant_id.is_some_and(|tenant| tenant != owner) {
+            return Err("client key not found");
+        }
+        let now = unix_time_ms()?;
+        let rows = sqlx::query("SELECT model,reset_interval,reset_minutes,token_limit FROM redrouter_client_model_token_limits WHERE key_id=$1 ORDER BY model,reset_interval")
+            .bind(key_id).fetch_all(pool).await.map_err(|_| "token limit storage unavailable")?;
+        let mut views = Vec::with_capacity(rows.len());
+        for row in rows {
+            let model: String = row.try_get("model").map_err(|_| "invalid token limit")?;
+            let interval: String = row
+                .try_get("reset_interval")
+                .map_err(|_| "invalid token limit")?;
+            let reset: i64 = row
+                .try_get("reset_minutes")
+                .map_err(|_| "invalid token limit")?;
+            let limit: i64 = row
+                .try_get("token_limit")
+                .map_err(|_| "invalid token limit")?;
+            let start = crate::native_usage::model_window_start(now, &interval, reset)?;
+            let used: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input+tokens_output+tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+                .bind(key_id).bind(&model).bind(start).fetch_one(pool).await.map_err(|_| "token limit ledger unavailable")?;
+            let id = token_limit_id(key_id, &model, &interval);
+            views.push(serde_json::json!({
+                "id":id,"apiKeyId":key_id,"scopeType":"model","scopeValue":model,
+                "tokenLimit":limit,"resetInterval":interval,"resetTime":format!("{:02}:{:02}",reset/60,reset%60),
+                "enabled":true,"tokensUsed":used,"windowStart":start.to_string(),"periodStartAt":start,
+                "nextResetAt":next_token_window(start,&interval)?,"remaining":limit.saturating_sub(used).max(0)
+            }));
+        }
+        Ok(views)
+    }
+
+    async fn upsert_token_limit_as(
+        &self,
+        input: TokenLimitInput,
+        actor: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<serde_json::Value, &'static str> {
+        validate_actor(actor)?;
+        validate_id(&input.api_key_id)?;
+        if input.scope_type != "model"
+            || input.scope_value.trim() != input.scope_value
+            || input.scope_value.is_empty()
+            || input.scope_value.len() > 256
+            || input.scope_value.chars().any(char::is_control)
+            || !matches!(
+                input.reset_interval.as_str(),
+                "daily" | "weekly" | "monthly"
+            )
+            || !(1..=9_007_199_254_740_991).contains(&input.token_limit)
+            || !input.enabled
+        {
+            return Err("invalid token limit");
+        }
+        let reset = parse_reset_minutes(input.reset_time.as_deref().unwrap_or("00:00"))?;
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("token limits require SQLite storage")?;
+        let mut db = pool
+            .acquire()
+            .await
+            .map_err(|_| "token limit storage unavailable")?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *db)
+            .await
+            .map_err(|_| "token limit storage unavailable")?;
+        let result: Result<(), &'static str> = async {
+            let row = sqlx::query("SELECT k.enabled,q.reservation_tokens,q.max_tokens_per_minute,q.max_tokens_per_day,q.max_monthly_microusd,o.tenant_id FROM redrouter_control_client_keys k JOIN redrouter_control_client_key_quotas q ON q.key_id=k.id AND q.revision=k.revision JOIN redrouter_control_client_key_ownership o ON o.key_id=k.id AND o.revision=k.revision WHERE k.id=$1")
+                .bind(&input.api_key_id).fetch_optional(&mut *db).await.map_err(|_| "client quota unavailable")?.ok_or("client key not found")?;
+            let owner: String = row.try_get("tenant_id").map_err(|_| "invalid client quota")?;
+            if tenant_id.is_some_and(|tenant| tenant != owner) { return Err("client key not found"); }
+            let enabled: i64 = row.try_get("enabled").map_err(|_| "invalid client quota")?;
+            let reservation: i64 = row.try_get("reservation_tokens").map_err(|_| "invalid client quota")?;
+            let has_global = ["max_tokens_per_minute","max_tokens_per_day","max_monthly_microusd"].iter().try_fold(false,|found,field| row.try_get::<i64,_>(*field).map(|value|found||value>0).map_err(|_|"invalid client quota"))?;
+            if enabled != 0 || !has_global || reservation <= 0 || reservation > input.token_limit { return Err("disable the key and configure a compatible reservation first"); }
+            let expected = token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval);
+            if input.id.as_deref().is_some_and(|id| id != expected) { return Err("token limit identifier does not match its scope"); }
+            let migrated: i64 = sqlx::query_scalar("SELECT CASE WHEN EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='redrouter_legacy_key_migration') THEN (SELECT COUNT(*) FROM redrouter_legacy_key_migration WHERE key_id=$1) ELSE 0 END")
+                .bind(&input.api_key_id).fetch_one(&mut *db).await.map_err(|_| "migration state unavailable")?;
+            if migrated != 0 { return Err("legacy model quota baseline requires migration"); }
+            sqlx::query("INSERT INTO redrouter_client_model_token_limits (key_id,model,reset_interval,reset_minutes,token_limit) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(key_id,model,reset_interval) DO UPDATE SET reset_minutes=$4,token_limit=$5")
+                .bind(&input.api_key_id).bind(&input.scope_value).bind(&input.reset_interval).bind(reset).bind(input.token_limit)
+                .execute(&mut *db).await.map_err(|_| "cannot configure token limit")?;
+            Ok(())
+        }.await;
+        match result {
+            Ok(()) => sqlx::query("COMMIT")
+                .execute(&mut *db)
+                .await
+                .map(|_| ())
+                .map_err(|_| "cannot commit token limit")?,
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *db).await;
+                return Err(error);
+            }
+        }
+        let mut limits = self.token_limit_views(&input.api_key_id, tenant_id).await?;
+        limits
+            .into_iter()
+            .find(|limit| {
+                limit["id"]
+                    == token_limit_id(&input.api_key_id, &input.scope_value, &input.reset_interval)
+            })
+            .ok_or("token limit unavailable")
+    }
+
+    async fn delete_token_limit_as(
+        &self,
+        id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<bool, &'static str> {
+        if id.is_empty() || id.len() > 64 {
+            return Err("invalid token limit identifier");
+        }
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("token limits require SQLite storage")?;
+        let rows = sqlx::query("SELECT l.key_id,l.model,l.reset_interval,o.tenant_id FROM redrouter_client_model_token_limits l JOIN redrouter_control_client_key_ownership o ON o.key_id=l.key_id")
+            .fetch_all(pool).await.map_err(|_| "token limit storage unavailable")?;
+        for row in rows {
+            let key: String = row.try_get("key_id").map_err(|_| "invalid token limit")?;
+            let model: String = row.try_get("model").map_err(|_| "invalid token limit")?;
+            let interval: String = row
+                .try_get("reset_interval")
+                .map_err(|_| "invalid token limit")?;
+            let tenant: String = row
+                .try_get("tenant_id")
+                .map_err(|_| "invalid token limit")?;
+            if token_limit_id(&key, &model, &interval) == id {
+                if tenant_id.is_some_and(|expected| expected != tenant) {
+                    return Ok(false);
+                }
+                let result=sqlx::query("DELETE FROM redrouter_client_model_token_limits WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
+                    .bind(key).bind(model).bind(interval).execute(pool).await.map_err(|_|"cannot delete token limit")?;
+                return Ok(result.rows_affected() == 1);
+            }
+        }
+        Ok(false)
+    }
+
     async fn tenant_views(&self) -> Result<Vec<TenantView>, &'static str> {
         Ok(self
             .0
@@ -9281,6 +9465,57 @@ fn validate_model_id_format(value: &str) -> Result<&str, &'static str> {
         "prefixed" | "flat" => Ok(value),
         _ => Err("client key model ID format must be prefixed or flat"),
     }
+}
+
+fn parse_reset_minutes(value: &str) -> Result<i64, &'static str> {
+    let (hour, minute) = value
+        .split_once(':')
+        .ok_or("invalid token limit reset time")?;
+    if hour.len() != 2 || minute.len() != 2 {
+        return Err("invalid token limit reset time");
+    }
+    let hour: i64 = hour.parse().map_err(|_| "invalid token limit reset time")?;
+    let minute: i64 = minute
+        .parse()
+        .map_err(|_| "invalid token limit reset time")?;
+    if !(0..24).contains(&hour) || !(0..60).contains(&minute) {
+        return Err("invalid token limit reset time");
+    }
+    Ok(hour * 60 + minute)
+}
+
+fn token_limit_id(key: &str, model: &str, interval: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"redrouter-model-limit\0");
+    digest.update(key.as_bytes());
+    digest.update([0]);
+    digest.update(model.as_bytes());
+    digest.update([0]);
+    digest.update(interval.as_bytes());
+    format!("mtl_{}", hex::encode(&digest.finalize()[..12]))
+}
+
+fn next_token_window(start_ms: i64, interval: &str) -> Result<i64, &'static str> {
+    let start = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(start_ms) * 1_000_000)
+        .map_err(|_| "invalid token limit window")?;
+    let next = match interval {
+        "daily" => start.checked_add(time::Duration::days(1)),
+        "weekly" => start.checked_add(time::Duration::days(7)),
+        "monthly" => {
+            let date = start.date();
+            let (year, month) = if date.month() == time::Month::December {
+                (date.year() + 1, time::Month::January)
+            } else {
+                (date.year(), date.month().next())
+            };
+            time::Date::from_calendar_date(year, month, 1)
+                .ok()
+                .map(|date| date.with_time(start.time()).assume_utc())
+        }
+        _ => None,
+    }
+    .ok_or("invalid token limit window")?;
+    i64::try_from(next.unix_timestamp_nanos() / 1_000_000).map_err(|_| "invalid token limit window")
 }
 
 fn encode_access_schedule(value: Option<&AccessScheduleConfig>) -> Result<String, &'static str> {
@@ -10787,6 +11022,87 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
             StatusCode::SERVICE_UNAVAILABLE,
             "Client key storage unavailable",
         ),
+    }
+}
+
+pub async fn token_limits(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<TokenLimitQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Some(key) = query.api_key_id.as_deref() else {
+        return api_error(StatusCode::BAD_REQUEST, "apiKeyId query param is required");
+    };
+    match control
+        .token_limit_views(key, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(limits) => Json(serde_json::json!({"apiKeyId":key,"limits":limits})).into_response(),
+        Err("client key not found") => api_error(StatusCode::NOT_FOUND, "Client key not found"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Token limit storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid token limit query"),
+    }
+}
+
+pub async fn put_token_limit(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<TokenLimitInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .upsert_token_limit_as(input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(limit) => Json(serde_json::json!({"success":true,"limit":limit})).into_response(),
+        Err("client key not found") => api_error(StatusCode::NOT_FOUND, "Client key not found"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Token limit storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid token limit configuration"),
+    }
+}
+
+pub async fn delete_token_limit(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<TokenLimitQuery>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Some(id) = query.id.as_deref() else {
+        return api_error(StatusCode::BAD_REQUEST, "id query param is required");
+    };
+    match control
+        .delete_token_limit_as(id, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(true) => Json(serde_json::json!({"success":true})).into_response(),
+        Ok(false) => api_error(StatusCode::NOT_FOUND, "Token limit not found"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Token limit storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid token limit identifier"),
     }
 }
 
