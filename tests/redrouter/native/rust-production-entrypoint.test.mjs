@@ -14,6 +14,7 @@ describe("Rust production entrypoint", () => {
     assert.match(pkg.scripts["start:rust"], /RED_ROUTER_SPA_DIR=.build\/rust-dashboard/);
     assert.match(pkg.scripts["start:rust"], /rust\/red-routerd\/Cargo\.toml/);
     assert.match(pkg.scripts["build:rust-package"], /stage-rust-runtime\.mjs/);
+    assert.match(pkg.scripts["build:release"], /build:rust-dashboard/);
     assert.ok(pkg.files.includes("rust-runtime/"));
   });
 
