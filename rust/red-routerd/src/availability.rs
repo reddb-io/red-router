@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -25,6 +25,31 @@ const MAX_MODEL_LOCKOUTS: usize = 1_024;
 const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = 3;
 const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = 60 * 60 * 1_000;
 const TERMINAL_UNTIL_UNIX_MS: u64 = i64::MAX as u64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConnectionCooldownProfile {
+    pub base_cooldown_ms: u64,
+    pub use_upstream_retry_hints: bool,
+    pub max_backoff_steps: u32,
+}
+
+impl ConnectionCooldownProfile {
+    pub(crate) const fn oauth_default() -> Self {
+        Self {
+            base_cooldown_ms: 5_000,
+            use_upstream_retry_hints: false,
+            max_backoff_steps: 8,
+        }
+    }
+
+    pub(crate) const fn api_key_default() -> Self {
+        Self {
+            base_cooldown_ms: CONNECTION_BASE_MS,
+            use_upstream_retry_hints: true,
+            max_backoff_steps: 5,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -107,6 +132,9 @@ pub(crate) struct ProviderAvailability {
     connection_generation: AtomicU64,
     has_model_lockouts: AtomicBool,
     needs_recovery: AtomicBool,
+    cooldown_base_ms: AtomicU64,
+    cooldown_retry_hints: AtomicBool,
+    cooldown_max_backoff_steps: AtomicU32,
 }
 
 #[derive(Clone, Copy)]
@@ -273,8 +301,37 @@ impl ProviderAvailability {
             connection_generation: AtomicU64::new(inner.connection_generation),
             has_model_lockouts: AtomicBool::new(has_model_lockouts),
             needs_recovery: AtomicBool::new(needs_recovery),
+            cooldown_base_ms: AtomicU64::new(CONNECTION_BASE_MS),
+            cooldown_retry_hints: AtomicBool::new(true),
+            cooldown_max_backoff_steps: AtomicU32::new(5),
             inner: Mutex::new(inner),
             persistence_ok: AtomicBool::new(true),
+        }
+    }
+
+    pub(crate) fn configure_cooldown(
+        &self,
+        profile: ConnectionCooldownProfile,
+    ) -> Result<(), &'static str> {
+        if profile.base_cooldown_ms > CONNECTION_MAX_MS
+            || profile.max_backoff_steps > MAX_BACKOFF_LEVEL
+        {
+            return Err("invalid connection cooldown profile");
+        }
+        self.cooldown_base_ms
+            .store(profile.base_cooldown_ms, Ordering::Release);
+        self.cooldown_retry_hints
+            .store(profile.use_upstream_retry_hints, Ordering::Release);
+        self.cooldown_max_backoff_steps
+            .store(profile.max_backoff_steps, Ordering::Release);
+        Ok(())
+    }
+
+    fn cooldown_profile(&self) -> ConnectionCooldownProfile {
+        ConnectionCooldownProfile {
+            base_cooldown_ms: self.cooldown_base_ms.load(Ordering::Acquire),
+            use_upstream_retry_hints: self.cooldown_retry_hints.load(Ordering::Acquire),
+            max_backoff_steps: self.cooldown_max_backoff_steps.load(Ordering::Acquire),
         }
     }
 
@@ -360,7 +417,13 @@ impl ProviderAvailability {
             return Ok(());
         }
         let mut candidate = inner.clone();
-        apply_connection_cooldown(&mut candidate, now, status, retry_hint_ms);
+        apply_connection_cooldown(
+            &mut candidate,
+            now,
+            status,
+            retry_hint_ms,
+            self.cooldown_profile(),
+        );
         self.persist(&candidate, now).await?;
         *inner = candidate;
         self.publish(&inner);
@@ -405,7 +468,13 @@ impl ProviderAvailability {
             candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
         } else {
             candidate.ambiguous_auth_strikes = candidate.ambiguous_auth_strikes.saturating_add(1);
-            apply_connection_cooldown(&mut candidate, now, status, retry_hint_ms);
+            apply_connection_cooldown(
+                &mut candidate,
+                now,
+                status,
+                retry_hint_ms,
+                self.cooldown_profile(),
+            );
         }
         self.persist(&candidate, now).await?;
         *inner = candidate;
@@ -639,15 +708,9 @@ fn apply_connection_cooldown(
     now: u64,
     status: StatusCode,
     retry_hint_ms: Option<u64>,
+    profile: ConnectionCooldownProfile,
 ) {
-    let exponent = candidate.backoff_level.min(6);
-    let exponential = CONNECTION_BASE_MS
-        .saturating_mul(1_u64 << exponent)
-        .min(CONNECTION_MAX_MS);
-    let duration = retry_hint_ms
-        .map(|hint| hint.clamp(1_000, RETRY_HINT_MAX_MS))
-        .unwrap_or(0)
-        .max(exponential);
+    let duration = connection_cooldown_duration(profile, candidate.backoff_level, retry_hint_ms);
     candidate.cooldown_until_unix_ms = now.saturating_add(duration);
     candidate.backoff_level = candidate
         .backoff_level
@@ -655,6 +718,25 @@ fn apply_connection_cooldown(
         .min(MAX_BACKOFF_LEVEL);
     candidate.last_status = Some(status.as_u16());
     candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
+}
+
+fn connection_cooldown_duration(
+    profile: ConnectionCooldownProfile,
+    backoff_level: u32,
+    retry_hint_ms: Option<u64>,
+) -> u64 {
+    let exponent = backoff_level.min(profile.max_backoff_steps);
+    let exponential = profile
+        .base_cooldown_ms
+        .saturating_mul(1_u64 << exponent)
+        .min(CONNECTION_MAX_MS);
+    let hinted = profile
+        .use_upstream_retry_hints
+        .then_some(retry_hint_ms)
+        .flatten()
+        .map(|hint| hint.clamp(1_000, RETRY_HINT_MAX_MS))
+        .unwrap_or(0);
+    hinted.max(exponential)
 }
 
 pub(crate) fn connection_failure_status(status: StatusCode) -> bool {
@@ -711,6 +793,20 @@ mod tests {
     use crate::storage::Backend;
     use tempfile::TempDir;
     use url::Url;
+
+    #[test]
+    fn connection_cooldown_profile_controls_hints_and_backoff() {
+        let oauth = ConnectionCooldownProfile::oauth_default();
+        assert_eq!(connection_cooldown_duration(oauth, 0, Some(60_000)), 5_000);
+        assert_eq!(connection_cooldown_duration(oauth, 3, None), 40_000);
+
+        let api_key = ConnectionCooldownProfile::api_key_default();
+        assert_eq!(
+            connection_cooldown_duration(api_key, 0, Some(60_000)),
+            60_000
+        );
+        assert_eq!(connection_cooldown_duration(api_key, 10, None), 96_000);
+    }
 
     #[tokio::test]
     async fn concurrent_failures_advance_one_connection_generation() {

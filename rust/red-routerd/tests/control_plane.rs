@@ -1704,6 +1704,22 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
         defaults["runtime_settings"]["quota_preflight_threshold_percent"],
         2.0
     );
+    assert_eq!(
+        defaults["runtime_settings"]["oauth_connection_cooldown"],
+        serde_json::json!({
+            "base_cooldown_ms":5_000,
+            "use_upstream_retry_hints":false,
+            "max_backoff_steps":8
+        })
+    );
+    assert_eq!(
+        defaults["runtime_settings"]["apikey_connection_cooldown"],
+        serde_json::json!({
+            "base_cooldown_ms":3_000,
+            "use_upstream_retry_hints":true,
+            "max_backoff_steps":5
+        })
+    );
 
     assert_eq!(
         client
@@ -1711,7 +1727,41 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
             .bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({
                 "quota_preflight_enabled":true,
-                "quota_preflight_threshold_percent":101
+                "quota_preflight_threshold_percent":101,
+                "oauth_connection_cooldown":{
+                    "base_cooldown_ms":5_000,
+                    "use_upstream_retry_hints":false,
+                    "max_backoff_steps":8
+                },
+                "apikey_connection_cooldown":{
+                    "base_cooldown_ms":3_000,
+                    "use_upstream_retry_hints":true,
+                    "max_backoff_steps":5
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .put(&endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "quota_preflight_enabled":true,
+                "quota_preflight_threshold_percent":2,
+                "oauth_connection_cooldown":{
+                    "base_cooldown_ms":5_000,
+                    "use_upstream_retry_hints":false,
+                    "max_backoff_steps":17
+                },
+                "apikey_connection_cooldown":{
+                    "base_cooldown_ms":3_000,
+                    "use_upstream_retry_hints":true,
+                    "max_backoff_steps":5
+                }
             }))
             .send()
             .await
@@ -1724,7 +1774,17 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({
             "quota_preflight_enabled":true,
-            "quota_preflight_threshold_percent":2.5
+            "quota_preflight_threshold_percent":2.5,
+            "oauth_connection_cooldown":{
+                "base_cooldown_ms":7_000,
+                "use_upstream_retry_hints":true,
+                "max_backoff_steps":6
+            },
+            "apikey_connection_cooldown":{
+                "base_cooldown_ms":2_000,
+                "use_upstream_retry_hints":false,
+                "max_backoff_steps":4
+            }
         }))
         .send()
         .await
@@ -1736,6 +1796,14 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
     assert_eq!(
         updated["runtime_settings"]["quota_preflight_threshold_percent"],
         2.5
+    );
+    assert_eq!(
+        updated["runtime_settings"]["oauth_connection_cooldown"]["base_cooldown_ms"],
+        7_000
+    );
+    assert_eq!(
+        updated["runtime_settings"]["apikey_connection_cooldown"]["use_upstream_retry_hints"],
+        false
     );
     assert_ne!(updated["runtime_settings"]["revision"], "0");
     gateway_task.abort();

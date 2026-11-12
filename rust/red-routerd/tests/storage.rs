@@ -381,6 +381,12 @@ async fn exercise(backend: Backend, url: &str) {
     let runtime_settings = StoredRuntimeSettings {
         quota_preflight_enabled: true,
         quota_preflight_threshold_ppm: 20_000,
+        oauth_cooldown_base_ms: 5_000,
+        oauth_cooldown_retry_hints: false,
+        oauth_cooldown_max_backoff_steps: 8,
+        apikey_cooldown_base_ms: 3_000,
+        apikey_cooldown_retry_hints: true,
+        apikey_cooldown_max_backoff_steps: 5,
         revision: 14,
     };
     assert_eq!(db.runtime_settings().await.unwrap(), None);

@@ -2,7 +2,7 @@
 pub use crate::policy::AccessScheduleConfig;
 
 use crate::{
-    availability::{AvailabilityStatus, ProviderAvailability},
+    availability::{AvailabilityStatus, ConnectionCooldownProfile, ProviderAvailability},
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
@@ -1218,12 +1218,26 @@ pub struct ProviderHealthInput {
 pub struct RuntimeSettingsInput {
     pub quota_preflight_enabled: bool,
     pub quota_preflight_threshold_percent: f64,
+    #[serde(default = "default_oauth_cooldown_settings")]
+    pub oauth_connection_cooldown: ConnectionCooldownProfileSettings,
+    #[serde(default = "default_apikey_cooldown_settings")]
+    pub apikey_connection_cooldown: ConnectionCooldownProfileSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionCooldownProfileSettings {
+    pub base_cooldown_ms: u64,
+    pub use_upstream_retry_hints: bool,
+    pub max_backoff_steps: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RuntimeSettingsView {
     pub quota_preflight_enabled: bool,
     pub quota_preflight_threshold_percent: f64,
+    pub oauth_connection_cooldown: ConnectionCooldownProfileSettings,
+    pub apikey_connection_cooldown: ConnectionCooldownProfileSettings,
     pub revision: String,
 }
 
@@ -1232,9 +1246,19 @@ impl Default for RuntimeSettingsView {
         Self {
             quota_preflight_enabled: false,
             quota_preflight_threshold_percent: 2.0,
+            oauth_connection_cooldown: default_oauth_cooldown_settings(),
+            apikey_connection_cooldown: default_apikey_cooldown_settings(),
             revision: "0".to_owned(),
         }
     }
+}
+
+fn default_oauth_cooldown_settings() -> ConnectionCooldownProfileSettings {
+    cooldown_profile_settings(ConnectionCooldownProfile::oauth_default())
+}
+
+fn default_apikey_cooldown_settings() -> ConnectionCooldownProfileSettings {
+    cooldown_profile_settings(ConnectionCooldownProfile::api_key_default())
 }
 
 #[derive(Debug, Serialize)]
@@ -2057,6 +2081,7 @@ impl ControlPlane {
         plane.refresh().await?;
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
+        plane.refresh_availability_profiles().await?;
         *plane.0.provider_snapshot_signature.write().await =
             plane.provider_runtime_signature().await?;
         *plane.0.oidc_snapshot_signature.write().await = plane.oidc_runtime_signature().await?;
@@ -2203,6 +2228,7 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        self.refresh_availability_profiles().await?;
         *self.0.provider_snapshot_signature.write().await = latest;
         Ok(())
     }
@@ -2218,6 +2244,27 @@ impl ControlPlane {
             .transpose()?
             .unwrap_or_default();
         *self.0.runtime_settings.write().await = settings;
+        Ok(())
+    }
+
+    async fn refresh_availability_profiles(&self) -> Result<(), &'static str> {
+        let oauth_provider_ids: HashSet<_> = self
+            .0
+            .database
+            .provider_oauth()
+            .await?
+            .into_iter()
+            .map(|record| record.provider_id)
+            .collect();
+        let settings = self.0.runtime_settings.read().await.clone();
+        for (provider_id, availability) in self.0.availability.read().await.iter() {
+            let configured = if oauth_provider_ids.contains(provider_id) {
+                &settings.oauth_connection_cooldown
+            } else {
+                &settings.apikey_connection_cooldown
+            };
+            availability.configure_cooldown(connection_cooldown_profile(configured)?)?;
+        }
         Ok(())
     }
 
@@ -7849,6 +7896,12 @@ impl ControlPlane {
         if let Some(record) = self.0.database.runtime_settings().await? {
             signature_bool(&mut digest, record.quota_preflight_enabled);
             signature_i64(&mut digest, record.quota_preflight_threshold_ppm);
+            signature_i64(&mut digest, record.oauth_cooldown_base_ms);
+            signature_bool(&mut digest, record.oauth_cooldown_retry_hints);
+            signature_i64(&mut digest, record.oauth_cooldown_max_backoff_steps);
+            signature_i64(&mut digest, record.apikey_cooldown_base_ms);
+            signature_bool(&mut digest, record.apikey_cooldown_retry_hints);
+            signature_i64(&mut digest, record.apikey_cooldown_max_backoff_steps);
             signature_i64(&mut digest, record.revision);
         }
         for record in self.0.database.provider_quotas().await? {
@@ -9279,11 +9332,22 @@ impl ControlPlane {
             quota_preflight_enabled: input.quota_preflight_enabled,
             quota_preflight_threshold_ppm: (input.quota_preflight_threshold_percent * 10_000.0)
                 .round() as i64,
+            oauth_cooldown_base_ms: input.oauth_connection_cooldown.base_cooldown_ms as i64,
+            oauth_cooldown_retry_hints: input.oauth_connection_cooldown.use_upstream_retry_hints,
+            oauth_cooldown_max_backoff_steps: i64::from(
+                input.oauth_connection_cooldown.max_backoff_steps,
+            ),
+            apikey_cooldown_base_ms: input.apikey_connection_cooldown.base_cooldown_ms as i64,
+            apikey_cooldown_retry_hints: input.apikey_connection_cooldown.use_upstream_retry_hints,
+            apikey_cooldown_max_backoff_steps: i64::from(
+                input.apikey_connection_cooldown.max_backoff_steps,
+            ),
             revision: revision()?,
         };
         self.0.database.upsert_runtime_settings(&record).await?;
         let after = runtime_settings_view(&record)?;
         *self.0.runtime_settings.write().await = after.clone();
+        self.refresh_availability_profiles().await?;
         self.record_audit_event(
             AuditContext {
                 action: "runtime_settings.configure",
@@ -10242,18 +10306,70 @@ fn validate_runtime_settings_input(input: &RuntimeSettingsInput) -> Result<(), &
     {
         return Err("invalid runtime settings");
     }
+    validate_connection_cooldown_profile(&input.oauth_connection_cooldown)?;
+    validate_connection_cooldown_profile(&input.apikey_connection_cooldown)?;
     Ok(())
+}
+
+fn validate_connection_cooldown_profile(
+    profile: &ConnectionCooldownProfileSettings,
+) -> Result<(), &'static str> {
+    if profile.base_cooldown_ms > 300_000 || profile.max_backoff_steps > 16 {
+        return Err("invalid connection cooldown profile");
+    }
+    Ok(())
+}
+
+fn connection_cooldown_profile(
+    settings: &ConnectionCooldownProfileSettings,
+) -> Result<ConnectionCooldownProfile, &'static str> {
+    validate_connection_cooldown_profile(settings)?;
+    Ok(ConnectionCooldownProfile {
+        base_cooldown_ms: settings.base_cooldown_ms,
+        use_upstream_retry_hints: settings.use_upstream_retry_hints,
+        max_backoff_steps: settings.max_backoff_steps,
+    })
+}
+
+fn cooldown_profile_settings(
+    profile: ConnectionCooldownProfile,
+) -> ConnectionCooldownProfileSettings {
+    ConnectionCooldownProfileSettings {
+        base_cooldown_ms: profile.base_cooldown_ms,
+        use_upstream_retry_hints: profile.use_upstream_retry_hints,
+        max_backoff_steps: profile.max_backoff_steps,
+    }
 }
 
 fn runtime_settings_view(
     record: &StoredRuntimeSettings,
 ) -> Result<RuntimeSettingsView, &'static str> {
-    if !(0..=1_000_000).contains(&record.quota_preflight_threshold_ppm) || record.revision < 0 {
+    let oauth_connection_cooldown = ConnectionCooldownProfileSettings {
+        base_cooldown_ms: u64::try_from(record.oauth_cooldown_base_ms)
+            .map_err(|_| "invalid runtime settings record")?,
+        use_upstream_retry_hints: record.oauth_cooldown_retry_hints,
+        max_backoff_steps: u32::try_from(record.oauth_cooldown_max_backoff_steps)
+            .map_err(|_| "invalid runtime settings record")?,
+    };
+    let apikey_connection_cooldown = ConnectionCooldownProfileSettings {
+        base_cooldown_ms: u64::try_from(record.apikey_cooldown_base_ms)
+            .map_err(|_| "invalid runtime settings record")?,
+        use_upstream_retry_hints: record.apikey_cooldown_retry_hints,
+        max_backoff_steps: u32::try_from(record.apikey_cooldown_max_backoff_steps)
+            .map_err(|_| "invalid runtime settings record")?,
+    };
+    if !(0..=1_000_000).contains(&record.quota_preflight_threshold_ppm)
+        || record.revision < 0
+        || validate_connection_cooldown_profile(&oauth_connection_cooldown).is_err()
+        || validate_connection_cooldown_profile(&apikey_connection_cooldown).is_err()
+    {
         return Err("invalid runtime settings record");
     }
     Ok(RuntimeSettingsView {
         quota_preflight_enabled: record.quota_preflight_enabled,
         quota_preflight_threshold_percent: record.quota_preflight_threshold_ppm as f64 / 10_000.0,
+        oauth_connection_cooldown,
+        apikey_connection_cooldown,
         revision: record.revision.to_string(),
     })
 }

@@ -146,9 +146,9 @@ const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_r
 const LIST_RESILIENCE: &str = "SELECT provider_id, rate_limit_scope, revision FROM redrouter_provider_resilience ORDER BY provider_id ASC, revision DESC";
 const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (record_id, provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET rate_limit_scope = $3";
 const DELETE_RESILIENCE: &str = "DELETE FROM redrouter_provider_resilience WHERE provider_id = $1";
-const CREATE_RUNTIME_SETTINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, revision BIGINT NOT NULL)";
-const READ_RUNTIME_SETTINGS: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, revision FROM redrouter_runtime_settings WHERE id = 1";
-const UPSERT_RUNTIME_SETTINGS: &str = "INSERT INTO redrouter_runtime_settings (id, quota_preflight_enabled, quota_preflight_threshold_ppm, revision) VALUES (1,$1,$2,$3) ON CONFLICT (id) DO UPDATE SET quota_preflight_enabled = $1, quota_preflight_threshold_ppm = $2, revision = $3";
+const CREATE_RUNTIME_SETTINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, oauth_cooldown_base_ms BIGINT NOT NULL, oauth_cooldown_retry_hints BIGINT NOT NULL, oauth_cooldown_max_backoff_steps BIGINT NOT NULL, apikey_cooldown_base_ms BIGINT NOT NULL, apikey_cooldown_retry_hints BIGINT NOT NULL, apikey_cooldown_max_backoff_steps BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const READ_RUNTIME_SETTINGS: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, revision FROM redrouter_runtime_settings WHERE id = 1";
+const UPSERT_RUNTIME_SETTINGS: &str = "INSERT INTO redrouter_runtime_settings (id, quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET quota_preflight_enabled = $1, quota_preflight_threshold_ppm = $2, oauth_cooldown_base_ms = $3, oauth_cooldown_retry_hints = $4, oauth_cooldown_max_backoff_steps = $5, apikey_cooldown_base_ms = $6, apikey_cooldown_retry_hints = $7, apikey_cooldown_max_backoff_steps = $8, revision = $9";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
@@ -502,6 +502,12 @@ pub struct StoredRuntimeSettings {
     pub quota_preflight_enabled: bool,
     /// Parts per million remaining. Two percent is stored as 20_000.
     pub quota_preflight_threshold_ppm: i64,
+    pub oauth_cooldown_base_ms: i64,
+    pub oauth_cooldown_retry_hints: bool,
+    pub oauth_cooldown_max_backoff_steps: i64,
+    pub apikey_cooldown_base_ms: i64,
+    pub apikey_cooldown_retry_hints: bool,
+    pub apikey_cooldown_max_backoff_steps: i64,
     pub revision: i64,
 }
 
@@ -3577,11 +3583,19 @@ impl Database {
         settings: &StoredRuntimeSettings,
     ) -> Result<(), &'static str> {
         let enabled = i64::from(settings.quota_preflight_enabled);
+        let oauth_retry_hints = i64::from(settings.oauth_cooldown_retry_hints);
+        let apikey_retry_hints = i64::from(settings.apikey_cooldown_retry_hints);
         match self {
             Self::Sql(pool) => {
                 sqlx::query(UPSERT_RUNTIME_SETTINGS)
                     .bind(enabled)
                     .bind(settings.quota_preflight_threshold_ppm)
+                    .bind(settings.oauth_cooldown_base_ms)
+                    .bind(oauth_retry_hints)
+                    .bind(settings.oauth_cooldown_max_backoff_steps)
+                    .bind(settings.apikey_cooldown_base_ms)
+                    .bind(apikey_retry_hints)
+                    .bind(settings.apikey_cooldown_max_backoff_steps)
                     .bind(settings.revision)
                     .execute(pool)
                     .await
@@ -3590,7 +3604,12 @@ impl Database {
             Self::Remote(_) => {
                 self.remote_query(
                     UPSERT_RUNTIME_SETTINGS,
-                    &runtime_settings_params(settings, enabled),
+                    &runtime_settings_params(
+                        settings,
+                        enabled,
+                        oauth_retry_hints,
+                        apikey_retry_hints,
+                    ),
                 )
                 .await?;
             }
@@ -3598,7 +3617,12 @@ impl Database {
             Self::Embedded { db, .. } => {
                 db.query_with(
                     UPSERT_RUNTIME_SETTINGS,
-                    runtime_settings_params(settings, enabled),
+                    runtime_settings_params(
+                        settings,
+                        enabled,
+                        oauth_retry_hints,
+                        apikey_retry_hints,
+                    ),
                 )
                 .await
                 .map_err(|_| "cannot write runtime settings")?;
@@ -5981,12 +6005,23 @@ fn read_sql_runtime_settings(
             .map_err(|_| "invalid runtime settings record")
     };
     let enabled = integer("quota_preflight_enabled")?;
-    if !matches!(enabled, 0 | 1) {
+    let oauth_retry_hints = integer("oauth_cooldown_retry_hints")?;
+    let apikey_retry_hints = integer("apikey_cooldown_retry_hints")?;
+    if !matches!(enabled, 0 | 1)
+        || !matches!(oauth_retry_hints, 0 | 1)
+        || !matches!(apikey_retry_hints, 0 | 1)
+    {
         return Err("invalid runtime settings record");
     }
     Ok(StoredRuntimeSettings {
         quota_preflight_enabled: enabled == 1,
         quota_preflight_threshold_ppm: integer("quota_preflight_threshold_ppm")?,
+        oauth_cooldown_base_ms: integer("oauth_cooldown_base_ms")?,
+        oauth_cooldown_retry_hints: oauth_retry_hints == 1,
+        oauth_cooldown_max_backoff_steps: integer("oauth_cooldown_max_backoff_steps")?,
+        apikey_cooldown_base_ms: integer("apikey_cooldown_base_ms")?,
+        apikey_cooldown_retry_hints: apikey_retry_hints == 1,
+        apikey_cooldown_max_backoff_steps: integer("apikey_cooldown_max_backoff_steps")?,
         revision: integer("revision")?,
     })
 }
@@ -6002,12 +6037,23 @@ fn read_reddb_runtime_settings(
         _ => Err("invalid runtime settings record"),
     };
     let enabled = integer("quota_preflight_enabled")?;
-    if !matches!(enabled, 0 | 1) {
+    let oauth_retry_hints = integer("oauth_cooldown_retry_hints")?;
+    let apikey_retry_hints = integer("apikey_cooldown_retry_hints")?;
+    if !matches!(enabled, 0 | 1)
+        || !matches!(oauth_retry_hints, 0 | 1)
+        || !matches!(apikey_retry_hints, 0 | 1)
+    {
         return Err("invalid runtime settings record");
     }
     Ok(StoredRuntimeSettings {
         quota_preflight_enabled: enabled == 1,
         quota_preflight_threshold_ppm: integer("quota_preflight_threshold_ppm")?,
+        oauth_cooldown_base_ms: integer("oauth_cooldown_base_ms")?,
+        oauth_cooldown_retry_hints: oauth_retry_hints == 1,
+        oauth_cooldown_max_backoff_steps: integer("oauth_cooldown_max_backoff_steps")?,
+        apikey_cooldown_base_ms: integer("apikey_cooldown_base_ms")?,
+        apikey_cooldown_retry_hints: apikey_retry_hints == 1,
+        apikey_cooldown_max_backoff_steps: integer("apikey_cooldown_max_backoff_steps")?,
         revision: integer("revision")?,
     })
 }
@@ -6015,10 +6061,18 @@ fn read_reddb_runtime_settings(
 fn runtime_settings_params(
     settings: &StoredRuntimeSettings,
     enabled: i64,
+    oauth_retry_hints: i64,
+    apikey_retry_hints: i64,
 ) -> Vec<reddb_client::Value> {
     vec![
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(settings.quota_preflight_threshold_ppm),
+        reddb_client::Value::Int(settings.oauth_cooldown_base_ms),
+        reddb_client::Value::Int(oauth_retry_hints),
+        reddb_client::Value::Int(settings.oauth_cooldown_max_backoff_steps),
+        reddb_client::Value::Int(settings.apikey_cooldown_base_ms),
+        reddb_client::Value::Int(apikey_retry_hints),
+        reddb_client::Value::Int(settings.apikey_cooldown_max_backoff_steps),
         reddb_client::Value::Int(settings.revision),
     ]
 }

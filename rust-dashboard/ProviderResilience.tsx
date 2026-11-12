@@ -37,12 +37,28 @@ type QuotaDraft = {
 type RuntimeSettingsDraft = {
   quotaPreflightEnabled: boolean;
   quotaPreflightThresholdPercent: string;
+  oauthCooldownSeconds: string;
+  oauthRetryHints: boolean;
+  oauthMaxBackoffSteps: string;
+  apikeyCooldownSeconds: string;
+  apikeyRetryHints: boolean;
+  apikeyMaxBackoffSteps: string;
 };
 
 function runtimeSettingsDraft(settings?: RustRuntimeSettings): RuntimeSettingsDraft {
   return {
     quotaPreflightEnabled: settings?.quota_preflight_enabled ?? false,
     quotaPreflightThresholdPercent: String(settings?.quota_preflight_threshold_percent ?? 2),
+    oauthCooldownSeconds: String(
+      (settings?.oauth_connection_cooldown.base_cooldown_ms ?? 5_000) / 1_000
+    ),
+    oauthRetryHints: settings?.oauth_connection_cooldown.use_upstream_retry_hints ?? false,
+    oauthMaxBackoffSteps: String(settings?.oauth_connection_cooldown.max_backoff_steps ?? 8),
+    apikeyCooldownSeconds: String(
+      (settings?.apikey_connection_cooldown.base_cooldown_ms ?? 3_000) / 1_000
+    ),
+    apikeyRetryHints: settings?.apikey_connection_cooldown.use_upstream_retry_hints ?? true,
+    apikeyMaxBackoffSteps: String(settings?.apikey_connection_cooldown.max_backoff_steps ?? 5),
   };
 }
 
@@ -92,6 +108,13 @@ function asPositiveInteger(value: string, label: string) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number <= 0)
     throw new Error(`${label} must be a positive integer.`);
+  return number;
+}
+
+function asNonNegativeInteger(value: string, label: string) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 0)
+    throw new Error(`${label} must be a non-negative integer.`);
   return number;
 }
 
@@ -233,8 +256,30 @@ export default function ProviderResilience() {
       await saveRustRuntimeSettings({
         quota_preflight_enabled: runtimeSettingsForm.quotaPreflightEnabled,
         quota_preflight_threshold_percent: threshold,
+        oauth_connection_cooldown: {
+          base_cooldown_ms:
+            asNonNegativeInteger(runtimeSettingsForm.oauthCooldownSeconds, "OAuth base cooldown") *
+            1_000,
+          use_upstream_retry_hints: runtimeSettingsForm.oauthRetryHints,
+          max_backoff_steps: asNonNegativeInteger(
+            runtimeSettingsForm.oauthMaxBackoffSteps,
+            "OAuth max backoff steps"
+          ),
+        },
+        apikey_connection_cooldown: {
+          base_cooldown_ms:
+            asNonNegativeInteger(
+              runtimeSettingsForm.apikeyCooldownSeconds,
+              "API-key base cooldown"
+            ) * 1_000,
+          use_upstream_retry_hints: runtimeSettingsForm.apikeyRetryHints,
+          max_backoff_steps: asNonNegativeInteger(
+            runtimeSettingsForm.apikeyMaxBackoffSteps,
+            "API-key max backoff steps"
+          ),
+        },
       });
-      return "Global Rust routing policy saved.";
+      return "Global Rust routing and cooldown policy saved.";
     });
   }
 
@@ -267,7 +312,7 @@ export default function ProviderResilience() {
 
       <form className="space-y-4 rounded border border-border p-4" onSubmit={saveRuntimeSettings}>
         <div>
-          <h2 className="text-lg font-semibold">Global quota preflight</h2>
+          <h2 className="text-lg font-semibold">Global routing resilience</h2>
           <p className="text-sm text-text-muted">
             Skip connections whose fresh session or weekly quota is at or below the cutoff before
             reserving usage or calling the provider. Unknown and expired telemetry remains eligible.
@@ -304,6 +349,108 @@ export default function ProviderResilience() {
             }
           />
         </label>
+        <div className="grid gap-4 md:grid-cols-2">
+          <fieldset className="space-y-3 rounded border border-border p-3">
+            <legend className="px-1 font-medium">OAuth connections</legend>
+            <label className="block">
+              Base cooldown (seconds)
+              <input
+                className={fieldClass}
+                type="number"
+                min="0"
+                max="300"
+                required
+                value={runtimeSettingsForm.oauthCooldownSeconds}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthCooldownSeconds: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Maximum backoff steps
+              <input
+                className={fieldClass}
+                type="number"
+                min="0"
+                max="16"
+                required
+                value={runtimeSettingsForm.oauthMaxBackoffSteps}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthMaxBackoffSteps: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              <input
+                type="checkbox"
+                checked={runtimeSettingsForm.oauthRetryHints}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthRetryHints: event.target.checked,
+                  })
+                }
+              />{" "}
+              Trust upstream retry hints
+            </label>
+          </fieldset>
+          <fieldset className="space-y-3 rounded border border-border p-3">
+            <legend className="px-1 font-medium">API-key connections</legend>
+            <label className="block">
+              Base cooldown (seconds)
+              <input
+                className={fieldClass}
+                type="number"
+                min="0"
+                max="300"
+                required
+                value={runtimeSettingsForm.apikeyCooldownSeconds}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyCooldownSeconds: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Maximum backoff steps
+              <input
+                className={fieldClass}
+                type="number"
+                min="0"
+                max="16"
+                required
+                value={runtimeSettingsForm.apikeyMaxBackoffSteps}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyMaxBackoffSteps: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              <input
+                type="checkbox"
+                checked={runtimeSettingsForm.apikeyRetryHints}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyRetryHints: event.target.checked,
+                  })
+                }
+              />{" "}
+              Trust upstream retry hints
+            </label>
+          </fieldset>
+        </div>
         <button type="submit" disabled={busy}>
           Save global policy
         </button>

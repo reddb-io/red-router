@@ -469,9 +469,13 @@ also exercised for embedded/remote RedDB and PostgreSQL. Expanding automatic cla
 to the complete dynamic provider catalog and the remaining resilience settings exposed as
 versioned dashboard configuration remain migration work.
 
-The global quota-preflight cutoff is now a complete Rust-owned vertical slice. Its versioned
-record lives in the selected control database, is authenticated and audit logged, hot reloads
-across SQLite replicas, and is evaluated before usage reservation or upstream dispatch. A fresh
-provider- or model-level quota window at or below the configured remaining-percent threshold is
-removed from the candidate set; unknown or expired telemetry stays eligible. The independent SPA
-edits the same Rust API, so this policy no longer depends on the legacy resilience route.
+The global quota-preflight cutoff and connection-cooldown profiles are now complete Rust-owned
+vertical slices. Their versioned record lives in the selected control database, is authenticated
+and audit logged, and hot reloads across SQLite replicas. Quota preflight is evaluated before usage
+reservation or upstream dispatch: a fresh provider- or model-level quota window at or below the
+configured remaining-percent threshold is removed from the candidate set, while unknown or expired
+telemetry stays eligible. OAuth and API-key connections have independent base cooldown, upstream
+retry-hint and maximum exponential-backoff settings. Those values are published to the existing
+availability objects through atomics, so request-time failure handling does not read the database or
+take a global settings lock. The independent SPA edits the same Rust API, so these policies no longer
+depend on the legacy resilience route.

@@ -439,7 +439,15 @@ export interface RustProviderHealthInput {
 export interface RustRuntimeSettings {
   quota_preflight_enabled: boolean;
   quota_preflight_threshold_percent: number;
+  oauth_connection_cooldown: RustConnectionCooldownProfile;
+  apikey_connection_cooldown: RustConnectionCooldownProfile;
   revision: string;
+}
+
+export interface RustConnectionCooldownProfile {
+  base_cooldown_ms: number;
+  use_upstream_retry_hints: boolean;
+  max_backoff_steps: number;
 }
 
 export type RustRuntimeSettingsInput = Omit<RustRuntimeSettings, "revision">;
@@ -1501,6 +1509,8 @@ function isRustRuntimeSettings(value: unknown): value is RustRuntimeSettings {
     hasOnlyKeys(settings, [
       "quota_preflight_enabled",
       "quota_preflight_threshold_percent",
+      "oauth_connection_cooldown",
+      "apikey_connection_cooldown",
       "revision",
     ]) &&
     typeof settings.quota_preflight_enabled === "boolean" &&
@@ -1508,7 +1518,22 @@ function isRustRuntimeSettings(value: unknown): value is RustRuntimeSettings {
     Number.isFinite(settings.quota_preflight_threshold_percent) &&
     settings.quota_preflight_threshold_percent >= 0 &&
     settings.quota_preflight_threshold_percent <= 100 &&
+    isRustConnectionCooldownProfile(settings.oauth_connection_cooldown) &&
+    isRustConnectionCooldownProfile(settings.apikey_connection_cooldown) &&
     typeof settings.revision === "string"
+  );
+}
+
+function isRustConnectionCooldownProfile(value: unknown): value is RustConnectionCooldownProfile {
+  if (!value || typeof value !== "object") return false;
+  const profile = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(profile, ["base_cooldown_ms", "use_upstream_retry_hints", "max_backoff_steps"]) &&
+    isNonNegativeInteger(profile.base_cooldown_ms) &&
+    profile.base_cooldown_ms <= 300_000 &&
+    typeof profile.use_upstream_retry_hints === "boolean" &&
+    isNonNegativeInteger(profile.max_backoff_steps) &&
+    profile.max_backoff_steps <= 16
   );
 }
 
