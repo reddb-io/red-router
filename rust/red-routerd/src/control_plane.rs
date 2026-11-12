@@ -3,16 +3,16 @@ pub use crate::policy::AccessScheduleConfig;
 
 use crate::{
     availability::{AvailabilityStatus, ConnectionCooldownProfile, ProviderAvailability},
-    circuit::{BreakerStatus, ProviderCircuit},
+    circuit::{BreakerStatus, CircuitProfile, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredAuditEvent, StoredClientKey, StoredCombo, StoredContextRelayHandoff,
-        StoredContextRelaySession, StoredIdentityBinding, StoredModelCatalogSnapshot,
-        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
-        StoredProviderModelQuota, StoredProviderOAuth, StoredProviderOAuthStatus,
-        StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin,
-        StoredRuntimeSettings, StoredTenant, StoredUsageExport,
+        StoredAuditEvent, StoredBreakerOverride, StoredClientKey, StoredCombo,
+        StoredContextRelayHandoff, StoredContextRelaySession, StoredIdentityBinding,
+        StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
+        StoredProviderAuth, StoredProviderModelQuota, StoredProviderOAuth,
+        StoredProviderOAuthStatus, StoredProviderQuota, StoredProviderSession, StoredResilience,
+        StoredRoutePin, StoredRuntimeSettings, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -136,7 +136,9 @@ UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
-UNION ALL SELECT 'runtime-settings', CAST(id AS TEXT), revision, 0 FROM redrouter_runtime_settings
+UNION ALL SELECT 'provider-breaker-override', provider_id, revision, 0 FROM redrouter_provider_breaker_overrides
+UNION ALL SELECT 'runtime-settings-legacy', CAST(id AS TEXT), revision, 0 FROM redrouter_runtime_settings
+UNION ALL SELECT 'runtime-settings', CAST(id AS TEXT), revision, 0 FROM redrouter_runtime_settings_v2
 UNION ALL SELECT 'provider-quota', provider_id, revision, 0 FROM redrouter_provider_quotas
 UNION ALL SELECT 'provider-model-quota', record_id, revision, 0 FROM redrouter_provider_model_quotas
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
@@ -154,6 +156,8 @@ struct Inner {
     quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
     model_quotas: RwLock<HashMap<(String, String), Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
+    breaker_overrides: RwLock<HashMap<String, CircuitProfile>>,
+    oauth_provider_ids: RwLock<HashSet<String>>,
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     runtime_settings: RwLock<RuntimeSettingsView>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
@@ -1222,6 +1226,10 @@ pub struct RuntimeSettingsInput {
     pub oauth_connection_cooldown: ConnectionCooldownProfileSettings,
     #[serde(default = "default_apikey_cooldown_settings")]
     pub apikey_connection_cooldown: ConnectionCooldownProfileSettings,
+    #[serde(default = "default_oauth_breaker_settings")]
+    pub oauth_provider_breaker: ProviderBreakerProfileSettings,
+    #[serde(default = "default_apikey_breaker_settings")]
+    pub apikey_provider_breaker: ProviderBreakerProfileSettings,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1232,12 +1240,22 @@ pub struct ConnectionCooldownProfileSettings {
     pub max_backoff_steps: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderBreakerProfileSettings {
+    pub failure_threshold: u64,
+    pub degradation_threshold: u64,
+    pub reset_timeout_ms: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct RuntimeSettingsView {
     pub quota_preflight_enabled: bool,
     pub quota_preflight_threshold_percent: f64,
     pub oauth_connection_cooldown: ConnectionCooldownProfileSettings,
     pub apikey_connection_cooldown: ConnectionCooldownProfileSettings,
+    pub oauth_provider_breaker: ProviderBreakerProfileSettings,
+    pub apikey_provider_breaker: ProviderBreakerProfileSettings,
     pub revision: String,
 }
 
@@ -1248,6 +1266,8 @@ impl Default for RuntimeSettingsView {
             quota_preflight_threshold_percent: 2.0,
             oauth_connection_cooldown: default_oauth_cooldown_settings(),
             apikey_connection_cooldown: default_apikey_cooldown_settings(),
+            oauth_provider_breaker: default_oauth_breaker_settings(),
+            apikey_provider_breaker: default_apikey_breaker_settings(),
             revision: "0".to_owned(),
         }
     }
@@ -1259,6 +1279,14 @@ fn default_oauth_cooldown_settings() -> ConnectionCooldownProfileSettings {
 
 fn default_apikey_cooldown_settings() -> ConnectionCooldownProfileSettings {
     cooldown_profile_settings(ConnectionCooldownProfile::api_key_default())
+}
+
+fn default_oauth_breaker_settings() -> ProviderBreakerProfileSettings {
+    breaker_profile_settings(CircuitProfile::oauth_default())
+}
+
+fn default_apikey_breaker_settings() -> ProviderBreakerProfileSettings {
+    breaker_profile_settings(CircuitProfile::api_key_default())
 }
 
 #[derive(Debug, Serialize)]
@@ -1968,6 +1996,22 @@ impl ControlPlane {
             .map(runtime_settings_view)
             .transpose()?
             .unwrap_or_default();
+        let mut breaker_overrides = HashMap::new();
+        for record in database.breaker_overrides().await? {
+            let id = record.provider_id.clone();
+            if breaker_overrides
+                .insert(id, stored_breaker_profile(&record)?)
+                .is_some()
+            {
+                return Err("duplicate provider breaker override");
+            }
+        }
+        let oauth_provider_ids = database
+            .provider_oauth()
+            .await?
+            .into_iter()
+            .map(|record| record.provider_id)
+            .collect();
         let stored_oidc = database.oidc_config().await?;
         let oidc = stored_oidc
             .as_ref()
@@ -2050,6 +2094,8 @@ impl ControlPlane {
             quotas: RwLock::new(quotas),
             model_quotas: RwLock::new(model_quotas),
             breakers: RwLock::new(breakers),
+            breaker_overrides: RwLock::new(breaker_overrides),
+            oauth_provider_ids: RwLock::new(oauth_provider_ids),
             availability: RwLock::new(availability),
             runtime_settings: RwLock::new(runtime_settings),
             oidc: RwLock::new(oidc),
@@ -2082,6 +2128,7 @@ impl ControlPlane {
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
         plane.refresh_availability_profiles().await?;
+        plane.refresh_breaker_profiles().await?;
         *plane.0.provider_snapshot_signature.write().await =
             plane.provider_runtime_signature().await?;
         *plane.0.oidc_snapshot_signature.write().await = plane.oidc_runtime_signature().await?;
@@ -2265,6 +2312,67 @@ impl ControlPlane {
             };
             availability.configure_cooldown(connection_cooldown_profile(configured)?)?;
         }
+        Ok(())
+    }
+
+    async fn refresh_breaker_profiles(&self) -> Result<(), &'static str> {
+        let oauth_provider_ids: HashSet<_> = self
+            .0
+            .database
+            .provider_oauth()
+            .await?
+            .into_iter()
+            .map(|record| record.provider_id)
+            .collect();
+        let overrides: HashMap<_, _> = self
+            .0
+            .database
+            .breaker_overrides()
+            .await?
+            .into_iter()
+            .map(|record| {
+                let profile = stored_breaker_profile(&record)?;
+                Ok((record.provider_id, profile))
+            })
+            .collect::<Result<_, &'static str>>()?;
+        let local_provider_ids: HashSet<_> = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .filter(|provider| local_endpoint(&provider.upstream_url))
+            .map(|provider| provider.id)
+            .collect();
+        let settings = self.0.runtime_settings.read().await.clone();
+        let circuits: Vec<_> = self
+            .0
+            .breakers
+            .read()
+            .await
+            .iter()
+            .map(|(id, circuit)| (id.clone(), circuit.clone()))
+            .collect();
+        for (provider_id, circuit) in circuits {
+            let profile = if let Some(profile) = overrides.get(&provider_id).copied() {
+                profile
+            } else if local_provider_ids.contains(&provider_id) {
+                CircuitProfile::local_default()
+            } else if oauth_provider_ids.contains(&provider_id) {
+                breaker_profile(&settings.oauth_provider_breaker)?
+            } else {
+                breaker_profile(&settings.apikey_provider_breaker)?
+            };
+            circuit
+                .configure(
+                    profile.failure_threshold,
+                    profile.degradation_threshold,
+                    profile.reset_timeout_ms,
+                )
+                .await?;
+        }
+        *self.0.oauth_provider_ids.write().await = oauth_provider_ids;
+        *self.0.breaker_overrides.write().await = overrides;
         Ok(())
     }
 
@@ -6410,6 +6518,7 @@ impl ControlPlane {
             .replace_provider_model_quotas(id, &[])
             .await?;
         self.0.database.delete_breaker(id).await?;
+        self.0.database.delete_breaker_override(id).await?;
         self.0.database.delete_provider_availability(id).await?;
         self.0.database.delete_provider_resilience(id).await?;
         self.0
@@ -6417,6 +6526,8 @@ impl ControlPlane {
             .delete_provider_thought_signatures(id)
             .await?;
         self.0.database.delete_provider(id).await?;
+        self.0.breaker_overrides.write().await.remove(id);
+        self.0.oauth_provider_ids.write().await.remove(id);
 
         self.record_audit_event(
             AuditContext {
@@ -7893,6 +8004,13 @@ impl ControlPlane {
             signature_text(&mut digest, &record.rate_limit_scope);
             signature_i64(&mut digest, record.revision);
         }
+        for record in self.0.database.breaker_overrides().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_i64(&mut digest, record.failure_threshold);
+            signature_i64(&mut digest, record.degradation_threshold);
+            signature_i64(&mut digest, record.reset_timeout_ms);
+            signature_i64(&mut digest, record.revision);
+        }
         if let Some(record) = self.0.database.runtime_settings().await? {
             signature_bool(&mut digest, record.quota_preflight_enabled);
             signature_i64(&mut digest, record.quota_preflight_threshold_ppm);
@@ -7902,6 +8020,12 @@ impl ControlPlane {
             signature_i64(&mut digest, record.apikey_cooldown_base_ms);
             signature_bool(&mut digest, record.apikey_cooldown_retry_hints);
             signature_i64(&mut digest, record.apikey_cooldown_max_backoff_steps);
+            signature_i64(&mut digest, record.oauth_breaker_failure_threshold);
+            signature_i64(&mut digest, record.oauth_breaker_degradation_threshold);
+            signature_i64(&mut digest, record.oauth_breaker_reset_timeout_ms);
+            signature_i64(&mut digest, record.apikey_breaker_failure_threshold);
+            signature_i64(&mut digest, record.apikey_breaker_degradation_threshold);
+            signature_i64(&mut digest, record.apikey_breaker_reset_timeout_ms);
             signature_i64(&mut digest, record.revision);
         }
         for record in self.0.database.provider_quotas().await? {
@@ -9342,12 +9466,23 @@ impl ControlPlane {
             apikey_cooldown_max_backoff_steps: i64::from(
                 input.apikey_connection_cooldown.max_backoff_steps,
             ),
+            oauth_breaker_failure_threshold: input.oauth_provider_breaker.failure_threshold as i64,
+            oauth_breaker_degradation_threshold: input.oauth_provider_breaker.degradation_threshold
+                as i64,
+            oauth_breaker_reset_timeout_ms: input.oauth_provider_breaker.reset_timeout_ms as i64,
+            apikey_breaker_failure_threshold: input.apikey_provider_breaker.failure_threshold
+                as i64,
+            apikey_breaker_degradation_threshold: input
+                .apikey_provider_breaker
+                .degradation_threshold as i64,
+            apikey_breaker_reset_timeout_ms: input.apikey_provider_breaker.reset_timeout_ms as i64,
             revision: revision()?,
         };
         self.0.database.upsert_runtime_settings(&record).await?;
         let after = runtime_settings_view(&record)?;
         *self.0.runtime_settings.write().await = after.clone();
         self.refresh_availability_profiles().await?;
+        self.refresh_breaker_profiles().await?;
         self.record_audit_event(
             AuditContext {
                 action: "runtime_settings.configure",
@@ -9440,13 +9575,37 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != provider.tenant_id) {
             return Err("provider tenant is unavailable");
         }
+        let profile = breaker_profile(&ProviderBreakerProfileSettings {
+            failure_threshold: input.failure_threshold,
+            degradation_threshold: input.degradation_threshold,
+            reset_timeout_ms: input.reset_timeout_ms,
+        })?;
         let before = self.provider_health_snapshot(&provider).await?;
+        let revision = revision()?;
+        let override_record = StoredBreakerOverride {
+            provider_id: provider.id.clone(),
+            failure_threshold: i64::try_from(profile.failure_threshold)
+                .map_err(|_| "invalid provider breaker configuration")?,
+            degradation_threshold: i64::try_from(profile.degradation_threshold)
+                .map_err(|_| "invalid provider breaker configuration")?,
+            reset_timeout_ms: i64::try_from(profile.reset_timeout_ms)
+                .map_err(|_| "invalid provider breaker configuration")?,
+            revision,
+        };
+        self.0
+            .database
+            .upsert_breaker_override(&override_record)
+            .await?;
+        self.0.breaker_overrides.write().await.insert(
+            provider.id.clone(),
+            stored_breaker_profile(&override_record)?,
+        );
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
             .configure(
-                input.failure_threshold,
-                input.degradation_threshold,
-                input.reset_timeout_ms,
+                profile.failure_threshold,
+                profile.degradation_threshold,
+                profile.reset_timeout_ms,
             )
             .await?;
         let after = self.provider_health_snapshot(&provider).await?;
@@ -9469,11 +9628,23 @@ impl ControlPlane {
         if let Some(circuit) = self.0.breakers.read().await.get(id).cloned() {
             return circuit;
         }
-        let created = Arc::new(ProviderCircuit::new(
-            id,
-            self.0.database.clone(),
-            local_endpoint(upstream_url),
-        ));
+        let profile = if let Some(profile) = self.0.breaker_overrides.read().await.get(id).copied()
+        {
+            profile
+        } else if local_endpoint(upstream_url) {
+            CircuitProfile::local_default()
+        } else {
+            let oauth = self.0.oauth_provider_ids.read().await.contains(id);
+            let settings = self.0.runtime_settings.read().await;
+            if oauth {
+                breaker_profile(&settings.oauth_provider_breaker)
+                    .unwrap_or_else(|_| CircuitProfile::oauth_default())
+            } else {
+                breaker_profile(&settings.apikey_provider_breaker)
+                    .unwrap_or_else(|_| CircuitProfile::api_key_default())
+            }
+        };
+        let created = Arc::new(ProviderCircuit::new(id, self.0.database.clone(), profile));
         let mut breakers = self.0.breakers.write().await;
         breakers.entry(id.to_owned()).or_insert(created).clone()
     }
@@ -10308,6 +10479,8 @@ fn validate_runtime_settings_input(input: &RuntimeSettingsInput) -> Result<(), &
     }
     validate_connection_cooldown_profile(&input.oauth_connection_cooldown)?;
     validate_connection_cooldown_profile(&input.apikey_connection_cooldown)?;
+    breaker_profile(&input.oauth_provider_breaker)?;
+    breaker_profile(&input.apikey_provider_breaker)?;
     Ok(())
 }
 
@@ -10341,6 +10514,42 @@ fn cooldown_profile_settings(
     }
 }
 
+fn breaker_profile(
+    settings: &ProviderBreakerProfileSettings,
+) -> Result<CircuitProfile, &'static str> {
+    if !(1..=1_000).contains(&settings.failure_threshold)
+        || !(1..=settings.failure_threshold).contains(&settings.degradation_threshold)
+        || !(1_000..=86_400_000).contains(&settings.reset_timeout_ms)
+    {
+        return Err("invalid provider breaker configuration");
+    }
+    Ok(CircuitProfile {
+        failure_threshold: settings.failure_threshold,
+        degradation_threshold: settings.degradation_threshold,
+        reset_timeout_ms: settings.reset_timeout_ms,
+    })
+}
+
+fn stored_breaker_profile(record: &StoredBreakerOverride) -> Result<CircuitProfile, &'static str> {
+    breaker_profile(&ProviderBreakerProfileSettings {
+        failure_threshold: u64::try_from(record.failure_threshold)
+            .map_err(|_| "invalid provider breaker override")?,
+        degradation_threshold: u64::try_from(record.degradation_threshold)
+            .map_err(|_| "invalid provider breaker override")?,
+        reset_timeout_ms: u64::try_from(record.reset_timeout_ms)
+            .map_err(|_| "invalid provider breaker override")?,
+    })
+    .map_err(|_| "invalid provider breaker override")
+}
+
+fn breaker_profile_settings(profile: CircuitProfile) -> ProviderBreakerProfileSettings {
+    ProviderBreakerProfileSettings {
+        failure_threshold: profile.failure_threshold,
+        degradation_threshold: profile.degradation_threshold,
+        reset_timeout_ms: profile.reset_timeout_ms,
+    }
+}
+
 fn runtime_settings_view(
     record: &StoredRuntimeSettings,
 ) -> Result<RuntimeSettingsView, &'static str> {
@@ -10358,10 +10567,28 @@ fn runtime_settings_view(
         max_backoff_steps: u32::try_from(record.apikey_cooldown_max_backoff_steps)
             .map_err(|_| "invalid runtime settings record")?,
     };
+    let oauth_provider_breaker = ProviderBreakerProfileSettings {
+        failure_threshold: u64::try_from(record.oauth_breaker_failure_threshold)
+            .map_err(|_| "invalid runtime settings record")?,
+        degradation_threshold: u64::try_from(record.oauth_breaker_degradation_threshold)
+            .map_err(|_| "invalid runtime settings record")?,
+        reset_timeout_ms: u64::try_from(record.oauth_breaker_reset_timeout_ms)
+            .map_err(|_| "invalid runtime settings record")?,
+    };
+    let apikey_provider_breaker = ProviderBreakerProfileSettings {
+        failure_threshold: u64::try_from(record.apikey_breaker_failure_threshold)
+            .map_err(|_| "invalid runtime settings record")?,
+        degradation_threshold: u64::try_from(record.apikey_breaker_degradation_threshold)
+            .map_err(|_| "invalid runtime settings record")?,
+        reset_timeout_ms: u64::try_from(record.apikey_breaker_reset_timeout_ms)
+            .map_err(|_| "invalid runtime settings record")?,
+    };
     if !(0..=1_000_000).contains(&record.quota_preflight_threshold_ppm)
         || record.revision < 0
         || validate_connection_cooldown_profile(&oauth_connection_cooldown).is_err()
         || validate_connection_cooldown_profile(&apikey_connection_cooldown).is_err()
+        || breaker_profile(&oauth_provider_breaker).is_err()
+        || breaker_profile(&apikey_provider_breaker).is_err()
     {
         return Err("invalid runtime settings record");
     }
@@ -10370,6 +10597,8 @@ fn runtime_settings_view(
         quota_preflight_threshold_percent: record.quota_preflight_threshold_ppm as f64 / 10_000.0,
         oauth_connection_cooldown,
         apikey_connection_cooldown,
+        oauth_provider_breaker,
+        apikey_provider_breaker,
         revision: record.revision.to_string(),
     })
 }

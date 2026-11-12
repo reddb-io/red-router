@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                                                                                                                                                                                                                                     |
 | Pricing, quotas and budgets | Rust-owned SQLite      | Per-key request/token/day/monthly-spend admission plus organization/key/request-tag/end-user shared spend budgets use one concurrent SQLite reservation boundary across chat/Responses JSON+SSE, embedding, rerank, Anthropic and Gemini; team objects and non-SQLite quota stores remain                                                                                                        |
 | Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/rerank/Anthropic/Gemini ledger, durable user/tag attribution, BigQuery/webhook export, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining modal unit types remain                                                                                                                      |
-| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware quota snapshots, terminal account states and global quota preflight are Rust-owned and exposed in the SPA; the remaining versioned settings remain                                                                                                                                   |
+| Settings and resilience     | Partial                | Durable provider breakers with OAuth/API-key defaults and provider overrides, connection cooldowns, model lockouts, provider-specific quota scope, model-aware quota snapshots, terminal account states and global quota preflight are Rust-owned and exposed in the SPA; the remaining versioned settings remain                                                                                |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, local bootstrap and browser PKCE sessions, CSRF/origin binding and logout                                                                                                                                                                                                                           |
 | SPA delivery                | Production default     | Rust serves a validated static bundle with provider, resilience, routing, key, identity, usage, audit and OIDC views; all browser source and the authoritative Rust API client live under `rust-dashboard`, whose production build neither imports nor copies the Next.js source tree; the Rust-only Docker artifact is the default Compose service and legacy Next requires an explicit profile |
 | Legacy data migration       | Partial                | Offline preflight, bounded importers and an orchestrated generic cutover with structured report and retained rollback copy exist; provider-specific adoption, verification and activation remain                                                                                                                                                                                                 |
@@ -469,13 +469,17 @@ also exercised for embedded/remote RedDB and PostgreSQL. Expanding automatic cla
 to the complete dynamic provider catalog and the remaining resilience settings exposed as
 versioned dashboard configuration remain migration work.
 
-The global quota-preflight cutoff and connection-cooldown profiles are now complete Rust-owned
-vertical slices. Their versioned record lives in the selected control database, is authenticated
-and audit logged, and hot reloads across SQLite replicas. Quota preflight is evaluated before usage
+The global quota-preflight cutoff, connection-cooldown profiles and provider-breaker profiles are
+complete Rust-owned vertical slices. Their versioned record lives in the selected control database,
+is authenticated and audit logged, and hot reloads across SQLite replicas. The v2 table is additive,
+adopts quota settings from the pre-cooldown schema and avoids backend-specific `ALTER TABLE`
+behavior. Quota preflight is evaluated before usage
 reservation or upstream dispatch: a fresh provider- or model-level quota window at or below the
 configured remaining-percent threshold is removed from the candidate set, while unknown or expired
 telemetry stays eligible. OAuth and API-key connections have independent base cooldown, upstream
 retry-hint and maximum exponential-backoff settings. Those values are published to the existing
 availability objects through atomics, so request-time failure handling does not read the database or
-take a global settings lock. The independent SPA edits the same Rust API, so these policies no longer
-depend on the legacy resilience route.
+take a global settings lock. Provider breakers independently inherit OAuth or API-key thresholds and
+reset windows; local endpoints retain their local profile. Explicit per-provider overrides live in a
+separate durable authority, win over global changes and converge across replicas. The independent SPA
+edits the same Rust API, so these policies no longer depend on the legacy resilience route.

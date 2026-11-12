@@ -40,9 +40,15 @@ type RuntimeSettingsDraft = {
   oauthCooldownSeconds: string;
   oauthRetryHints: boolean;
   oauthMaxBackoffSteps: string;
+  oauthBreakerFailureThreshold: string;
+  oauthBreakerDegradationThreshold: string;
+  oauthBreakerResetSeconds: string;
   apikeyCooldownSeconds: string;
   apikeyRetryHints: boolean;
   apikeyMaxBackoffSteps: string;
+  apikeyBreakerFailureThreshold: string;
+  apikeyBreakerDegradationThreshold: string;
+  apikeyBreakerResetSeconds: string;
 };
 
 function runtimeSettingsDraft(settings?: RustRuntimeSettings): RuntimeSettingsDraft {
@@ -54,11 +60,27 @@ function runtimeSettingsDraft(settings?: RustRuntimeSettings): RuntimeSettingsDr
     ),
     oauthRetryHints: settings?.oauth_connection_cooldown.use_upstream_retry_hints ?? false,
     oauthMaxBackoffSteps: String(settings?.oauth_connection_cooldown.max_backoff_steps ?? 8),
+    oauthBreakerFailureThreshold: String(settings?.oauth_provider_breaker.failure_threshold ?? 8),
+    oauthBreakerDegradationThreshold: String(
+      settings?.oauth_provider_breaker.degradation_threshold ?? 5
+    ),
+    oauthBreakerResetSeconds: String(
+      (settings?.oauth_provider_breaker.reset_timeout_ms ?? 60_000) / 1_000
+    ),
     apikeyCooldownSeconds: String(
       (settings?.apikey_connection_cooldown.base_cooldown_ms ?? 3_000) / 1_000
     ),
     apikeyRetryHints: settings?.apikey_connection_cooldown.use_upstream_retry_hints ?? true,
     apikeyMaxBackoffSteps: String(settings?.apikey_connection_cooldown.max_backoff_steps ?? 5),
+    apikeyBreakerFailureThreshold: String(
+      settings?.apikey_provider_breaker.failure_threshold ?? 12
+    ),
+    apikeyBreakerDegradationThreshold: String(
+      settings?.apikey_provider_breaker.degradation_threshold ?? 7
+    ),
+    apikeyBreakerResetSeconds: String(
+      (settings?.apikey_provider_breaker.reset_timeout_ms ?? 30_000) / 1_000
+    ),
   };
 }
 
@@ -278,6 +300,36 @@ export default function ProviderResilience() {
             "API-key max backoff steps"
           ),
         },
+        oauth_provider_breaker: {
+          failure_threshold: asPositiveInteger(
+            runtimeSettingsForm.oauthBreakerFailureThreshold,
+            "OAuth breaker failure threshold"
+          ),
+          degradation_threshold: asPositiveInteger(
+            runtimeSettingsForm.oauthBreakerDegradationThreshold,
+            "OAuth breaker degradation threshold"
+          ),
+          reset_timeout_ms:
+            asPositiveInteger(
+              runtimeSettingsForm.oauthBreakerResetSeconds,
+              "OAuth breaker reset timeout"
+            ) * 1_000,
+        },
+        apikey_provider_breaker: {
+          failure_threshold: asPositiveInteger(
+            runtimeSettingsForm.apikeyBreakerFailureThreshold,
+            "API-key breaker failure threshold"
+          ),
+          degradation_threshold: asPositiveInteger(
+            runtimeSettingsForm.apikeyBreakerDegradationThreshold,
+            "API-key breaker degradation threshold"
+          ),
+          reset_timeout_ms:
+            asPositiveInteger(
+              runtimeSettingsForm.apikeyBreakerResetSeconds,
+              "API-key breaker reset timeout"
+            ) * 1_000,
+        },
       });
       return "Global Rust routing and cooldown policy saved.";
     });
@@ -399,6 +451,58 @@ export default function ProviderResilience() {
               />{" "}
               Trust upstream retry hints
             </label>
+            <p className="border-t border-border pt-3 text-sm font-medium">Circuit breaker</p>
+            <label className="block">
+              Failures before open
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="1000"
+                required
+                value={runtimeSettingsForm.oauthBreakerFailureThreshold}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthBreakerFailureThreshold: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Failures before degraded
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="1000"
+                required
+                value={runtimeSettingsForm.oauthBreakerDegradationThreshold}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthBreakerDegradationThreshold: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Reset timeout (seconds)
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="86400"
+                required
+                value={runtimeSettingsForm.oauthBreakerResetSeconds}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    oauthBreakerResetSeconds: event.target.value,
+                  })
+                }
+              />
+            </label>
           </fieldset>
           <fieldset className="space-y-3 rounded border border-border p-3">
             <legend className="px-1 font-medium">API-key connections</legend>
@@ -448,6 +552,58 @@ export default function ProviderResilience() {
                 }
               />{" "}
               Trust upstream retry hints
+            </label>
+            <p className="border-t border-border pt-3 text-sm font-medium">Circuit breaker</p>
+            <label className="block">
+              Failures before open
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="1000"
+                required
+                value={runtimeSettingsForm.apikeyBreakerFailureThreshold}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyBreakerFailureThreshold: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Failures before degraded
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="1000"
+                required
+                value={runtimeSettingsForm.apikeyBreakerDegradationThreshold}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyBreakerDegradationThreshold: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              Reset timeout (seconds)
+              <input
+                className={fieldClass}
+                type="number"
+                min="1"
+                max="86400"
+                required
+                value={runtimeSettingsForm.apikeyBreakerResetSeconds}
+                onChange={(event) =>
+                  setRuntimeSettingsForm({
+                    ...runtimeSettingsForm,
+                    apikeyBreakerResetSeconds: event.target.value,
+                  })
+                }
+              />
             </label>
           </fieldset>
         </div>

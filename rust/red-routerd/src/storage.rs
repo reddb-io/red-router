@@ -137,6 +137,11 @@ const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_bre
 const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
 const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
 const DELETE_BREAKER: &str = "DELETE FROM redrouter_provider_breakers WHERE provider_id = $1";
+const CREATE_BREAKER_OVERRIDES: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_breaker_overrides (provider_id TEXT PRIMARY KEY, failure_threshold BIGINT NOT NULL, degradation_threshold BIGINT NOT NULL, reset_timeout_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_BREAKER_OVERRIDES: &str = "SELECT provider_id, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breaker_overrides ORDER BY provider_id ASC";
+const UPSERT_BREAKER_OVERRIDE: &str = "INSERT INTO redrouter_provider_breaker_overrides (provider_id, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (provider_id) DO UPDATE SET failure_threshold = $2, degradation_threshold = $3, reset_timeout_ms = $4, revision = $5";
+const DELETE_BREAKER_OVERRIDE: &str =
+    "DELETE FROM redrouter_provider_breaker_overrides WHERE provider_id = $1";
 const CREATE_AVAILABILITY: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_availability (provider_id TEXT PRIMARY KEY, cooldown_until_unix_ms BIGINT NOT NULL, backoff_level BIGINT NOT NULL, last_status BIGINT NOT NULL, model_lockouts_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_AVAILABILITY: &str = "SELECT provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision FROM redrouter_provider_availability ORDER BY provider_id ASC";
 const UPSERT_AVAILABILITY: &str = "INSERT INTO redrouter_provider_availability (provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET cooldown_until_unix_ms = $2, backoff_level = $3, last_status = $4, model_lockouts_json = $5, revision = $6";
@@ -146,9 +151,14 @@ const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_r
 const LIST_RESILIENCE: &str = "SELECT provider_id, rate_limit_scope, revision FROM redrouter_provider_resilience ORDER BY provider_id ASC, revision DESC";
 const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (record_id, provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET rate_limit_scope = $3";
 const DELETE_RESILIENCE: &str = "DELETE FROM redrouter_provider_resilience WHERE provider_id = $1";
-const CREATE_RUNTIME_SETTINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, oauth_cooldown_base_ms BIGINT NOT NULL, oauth_cooldown_retry_hints BIGINT NOT NULL, oauth_cooldown_max_backoff_steps BIGINT NOT NULL, apikey_cooldown_base_ms BIGINT NOT NULL, apikey_cooldown_retry_hints BIGINT NOT NULL, apikey_cooldown_max_backoff_steps BIGINT NOT NULL, revision BIGINT NOT NULL)";
-const READ_RUNTIME_SETTINGS: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, revision FROM redrouter_runtime_settings WHERE id = 1";
-const UPSERT_RUNTIME_SETTINGS: &str = "INSERT INTO redrouter_runtime_settings (id, quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET quota_preflight_enabled = $1, quota_preflight_threshold_ppm = $2, oauth_cooldown_base_ms = $3, oauth_cooldown_retry_hints = $4, oauth_cooldown_max_backoff_steps = $5, apikey_cooldown_base_ms = $6, apikey_cooldown_retry_hints = $7, apikey_cooldown_max_backoff_steps = $8, revision = $9";
+// Versioning avoids ALTER TABLE assumptions across SQLite, Postgres and RedDB.
+// Keep the pre-cooldown shape as a read-only migration source and rollback
+// target; new writes are authoritative in v2.
+const CREATE_RUNTIME_SETTINGS_LEGACY: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const READ_RUNTIME_SETTINGS_LEGACY: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, revision FROM redrouter_runtime_settings WHERE id = 1";
+const CREATE_RUNTIME_SETTINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings_v2 (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, oauth_cooldown_base_ms BIGINT NOT NULL, oauth_cooldown_retry_hints BIGINT NOT NULL, oauth_cooldown_max_backoff_steps BIGINT NOT NULL, apikey_cooldown_base_ms BIGINT NOT NULL, apikey_cooldown_retry_hints BIGINT NOT NULL, apikey_cooldown_max_backoff_steps BIGINT NOT NULL, oauth_breaker_failure_threshold BIGINT NOT NULL, oauth_breaker_degradation_threshold BIGINT NOT NULL, oauth_breaker_reset_timeout_ms BIGINT NOT NULL, apikey_breaker_failure_threshold BIGINT NOT NULL, apikey_breaker_degradation_threshold BIGINT NOT NULL, apikey_breaker_reset_timeout_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const READ_RUNTIME_SETTINGS: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, oauth_breaker_failure_threshold, oauth_breaker_degradation_threshold, oauth_breaker_reset_timeout_ms, apikey_breaker_failure_threshold, apikey_breaker_degradation_threshold, apikey_breaker_reset_timeout_ms, revision FROM redrouter_runtime_settings_v2 WHERE id = 1";
+const UPSERT_RUNTIME_SETTINGS: &str = "INSERT INTO redrouter_runtime_settings_v2 (id, quota_preflight_enabled, quota_preflight_threshold_ppm, oauth_cooldown_base_ms, oauth_cooldown_retry_hints, oauth_cooldown_max_backoff_steps, apikey_cooldown_base_ms, apikey_cooldown_retry_hints, apikey_cooldown_max_backoff_steps, oauth_breaker_failure_threshold, oauth_breaker_degradation_threshold, oauth_breaker_reset_timeout_ms, apikey_breaker_failure_threshold, apikey_breaker_degradation_threshold, apikey_breaker_reset_timeout_ms, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET quota_preflight_enabled = $1, quota_preflight_threshold_ppm = $2, oauth_cooldown_base_ms = $3, oauth_cooldown_retry_hints = $4, oauth_cooldown_max_backoff_steps = $5, apikey_cooldown_base_ms = $6, apikey_cooldown_retry_hints = $7, apikey_cooldown_max_backoff_steps = $8, oauth_breaker_failure_threshold = $9, oauth_breaker_degradation_threshold = $10, oauth_breaker_reset_timeout_ms = $11, apikey_breaker_failure_threshold = $12, apikey_breaker_degradation_threshold = $13, apikey_breaker_reset_timeout_ms = $14, revision = $15";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
@@ -480,6 +490,15 @@ pub struct StoredBreaker {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredBreakerOverride {
+    pub provider_id: String,
+    pub failure_threshold: i64,
+    pub degradation_threshold: i64,
+    pub reset_timeout_ms: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredAvailability {
     pub provider_id: String,
     pub cooldown_until_unix_ms: i64,
@@ -508,6 +527,12 @@ pub struct StoredRuntimeSettings {
     pub apikey_cooldown_base_ms: i64,
     pub apikey_cooldown_retry_hints: bool,
     pub apikey_cooldown_max_backoff_steps: i64,
+    pub oauth_breaker_failure_threshold: i64,
+    pub oauth_breaker_degradation_threshold: i64,
+    pub oauth_breaker_reset_timeout_ms: i64,
+    pub apikey_breaker_failure_threshold: i64,
+    pub apikey_breaker_degradation_threshold: i64,
+    pub apikey_breaker_reset_timeout_ms: i64,
     pub revision: i64,
 }
 
@@ -649,8 +674,10 @@ impl Database {
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_PROVIDER_MODEL_QUOTAS,
                         CREATE_BREAKERS,
+                        CREATE_BREAKER_OVERRIDES,
                         CREATE_AVAILABILITY,
                         CREATE_RESILIENCE,
+                        CREATE_RUNTIME_SETTINGS_LEGACY,
                         CREATE_RUNTIME_SETTINGS,
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
@@ -776,8 +803,11 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_MODEL_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
+                db.remote_schema_query(CREATE_BREAKER_OVERRIDES).await?;
                 db.remote_schema_query(CREATE_AVAILABILITY).await?;
                 db.remote_schema_query(CREATE_RESILIENCE).await?;
+                db.remote_schema_query(CREATE_RUNTIME_SETTINGS_LEGACY)
+                    .await?;
                 db.remote_schema_query(CREATE_RUNTIME_SETTINGS).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
@@ -850,8 +880,10 @@ impl Database {
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_PROVIDER_MODEL_QUOTAS,
                     CREATE_BREAKERS,
+                    CREATE_BREAKER_OVERRIDES,
                     CREATE_AVAILABILITY,
                     CREATE_RESILIENCE,
+                    CREATE_RUNTIME_SETTINGS_LEGACY,
                     CREATE_RUNTIME_SETTINGS,
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
@@ -3379,6 +3411,93 @@ impl Database {
         Ok(())
     }
 
+    pub async fn breaker_overrides(&self) -> Result<Vec<StoredBreakerOverride>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_BREAKER_OVERRIDES)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider breaker overrides")?
+                .iter()
+                .map(read_sql_breaker_override)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_BREAKER_OVERRIDES, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_breaker_override)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_BREAKER_OVERRIDES)
+                .await
+                .map_err(|_| "cannot read provider breaker overrides")?
+                .rows
+                .iter()
+                .map(read_reddb_breaker_override)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_breaker_override(
+        &self,
+        policy: &StoredBreakerOverride,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_BREAKER_OVERRIDE)
+                    .bind(&policy.provider_id)
+                    .bind(policy.failure_threshold)
+                    .bind(policy.degradation_threshold)
+                    .bind(policy.reset_timeout_ms)
+                    .bind(policy.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider breaker override")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_BREAKER_OVERRIDE, &breaker_override_params(policy))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_BREAKER_OVERRIDE, breaker_override_params(policy))
+                    .await
+                    .map_err(|_| "cannot write provider breaker override")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_breaker_override(&self, provider_id: &str) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_BREAKER_OVERRIDE)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider breaker override")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_BREAKER_OVERRIDE,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_BREAKER_OVERRIDE,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot delete provider breaker override")?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn provider_availability(&self) -> Result<Vec<StoredAvailability>, &'static str> {
         match self {
             Self::Sql(pool) => sqlx::query(LIST_AVAILABILITY)
@@ -3551,7 +3670,7 @@ impl Database {
     }
 
     pub async fn runtime_settings(&self) -> Result<Option<StoredRuntimeSettings>, &'static str> {
-        match self {
+        let current = match self {
             Self::Sql(pool) => sqlx::query(READ_RUNTIME_SETTINGS)
                 .fetch_optional(pool)
                 .await
@@ -3575,6 +3694,38 @@ impl Database {
                 .first()
                 .map(read_reddb_runtime_settings)
                 .transpose(),
+        }?;
+        if current.is_some() {
+            return Ok(current);
+        }
+        self.legacy_runtime_settings().await
+    }
+
+    async fn legacy_runtime_settings(&self) -> Result<Option<StoredRuntimeSettings>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_RUNTIME_SETTINGS_LEGACY)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read legacy runtime settings")?
+                .as_ref()
+                .map(read_sql_legacy_runtime_settings)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_RUNTIME_SETTINGS_LEGACY, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_legacy_runtime_settings)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_RUNTIME_SETTINGS_LEGACY)
+                .await
+                .map_err(|_| "cannot read legacy runtime settings")?
+                .rows
+                .first()
+                .map(read_reddb_legacy_runtime_settings)
+                .transpose(),
         }
     }
 
@@ -3596,6 +3747,12 @@ impl Database {
                     .bind(settings.apikey_cooldown_base_ms)
                     .bind(apikey_retry_hints)
                     .bind(settings.apikey_cooldown_max_backoff_steps)
+                    .bind(settings.oauth_breaker_failure_threshold)
+                    .bind(settings.oauth_breaker_degradation_threshold)
+                    .bind(settings.oauth_breaker_reset_timeout_ms)
+                    .bind(settings.apikey_breaker_failure_threshold)
+                    .bind(settings.apikey_breaker_degradation_threshold)
+                    .bind(settings.apikey_breaker_reset_timeout_ms)
                     .bind(settings.revision)
                     .execute(pool)
                     .await
@@ -5893,6 +6050,64 @@ fn breaker_params(breaker: &StoredBreaker) -> Vec<reddb_client::Value> {
     ]
 }
 
+fn read_sql_breaker_override(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredBreakerOverride, &'static str> {
+    Ok(StoredBreakerOverride {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider breaker override")?,
+        failure_threshold: row
+            .try_get("failure_threshold")
+            .map_err(|_| "invalid provider breaker override")?,
+        degradation_threshold: row
+            .try_get("degradation_threshold")
+            .map_err(|_| "invalid provider breaker override")?,
+        reset_timeout_ms: row
+            .try_get("reset_timeout_ms")
+            .map_err(|_| "invalid provider breaker override")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider breaker override")?,
+    })
+}
+
+fn read_reddb_breaker_override(
+    row: &reddb_client::Row,
+) -> Result<StoredBreakerOverride, &'static str> {
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider breaker override"),
+    };
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider breaker override"),
+    };
+    Ok(StoredBreakerOverride {
+        provider_id: text("provider_id")?,
+        failure_threshold: integer("failure_threshold")?,
+        degradation_threshold: integer("degradation_threshold")?,
+        reset_timeout_ms: integer("reset_timeout_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn breaker_override_params(policy: &StoredBreakerOverride) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(policy.provider_id.clone()),
+        reddb_client::Value::Int(policy.failure_threshold),
+        reddb_client::Value::Int(policy.degradation_threshold),
+        reddb_client::Value::Int(policy.reset_timeout_ms),
+        reddb_client::Value::Int(policy.revision),
+    ]
+}
+
 fn read_sql_availability(row: &sqlx::any::AnyRow) -> Result<StoredAvailability, &'static str> {
     let text = |name| {
         row.try_get(name)
@@ -6022,7 +6237,45 @@ fn read_sql_runtime_settings(
         apikey_cooldown_base_ms: integer("apikey_cooldown_base_ms")?,
         apikey_cooldown_retry_hints: apikey_retry_hints == 1,
         apikey_cooldown_max_backoff_steps: integer("apikey_cooldown_max_backoff_steps")?,
+        oauth_breaker_failure_threshold: integer("oauth_breaker_failure_threshold")?,
+        oauth_breaker_degradation_threshold: integer("oauth_breaker_degradation_threshold")?,
+        oauth_breaker_reset_timeout_ms: integer("oauth_breaker_reset_timeout_ms")?,
+        apikey_breaker_failure_threshold: integer("apikey_breaker_failure_threshold")?,
+        apikey_breaker_degradation_threshold: integer("apikey_breaker_degradation_threshold")?,
+        apikey_breaker_reset_timeout_ms: integer("apikey_breaker_reset_timeout_ms")?,
         revision: integer("revision")?,
+    })
+}
+
+fn read_sql_legacy_runtime_settings(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredRuntimeSettings, &'static str> {
+    let enabled: i64 = row
+        .try_get("quota_preflight_enabled")
+        .map_err(|_| "invalid legacy runtime settings record")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid legacy runtime settings record");
+    }
+    Ok(StoredRuntimeSettings {
+        quota_preflight_enabled: enabled == 1,
+        quota_preflight_threshold_ppm: row
+            .try_get("quota_preflight_threshold_ppm")
+            .map_err(|_| "invalid legacy runtime settings record")?,
+        oauth_cooldown_base_ms: 5_000,
+        oauth_cooldown_retry_hints: false,
+        oauth_cooldown_max_backoff_steps: 8,
+        apikey_cooldown_base_ms: 3_000,
+        apikey_cooldown_retry_hints: true,
+        apikey_cooldown_max_backoff_steps: 5,
+        oauth_breaker_failure_threshold: 8,
+        oauth_breaker_degradation_threshold: 5,
+        oauth_breaker_reset_timeout_ms: 60_000,
+        apikey_breaker_failure_threshold: 12,
+        apikey_breaker_degradation_threshold: 7,
+        apikey_breaker_reset_timeout_ms: 30_000,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid legacy runtime settings record")?,
     })
 }
 
@@ -6054,6 +6307,45 @@ fn read_reddb_runtime_settings(
         apikey_cooldown_base_ms: integer("apikey_cooldown_base_ms")?,
         apikey_cooldown_retry_hints: apikey_retry_hints == 1,
         apikey_cooldown_max_backoff_steps: integer("apikey_cooldown_max_backoff_steps")?,
+        oauth_breaker_failure_threshold: integer("oauth_breaker_failure_threshold")?,
+        oauth_breaker_degradation_threshold: integer("oauth_breaker_degradation_threshold")?,
+        oauth_breaker_reset_timeout_ms: integer("oauth_breaker_reset_timeout_ms")?,
+        apikey_breaker_failure_threshold: integer("apikey_breaker_failure_threshold")?,
+        apikey_breaker_degradation_threshold: integer("apikey_breaker_degradation_threshold")?,
+        apikey_breaker_reset_timeout_ms: integer("apikey_breaker_reset_timeout_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_legacy_runtime_settings(
+    row: &reddb_client::Row,
+) -> Result<StoredRuntimeSettings, &'static str> {
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid legacy runtime settings record"),
+    };
+    let enabled = integer("quota_preflight_enabled")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid legacy runtime settings record");
+    }
+    Ok(StoredRuntimeSettings {
+        quota_preflight_enabled: enabled == 1,
+        quota_preflight_threshold_ppm: integer("quota_preflight_threshold_ppm")?,
+        oauth_cooldown_base_ms: 5_000,
+        oauth_cooldown_retry_hints: false,
+        oauth_cooldown_max_backoff_steps: 8,
+        apikey_cooldown_base_ms: 3_000,
+        apikey_cooldown_retry_hints: true,
+        apikey_cooldown_max_backoff_steps: 5,
+        oauth_breaker_failure_threshold: 8,
+        oauth_breaker_degradation_threshold: 5,
+        oauth_breaker_reset_timeout_ms: 60_000,
+        apikey_breaker_failure_threshold: 12,
+        apikey_breaker_degradation_threshold: 7,
+        apikey_breaker_reset_timeout_ms: 30_000,
         revision: integer("revision")?,
     })
 }
@@ -6073,6 +6365,12 @@ fn runtime_settings_params(
         reddb_client::Value::Int(settings.apikey_cooldown_base_ms),
         reddb_client::Value::Int(apikey_retry_hints),
         reddb_client::Value::Int(settings.apikey_cooldown_max_backoff_steps),
+        reddb_client::Value::Int(settings.oauth_breaker_failure_threshold),
+        reddb_client::Value::Int(settings.oauth_breaker_degradation_threshold),
+        reddb_client::Value::Int(settings.oauth_breaker_reset_timeout_ms),
+        reddb_client::Value::Int(settings.apikey_breaker_failure_threshold),
+        reddb_client::Value::Int(settings.apikey_breaker_degradation_threshold),
+        reddb_client::Value::Int(settings.apikey_breaker_reset_timeout_ms),
         reddb_client::Value::Int(settings.revision),
     ]
 }

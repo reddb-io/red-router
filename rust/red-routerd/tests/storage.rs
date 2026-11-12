@@ -1,9 +1,10 @@
 use red_routerd::storage::{
     Backend, Database, StoredAuditEvent, StoredAuditOutboxEvent, StoredAvailability, StoredBreaker,
-    StoredClientKey, StoredCombo, StoredContextRelayHandoff, StoredContextRelaySession,
-    StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig,
-    StoredProvider, StoredProviderModelQuota, StoredProviderQuota, StoredProviderSession,
-    StoredResilience, StoredRoutePin, StoredRuntimeSettings, StoredTenant, StoredUsageExport,
+    StoredBreakerOverride, StoredClientKey, StoredCombo, StoredContextRelayHandoff,
+    StoredContextRelaySession, StoredIdentityBinding, StoredModelCatalogSnapshot,
+    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderModelQuota,
+    StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin,
+    StoredRuntimeSettings, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -387,6 +388,12 @@ async fn exercise(backend: Backend, url: &str) {
         apikey_cooldown_base_ms: 3_000,
         apikey_cooldown_retry_hints: true,
         apikey_cooldown_max_backoff_steps: 5,
+        oauth_breaker_failure_threshold: 8,
+        oauth_breaker_degradation_threshold: 5,
+        oauth_breaker_reset_timeout_ms: 60_000,
+        apikey_breaker_failure_threshold: 12,
+        apikey_breaker_degradation_threshold: 7,
+        apikey_breaker_reset_timeout_ms: 30_000,
         revision: 14,
     };
     assert_eq!(db.runtime_settings().await.unwrap(), None);
@@ -394,6 +401,18 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(
         db.runtime_settings().await.unwrap(),
         Some(runtime_settings.clone())
+    );
+    let breaker_override = StoredBreakerOverride {
+        provider_id: "first".into(),
+        failure_threshold: 4,
+        degradation_threshold: 2,
+        reset_timeout_ms: 45_000,
+        revision: 15,
+    };
+    db.upsert_breaker_override(&breaker_override).await.unwrap();
+    assert_eq!(
+        db.breaker_overrides().await.unwrap(),
+        vec![breaker_override.clone()]
     );
     let oidc = StoredOidcConfig {
         enabled: true,
@@ -509,6 +528,12 @@ async fn exercise(backend: Backend, url: &str) {
         reopened.runtime_settings().await.unwrap(),
         Some(runtime_settings)
     );
+    assert_eq!(
+        reopened.breaker_overrides().await.unwrap(),
+        vec![breaker_override]
+    );
+    reopened.delete_breaker_override("first").await.unwrap();
+    assert!(reopened.breaker_overrides().await.unwrap().is_empty());
     assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
     assert_eq!(
         reopened.oidc_browser_config().await.unwrap(),
@@ -553,6 +578,37 @@ async fn sqlite_configuration_survives_restart() {
     let file = Url::from_file_path(folder.join("config.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     exercise(Backend::Sqlite, &url).await;
+}
+
+#[tokio::test]
+async fn sqlite_runtime_settings_adopt_the_pre_cooldown_schema() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("runtime-settings-v1.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query("CREATE TABLE redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, revision BIGINT NOT NULL)")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO redrouter_runtime_settings VALUES (1,1,35000,42)")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    raw.close().await.unwrap();
+
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let adopted = db.runtime_settings().await.unwrap().unwrap();
+    assert!(adopted.quota_preflight_enabled);
+    assert_eq!(adopted.quota_preflight_threshold_ppm, 35_000);
+    assert_eq!(adopted.oauth_cooldown_base_ms, 5_000);
+    assert_eq!(adopted.oauth_breaker_failure_threshold, 8);
+    assert_eq!(adopted.apikey_breaker_failure_threshold, 12);
+    assert_eq!(adopted.revision, 42);
+    db.close().await.unwrap();
 }
 
 #[tokio::test]

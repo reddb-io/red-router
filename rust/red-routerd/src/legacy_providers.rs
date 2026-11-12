@@ -113,7 +113,7 @@ async fn adopt_oauth(
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_availability"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut db).await.map_err(|_| "destination provider schema unavailable")?;
             if count != 0 { return Err("destination provider already exists"); }

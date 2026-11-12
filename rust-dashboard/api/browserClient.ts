@@ -441,6 +441,8 @@ export interface RustRuntimeSettings {
   quota_preflight_threshold_percent: number;
   oauth_connection_cooldown: RustConnectionCooldownProfile;
   apikey_connection_cooldown: RustConnectionCooldownProfile;
+  oauth_provider_breaker: RustProviderBreakerProfile;
+  apikey_provider_breaker: RustProviderBreakerProfile;
   revision: string;
 }
 
@@ -448,6 +450,12 @@ export interface RustConnectionCooldownProfile {
   base_cooldown_ms: number;
   use_upstream_retry_hints: boolean;
   max_backoff_steps: number;
+}
+
+export interface RustProviderBreakerProfile {
+  failure_threshold: number;
+  degradation_threshold: number;
+  reset_timeout_ms: number;
 }
 
 export type RustRuntimeSettingsInput = Omit<RustRuntimeSettings, "revision">;
@@ -1511,6 +1519,8 @@ function isRustRuntimeSettings(value: unknown): value is RustRuntimeSettings {
       "quota_preflight_threshold_percent",
       "oauth_connection_cooldown",
       "apikey_connection_cooldown",
+      "oauth_provider_breaker",
+      "apikey_provider_breaker",
       "revision",
     ]) &&
     typeof settings.quota_preflight_enabled === "boolean" &&
@@ -1520,7 +1530,26 @@ function isRustRuntimeSettings(value: unknown): value is RustRuntimeSettings {
     settings.quota_preflight_threshold_percent <= 100 &&
     isRustConnectionCooldownProfile(settings.oauth_connection_cooldown) &&
     isRustConnectionCooldownProfile(settings.apikey_connection_cooldown) &&
+    isRustProviderBreakerProfile(settings.oauth_provider_breaker) &&
+    isRustProviderBreakerProfile(settings.apikey_provider_breaker) &&
     typeof settings.revision === "string"
+  );
+}
+
+function isRustProviderBreakerProfile(value: unknown): value is RustProviderBreakerProfile {
+  if (!value || typeof value !== "object") return false;
+  const profile = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(profile, ["failure_threshold", "degradation_threshold", "reset_timeout_ms"]) &&
+    isNonNegativeInteger(profile.failure_threshold) &&
+    profile.failure_threshold >= 1 &&
+    profile.failure_threshold <= 1_000 &&
+    isNonNegativeInteger(profile.degradation_threshold) &&
+    profile.degradation_threshold >= 1 &&
+    profile.degradation_threshold <= profile.failure_threshold &&
+    isNonNegativeInteger(profile.reset_timeout_ms) &&
+    profile.reset_timeout_ms >= 1_000 &&
+    profile.reset_timeout_ms <= 86_400_000
   );
 }
 

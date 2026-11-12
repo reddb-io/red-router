@@ -1720,6 +1720,50 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
             "max_backoff_steps":5
         })
     );
+    assert_eq!(
+        defaults["runtime_settings"]["oauth_provider_breaker"],
+        serde_json::json!({
+            "failure_threshold":8,
+            "degradation_threshold":5,
+            "reset_timeout_ms":60_000
+        })
+    );
+    assert_eq!(
+        defaults["runtime_settings"]["apikey_provider_breaker"],
+        serde_json::json!({
+            "failure_threshold":12,
+            "degradation_threshold":7,
+            "reset_timeout_ms":30_000
+        })
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/global-breaker"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "provider":"openai",
+                "upstream_url":"https://api.example.test/v1",
+                "api_key":"global-breaker-secret"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let default_health: serde_json::Value = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let default_health = &default_health["provider_health"][0];
+    assert_eq!(default_health["failure_threshold"], 12);
+    assert_eq!(default_health["degradation_threshold"], 7);
+    assert_eq!(default_health["reset_timeout_ms"], 30_000);
 
     assert_eq!(
         client
@@ -1784,6 +1828,16 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
                 "base_cooldown_ms":2_000,
                 "use_upstream_retry_hints":false,
                 "max_backoff_steps":4
+            },
+            "oauth_provider_breaker":{
+                "failure_threshold":9,
+                "degradation_threshold":4,
+                "reset_timeout_ms":75_000
+            },
+            "apikey_provider_breaker":{
+                "failure_threshold":15,
+                "degradation_threshold":6,
+                "reset_timeout_ms":45_000
             }
         }))
         .send()
@@ -1805,6 +1859,27 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
         updated["runtime_settings"]["apikey_connection_cooldown"]["use_upstream_retry_hints"],
         false
     );
+    assert_eq!(
+        updated["runtime_settings"]["oauth_provider_breaker"]["failure_threshold"],
+        9
+    );
+    assert_eq!(
+        updated["runtime_settings"]["apikey_provider_breaker"]["reset_timeout_ms"],
+        45_000
+    );
+    let updated_health: serde_json::Value = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let updated_health = &updated_health["provider_health"][0];
+    assert_eq!(updated_health["failure_threshold"], 15);
+    assert_eq!(updated_health["degradation_threshold"], 6);
+    assert_eq!(updated_health["reset_timeout_ms"], 45_000);
     assert_ne!(updated["runtime_settings"]["revision"], "0");
     gateway_task.abort();
 

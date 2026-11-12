@@ -13,6 +13,49 @@ const MAX_FAILURE_COUNT: u64 = 1_000_000;
 const MAX_RESET_MS: u64 = 24 * 60 * 60 * 1_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CircuitProfile {
+    pub failure_threshold: u64,
+    pub degradation_threshold: u64,
+    pub reset_timeout_ms: u64,
+}
+
+impl CircuitProfile {
+    pub(crate) const fn oauth_default() -> Self {
+        Self {
+            failure_threshold: 8,
+            degradation_threshold: 5,
+            reset_timeout_ms: 60_000,
+        }
+    }
+
+    pub(crate) const fn api_key_default() -> Self {
+        Self {
+            failure_threshold: 12,
+            degradation_threshold: 7,
+            reset_timeout_ms: 30_000,
+        }
+    }
+
+    pub(crate) const fn local_default() -> Self {
+        Self {
+            failure_threshold: 2,
+            degradation_threshold: 1,
+            reset_timeout_ms: 15_000,
+        }
+    }
+
+    fn validate(self) -> Result<Self, &'static str> {
+        if !(1..=1_000).contains(&self.failure_threshold)
+            || !(1..=self.failure_threshold).contains(&self.degradation_threshold)
+            || !(1_000..=MAX_RESET_MS).contains(&self.reset_timeout_ms)
+        {
+            return Err("invalid provider breaker configuration");
+        }
+        Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CircuitState {
     Closed,
     Degraded,
@@ -86,12 +129,7 @@ pub(crate) struct BreakerStatus {
 }
 
 impl ProviderCircuit {
-    pub(crate) fn new(provider_id: &str, database: Arc<Database>, local: bool) -> Self {
-        let (failure_threshold, degradation_threshold, reset_timeout_ms) = if local {
-            (2, 1, 15_000)
-        } else {
-            (12, 7, 30_000)
-        };
+    pub(crate) fn new(provider_id: &str, database: Arc<Database>, profile: CircuitProfile) -> Self {
         Self {
             provider_id: Arc::from(provider_id),
             database,
@@ -100,9 +138,9 @@ impl ProviderCircuit {
                 failure_count: 0,
                 last_failure_unix_ms: 0,
                 open_cycle_count: 0,
-                failure_threshold,
-                degradation_threshold,
-                reset_timeout_ms,
+                failure_threshold: profile.failure_threshold,
+                degradation_threshold: profile.degradation_threshold,
+                reset_timeout_ms: profile.reset_timeout_ms,
                 half_open_probe: false,
                 generation: 0,
             }),
@@ -121,9 +159,13 @@ impl ProviderCircuit {
         let failure_count = bounded(record.failure_count, 0, MAX_FAILURE_COUNT)?;
         let last_failure_unix_ms = bounded(record.last_failure_unix_ms, 0, i64::MAX as u64)?;
         let open_cycle_count = bounded(record.open_cycle_count, 0, MAX_FAILURE_COUNT)?;
-        let failure_threshold = bounded(record.failure_threshold, 1, 1_000)?;
-        let degradation_threshold = bounded(record.degradation_threshold, 1, failure_threshold)?;
-        let reset_timeout_ms = bounded(record.reset_timeout_ms, 1_000, MAX_RESET_MS)?;
+        let profile = CircuitProfile {
+            failure_threshold: bounded(record.failure_threshold, 1, 1_000)?,
+            degradation_threshold: bounded(record.degradation_threshold, 1, 1_000)?,
+            reset_timeout_ms: bounded(record.reset_timeout_ms, 1_000, MAX_RESET_MS)?,
+        }
+        .validate()
+        .map_err(|_| "invalid provider breaker record")?;
         if record.provider_id.is_empty()
             || record.provider_id.len() > 128
             || !record
@@ -131,9 +173,10 @@ impl ProviderCircuit {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
             || (state != CircuitState::Closed && last_failure_unix_ms == 0)
-            || (state == CircuitState::Closed && failure_count > degradation_threshold)
+            || (state == CircuitState::Closed && failure_count > profile.degradation_threshold)
             || (state == CircuitState::Degraded
-                && !(degradation_threshold..failure_threshold).contains(&failure_count))
+                && !(profile.degradation_threshold..profile.failure_threshold)
+                    .contains(&failure_count))
         {
             return Err("invalid provider breaker record");
         }
@@ -145,9 +188,9 @@ impl ProviderCircuit {
                 failure_count,
                 last_failure_unix_ms,
                 open_cycle_count,
-                failure_threshold,
-                degradation_threshold,
-                reset_timeout_ms,
+                failure_threshold: profile.failure_threshold,
+                degradation_threshold: profile.degradation_threshold,
+                reset_timeout_ms: profile.reset_timeout_ms,
                 half_open_probe: false,
                 generation: 0,
             }),
@@ -327,12 +370,12 @@ impl ProviderCircuit {
         degradation_threshold: u64,
         reset_timeout_ms: u64,
     ) -> Result<BreakerStatus, &'static str> {
-        if !(1..=1_000).contains(&failure_threshold)
-            || !(1..=failure_threshold).contains(&degradation_threshold)
-            || !(1_000..=MAX_RESET_MS).contains(&reset_timeout_ms)
-        {
-            return Err("invalid provider breaker configuration");
+        CircuitProfile {
+            failure_threshold,
+            degradation_threshold,
+            reset_timeout_ms,
         }
+        .validate()?;
         let now = unix_ms()?;
         let mut inner = self.inner.lock().await;
         inner.failure_threshold = failure_threshold;
@@ -459,7 +502,8 @@ mod tests {
     #[tokio::test]
     async fn persists_transitions_and_allows_one_half_open_probe() {
         let (_directory, database) = database().await;
-        let circuit = ProviderCircuit::new("local", database.clone(), true);
+        let circuit =
+            ProviderCircuit::new("local", database.clone(), CircuitProfile::local_default());
 
         circuit
             .record_failure(match circuit.try_acquire().await.unwrap() {
@@ -516,7 +560,11 @@ mod tests {
     #[tokio::test]
     async fn persists_operator_configuration_and_preserves_it_on_reset() {
         let (_directory, database) = database().await;
-        let circuit = ProviderCircuit::new("configured", database.clone(), false);
+        let circuit = ProviderCircuit::new(
+            "configured",
+            database.clone(),
+            CircuitProfile::api_key_default(),
+        );
         let configured = circuit.configure(5, 2, 45_000).await.unwrap();
         assert_eq!(configured.failure_threshold, 5);
         assert_eq!(configured.degradation_threshold, 2);
@@ -539,7 +587,11 @@ mod tests {
     #[tokio::test]
     async fn lowering_threshold_applies_to_accumulated_failures() {
         let (_directory, database) = database().await;
-        let circuit = ProviderCircuit::new("lowered", database.clone(), false);
+        let circuit = ProviderCircuit::new(
+            "lowered",
+            database.clone(),
+            CircuitProfile::api_key_default(),
+        );
         let permit = match circuit.try_acquire().await.unwrap() {
             CircuitDecision::Permit(permit) => permit,
             CircuitDecision::Open { .. } => panic!("closed circuit refused request"),
