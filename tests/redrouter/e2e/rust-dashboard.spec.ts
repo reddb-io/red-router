@@ -108,6 +108,33 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
       },
       "/api/admin/provider-quotas": { provider_quotas: [] },
       "/api/admin/provider-health": { provider_health: [] },
+      "/api/admin/runtime-settings": {
+        runtime_settings: {
+          quota_preflight_enabled: true,
+          quota_preflight_threshold_percent: 10,
+          oauth_connection_cooldown: {
+            base_cooldown_ms: 1_000,
+            use_upstream_retry_hints: true,
+            max_backoff_steps: 4,
+          },
+          apikey_connection_cooldown: {
+            base_cooldown_ms: 1_000,
+            use_upstream_retry_hints: true,
+            max_backoff_steps: 4,
+          },
+          oauth_provider_breaker: {
+            failure_threshold: 5,
+            degradation_threshold: 2,
+            reset_timeout_ms: 30_000,
+          },
+          apikey_provider_breaker: {
+            failure_threshold: 5,
+            degradation_threshold: 2,
+            reset_timeout_ms: 30_000,
+          },
+          revision: "1",
+        },
+      },
       "/api/admin/usage": {
         usage: {
           ...Object.fromEntries(
@@ -142,6 +169,8 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await page.goto(`${origin}/dashboard/providers`);
   await expect(page.getByRole("heading", { name: "Provider connections" })).toBeVisible();
   await expect(page.getByText("No provider connections configured in Rust.")).toBeVisible();
+  await page.getByRole("link", { name: "Resilience", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Provider resilience and quotas" })).toBeVisible();
   await page.getByRole("link", { name: "Combos", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Routing combos" })).toBeVisible();
   await expect(page.getByText("No Rust combos configured yet.")).toBeVisible();
@@ -163,6 +192,9 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await expect(page.getByRole("cell", { name: "tenant.update", exact: true })).toBeVisible();
   for (const path of [
     "/api/admin/providers",
+    "/api/admin/provider-health",
+    "/api/admin/provider-quotas",
+    "/api/admin/runtime-settings",
     "/api/admin/combos",
     "/api/admin/client-keys",
     "/api/admin/budgets",
