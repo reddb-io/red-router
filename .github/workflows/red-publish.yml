@@ -99,6 +99,9 @@ jobs:
       - id: ci
         uses: ./.github/actions/npm-ci-retry
         if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
+      - name: Install Rust build prerequisites
+        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
+        run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
       - name: Build once
         if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
         run: npm run build:release
