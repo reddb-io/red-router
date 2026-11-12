@@ -168,7 +168,7 @@ function setSelect(select: HTMLSelectElement, value: string) {
 describe("Rust combo manager", () => {
   it("creates routes through Rust and surfaces models.dev, quota, health and LKGP", async () => {
     const container = await mount();
-    expect(container.textContent).toContain("Rust-owned routes");
+    expect(container.textContent).toContain("Routes");
     expect(container.textContent).toContain("coding");
     expect(container.textContent).toContain("74% quota");
     expect(container.textContent).toContain("healthy");

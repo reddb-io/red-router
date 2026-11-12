@@ -84,7 +84,7 @@ export default function Overview() {
       if (!signal?.aborted) setSnapshot(next);
     } catch (cause) {
       if (!signal?.aborted)
-        setError(cause instanceof Error ? cause.message : "Unable to load the Rust control plane.");
+        setError(cause instanceof Error ? cause.message : "Unable to load the dashboard.");
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -105,7 +105,7 @@ export default function Overview() {
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
           setError(
-            cause instanceof Error ? cause.message : "Unable to load the Rust control plane."
+            cause instanceof Error ? cause.message : "Unable to load the dashboard."
           );
       })
       .finally(() => {
@@ -136,7 +136,7 @@ export default function Overview() {
         <div>
           <h1 className="text-2xl font-semibold">Operations overview</h1>
           <p className="mt-1 text-sm text-text-muted">
-            Live state from the Rust proxy, control plane and SQLite usage authority.
+            Monitor providers, routing, usage and account activity.
           </p>
         </div>
         <Button variant="outline" loading={loading} onClick={refresh}>
@@ -158,7 +158,7 @@ export default function Overview() {
       >
         <div className="flex flex-wrap gap-3">
           <Status ok={snapshot?.runtime.live === true}>
-            {snapshot?.runtime.live ? "Rust server live" : "Rust server unavailable"}
+            {snapshot?.runtime.live ? "Server online" : "Server unavailable"}
           </Status>
           <Status ok={snapshot?.runtime.ready === true}>
             {snapshot?.runtime.ready ? "Proxy ready" : "Proxy not ready"}
@@ -222,7 +222,7 @@ export default function Overview() {
           </dl>
         </Card>
 
-        <Card title="Quick actions" subtitle="All writes go directly to authenticated Rust APIs.">
+        <Card title="Quick actions" subtitle="Manage your gateway and access.">
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               ["Connect provider", "/dashboard/providers"],

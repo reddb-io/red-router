@@ -129,7 +129,7 @@ export default function RustProviderOAuthModal({
               {connectionId ? "Reconnect" : "Connect"} {providerNames[provider]}
             </h2>
             <p className="mt-1 text-sm text-text-muted">
-              The Rust backend owns the OAuth state and stores the resulting credentials encrypted.
+              Credentials from this connection are stored encrypted.
             </p>
           </div>
           <button

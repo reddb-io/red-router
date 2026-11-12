@@ -157,7 +157,7 @@ export default function SharedBudgets() {
         <h1 className="text-2xl font-semibold">Shared budgets</h1>
         <p className="mt-1 max-w-3xl text-sm text-text-muted">
           Enforce one spend ceiling across an organization, client keys, request tags, or end users.
-          Admission and holds are serialized by SQLite across every Rust proxy process.
+          Requests and reservations are accounted for across proxy processes.
         </p>
       </header>
       {error && (

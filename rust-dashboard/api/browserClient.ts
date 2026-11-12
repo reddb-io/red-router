@@ -712,10 +712,10 @@ export async function createRustAdminSession(adminKey: string): Promise<void> {
 
 export async function rustAdminFetch(path: string, init: RequestInit = {}): Promise<Response> {
   if (!path.startsWith("/api/admin/")) {
-    throw new TypeError("Rust admin requests must use a same-origin /api/admin/ path");
+    throw new TypeError("admin requests must use a same-origin /api/admin/ path");
   }
   const csrf = readRustAdminCsrfCookie();
-  if (!csrf) throw new Error("Rust admin session is unavailable");
+  if (!csrf) throw new Error("admin session is unavailable");
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, csrf);
   headers.set("Accept", "application/json");
@@ -737,10 +737,10 @@ export async function rustProviderOAuthFetch(
       path
     )
   ) {
-    throw new TypeError("Rust provider OAuth requests must use a supported same-origin path");
+    throw new TypeError("provider OAuth requests must use a supported same-origin path");
   }
   const csrf = readRustAdminCsrfCookie();
-  if (!csrf) throw new Error("Rust admin session is unavailable");
+  if (!csrf) throw new Error("admin session is unavailable");
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, csrf);
   headers.set("Accept", "application/json");
@@ -760,10 +760,10 @@ export async function rustProviderSessionFetch(
   if (
     !/^\/api\/providers\/(?:codex|claude|agy)-auth\/(?:import|import-bulk|zip-extract)$/.test(path)
   ) {
-    throw new TypeError("Rust provider session requests must use a supported same-origin path");
+    throw new TypeError("provider session requests must use a supported same-origin path");
   }
   const csrf = readRustAdminCsrfCookie();
-  if (!csrf) throw new Error("Rust admin session is unavailable");
+  if (!csrf) throw new Error("admin session is unavailable");
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, csrf);
   headers.set("Accept", "application/json");
@@ -778,10 +778,10 @@ export async function rustProviderSessionFetch(
 /** Same authenticated browser session, limited to the Rust-owned usage-sink surface. */
 export async function rustUsageSinkFetch(path: string, init: RequestInit = {}): Promise<Response> {
   if (!path.startsWith("/api/usage-sinks")) {
-    throw new TypeError("Rust usage-sink requests must use a same-origin /api/usage-sinks path");
+    throw new TypeError("usage-sink requests must use a same-origin /api/usage-sinks path");
   }
   const csrf = readRustAdminCsrfCookie();
-  if (!csrf) throw new Error("Rust admin session is unavailable");
+  if (!csrf) throw new Error("admin session is unavailable");
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, csrf);
   headers.set("Accept", "application/json");
@@ -796,10 +796,10 @@ export async function rustUsageSinkFetch(path: string, init: RequestInit = {}): 
 /** Authenticated compatibility surface for Rust-owned per-model token limits. */
 export async function rustTokenLimitFetch(path: string, init: RequestInit = {}): Promise<Response> {
   if (!/^\/api\/usage\/token-limits(?:\?|$)/.test(path)) {
-    throw new TypeError("Rust token-limit requests must use the same-origin token-limit path");
+    throw new TypeError("token-limit requests must use the same-origin token-limit path");
   }
   const csrf = readRustAdminCsrfCookie();
-  if (!csrf) throw new Error("Rust admin session is unavailable");
+  if (!csrf) throw new Error("admin session is unavailable");
   const headers = new Headers(init.headers);
   headers.set(CSRF_HEADER, csrf);
   headers.set("Accept", "application/json");
@@ -1661,7 +1661,7 @@ function rustAdminError(value: unknown, status: number): string {
       return (error as { message: string }).message;
     }
   }
-  return `Rust control-plane request failed (${status})`;
+  return `Management request failed (${status})`;
 }
 
 async function rustError(response: Response): Promise<never> {
@@ -1682,7 +1682,7 @@ export async function listRustTenants(): Promise<RustTenant[]> {
   const tenants =
     value && typeof value === "object" ? (value as { tenants?: unknown }).tenants : null;
   if (!Array.isArray(tenants) || !tenants.every(isRustTenant)) {
-    throw new Error("Invalid Rust tenant response");
+    throw new Error("Invalid tenant response");
   }
   return tenants;
 }
@@ -1693,7 +1693,7 @@ export async function replaceRustTenant(id: string, input: RustTenantInput): Pro
     jsonRequest("PUT", input)
   );
   const tenant = value && typeof value === "object" ? (value as { tenant?: unknown }).tenant : null;
-  if (!isRustTenant(tenant)) throw new Error("Invalid Rust tenant response");
+  if (!isRustTenant(tenant)) throw new Error("Invalid tenant response");
   return tenant;
 }
 
@@ -1704,7 +1704,7 @@ export async function listRustIdentityBindings(): Promise<RustIdentityBinding[]>
       ? (value as { identity_bindings?: unknown }).identity_bindings
       : null;
   if (!Array.isArray(bindings) || !bindings.every(isRustIdentityBinding)) {
-    throw new Error("Invalid Rust identity-binding response");
+    throw new Error("Invalid identity-binding response");
   }
   return bindings;
 }
@@ -1721,7 +1721,7 @@ export async function replaceRustIdentityBinding(
     value && typeof value === "object"
       ? (value as { identity_binding?: unknown }).identity_binding
       : null;
-  if (!isRustIdentityBinding(binding)) throw new Error("Invalid Rust identity-binding response");
+  if (!isRustIdentityBinding(binding)) throw new Error("Invalid identity-binding response");
   return binding;
 }
 
@@ -1742,12 +1742,12 @@ export async function listRustAuditEvents(query: RustAuditQuery = {}): Promise<R
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new Error(rustAdminError(value, response.status));
   if (!Array.isArray(value) || !value.every(isRustAuditEvent)) {
-    throw new Error("Invalid Rust audit-log response");
+    throw new Error("Invalid audit-log response");
   }
   const totalHeader = response.headers.get("x-total-count");
   const total = totalHeader === null ? Number.NaN : Number(totalHeader);
   if (!Number.isSafeInteger(total) || total < 0) {
-    throw new Error("Invalid Rust audit-log total");
+    throw new Error("Invalid audit-log total");
   }
   return { events: value, total };
 }
@@ -1759,7 +1759,7 @@ export async function listRustClientKeys(): Promise<RustClientKey[]> {
       ? (value as { client_keys?: unknown }).client_keys
       : undefined;
   if (!Array.isArray(keys) || !keys.every(isRustClientKey)) {
-    throw new Error("Invalid Rust client-key response");
+    throw new Error("Invalid client-key response");
   }
   return keys;
 }
@@ -1768,7 +1768,7 @@ export async function listRustSharedBudgets(): Promise<RustSharedBudget[]> {
   const value = (await rustAdminJson("/api/admin/budgets")) as {
     budgets?: RustSharedBudget[];
   };
-  if (!Array.isArray(value.budgets)) throw new Error("Invalid Rust shared budget response");
+  if (!Array.isArray(value.budgets)) throw new Error("Invalid shared budget response");
   return value.budgets;
 }
 
@@ -1778,7 +1778,7 @@ export async function createRustSharedBudget(
   const value = (await rustAdminJson("/api/admin/budgets", jsonRequest("POST", input))) as {
     budget?: RustSharedBudget;
   };
-  if (!value.budget) throw new Error("Invalid Rust shared budget response");
+  if (!value.budget) throw new Error("Invalid shared budget response");
   return value.budget;
 }
 
@@ -1790,7 +1790,7 @@ export async function replaceRustSharedBudget(
     `/api/admin/budgets/${encodeURIComponent(id)}`,
     jsonRequest("PUT", input)
   )) as { budget?: RustSharedBudget };
-  if (!value.budget) throw new Error("Invalid Rust shared budget response");
+  if (!value.budget) throw new Error("Invalid shared budget response");
   return value.budget;
 }
 
@@ -1807,7 +1807,7 @@ export async function issueRustClientKey(input: RustClientKeyInput): Promise<Rus
     typeof (value as { key?: unknown }).key !== "string" ||
     typeof (value as { warning?: unknown }).warning !== "string"
   ) {
-    throw new Error("Invalid Rust client-key issue response");
+    throw new Error("Invalid client-key issue response");
   }
   return value as RustIssuedClientKey;
 }
@@ -1822,7 +1822,7 @@ export async function replaceRustClientKey(
   );
   const key =
     value && typeof value === "object" ? (value as { client_key?: unknown }).client_key : undefined;
-  if (!isRustClientKey(key)) throw new Error("Invalid Rust client-key response");
+  if (!isRustClientKey(key)) throw new Error("Invalid client-key response");
   return key;
 }
 
@@ -1844,7 +1844,7 @@ export async function listRustTokenLimits(apiKeyId: string): Promise<RustTokenLi
   const limits =
     value && typeof value === "object" ? (value as { limits?: unknown }).limits : undefined;
   if (!Array.isArray(limits) || !limits.every(isRustTokenLimit)) {
-    throw new Error("Invalid Rust token-limit response");
+    throw new Error("Invalid token-limit response");
   }
   return limits;
 }
@@ -1855,7 +1855,7 @@ export async function saveRustTokenLimit(input: RustTokenLimitInput): Promise<Ru
   if (!response.ok) throw new Error(rustAdminError(value, response.status));
   const limit =
     value && typeof value === "object" ? (value as { limit?: unknown }).limit : undefined;
-  if (!isRustTokenLimit(limit)) throw new Error("Invalid Rust token-limit response");
+  if (!isRustTokenLimit(limit)) throw new Error("Invalid token-limit response");
   return limit;
 }
 
@@ -1875,7 +1875,7 @@ export async function listRustProviders(): Promise<RustProvider[]> {
   const providers =
     value && typeof value === "object" ? (value as { providers?: unknown }).providers : undefined;
   if (!Array.isArray(providers) || !providers.every(isRustProvider)) {
-    throw new Error("Invalid Rust provider response");
+    throw new Error("Invalid provider response");
   }
   return providers;
 }
@@ -1885,7 +1885,7 @@ export async function listRustCombos(): Promise<RustCombo[]> {
   const combos =
     value && typeof value === "object" ? (value as { combos?: unknown }).combos : undefined;
   if (!Array.isArray(combos) || !combos.every(isRustCombo)) {
-    throw new Error("Invalid Rust combo response");
+    throw new Error("Invalid combo response");
   }
   return combos;
 }
@@ -1897,7 +1897,7 @@ export async function replaceRustCombo(id: string, input: RustComboInput): Promi
   );
   const combo =
     value && typeof value === "object" ? (value as { combo?: unknown }).combo : undefined;
-  if (!isRustCombo(combo) || combo.id !== id) throw new Error("Invalid Rust combo response");
+  if (!isRustCombo(combo) || combo.id !== id) throw new Error("Invalid combo response");
   return combo;
 }
 
@@ -1926,7 +1926,7 @@ export async function authorizeRustProviderOAuth(
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new Error(rustAdminError(value, response.status));
   if (!isRustProviderOAuthAuthorization(value)) {
-    throw new Error("Invalid Rust provider OAuth authorization response");
+    throw new Error("Invalid provider OAuth authorization response");
   }
   return value;
 }
@@ -1951,7 +1951,7 @@ export async function exchangeRustProviderOAuth(
     (value as { success?: unknown }).success !== true ||
     !isRustProviderOAuthConnection(connection)
   ) {
-    throw new Error("Invalid Rust provider OAuth exchange response");
+    throw new Error("Invalid provider OAuth exchange response");
   }
   return connection;
 }
@@ -1978,7 +1978,7 @@ export async function importRustProviderSession(
     !isRustProvider((value as { connection?: unknown }).connection) ||
     typeof (value as { created?: unknown }).created !== "boolean"
   ) {
-    throw new Error("Invalid Rust provider session import response");
+    throw new Error("Invalid provider session import response");
   }
   return value as RustProviderSessionImportResult;
 }
@@ -1995,7 +1995,7 @@ export async function importRustProviderSessionsBulk(
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) throw new Error(rustAdminError(value, response.status));
   if (!value || typeof value !== "object") {
-    throw new Error("Invalid Rust provider bulk import response");
+    throw new Error("Invalid provider bulk import response");
   }
   const result = value as Record<string, unknown>;
   if (
@@ -2006,7 +2006,7 @@ export async function importRustProviderSessionsBulk(
     !Array.isArray(result.errors) ||
     !result.errors.every(isRustProviderSessionImportError)
   ) {
-    throw new Error("Invalid Rust provider bulk import response");
+    throw new Error("Invalid provider bulk import response");
   }
   return {
     success: result.success,
@@ -2030,7 +2030,7 @@ export async function extractRustProviderSessionZip(
   const entries =
     value && typeof value === "object" ? (value as { entries?: unknown }).entries : undefined;
   if (!Array.isArray(entries) || !entries.every(isRustProviderSessionZipEntry)) {
-    throw new Error("Invalid Rust provider ZIP response");
+    throw new Error("Invalid provider ZIP response");
   }
   return entries;
 }
@@ -2045,7 +2045,7 @@ export async function replaceRustProvider(
   );
   const provider =
     value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
-  if (!isRustProvider(provider)) throw new Error("Invalid Rust provider response");
+  if (!isRustProvider(provider)) throw new Error("Invalid provider response");
   return provider;
 }
 
@@ -2079,7 +2079,7 @@ export async function rotateRustProviderOAuth(
   );
   const provider =
     value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
-  if (!isRustProvider(provider)) throw new Error("Invalid Rust provider response");
+  if (!isRustProvider(provider)) throw new Error("Invalid provider response");
   return provider;
 }
 
@@ -2091,7 +2091,7 @@ export async function refreshRustProviderOAuth(id: string): Promise<RustProvider
   const refresh =
     value && typeof value === "object" ? (value as { refresh?: unknown }).refresh : undefined;
   if (!isRustProviderOAuthRefresh(refresh)) {
-    throw new Error("Invalid Rust provider OAuth refresh response");
+    throw new Error("Invalid provider OAuth refresh response");
   }
   return refresh;
 }
@@ -2103,7 +2103,7 @@ export async function listRustProviderQuotas(): Promise<RustProviderQuota[]> {
       ? (value as { provider_quotas?: unknown }).provider_quotas
       : undefined;
   if (!Array.isArray(quotas) || !quotas.every(isRustProviderQuota)) {
-    throw new Error("Invalid Rust provider quota response");
+    throw new Error("Invalid provider quota response");
   }
   return quotas;
 }
@@ -2121,7 +2121,7 @@ export async function configureRustProviderQuota(
       ? (value as { provider_quota?: unknown }).provider_quota
       : undefined;
   if (!isRustProviderQuota(quota) || quota.provider_id !== id) {
-    throw new Error("Invalid Rust provider quota response");
+    throw new Error("Invalid provider quota response");
   }
   return quota;
 }
@@ -2140,7 +2140,7 @@ export async function listRustProviderHealth(): Promise<RustProviderHealth[]> {
       ? (value as { provider_health?: unknown }).provider_health
       : undefined;
   if (!Array.isArray(health) || !health.every(isRustProviderHealth)) {
-    throw new Error("Invalid Rust provider health response");
+    throw new Error("Invalid provider health response");
   }
   return health;
 }
@@ -2169,7 +2169,7 @@ export async function readRustRuntimeSettings(): Promise<RustRuntimeSettings> {
       ? (value as { runtime_settings?: unknown }).runtime_settings
       : undefined;
   if (!isRustRuntimeSettings(settings)) {
-    throw new Error("Invalid Rust runtime settings response");
+    throw new Error("Invalid runtime settings response");
   }
   return settings;
 }
@@ -2183,7 +2183,7 @@ export async function saveRustRuntimeSettings(
       ? (value as { runtime_settings?: unknown }).runtime_settings
       : undefined;
   if (!isRustRuntimeSettings(settings)) {
-    throw new Error("Invalid Rust runtime settings response");
+    throw new Error("Invalid runtime settings response");
   }
   return settings;
 }
@@ -2198,7 +2198,7 @@ export async function refreshRustProviderQuota(id: string): Promise<RustProvider
   const refresh =
     value && typeof value === "object" ? (value as { refresh?: unknown }).refresh : undefined;
   if (!isRustProviderQuotaRefresh(refresh) || refresh.provider_id !== id) {
-    throw new Error("Invalid Rust provider quota refresh response");
+    throw new Error("Invalid provider quota refresh response");
   }
   return refresh;
 }
@@ -2211,14 +2211,14 @@ export async function testRustProvider(id: string, model: string): Promise<RustP
   const diagnostic =
     value && typeof value === "object" ? (value as { diagnostic?: unknown }).diagnostic : undefined;
   if (!isRustProviderDiagnostic(diagnostic)) {
-    throw new Error("Invalid Rust provider diagnostic response");
+    throw new Error("Invalid provider diagnostic response");
   }
   return diagnostic;
 }
 
 export async function readRustModelCatalog(): Promise<RustModelCatalogIndex> {
   const value = await rustAdminJson("/api/admin/model-catalog");
-  if (!value || typeof value !== "object") throw new Error("Invalid Rust model catalog response");
+  if (!value || typeof value !== "object") throw new Error("Invalid model catalog response");
   const catalog = value as Record<string, unknown>;
   if (
     !isRustCatalogManifest(catalog.manifest) ||
@@ -2226,7 +2226,7 @@ export async function readRustModelCatalog(): Promise<RustModelCatalogIndex> {
     !catalog.providers.every(isRustCatalogProviderSummary) ||
     !isRustCatalogSnapshot(catalog.snapshot)
   ) {
-    throw new Error("Invalid Rust model catalog response");
+    throw new Error("Invalid model catalog response");
   }
   return value as RustModelCatalogIndex;
 }
@@ -2236,7 +2236,7 @@ export async function readRustCatalogProvider(id: string): Promise<RustCatalogPr
   const provider =
     value && typeof value === "object" ? (value as { provider?: unknown }).provider : undefined;
   if (!provider || typeof provider !== "object") {
-    throw new Error("Invalid Rust catalog provider response");
+    throw new Error("Invalid catalog provider response");
   }
   const record = provider as Record<string, unknown>;
   if (
@@ -2245,7 +2245,7 @@ export async function readRustCatalogProvider(id: string): Promise<RustCatalogPr
     !Array.isArray(record.models) ||
     !record.models.every(isRustCatalogModel)
   ) {
-    throw new Error("Invalid Rust catalog provider response");
+    throw new Error("Invalid catalog provider response");
   }
   return provider as RustCatalogProvider;
 }
@@ -2255,7 +2255,7 @@ export async function refreshRustModelCatalog(): Promise<RustCatalogRefresh> {
   const snapshot =
     value && typeof value === "object" ? (value as { snapshot?: unknown }).snapshot : undefined;
   if (!snapshot || typeof snapshot !== "object") {
-    throw new Error("Invalid Rust catalog refresh response");
+    throw new Error("Invalid catalog refresh response");
   }
   const refresh = snapshot as Record<string, unknown>;
   if (
@@ -2264,7 +2264,7 @@ export async function refreshRustModelCatalog(): Promise<RustCatalogRefresh> {
     !isOptionalString(refresh.revision) ||
     !isRustCatalogManifest(refresh.manifest)
   ) {
-    throw new Error("Invalid Rust catalog refresh response");
+    throw new Error("Invalid catalog refresh response");
   }
   return snapshot as RustCatalogRefresh;
 }
@@ -2273,7 +2273,7 @@ export async function readRustUsageSummary(keyId?: string): Promise<RustUsageSum
   const query = keyId ? `?key_id=${encodeURIComponent(keyId)}&limit=1` : "?limit=1";
   const value = await rustAdminJson(`/api/admin/usage${query}`);
   const usage = value && typeof value === "object" ? (value as { usage?: unknown }).usage : null;
-  if (!usage || typeof usage !== "object") throw new Error("Invalid Rust usage response");
+  if (!usage || typeof usage !== "object") throw new Error("Invalid usage response");
   const summary = usage as Record<string, unknown>;
   const fields: Array<keyof RustUsageSummary> = [
     "request_count",
@@ -2289,7 +2289,7 @@ export async function readRustUsageSummary(keyId?: string): Promise<RustUsageSum
     "pending_reserved_microusd",
   ];
   if (fields.some((field) => typeof summary[field] !== "number")) {
-    throw new Error("Invalid Rust usage response");
+    throw new Error("Invalid usage response");
   }
   return summary as unknown as RustUsageSummary;
 }

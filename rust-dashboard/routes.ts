@@ -1,5 +1,6 @@
 export type SpaPageId =
   | "overview"
+  | "endpoints"
   | "providers"
   | "resilience"
   | "models"
@@ -36,6 +37,12 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
       "/observe/health/runtime",
       "/home/analytics",
     ],
+  },
+  {
+    id: "endpoints",
+    path: "/dashboard/endpoint",
+    label: "Endpoint",
+    aliases: ["/proxy/endpoint"],
   },
   {
     id: "providers",

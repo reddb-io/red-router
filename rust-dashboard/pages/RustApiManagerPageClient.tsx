@@ -211,7 +211,7 @@ function usd(microusd: number): string {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Rust control-plane request failed";
+  return error instanceof Error ? error.message : "Management request failed";
 }
 
 function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draft) => void }) {
@@ -580,7 +580,7 @@ export default function RustApiManagerPageClient() {
   };
 
   if (loading) {
-    return <div className="p-6 text-sm text-text-muted">Loading Rust key authority…</div>;
+    return <div className="p-6 text-sm text-text-muted">Loading API keys…</div>;
   }
 
   return (
@@ -590,7 +590,7 @@ export default function RustApiManagerPageClient() {
           <div className="mb-1 flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-text">API keys</h1>
             <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-semibold text-orange-600 dark:text-orange-400">
-              Rust authority
+              API keys
             </span>
           </div>
           <p className="max-w-3xl text-sm text-text-muted">
@@ -687,7 +687,7 @@ export default function RustApiManagerPageClient() {
           {keys.length} durable key{keys.length === 1 ? "" : "s"}
         </div>
         {keys.length === 0 ? (
-          <div className="p-6 text-sm text-text-muted">No Rust-owned client keys yet.</div>
+          <div className="p-6 text-sm text-text-muted">No client keys yet.</div>
         ) : (
           keys.map((key) => (
             <article
@@ -761,7 +761,7 @@ export default function RustApiManagerPageClient() {
               </h2>
               <p className="mt-1 max-w-3xl text-xs text-text-muted">
                 The key must stay disabled while a model quota is changed. A global token or spend
-                quota and a conservative token reservation are required before the Rust backend
+                quota and a conservative token reservation are required before the server
                 accepts a model limit.
               </p>
             </div>

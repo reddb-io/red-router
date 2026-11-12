@@ -145,7 +145,7 @@ const inputClass =
 const labelClass = "flex flex-col gap-1 text-xs font-medium text-text-muted";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Rust combo request failed";
+  return error instanceof Error ? error.message : "Combo request failed";
 }
 
 function comboDraft(combo: RustCombo): Draft {
@@ -589,7 +589,7 @@ export default function RustCombosPageClient() {
       <div>
         <h1 className="text-2xl font-semibold text-text">Routing combos</h1>
         <p className="mt-1 max-w-3xl text-sm text-text-muted">
-          Managed directly by the Rust proxy. Target order, fallback, quota and resilience state are
+          Target order, fallback, quota and resilience state are
           applied without a Next.js persistence path.
         </p>
       </div>
@@ -604,7 +604,7 @@ export default function RustCombosPageClient() {
       )}
 
       <Card
-        title={editingId ? `Edit ${editingId}` : "Create Rust combo"}
+        title={editingId ? `Edit ${editingId}` : "Create combo"}
         subtitle="One public model ID can route across up to eight provider connections."
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -690,7 +690,7 @@ export default function RustCombosPageClient() {
             <div className="mb-3">
               <strong className="text-sm text-text">Automatic routing weights</strong>
               <p className="text-xs text-text-muted">
-                Values are normalized by Rust. Set a signal to zero to ignore it.
+                Values are normalized automatically. Set a signal to zero to ignore it.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -729,7 +729,7 @@ export default function RustCombosPageClient() {
             <div className="mb-3">
               <strong className="text-sm text-text">Context relay handoff</strong>
               <p className="text-xs text-text-muted">
-                Rust persists session affinity now; these settings control structured summary
+                Session affinity is persisted; these settings control structured summary
                 generation and quota-triggered handoff.
               </p>
             </div>
@@ -839,7 +839,7 @@ export default function RustCombosPageClient() {
             <div className="mb-3">
               <strong className="text-sm text-text">Fusion panel</strong>
               <p className="text-xs text-text-muted">
-                Rust queries the panel concurrently and asks one configured target to synthesize the
+                The panel is queried concurrently and one configured target synthesizes the
                 final answer.
               </p>
             </div>
@@ -1215,19 +1215,19 @@ export default function RustCombosPageClient() {
       </Card>
 
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-text">Rust-owned routes</h2>
+        <h2 className="text-lg font-semibold text-text">Routes</h2>
         <span className="text-xs text-text-muted">{combos.length} configured</span>
       </div>
 
       {loading ? (
         <Card>
           <p className="text-sm text-text-muted" role="status">
-            Loading Rust combos…
+            Loading combos…
           </p>
         </Card>
       ) : combos.length === 0 ? (
         <Card>
-          <p className="text-sm text-text-muted">No Rust combos configured yet.</p>
+          <p className="text-sm text-text-muted">No combos configured yet.</p>
         </Card>
       ) : (
         combos.map((combo) => (
@@ -1259,7 +1259,7 @@ export default function RustCombosPageClient() {
                         {index + 1}. combo / {target.combo_id}
                       </span>
                       <div className="mt-1 text-xs text-text-muted">
-                        Expanded safely by the Rust proxy
+                        Expanded by the proxy
                       </div>
                     </div>
                   );

@@ -9,6 +9,8 @@ test("red-routerd serves and authenticates the production SPA", async ({ page })
   await page.getByRole("button", { name: "Sign in locally" }).click();
 
   await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Product areas" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Dashboard navigation" })).toBeVisible();
   const config = await page.request.get("/api/auth/config");
   expect(config.ok()).toBe(true);
   expect(await config.json()).toMatchObject({
@@ -18,20 +20,22 @@ test("red-routerd serves and authenticates the production SPA", async ({ page })
   });
 
   const pages = [
-    ["Providers", "Provider connections"],
-    ["Resilience", "Provider resilience and quotas"],
-    ["Models", "Model catalog"],
-    ["Combos", "Routing combos"],
-    ["API keys", "API keys"],
-    ["Budgets", "Shared budgets"],
-    ["Usage destinations", "Usage destinations"],
-    ["Usage report", "Usage report"],
-    ["Usage history", "Historical usage"],
-    ["Organizations", "Organizations and identities"],
-    ["Audit log", "Audit log"],
-    ["Single sign-on", "Single sign-on"],
+    ["Routing", "Endpoint", "Endpoint"],
+    ["Routing", "Providers", "Provider connections"],
+    ["Routing", "Resilience", "Provider resilience and quotas"],
+    ["Routing", "Models", "Model catalog"],
+    ["Routing", "Combos", "Routing combos"],
+    ["Access", "API keys", "API keys"],
+    ["Access", "Budgets", "Shared budgets"],
+    ["Observe", "Usage destinations", "Usage destinations"],
+    ["Observe", "Usage report", "Usage report"],
+    ["Observe", "Usage history", "Historical usage"],
+    ["Access", "Organizations", "Organizations and identities"],
+    ["Observe", "Audit log", "Audit log"],
+    ["System", "Single sign-on", "Single sign-on"],
   ] as const;
-  for (const [link, heading] of pages) {
+  for (const [area, link, heading] of pages) {
+    await page.getByRole("button", { name: area, exact: true }).click();
     await page.getByRole("link", { name: link, exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
   }
@@ -48,6 +52,7 @@ test("the SPA persists organization and named client-key metadata through Rust",
   await page.getByRole("button", { name: "Sign in locally" }).click();
   await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
 
+  await page.getByRole("button", { name: "Access", exact: true }).click();
   await page.getByRole("link", { name: "Organizations", exact: true }).click();
   await page.getByLabel("Organization ID").fill("acme-e2e");
   await page.getByLabel("Slug", { exact: true }).fill("acme-e2e");

@@ -331,7 +331,7 @@ export default function ProviderResilience() {
             ) * 1_000,
         },
       });
-      return "Global Rust routing and cooldown policy saved.";
+      return "Global routing and cooldown policy saved.";
     });
   }
 
@@ -350,7 +350,7 @@ export default function ProviderResilience() {
       <div>
         <h1 className="text-2xl font-semibold">Provider resilience and quotas</h1>
         <p className="mt-1 text-text-muted">
-          Operate Rust-owned circuit breakers, connection cooldowns and provider quota snapshots.
+          Manage circuit breakers, connection cooldowns and provider quotas.
           Changes are durable and affect routing on every proxy replica.
         </p>
       </div>

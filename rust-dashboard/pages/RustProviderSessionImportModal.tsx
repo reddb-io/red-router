@@ -140,7 +140,7 @@ export default function RustProviderSessionImportModal({ onClose, onImported }: 
               Import CLI provider sessions
             </h2>
             <p className="mt-1 text-sm text-text-muted">
-              The Rust backend validates the session, derives its stable account identity and stores
+              The server validates the session, identifies the account and stores
               credentials encrypted. Imported secrets are never returned by the API.
             </p>
           </div>

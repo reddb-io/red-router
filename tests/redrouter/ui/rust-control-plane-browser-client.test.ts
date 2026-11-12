@@ -379,7 +379,7 @@ describe("Rust control-plane browser client", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     await expect(rustAdminFetch("/api/admin/providers")).rejects.toThrow(
-      "Rust admin session is unavailable"
+      "admin session is unavailable"
     );
     await expect(rustAdminFetch("https://attacker.example/api/admin/providers")).rejects.toThrow(
       "same-origin"
@@ -711,9 +711,9 @@ describe("Rust control-plane browser client", () => {
       );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustTenants()).rejects.toThrow("Invalid Rust tenant response");
+    await expect(listRustTenants()).rejects.toThrow("Invalid tenant response");
     await expect(listRustIdentityBindings()).rejects.toThrow(
-      "Invalid Rust identity-binding response"
+      "Invalid identity-binding response"
     );
   });
 
@@ -743,7 +743,7 @@ describe("Rust control-plane browser client", () => {
         offset: 0,
       })
     ).resolves.toEqual({ events: [auditEvent], total: 1 });
-    await expect(listRustAuditEvents()).rejects.toThrow("Invalid Rust audit-log total");
+    await expect(listRustAuditEvents()).rejects.toThrow("Invalid audit-log total");
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "/api/admin/audit-log?action=provider.update&resourceType=provider&limit=50&offset=0"
     );
@@ -804,7 +804,7 @@ describe("Rust control-plane browser client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustClientKeys()).rejects.toThrow("Invalid Rust client-key response");
+    await expect(listRustClientKeys()).rejects.toThrow("Invalid client-key response");
   });
 
   it("uses the Rust provider authority without accepting returned credentials", async () => {
@@ -859,7 +859,7 @@ describe("Rust control-plane browser client", () => {
       upstream_status: 200,
     });
     await expect(disableRustProvider(provider.id)).resolves.toBeUndefined();
-    await expect(listRustProviders()).rejects.toThrow("Invalid Rust provider response");
+    await expect(listRustProviders()).rejects.toThrow("Invalid provider response");
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/providers",
@@ -944,8 +944,8 @@ describe("Rust control-plane browser client", () => {
       );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustCombos()).rejects.toThrow("Invalid Rust combo response");
-    await expect(listRustCombos()).rejects.toThrow("Invalid Rust combo response");
+    await expect(listRustCombos()).rejects.toThrow("Invalid combo response");
+    await expect(listRustCombos()).rejects.toThrow("Invalid combo response");
   });
 
   it("rotates OAuth credentials with a generation and keeps both tokens write-only", async () => {
@@ -1037,7 +1037,7 @@ describe("Rust control-plane browser client", () => {
       })
     ).resolves.toEqual(providerQuota);
     await expect(clearRustProviderQuota(providerQuota.provider_id)).resolves.toBeUndefined();
-    await expect(listRustProviderQuotas()).rejects.toThrow("Invalid Rust provider quota response");
+    await expect(listRustProviderQuotas()).rejects.toThrow("Invalid provider quota response");
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/provider-quotas",
@@ -1153,7 +1153,7 @@ describe("Rust control-plane browser client", () => {
     await expect(readRustModelCatalog()).resolves.toEqual(catalogIndex);
     await expect(readRustCatalogProvider("openai")).resolves.toEqual(catalogProvider);
     await expect(refreshRustModelCatalog()).resolves.toEqual(refresh);
-    await expect(readRustModelCatalog()).rejects.toThrow("Invalid Rust model catalog response");
+    await expect(readRustModelCatalog()).rejects.toThrow("Invalid model catalog response");
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/admin/model-catalog",
@@ -1186,7 +1186,7 @@ describe("Rust control-plane browser client", () => {
     vi.stubGlobal("fetch", fetch);
 
     await expect(readRustUsageSummary("key_fixture")).resolves.toEqual(usage);
-    await expect(readRustUsageSummary()).rejects.toThrow("Invalid Rust usage response");
+    await expect(readRustUsageSummary()).rejects.toThrow("Invalid usage response");
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/usage?key_id=key_fixture&limit=1");
   });
 });

@@ -203,7 +203,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Rust control-plane request failed";
+  return error instanceof Error ? error.message : "Management request failed";
 }
 
 function catalogDate(value: string): string {
@@ -665,7 +665,7 @@ export default function RustProvidersPageClient() {
         <div>
           <h1 className="text-2xl font-semibold text-text">Provider connections</h1>
           <p className="mt-1 max-w-3xl text-sm text-text-muted">
-            Managed directly by the Rust proxy. Credentials are encrypted by the backend and are
+            Credentials are encrypted by the server and are
             never returned to this page.
           </p>
         </div>
@@ -748,7 +748,7 @@ export default function RustProvidersPageClient() {
 
       <Card
         title="Provider browser sign-in"
-        subtitle="Connect supported CLI accounts without copying access or refresh tokens into the dashboard. OAuth state, token exchange and encrypted persistence stay in Rust."
+        subtitle="Connect supported CLI accounts without copying access or refresh tokens into the dashboard. Credentials are stored encrypted."
       >
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => setOauthDialog({ provider: "codex" })}>
@@ -1033,7 +1033,7 @@ export default function RustProvidersPageClient() {
           </div>
         ) : providers.length === 0 ? (
           <Card>
-            <p className="text-sm text-text-muted">No provider connections configured in Rust.</p>
+            <p className="text-sm text-text-muted">No provider connections configured.</p>
           </Card>
         ) : (
           providers.map((provider) => {

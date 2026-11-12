@@ -196,7 +196,7 @@ export default function OidcSettings() {
     <section className="mx-auto max-w-3xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">Single sign-on</h1>
       <p>
-        Configure the OpenID Connect identity provider for the Rust dashboard and control plane.
+        Configure the OpenID Connect identity provider for the dashboard.
       </p>
       {error && (
         <p role="alert" className="text-error">
