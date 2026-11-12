@@ -13,6 +13,7 @@
   "files": [
     "bin/",
     "dist/",
+    "rust-runtime/",
     "@omniroute/",
     "open-sse/",
     "src/domain/",
@@ -120,6 +121,7 @@
     "build:rust-dashboard": "vite build --config rust-dashboard/vite.config.mjs",
     "build:rust-server": "cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml",
     "build:rust": "npm run build:rust-dashboard && npm run build:rust-server",
+    "build:rust-package": "npm run build:rust && node scripts/build/stage-rust-runtime.mjs",
     "build:secure": "OMNIROUTE_BUILD_PROFILE=minimal node scripts/build/build-next-isolated.mjs",
     "build:backend": "cross-env OMNIROUTE_BUILD_BACKEND_ONLY=1 node scripts/build/build-next-isolated.mjs",
     "build:contributor": "cross-env OMNIROUTE_BUILD_PROFILE=contributor OMNIROUTE_USE_TURBOPACK=0 node scripts/build/build-next-isolated.mjs",

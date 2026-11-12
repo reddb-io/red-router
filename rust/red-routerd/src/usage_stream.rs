@@ -66,11 +66,13 @@ impl UsageContext {
                     .record_native_usage(
                         &event_id,
                         &identity,
-                        &provider,
-                        &model,
-                        usage,
-                        prices.as_ref(),
-                        &attribution,
+                        crate::control_plane::NativeUsageRecord {
+                            provider: &provider,
+                            model: &model,
+                            usage,
+                            prices: prices.as_ref(),
+                            attribution: &attribution,
+                        },
                     )
                     .await
             }

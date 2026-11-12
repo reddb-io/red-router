@@ -397,6 +397,22 @@ pub(crate) struct ContextRelayUsageAttempt {
     prices: Option<crate::accounting::TokenPrices>,
 }
 
+pub(crate) struct NativeUsageRecord<'a> {
+    pub(crate) provider: &'a str,
+    pub(crate) model: &'a str,
+    pub(crate) usage: &'a crate::accounting::ChatUsage,
+    pub(crate) prices: Option<&'a crate::accounting::TokenPrices>,
+    pub(crate) attribution: &'a crate::native_usage::UsageAttribution,
+}
+
+pub(crate) struct NativeRerankUsageRecord<'a> {
+    pub(crate) provider: &'a str,
+    pub(crate) model: &'a str,
+    pub(crate) search_units: u64,
+    pub(crate) price: Option<&'a crate::native_usage::RerankPrice>,
+    pub(crate) attribution: &'a crate::native_usage::UsageAttribution,
+}
+
 impl Drop for ContextRelayGenerationGuard {
     fn drop(&mut self) {
         if let Ok(mut generations) = self.inner.context_relay_generations.lock() {
@@ -3561,11 +3577,7 @@ impl ControlPlane {
         &self,
         event_id: &str,
         identity: &crate::policy::ClientIdentity,
-        provider: &str,
-        model: &str,
-        usage_event: &crate::accounting::ChatUsage,
-        prices: Option<&crate::accounting::TokenPrices>,
-        attribution: &crate::native_usage::UsageAttribution,
+        record: NativeUsageRecord<'_>,
     ) -> Result<(), &'static str> {
         let store = self
             .0
@@ -3581,17 +3593,17 @@ impl ControlPlane {
                     key_id: &identity.id,
                     key_name: &identity.name,
                     tenant_id: &identity.tenant_id,
-                    provider,
-                    model,
-                    usage: usage_event,
-                    prices,
+                    provider: record.provider,
+                    model: record.model,
+                    usage: record.usage,
+                    prices: record.prices,
                     kind: crate::native_usage::UsageKind::Tokens,
                     search_units: 0,
                     rerank_price: None,
                     now_ms: unix_time_ms()?,
                     reserved: identity.usage_quota.is_some(),
                 },
-                attribution,
+                record.attribution,
             )
             .await?;
         Ok(())
@@ -3663,11 +3675,7 @@ impl ControlPlane {
         &self,
         event_id: &str,
         identity: &crate::policy::ClientIdentity,
-        provider: &str,
-        model: &str,
-        search_units: u64,
-        price: Option<&crate::native_usage::RerankPrice>,
-        attribution: &crate::native_usage::UsageAttribution,
+        record: NativeRerankUsageRecord<'_>,
     ) -> Result<(), &'static str> {
         let store = self
             .0
@@ -3690,17 +3698,17 @@ impl ControlPlane {
                     key_id: &identity.id,
                     key_name: &identity.name,
                     tenant_id: &identity.tenant_id,
-                    provider,
-                    model,
+                    provider: record.provider,
+                    model: record.model,
                     usage: &zero,
                     prices: None,
                     kind: crate::native_usage::UsageKind::Rerank,
-                    search_units,
-                    rerank_price: price,
+                    search_units: record.search_units,
+                    rerank_price: record.price,
                     now_ms: unix_time_ms()?,
                     reserved: identity.usage_quota.is_some(),
                 },
-                attribution,
+                record.attribution,
             )
             .await?;
         Ok(())

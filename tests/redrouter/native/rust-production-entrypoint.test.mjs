@@ -13,6 +13,8 @@ describe("Rust production entrypoint", () => {
     assert.match(pkg.scripts["build:rust-server"], /rust\/red-routerd\/Cargo\.toml/);
     assert.match(pkg.scripts["start:rust"], /RED_ROUTER_SPA_DIR=.build\/rust-dashboard/);
     assert.match(pkg.scripts["start:rust"], /rust\/red-routerd\/Cargo\.toml/);
+    assert.match(pkg.scripts["build:rust-package"], /stage-rust-runtime\.mjs/);
+    assert.ok(pkg.files.includes("rust-runtime/"));
   });
 
   it("makes the loopback-bound Rust and SQLite service the compose default", async () => {
@@ -43,5 +45,16 @@ describe("Rust production entrypoint", () => {
       )
     );
     assert.doesNotMatch(runtime, /\b(?:node|npm|next)\b/i);
+  });
+
+  it("makes the packaged CLI prefer Rust while keeping an explicit rollback", async () => {
+    const serve = await read("bin/cli/commands/serve.mjs");
+    const resolver = await read("bin/cli/runtime/rustRuntime.mjs");
+
+    assert.match(serve, /--runtime <runtime>/);
+    assert.match(serve, /resolveRustRuntime/);
+    assert.match(resolver, /selected === "next"/);
+    assert.match(resolver, /if \(rust\) return rust/);
+    assert.match(resolver, /rust-runtime.*dashboard/s);
   });
 });

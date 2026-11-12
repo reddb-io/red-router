@@ -398,6 +398,10 @@ files are selected when present. The server adds CSP, clickjacking, MIME-sniffin
 referrer, permissions and opener protections. `Dockerfile.rust` packages the bundle
 with `red-routerd`, and the default Compose service runs that image without Node.js.
 Legacy Next.js deployment shapes require an explicit Compose profile.
+For npm/CLI packaging, `npm run build:rust-package` stages the SPA and current native
+binary under `rust-runtime/`. `red-router serve` prefers those Rust artifacts; use
+`--runtime next` only as a temporary rollback, or `--runtime rust` to require the
+native server and fail rather than silently starting Next.js.
 For a non-mutating inventory before migrating a legacy Next.js SQLite database, set
 `RED_ROUTER_PRODUCT_DB_PATH` to that file and run `red-routerd inspect-legacy-sqlite`.
 It reads a single snapshot and reports counts without credentials or row contents. This

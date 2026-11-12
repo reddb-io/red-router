@@ -118,6 +118,14 @@ pub(crate) struct UsageEvent<'a> {
     pub(crate) reserved: bool,
 }
 
+struct Settlement<'a> {
+    attribution: &'a UsageAttribution,
+    tokens: i64,
+    search_units: i64,
+    amount_microusd: i64,
+    pricing_snapshot: Option<&'a str>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UsageKind {
     Tokens,
@@ -562,6 +570,7 @@ impl NativeUsage {
         Ok(connection)
     }
 
+    #[cfg(test)]
     pub(crate) async fn reserve(
         &self,
         reservation: &Reservation<'_>,
@@ -855,11 +864,13 @@ impl NativeUsage {
             .settle_in(
                 &mut connection,
                 event,
-                attribution,
-                tokens,
-                search_units,
-                amount_microusd,
-                pricing_snapshot.as_deref(),
+                Settlement {
+                    attribution,
+                    tokens,
+                    search_units,
+                    amount_microusd,
+                    pricing_snapshot: pricing_snapshot.as_deref(),
+                },
             )
             .await;
         match result {
@@ -891,11 +902,7 @@ impl NativeUsage {
         &self,
         connection: &mut PoolConnection<Any>,
         event: &UsageEvent<'_>,
-        attribution: &UsageAttribution,
-        tokens: i64,
-        search_units: i64,
-        amount_microusd: i64,
-        pricing_snapshot: Option<&str>,
+        settlement: Settlement<'_>,
     ) -> Result<bool, &'static str> {
         // Shared budgets reserve even when this key has no individual quota.
         // Detect the durable hold instead of trusting the caller's legacy
@@ -926,15 +933,15 @@ impl NativeUsage {
                 || text("provider").as_deref() != Some(event.provider)
                 || text("model").as_deref() != Some(event.model)
                 || text("state").as_deref() != Some("dispatched")
-                || reserved_end_user != attribution.end_user
-                || reserved_tags.as_ref() != Some(&attribution.tags)
+                || reserved_end_user != settlement.attribution.end_user
+                || reserved_tags.as_ref() != Some(&settlement.attribution.tags)
                 || reserved_tokens < 0
                 || reserved_microusd < 0
             {
                 return Err("invalid usage reservation");
             }
-            if tokens > reserved_tokens
-                || (reserved_microusd > 0 && amount_microusd > reserved_microusd)
+            if settlement.tokens > reserved_tokens
+                || (reserved_microusd > 0 && settlement.amount_microusd > reserved_microusd)
             {
                 sqlx::query("UPDATE redrouter_usage_reservations SET reserved_tokens = $2, reserved_microusd = $2 WHERE event_id = $1")
                     .bind(event.event_id)
@@ -966,8 +973,8 @@ impl NativeUsage {
         let cache_creation =
             i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
-        let tags_json =
-            serde_json::to_string(&attribution.tags).map_err(|_| "invalid usage attribution")?;
+        let tags_json = serde_json::to_string(&settlement.attribution.tags)
+            .map_err(|_| "invalid usage attribution")?;
         sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
             .bind(event.event_id)
             .bind(event.key_id)
@@ -976,26 +983,26 @@ impl NativeUsage {
             .bind(event.provider)
             .bind(event.model)
             .bind(event.kind.as_str())
-            .bind(search_units)
+            .bind(settlement.search_units)
             .bind(input)
             .bind(output)
             .bind(cache_read)
             .bind(cache_creation)
             .bind(reasoning)
-            .bind(amount_microusd)
+            .bind(settlement.amount_microusd)
             .bind(i64::from(event.prices.is_some() || event.rerank_price.is_some()))
-            .bind(pricing_snapshot)
+            .bind(settlement.pricing_snapshot)
             .bind(event.now_ms)
-            .bind(attribution.end_user.as_deref())
+            .bind(settlement.attribution.end_user.as_deref())
             .bind(tags_json)
             .execute(&mut **connection)
             .await
             .map_err(|_| "cannot record usage ledger")?;
-        if tokens > 0 {
+        if settlement.tokens > 0 {
             sqlx::query("INSERT INTO redrouter_usage_counters (key_id,minute_bucket,consumed_tokens,updated_at_unix_ms) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id,minute_bucket) DO UPDATE SET consumed_tokens = redrouter_usage_counters.consumed_tokens + excluded.consumed_tokens, updated_at_unix_ms = excluded.updated_at_unix_ms")
                 .bind(event.key_id)
                 .bind(event.now_ms / 60_000)
-                .bind(tokens)
+                .bind(settlement.tokens)
                 .bind(event.now_ms)
                 .execute(&mut **connection)
                 .await

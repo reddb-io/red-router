@@ -24,6 +24,7 @@ _tasks/
 .dist/**
 .next/**
 .build/**
+rust-runtime/**
 .out/**
 
 # Stryker mutation testing — ephemeral sandbox + generated reports (never commit)

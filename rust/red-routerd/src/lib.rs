@@ -2077,6 +2077,12 @@ pub(crate) fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
 pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
+        // Compatibility for the existing CLI/tray readiness probe. The Rust
+        // server owns this route now; no Next.js handler is involved.
+        .route(
+            "/api/monitoring/health",
+            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
+        )
         .route("/readyz", get(ready))
         .route("/api/auth/config", get(control_plane::auth_config))
         .route(
@@ -7038,11 +7044,13 @@ async fn proxy_request(
                         .record_native_rerank_usage(
                             &event_id,
                             &identity,
-                            &provider,
-                            &model,
-                            search_units,
-                            price.as_ref(),
-                            &attribution,
+                            control_plane::NativeRerankUsageRecord {
+                                provider: &provider,
+                                model: &model,
+                                search_units,
+                                price: price.as_ref(),
+                                attribution: &attribution,
+                            },
                         )
                         .await
                 }

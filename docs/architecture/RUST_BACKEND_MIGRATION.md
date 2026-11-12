@@ -61,16 +61,16 @@ The latest functional release is 0.60.5 (2026-10-16); the only newer mainline ch
 CI scheduling metadata. These are the product changes from the preceding 30 days and
 their Rust migration state:
 
-| Next.js change                                             | Rust state                                                                                                                      | Remaining acceptance work                                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Frozen model-price snapshots in usage export               | Product bridge and native Rust ledger persist exact token vectors and rerank search-unit prices used at settlement              | Cover the remaining protocol-specific unit prices                                                |
-| Preserve unpriced chat and streaming consumption           | Implemented as explicit opt-in with `pricing_known = 0`                                                                         | Complete the remaining protocol sinks and retention policy                                       |
-| Durable embedding usage                                    | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses                                          | Add protocol-wide fixtures outside embeddings                                                    |
-| Operator/key reporting attributes                          | Implemented for product-SQLite chat, streaming and embeddings                                                                   | Move attributes and the ledger behind the Rust-owned storage repository                          |
-| Signed OIDC claim policies                                 | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving                  | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
-| Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected                                                                                             | Add parity fixtures for every translating stream path before declaring complete                  |
-| Bound router/cache/log stream retention                    | Rust SSE frames and channels are bounded                                                                                        | Audit admin logs, translated streams and future SPA subscriptions under sustained load           |
-| Dashboard-managed usage sinks                              | BigQuery and signed HTTPS webhook instant exports are Rust-owned, tenant/key scoped, encrypted, live-reloaded and SQLite-backed | Migrate window aggregation plus SQS, Kafka and RedDB transports                                  |
+| Next.js change                                             | Rust state                                                                                                                           | Remaining acceptance work                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Frozen model-price snapshots in usage export               | Product bridge and native Rust ledger persist exact token vectors and rerank search-unit prices used at settlement                   | Cover the remaining protocol-specific unit prices                                      |
+| Preserve unpriced chat and streaming consumption           | Implemented as explicit opt-in with `pricing_known = 0`                                                                              | Complete the remaining protocol sinks and retention policy                             |
+| Durable embedding usage                                    | Implemented for both product-SQLite and native Rust SQLite OpenAI-compatible responses                                               | Add protocol-wide fixtures outside embeddings                                          |
+| Operator/key reporting attributes                          | Implemented for product-SQLite chat, streaming and embeddings                                                                        | Move attributes and the ledger behind the Rust-owned storage repository                |
+| Signed OIDC claim policies                                 | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge, Rust asset serving and packaged SPA staging | Add provider-specific diagnostics beyond standard discovery                            |
+| Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected                                                                                                  | Add parity fixtures for every translating stream path before declaring complete        |
+| Bound router/cache/log stream retention                    | Rust SSE frames and channels are bounded                                                                                             | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
+| Dashboard-managed usage sinks                              | BigQuery and signed HTTPS webhook instant exports are Rust-owned, tenant/key scoped, encrypted, live-reloaded and SQLite-backed      | Migrate window aggregation plus SQS, Kafka and RedDB transports                        |
 
 This table is a migration queue, not a parity claim. The signed-token and browser
 session security boundaries are Rust-owned. The existing dashboard detects the Rust auth
@@ -205,6 +205,11 @@ static build itself. Reserved API namespaces and missing asset paths never fall 
 SPA shell; HTML and the service worker are not cached, while versioned assets are immutable.
 The production Rust image packages this dashboard. Provider-specific diagnostics remain;
 they do not require a Next.js persistence or session backend.
+The npm CLI now selects a packaged `red-routerd` plus the static dashboard before considering
+the legacy Next.js standalone server. `--runtime next` is an explicit rollback switch;
+`--runtime rust` fails closed when either native artifact is absent. `build:rust-package`
+stages the current platform under `rust-runtime/<platform>-<arch>/` so release assembly can
+combine platform builds without changing the launcher contract.
 
 The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
 `redrouter_control_client_keys`. Authenticated admin writes durably commit before a new
