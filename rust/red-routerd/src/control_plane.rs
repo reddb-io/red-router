@@ -70,6 +70,7 @@ const CONTEXT_RELAY_USAGE_KEY_NAME: &str = "Red Router context relay";
 const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const GITHUB_COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -164,6 +165,7 @@ struct OAuthRefreshConfig {
     claude_endpoint: reqwest::Url,
     claude_client_id: String,
     agy_endpoint: reqwest::Url,
+    github_endpoint: reqwest::Url,
     agy_client_id: Option<String>,
     agy_client_secret: Option<Zeroizing<String>>,
     agy_redirect_uri: Option<String>,
@@ -1463,6 +1465,8 @@ impl OAuthRefreshConfig {
             claude_client_id,
             agy_endpoint: reqwest::Url::parse(AGY_OAUTH_TOKEN_URL)
                 .map_err(|_| "invalid Antigravity OAuth token URL")?,
+            github_endpoint: reqwest::Url::parse(GITHUB_COPILOT_TOKEN_URL)
+                .map_err(|_| "invalid GitHub Copilot token URL")?,
             agy_client_id,
             agy_client_secret,
             agy_redirect_uri,
@@ -1536,6 +1540,10 @@ impl OAuthRefreshConfig {
         agy_load_code_assist_endpoint.set_path("/load-code-assist");
         agy_load_code_assist_endpoint.set_query(None);
         agy_load_code_assist_endpoint.set_fragment(None);
+        let mut github_endpoint = codex_endpoint.clone();
+        github_endpoint.set_path("/copilot-token");
+        github_endpoint.set_query(None);
+        github_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
             codex_endpoint: codex_endpoint.clone(),
@@ -1549,6 +1557,7 @@ impl OAuthRefreshConfig {
             claude_endpoint,
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
             agy_endpoint: codex_endpoint,
+            github_endpoint,
             agy_client_id: Some("test-antigravity-client".to_owned()),
             agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
             agy_redirect_uri: None,
@@ -2800,6 +2809,9 @@ impl ControlPlane {
         oauth_provider: &str,
         refresh_token: &str,
     ) -> Result<OAuthTokenPair, OAuthExchangeFailure> {
+        if oauth_provider == "github" {
+            return self.exchange_github_copilot_token(refresh_token).await;
+        }
         let (endpoint, client_id, client_secret, claude) = match oauth_provider {
             "codex" => (
                 &self.0.oauth_refresh.codex_endpoint,
@@ -2933,6 +2945,90 @@ impl ControlPlane {
             access_token: Zeroizing::new(access_token),
             refresh_token: Zeroizing::new(refresh_token),
             expires_at_unix: now.saturating_add(expires_in),
+        })
+    }
+
+    async fn exchange_github_copilot_token(
+        &self,
+        github_token: &str,
+    ) -> Result<OAuthTokenPair, OAuthExchangeFailure> {
+        let github_token = validate_oauth_token(github_token)?;
+        let request = self
+            .0
+            .oauth_refresh_client
+            .get(self.0.oauth_refresh.github_endpoint.clone())
+            .bearer_auth(&github_token);
+        let response = crate::github_copilot_refresh_headers(request)
+            .send()
+            .await
+            .map_err(|error| OAuthExchangeFailure::Transient {
+                category: if error.is_timeout() {
+                    "timeout"
+                } else {
+                    "unavailable"
+                },
+                status: None,
+            })?;
+        let status = response.status().as_u16();
+        let body = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES)
+            .await
+            .map_err(|category| OAuthExchangeFailure::Transient {
+                category,
+                status: Some(status),
+            })?;
+        let value: serde_json::Value = match serde_json::from_slice(&body) {
+            Ok(value) => value,
+            Err(_) if !(200..300).contains(&status) => serde_json::Value::Null,
+            Err(_) => {
+                return Err(OAuthExchangeFailure::Transient {
+                    category: "invalid_response",
+                    status: Some(status),
+                })
+            }
+        };
+        if !(200..300).contains(&status) {
+            let code = oauth_error_code(&value);
+            if oauth_terminal_error("github", status, &code) {
+                return Err(OAuthExchangeFailure::Terminal { code, status });
+            }
+            return Err(OAuthExchangeFailure::Transient {
+                category: if status == 429 {
+                    "rate_limited"
+                } else if status >= 500 {
+                    "upstream_error"
+                } else {
+                    "request_rejected"
+                },
+                status: Some(status),
+            });
+        }
+        let access_token = value
+            .get("token")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(OAuthExchangeFailure::Transient {
+                category: "invalid_response",
+                status: Some(status),
+            })
+            .and_then(validate_oauth_token)?;
+        let now = unix_time_seconds()
+            .ok()
+            .and_then(|value| i64::try_from(value).ok())
+            .ok_or(OAuthExchangeFailure::Transient {
+                category: "invalid_response",
+                status: Some(status),
+            })?;
+        let expires_at_unix = value
+            .get("expires_at")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| *value > now && *value <= now.saturating_add(2_678_400))
+            .ok_or(OAuthExchangeFailure::Transient {
+                category: "invalid_response",
+                status: Some(status),
+            })?;
+        Ok(OAuthTokenPair {
+            access_token: Zeroizing::new(access_token),
+            refresh_token: Zeroizing::new(github_token),
+            expires_at_unix,
         })
     }
 
@@ -4739,7 +4835,7 @@ impl ControlPlane {
                     .oauth_provider
                     .as_deref()
                     .ok_or("OAuth provider is required")?;
-                if !matches!(oauth_provider, "codex" | "claude" | "agy") {
+                if !matches!(oauth_provider, "codex" | "claude" | "agy" | "github") {
                     return Err("unsupported OAuth provider");
                 }
                 if input.provider != oauth_provider {
@@ -7889,8 +7985,10 @@ impl ControlPlane {
             .await?
             .into_iter()
             .map(|record| {
-                if !matches!(record.oauth_provider.as_str(), "codex" | "claude" | "agy")
-                    || record.generation < 0
+                if !matches!(
+                    record.oauth_provider.as_str(),
+                    "codex" | "claude" | "agy" | "github"
+                ) || record.generation < 0
                     || record.refresh_token_ciphertext.is_empty()
                 {
                     return Err("invalid provider OAuth configuration");
@@ -8923,6 +9021,11 @@ async fn probe_provider(
         }
         ProviderAuthScheme::Auto => return Err("provider authentication is unresolved"),
     };
+    request = crate::github_copilot_headers(
+        request,
+        provider.provider_name.as_deref(),
+        provider.provider_id.as_deref(),
+    );
     if provider.protocol == ProviderProtocol::Anthropic {
         request = request.header("anthropic-version", "2023-06-01");
     }
@@ -10248,6 +10351,7 @@ fn oauth_rotation_group(provider: &str) -> Result<&'static str, &'static str> {
         "codex" => Ok("openai-auth0"),
         "claude" => Ok("anthropic-oauth"),
         "agy" => Ok("google-antigravity-oauth"),
+        "github" => Ok("github-copilot-oauth"),
         _ => Err("unsupported OAuth provider"),
     }
 }
@@ -10759,6 +10863,7 @@ fn oauth_terminal_error(provider: &str, status: u16, code: &str) -> bool {
             code,
             "invalid_grant" | "invalid_client" | "unauthorized_client"
         ),
+        "github" => status == 401 || status == 403 || code == "invalid_token",
         _ => false,
     }
 }

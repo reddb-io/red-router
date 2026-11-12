@@ -26,6 +26,7 @@ import {
   type RustProvider,
   type RustProviderDiagnostic,
   type RustProviderAuthScheme,
+  type RustBrowserOAuthKind,
   type RustProviderHealth,
   type RustProviderInput,
   type RustProviderOAuthKind,
@@ -280,7 +281,7 @@ export default function RustProvidersPageClient() {
     null
   );
   const [oauthDialog, setOauthDialog] = useState<{
-    provider: RustProviderOAuthKind;
+    provider: RustBrowserOAuthKind;
     connectionId?: string;
   } | null>(null);
   const [sessionImportOpen, setSessionImportOpen] = useState(false);
@@ -873,12 +874,17 @@ export default function RustProvidersPageClient() {
                     oauthProvider,
                     provider: oauthProvider,
                     authScheme: "bearer",
+                    upstreamUrl:
+                      oauthProvider === "github" && !current.upstreamUrl.trim()
+                        ? "https://api.githubcopilot.com/chat/completions"
+                        : current.upstreamUrl,
                   }));
                 }}
               >
                 <option value="codex">OpenAI Codex CLI</option>
                 <option value="claude">Claude Code</option>
                 <option value="agy">Antigravity</option>
+                <option value="github">GitHub Copilot (imported token)</option>
               </select>
             </label>
           )}
@@ -919,7 +925,9 @@ export default function RustProvidersPageClient() {
           </label>
           <label className={labelClass}>
             {draft.credentialType === "oauth"
-              ? "OAuth access token"
+              ? draft.oauthProvider === "github"
+                ? "GitHub Copilot token"
+                : "OAuth access token"
               : "API key or provider credential"}
             <input
               className={inputClass}
@@ -934,7 +942,7 @@ export default function RustProvidersPageClient() {
           </label>
           {draft.credentialType === "oauth" && (
             <label className={labelClass}>
-              OAuth refresh token
+              {draft.oauthProvider === "github" ? "GitHub OAuth token" : "OAuth refresh token"}
               <input
                 className={inputClass}
                 type="password"
@@ -1552,20 +1560,22 @@ export default function RustProvidersPageClient() {
                   </div>
                 )}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {provider.credential_type === "oauth" && provider.oauth_provider && (
-                    <Button
-                      variant="secondary"
-                      disabled={saving}
-                      onClick={() =>
-                        setOauthDialog({
-                          provider: provider.oauth_provider as RustProviderOAuthKind,
-                          connectionId: provider.id,
-                        })
-                      }
-                    >
-                      Sign in again
-                    </Button>
-                  )}
+                  {provider.credential_type === "oauth" &&
+                    provider.oauth_provider &&
+                    provider.oauth_provider !== "github" && (
+                      <Button
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={() =>
+                          setOauthDialog({
+                            provider: provider.oauth_provider as RustBrowserOAuthKind,
+                            connectionId: provider.id,
+                          })
+                        }
+                      >
+                        Sign in again
+                      </Button>
+                    )}
                   {provider.enabled && provider.refreshable && (
                     <Button
                       variant="secondary"

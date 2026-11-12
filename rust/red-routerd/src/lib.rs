@@ -3195,6 +3195,93 @@ const ANTIGRAVITY_CLI_USER_AGENT: &str =
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CLAUDE_SENTINEL: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
+const GITHUB_COPILOT_CLI_VERSION: &str = "1.0.88";
+
+fn github_copilot_cli_version() -> String {
+    std::env::var("GITHUB_COPILOT_CLI_VERSION")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 32
+                && value.bytes().enumerate().all(|(index, byte)| {
+                    byte.is_ascii_alphanumeric()
+                        || (index > 0 && matches!(byte, b'.' | b'_' | b'-'))
+                })
+        })
+        .unwrap_or_else(|| GITHUB_COPILOT_CLI_VERSION.to_owned())
+}
+
+fn github_copilot_machine_id(provider_id: Option<&str>) -> String {
+    let mut bytes: [u8; 16] = Sha256::digest(provider_id.unwrap_or("github-copilot").as_bytes())
+        [..16]
+        .try_into()
+        .expect("SHA-256 prefix is always 16 bytes");
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
+}
+
+pub(crate) fn github_copilot_headers(
+    request: reqwest::RequestBuilder,
+    provider_name: Option<&str>,
+    provider_id: Option<&str>,
+) -> reqwest::RequestBuilder {
+    if provider_name != Some("github") {
+        return request;
+    }
+    let version = github_copilot_cli_version();
+    let platform = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        value => value,
+    };
+    request
+        .header("copilot-integration-id", "copilot-developer-cli")
+        .header("editor-version", format!("copilot/{version}"))
+        .header(
+            header::USER_AGENT,
+            format!("copilot/{version} ({platform}) term/unknown"),
+        )
+        .header("openai-intent", "conversation-agent")
+        .header("x-interaction-type", "conversation-user")
+        .header("copilot-harness-id", "copilot-sdk")
+        .header("x-github-api-version", "2026-08-01")
+        .header(
+            "x-client-machine-id",
+            github_copilot_machine_id(provider_id),
+        )
+        .header("x-initiator", "user")
+}
+
+pub(crate) fn github_copilot_refresh_headers(
+    request: reqwest::RequestBuilder,
+) -> reqwest::RequestBuilder {
+    let version = github_copilot_cli_version();
+    request
+        .header(header::ACCEPT, "application/json")
+        .header(header::USER_AGENT, "GithubCopilot/1.0")
+        .header("editor-version", format!("copilot/{version}"))
+        .header("editor-plugin-version", format!("copilot/{version}"))
+}
 
 fn claude_cli_payload(payload: &[u8], identity: &ClaudeIdentity) -> Result<Vec<u8>, ()> {
     let mut value: serde_json::Value = serde_json::from_slice(payload).map_err(|_| ())?;
@@ -3673,6 +3760,11 @@ async fn generate_context_relay_summary(
             }
             ProviderAuthScheme::Auto => return None,
         };
+        request = github_copilot_headers(
+            request,
+            target.provider_name.as_deref(),
+            target.provider_id.as_deref(),
+        );
         if matches!(
             target.protocol,
             ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
@@ -5932,6 +6024,20 @@ async fn proxy_request(
                     .as_ref()
                     .and_then(|provider| provider.claude_identity.as_deref())
             });
+        let attempt_provider_name = target
+            .and_then(|target| target.provider_name.as_deref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.provider_name.as_deref())
+            });
+        let attempt_provider_id = target
+            .and_then(|target| target.provider_id.as_deref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.provider_id.as_deref())
+            });
         if let Some(identity) = claude_identity {
             if !matches!(
                 attempt_protocol,
@@ -6031,6 +6137,7 @@ async fn proxy_request(
                 }
                 ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
             };
+            upstream = github_copilot_headers(upstream, attempt_provider_name, attempt_provider_id);
             if claude_identity.is_none() {
                 match &anthropic_headers {
                     Some((version, beta)) => {

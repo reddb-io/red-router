@@ -6,16 +6,16 @@ import {
   authorizeRustProviderOAuth,
   exchangeRustProviderOAuth,
   type RustProviderOAuthAuthorization,
-  type RustProviderOAuthKind,
+  type RustBrowserOAuthKind,
 } from "@/lib/rustControlPlane/browserClient";
 
-const providerNames: Record<RustProviderOAuthKind, string> = {
+const providerNames: Record<RustBrowserOAuthKind, string> = {
   codex: "OpenAI Codex CLI",
   claude: "Claude Code",
   agy: "Antigravity",
 };
 
-function requestedRedirectUri(provider: RustProviderOAuthKind): string {
+function requestedRedirectUri(provider: RustBrowserOAuthKind): string {
   if (provider === "codex") return "http://localhost:1455/auth/callback";
   if (provider === "agy") {
     return `http://127.0.0.1:${window.location.port || "20128"}/callback`;
@@ -50,7 +50,7 @@ function callbackValues(
 }
 
 type Props = {
-  provider: RustProviderOAuthKind;
+  provider: RustBrowserOAuthKind;
   connectionId?: string;
   onClose: () => void;
   onSuccess: () => Promise<void> | void;

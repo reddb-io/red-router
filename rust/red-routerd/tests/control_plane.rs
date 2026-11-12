@@ -1075,6 +1075,111 @@ async fn claude_oauth_refresh_server() -> (
     )
 }
 
+async fn github_copilot_fixture() -> (
+    Url,
+    String,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    let refreshes = Arc::new(AtomicUsize::new(0));
+    let inference = Arc::new(AtomicUsize::new(0));
+    let observed_refreshes = refreshes.clone();
+    let observed_inference = inference.clone();
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3_600;
+    let app = Router::new()
+        .route(
+            "/copilot-token",
+            get(move |headers: HeaderMap| {
+                let observed_refreshes = observed_refreshes.clone();
+                async move {
+                    observed_refreshes.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::AUTHORIZATION].to_str().unwrap(),
+                        "Bearer github-long-lived-token"
+                    );
+                    assert_eq!(
+                        headers[header::USER_AGENT].to_str().unwrap(),
+                        "GithubCopilot/1.0"
+                    );
+                    assert_eq!(
+                        headers["editor-version"].to_str().unwrap(),
+                        "copilot/1.0.88"
+                    );
+                    assert_eq!(
+                        headers["editor-plugin-version"].to_str().unwrap(),
+                        "copilot/1.0.88"
+                    );
+                    Json(serde_json::json!({
+                        "token":"github-short-lived-copilot-token",
+                        "expires_at":expires_at
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/chat/completions",
+            post(move |headers: HeaderMap| {
+                let observed_inference = observed_inference.clone();
+                async move {
+                    observed_inference.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::AUTHORIZATION].to_str().unwrap(),
+                        "Bearer github-short-lived-copilot-token"
+                    );
+                    assert_eq!(
+                        headers["copilot-integration-id"].to_str().unwrap(),
+                        "copilot-developer-cli"
+                    );
+                    assert_eq!(
+                        headers["editor-version"].to_str().unwrap(),
+                        "copilot/1.0.88"
+                    );
+                    assert_eq!(
+                        headers["openai-intent"].to_str().unwrap(),
+                        "conversation-agent"
+                    );
+                    assert_eq!(
+                        headers["x-interaction-type"].to_str().unwrap(),
+                        "conversation-user"
+                    );
+                    assert_eq!(
+                        headers["copilot-harness-id"].to_str().unwrap(),
+                        "copilot-sdk"
+                    );
+                    assert_eq!(
+                        headers["x-github-api-version"].to_str().unwrap(),
+                        "2026-08-01"
+                    );
+                    assert_eq!(headers["x-initiator"].to_str().unwrap(), "user");
+                    let machine_id = headers["x-client-machine-id"].to_str().unwrap();
+                    assert_eq!(machine_id.len(), 36);
+                    Json(serde_json::json!({
+                        "id":"github-copilot-fixture",
+                        "object":"chat.completion",
+                        "model":"gpt-5.4",
+                        "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+                        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        Url::parse(&format!("http://{address}/token")).unwrap(),
+        format!("http://{address}/chat/completions"),
+        refreshes,
+        inference,
+        task,
+    )
+}
+
 async fn codex_quota_server() -> (
     Url,
     Arc<AtomicUsize>,
@@ -8216,6 +8321,101 @@ async fn rust_oauth_credentials_are_redacted_and_rotate_with_sqlite_cas() {
     gateway_task.abort();
     provider_task.abort();
     token_task.abort();
+}
+
+#[tokio::test]
+async fn rust_refreshes_and_routes_imported_github_copilot_oauth() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("github-copilot.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (token_endpoint, upstream, refreshes, inference, fixture_task) =
+        github_copilot_fixture().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database,
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 60;
+
+    let configured = client
+        .put(format!("{base}/api/admin/providers/github-copilot"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"github",
+                "upstream_url":upstream,
+                "api_key":"initial-copilot-token",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"github",
+                "refresh_token":"github-long-lived-token"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(configured["provider"]["oauth_provider"], "github");
+    assert_eq!(configured["provider"]["refreshable"], true);
+    assert!(!configured.to_string().contains("github-long-lived-token"));
+
+    let refreshed = client
+        .post(format!(
+            "{base}/api/admin/providers/github-copilot/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value = refreshed.json().await.unwrap();
+    assert_eq!(refreshed["refresh"]["category"], "refreshed");
+    assert_eq!(refreshed["refresh"]["generation"], "1");
+    assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/github-copilot-fixture"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"github-copilot","model":"gpt-5.4"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let response = chat_model(&client, &base, CLIENT_KEY, "github-copilot-fixture").await;
+    let response_status = response.status();
+    let response_body = response.text().await.unwrap();
+    assert_eq!(response_status, StatusCode::OK, "{response_body}");
+    assert_eq!(inference.load(Ordering::SeqCst), 1);
+
+    gateway_task.abort();
+    fixture_task.abort();
 }
 
 #[tokio::test]

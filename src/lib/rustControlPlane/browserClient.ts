@@ -164,7 +164,8 @@ export interface RustUsageSummary {
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
 export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
-export type RustProviderOAuthKind = "codex" | "claude" | "agy";
+export type RustProviderOAuthKind = "codex" | "claude" | "agy" | "github";
+export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github">;
 
 export interface RustProvider {
   id: string;
@@ -629,7 +630,7 @@ export async function rustAdminFetch(path: string, init: RequestInit = {}): Prom
   });
 }
 
-/** Authenticated browser flow for the three OAuth providers owned by red-routerd. */
+/** Authenticated browser flow for providers whose authorization-code exchange is Rust-owned. */
 export async function rustProviderOAuthFetch(
   path: string,
   init: RequestInit = {}
@@ -926,7 +927,8 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.oauth_provider === undefined ||
       provider.oauth_provider === "codex" ||
       provider.oauth_provider === "claude" ||
-      provider.oauth_provider === "agy") &&
+      provider.oauth_provider === "agy" ||
+      provider.oauth_provider === "github") &&
     (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
     typeof provider.refreshable === "boolean" &&
     (provider.oauth_refresh_state === undefined ||
@@ -1719,7 +1721,7 @@ export async function clearRustComboRoutePin(id: string): Promise<void> {
 }
 
 export async function authorizeRustProviderOAuth(
-  provider: RustProviderOAuthKind,
+  provider: RustBrowserOAuthKind,
   redirectUri: string
 ): Promise<RustProviderOAuthAuthorization> {
   const query = new URLSearchParams({ redirect_uri: redirectUri });
@@ -1735,7 +1737,7 @@ export async function authorizeRustProviderOAuth(
 }
 
 export async function exchangeRustProviderOAuth(
-  provider: RustProviderOAuthKind,
+  provider: RustBrowserOAuthKind,
   input: RustProviderOAuthExchangeInput
 ): Promise<RustProviderOAuthConnection> {
   const response = await rustProviderOAuthFetch(
@@ -1760,7 +1762,7 @@ export async function exchangeRustProviderOAuth(
 }
 
 export async function importRustProviderSession(
-  provider: RustProviderOAuthKind,
+  provider: RustBrowserOAuthKind,
   entry: RustProviderSessionImportEntry,
   overwriteExisting: boolean
 ): Promise<RustProviderSessionImportResult> {
@@ -1787,7 +1789,7 @@ export async function importRustProviderSession(
 }
 
 export async function importRustProviderSessionsBulk(
-  provider: RustProviderOAuthKind,
+  provider: RustBrowserOAuthKind,
   entries: RustProviderSessionImportEntry[],
   overwriteExisting: boolean
 ): Promise<RustProviderSessionBulkResult> {
@@ -1820,7 +1822,7 @@ export async function importRustProviderSessionsBulk(
 }
 
 export async function extractRustProviderSessionZip(
-  provider: RustProviderOAuthKind,
+  provider: RustBrowserOAuthKind,
   file: Blob
 ): Promise<RustProviderSessionZipEntry[]> {
   const response = await rustProviderSessionFetch(`/api/providers/${provider}-auth/zip-extract`, {
