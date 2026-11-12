@@ -3762,8 +3762,8 @@ async fn generate_context_relay_summary(
         };
         request = github_copilot_headers(
             request,
-            target.provider_name.as_deref(),
-            target.provider_id.as_deref(),
+            Some(target.provider_name.as_str()),
+            Some(target.provider_name.as_str()),
         );
         if matches!(
             target.protocol,
