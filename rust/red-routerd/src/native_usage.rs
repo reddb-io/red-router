@@ -1315,7 +1315,7 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO redrouter_usage_reservations VALUES ('old','key','tenant','legacy','unknown',50,150000,$1,'dispatched')")
+        sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state) VALUES ('old','key','tenant','legacy','unknown',50,150000,$1,'dispatched')")
             .bind(now).execute(pool).await.unwrap();
         let usage = NativeUsage::new(database).unwrap();
         let reservation = Reservation {
