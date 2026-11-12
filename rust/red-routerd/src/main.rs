@@ -950,7 +950,11 @@ async fn run(
         )
         .await?;
         if backend == Backend::Sqlite {
-            red_routerd::audit_export::spawn_persisted_usage(&db, encryption_key.as_str())?;
+            red_routerd::audit_export::spawn_persisted_usage(
+                &db,
+                encryption_key.as_str(),
+                allow_private,
+            )?;
         }
         if !control.has_active_provider().await? {
             if let Some(upstream) = requested.as_deref() {

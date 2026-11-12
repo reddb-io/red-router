@@ -1,5 +1,6 @@
 use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExport, StoredUsageExportEvent};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use futures_util::StreamExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ const MAX_BATCH_ROWS: usize = 500;
 const MAX_ATTEMPTS: usize = 3;
 const LEASE_MS: i64 = 120_000;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
+const REDDB_MAX_STATEMENT_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct BigQueryAuditConfig {
@@ -408,9 +410,30 @@ struct UsageWebhookSink {
     client: Client,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRedDbConfig {
+    url: String,
+    queue: String,
+    #[serde(default)]
+    tenant: Option<String>,
+}
+
+#[derive(Clone)]
+struct UsageRedDbSink {
+    sink_id: String,
+    sink_name: String,
+    endpoint: Url,
+    queue: String,
+    tenant: Option<String>,
+    token: Option<Zeroizing<String>>,
+    client: Client,
+}
+
 enum ManagedUsageTransport {
     BigQuery(Box<BigQueryAuditSink>),
     Webhook(UsageWebhookSink),
+    RedDb(UsageRedDbSink),
 }
 
 struct ManagedUsageRelay {
@@ -426,6 +449,7 @@ impl ManagedUsageRelay {
     async fn from_record(
         record: &StoredUsageExport,
         encryption_key: &str,
+        allow_private: bool,
     ) -> Result<Self, &'static str> {
         let api_key_ids = serde_json::from_str::<Vec<String>>(&record.api_key_ids_json)
             .map_err(|_| "invalid usage export key filter")?;
@@ -472,6 +496,28 @@ impl ManagedUsageRelay {
                     UsageWebhookSink::new(&record.id, &record.name, &url, secret.as_str()).await?,
                 )
             }
+            "reddb" => {
+                let token = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{}:secret", record.id);
+                    Some(crate::control_plane::decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        encryption_key,
+                    )?)
+                };
+                ManagedUsageTransport::RedDb(
+                    UsageRedDbSink::new(
+                        &record.id,
+                        &record.name,
+                        &record.config_json,
+                        token,
+                        allow_private,
+                    )
+                    .await?,
+                )
+            }
             _ => return Err("unsupported usage export type"),
         };
         Ok(Self {
@@ -488,7 +534,99 @@ impl ManagedUsageRelay {
         match &self.transport {
             ManagedUsageTransport::BigQuery(sink) => sink.send_usage(events).await,
             ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::RedDb(sink) => sink.send(events, false).await,
         }
+    }
+}
+
+impl UsageRedDbSink {
+    async fn new(
+        sink_id: &str,
+        sink_name: &str,
+        config_json: &str,
+        token: Option<Zeroizing<String>>,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_reddb_config(config_json)?;
+        let (endpoint, client) = pinned_reddb_client(&config.url, allow_private).await?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            sink_name: sink_name.to_owned(),
+            endpoint,
+            queue: config.queue,
+            tenant: config.tenant,
+            token,
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let payload = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        let payload =
+            std::str::from_utf8(&payload).map_err(|_| "cannot encode RedDB usage payload")?;
+        let statement = reddb_queue_push_statement(&self.queue, payload, &event.event_id)?;
+        if statement.len() > REDDB_MAX_STATEMENT_BYTES {
+            return Err("RedDB usage payload is too large");
+        }
+        let mut request = self
+            .client
+            .post(self.endpoint.clone())
+            .header("content-type", "application/json")
+            .header("user-agent", "RedRouter-UsageSinks/1");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token.as_str());
+        }
+        if let Some(tenant) = &self.tenant {
+            request = request.header("x-reddb-tenant", tenant);
+        }
+        let response = request
+            .json(&serde_json::json!({"query": statement}))
+            .send()
+            .await
+            .map_err(|_| "RedDB usage request failed")?;
+        let status = response.status();
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        {
+            return Err("RedDB usage response is too large");
+        }
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "RedDB usage response failed")?;
+            if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                return Err("RedDB usage response is too large");
+            }
+            body.extend_from_slice(&chunk);
+        }
+        if !status.is_success() {
+            return Err("RedDB usage delivery was rejected");
+        }
+        if !body.is_empty()
+            && serde_json::from_slice::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                == Some(false)
+        {
+            return Err("RedDB usage delivery was rejected");
+        }
+        Ok(())
     }
 }
 
@@ -575,6 +713,132 @@ pub async fn send_usage_webhook_test(
         .await?
         .send(std::slice::from_ref(event), true)
         .await
+}
+
+pub async fn validate_usage_reddb(
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageRedDbSink::new(
+        "validation",
+        "Validation",
+        config_json,
+        token,
+        allow_private,
+    )
+    .await
+    .map(|_| ())
+}
+
+pub async fn send_usage_reddb_test(
+    sink_id: &str,
+    sink_name: &str,
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageRedDbSink::new(sink_id, sink_name, config_json, token, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+fn valid_reddb_queue(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    matches!(bytes.next(), Some(b) if b.is_ascii_alphabetic() || b == b'_')
+        && value.len() <= 128
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn parse_reddb_config(config_json: &str) -> Result<StoredRedDbConfig, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid RedDB usage configuration");
+    }
+    let mut config: StoredRedDbConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid RedDB usage configuration")?;
+    config.url = config.url.trim_end_matches('/').to_owned();
+    config.queue = config.queue.trim().to_owned();
+    config.tenant = config
+        .tenant
+        .map(|tenant| tenant.trim().to_owned())
+        .filter(|tenant| !tenant.is_empty());
+    if config.url.is_empty()
+        || !valid_reddb_queue(&config.queue)
+        || config
+            .tenant
+            .as_ref()
+            .is_some_and(|tenant| tenant.len() > 128 || tenant.chars().any(char::is_control))
+    {
+        return Err("invalid RedDB usage configuration");
+    }
+    Ok(config)
+}
+
+fn reddb_queue_push_statement(
+    queue: &str,
+    payload_json: &str,
+    delivery_id: &str,
+) -> Result<String, &'static str> {
+    if !valid_reddb_queue(queue)
+        || serde_json::from_str::<serde_json::Value>(payload_json).is_err()
+        || delivery_id.is_empty()
+        || delivery_id.len() > 512
+        || delivery_id.chars().any(char::is_control)
+    {
+        return Err("invalid RedDB usage message");
+    }
+    Ok(format!(
+        "QUEUE PUSH {queue} {payload_json} DEDUP '{}'",
+        delivery_id.replace('\'', "''")
+    ))
+}
+
+async fn pinned_reddb_client(
+    base_url: &str,
+    allow_private: bool,
+) -> Result<(Url, Client), &'static str> {
+    if base_url.len() > 2048 {
+        return Err("RedDB usage URL is invalid");
+    }
+    let mut parsed = Url::parse(base_url).map_err(|_| "RedDB usage URL is invalid")?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("RedDB usage URL is invalid");
+    }
+    let host = parsed
+        .host_str()
+        .ok_or("RedDB usage URL is invalid")?
+        .to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("RedDB usage URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "RedDB usage host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), allow_private))
+    {
+        return Err("RedDB usage host resolved to a forbidden address");
+    }
+    let path = format!("{}/query", parsed.path().trim_end_matches('/'));
+    parsed.set_path(&path);
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create RedDB usage client")?;
+    Ok((parsed, client))
 }
 
 async fn pinned_usage_webhook_client(url: &str) -> Result<(Url, Client), &'static str> {
@@ -740,6 +1004,7 @@ fn usage_webhook_url(config_json: &str) -> Result<String, &'static str> {
 pub fn spawn_persisted_usage(
     database: &Arc<Database>,
     encryption_key: &str,
+    allow_private: bool,
 ) -> Result<(), &'static str> {
     if !database.supports_audit_sink_leases() {
         return Err("managed usage export requires SQLite or PostgreSQL");
@@ -770,14 +1035,19 @@ pub fn spawn_persisted_usage(
                     revisions.insert(export.id.clone(), export.revision);
                     continue;
                 }
-                let relay =
-                    match ManagedUsageRelay::from_record(&export, encryption_key.as_str()).await {
-                        Ok(relay) => relay,
-                        Err(error) => {
-                            eprintln!("Rust managed usage export configuration failed: {error}");
-                            continue;
-                        }
-                    };
+                let relay = match ManagedUsageRelay::from_record(
+                    &export,
+                    encryption_key.as_str(),
+                    allow_private,
+                )
+                .await
+                {
+                    Ok(relay) => relay,
+                    Err(error) => {
+                        eprintln!("Rust managed usage export configuration failed: {error}");
+                        continue;
+                    }
+                };
                 let export_id = export.id.clone();
                 let export_revision = export.revision;
                 match spawn_managed_usage(&database, relay, export_id.clone(), export_revision) {
@@ -1414,6 +1684,75 @@ mod tests {
         assert_eq!(payload["event"]["tokens"]["reasoningTokens"], 10);
         assert_eq!(payload["test"], true);
         assert!(!String::from_utf8(encoded).unwrap().contains("whsec_"));
+    }
+
+    #[test]
+    fn reddb_queue_statements_validate_names_and_escape_dedup_ids() {
+        let statement =
+            reddb_queue_push_statement("usage_events", r#"{"model":"openai/gpt-5"}"#, "usage-'one")
+                .unwrap();
+        assert_eq!(
+            statement,
+            r#"QUEUE PUSH usage_events {"model":"openai/gpt-5"} DEDUP 'usage-''one'"#
+        );
+        assert!(reddb_queue_push_statement("9invalid", "{}", "usage-one").is_err());
+        assert!(reddb_queue_push_statement("valid", "not-json", "usage-one").is_err());
+    }
+
+    #[tokio::test]
+    async fn reddb_usage_delivery_is_pinned_scoped_and_deduplicated() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::Mutex as StdMutex;
+
+        type Capture = Arc<StdMutex<Option<(HeaderMap, serde_json::Value)>>>;
+        let capture: Capture = Arc::new(StdMutex::new(None));
+        let app = Router::new()
+            .route(
+                "/query",
+                post(
+                    |State(capture): State<Capture>,
+                     headers: HeaderMap,
+                     Json(body): Json<serde_json::Value>| async move {
+                        *capture.lock().unwrap() = Some((headers, body));
+                        Json(serde_json::json!({"ok":true}))
+                    },
+                ),
+            )
+            .with_state(capture.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = serde_json::json!({
+            "url":format!("http://{address}"),
+            "queue":"usage_events",
+            "tenant":"billing"
+        })
+        .to_string();
+        send_usage_reddb_test(
+            "sink-one",
+            "Billing",
+            &config,
+            Some(Zeroizing::new("rdb_test_token".to_owned())),
+            &usage_event("usage-reddb-one"),
+            true,
+        )
+        .await
+        .unwrap();
+        let (headers, body) = capture.lock().unwrap().take().unwrap();
+        assert_eq!(headers["authorization"], "Bearer rdb_test_token");
+        assert_eq!(headers["x-reddb-tenant"], "billing");
+        let query = body["query"].as_str().unwrap();
+        assert!(query.starts_with("QUEUE PUSH usage_events "));
+        assert!(query.ends_with("DEDUP 'usage-reddb-one'"));
+        assert!(query.contains("\"model\":\"openai/gpt-5\""));
+        assert!(query.contains("\"id\":\"agent-key\""));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn reddb_usage_refuses_private_destinations_without_opt_in() {
+        let config = r#"{"url":"http://127.0.0.1:5000","queue":"usage_events"}"#;
+        assert!(validate_usage_reddb(config, None, false).await.is_err());
     }
 
     #[tokio::test]

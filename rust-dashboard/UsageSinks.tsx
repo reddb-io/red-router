@@ -176,7 +176,7 @@ export default function UsageSinks() {
           Add destination
         </button>
       </div>
-      <p>Export attributed usage to BigQuery or a signed webhook.</p>
+      <p>Export attributed usage to BigQuery, a signed webhook, or a RedDB queue.</p>
       {error && (
         <p role="alert" className="text-error">
           {error}

@@ -804,6 +804,9 @@ pub struct LegacyUsageQuery {
 pub struct UsageExportConfigInput {
     pub url: Option<String>,
     pub secret: Option<String>,
+    pub queue: Option<String>,
+    pub token: Option<String>,
+    pub tenant: Option<String>,
     pub project_id: Option<String>,
     pub dataset_id: Option<String>,
     pub table_id: Option<String>,
@@ -7453,6 +7456,9 @@ impl ControlPlane {
         let config = input.config.unwrap_or(UsageExportConfigInput {
             url: None,
             secret: None,
+            queue: None,
+            token: None,
+            tenant: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -7518,7 +7524,7 @@ impl ControlPlane {
         if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
             return Err("invalid usage export name");
         }
-        if !matches!(export_type.as_str(), "bigquery" | "webhook") {
+        if !matches!(export_type.as_str(), "bigquery" | "webhook" | "reddb") {
             return Err("unsupported usage export type");
         }
         if mode != "instant" || window_sec.is_some_and(|value| value != 0) {
@@ -7557,7 +7563,12 @@ impl ControlPlane {
             interval_seconds,
         ) = match export_type.as_str() {
             "bigquery" => {
-                if config.url.is_some() || config.secret.is_some() {
+                if config.url.is_some()
+                    || config.secret.is_some()
+                    || config.queue.is_some()
+                    || config.token.is_some()
+                    || config.tenant.is_some()
+                {
                     return Err("invalid BigQuery usage export fields");
                 }
                 let project_id = config
@@ -7633,6 +7644,9 @@ impl ControlPlane {
                     || config.service_account_json.is_some()
                     || config.batch_size.is_some()
                     || config.interval_seconds.is_some()
+                    || config.queue.is_some()
+                    || config.token.is_some()
+                    || config.tenant.is_some()
                 {
                     return Err("invalid webhook usage export fields");
                 }
@@ -7673,6 +7687,82 @@ impl ControlPlane {
                     String::new(),
                     serde_json::to_string(&serde_json::json!({"url": url}))
                         .map_err(|_| "cannot encode webhook configuration")?,
+                    secret_ciphertext,
+                    8,
+                    1,
+                )
+            }
+            "reddb" => {
+                if config.secret.is_some()
+                    || config.project_id.is_some()
+                    || config.dataset_id.is_some()
+                    || config.table_id.is_some()
+                    || config.service_account_json.is_some()
+                    || config.batch_size.is_some()
+                    || config.interval_seconds.is_some()
+                {
+                    return Err("invalid RedDB usage export fields");
+                }
+                let stored = current
+                    .map(|value| reddb_usage_config(&value.config_json))
+                    .transpose()?;
+                let url = config
+                    .url
+                    .or_else(|| stored.as_ref().map(|value| value.0.clone()))
+                    .ok_or("RedDB URL is required")?;
+                let queue = config
+                    .queue
+                    .or_else(|| stored.as_ref().map(|value| value.1.clone()))
+                    .ok_or("RedDB queue is required")?;
+                let tenant = config
+                    .tenant
+                    .or_else(|| stored.as_ref().and_then(|value| value.2.clone()));
+                let aad = format!("usage-export:{id}:secret");
+                let (secret_ciphertext, token) = match config.token {
+                    Some(value) if value != "__stored__" => {
+                        let token = value.trim().to_owned();
+                        if token.len() > 2048 || token.chars().any(char::is_control) {
+                            return Err("RedDB token is invalid");
+                        }
+                        if token.is_empty() {
+                            (String::new(), None)
+                        } else {
+                            let token = Zeroizing::new(token);
+                            let ciphertext =
+                                encrypt(token.as_str(), &aad, self.0.encryption_key.as_str())?;
+                            (ciphertext, Some(token))
+                        }
+                    }
+                    _ => match current {
+                        Some(stored) if !stored.secret_ciphertext.is_empty() => (
+                            stored.secret_ciphertext.clone(),
+                            Some(decrypt(
+                                &stored.secret_ciphertext,
+                                &aad,
+                                self.0.encryption_key.as_str(),
+                            )?),
+                        ),
+                        _ => (String::new(), None),
+                    },
+                };
+                let config_json = serde_json::to_string(&serde_json::json!({
+                    "url": url.trim_end_matches('/'),
+                    "queue": queue.trim(),
+                    "tenant": tenant.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+                }))
+                .map_err(|_| "cannot encode RedDB usage configuration")?;
+                crate::audit_export::validate_usage_reddb(
+                    &config_json,
+                    token,
+                    self.0.allow_private,
+                )
+                .await?;
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    config_json,
                     secret_ciphertext,
                     8,
                     1,
@@ -7770,6 +7860,9 @@ impl ControlPlane {
         let config = input.config.unwrap_or(UsageExportConfigInput {
             url: None,
             secret: None,
+            queue: None,
+            token: None,
+            tenant: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -7854,6 +7947,27 @@ impl ControlPlane {
                     &webhook_usage_url(&record.config_json)?,
                     secret.as_str(),
                     &event,
+                )
+                .await?;
+            }
+            "reddb" => {
+                let token = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{id}:secret");
+                    Some(decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        self.0.encryption_key.as_str(),
+                    )?)
+                };
+                crate::audit_export::send_usage_reddb_test(
+                    id,
+                    &record.name,
+                    &record.config_json,
+                    token,
+                    &event,
+                    self.0.allow_private,
                 )
                 .await?;
             }
@@ -10259,6 +10373,18 @@ fn usage_export_view(
                 format!("POST {url}"),
             )
         }
+        "reddb" => {
+            let (url, queue, tenant) = reddb_usage_config(&record.config_json)?;
+            let mut config = serde_json::json!({
+                "url": url,
+                "queue": queue,
+                "tenant": tenant,
+            });
+            if !record.secret_ciphertext.is_empty() {
+                config["token"] = serde_json::Value::String("__stored__".to_owned());
+            }
+            ("RedDB queue", config, format!("QUEUE {queue} @ {url}"))
+        }
         _ => return Err("invalid usage export configuration"),
     };
     Ok(serde_json::json!({
@@ -10299,6 +10425,46 @@ fn webhook_usage_url(config_json: &str) -> Result<String, &'static str> {
         })
         .filter(|url| !url.is_empty() && url.len() <= 2048)
         .ok_or("invalid webhook configuration")
+}
+
+fn reddb_usage_config(config_json: &str) -> Result<(String, String, Option<String>), &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid RedDB usage configuration");
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(config_json).map_err(|_| "invalid RedDB usage configuration")?;
+    let url = value
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 2048)
+        .ok_or("invalid RedDB usage configuration")?
+        .to_owned();
+    let queue = value
+        .get("queue")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            let mut bytes = value.bytes();
+            matches!(bytes.next(), Some(byte) if byte.is_ascii_alphabetic() || byte == b'_')
+                && value.len() <= 128
+                && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        })
+        .ok_or("invalid RedDB usage configuration")?
+        .to_owned();
+    let tenant = value
+        .get("tenant")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    if tenant
+        .as_ref()
+        .is_some_and(|value| value.len() > 128 || value.chars().any(char::is_control))
+    {
+        return Err("invalid RedDB usage configuration");
+    }
+    Ok((url, queue, tenant))
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -12761,6 +12927,18 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                     {"key":"batchSize","labelFallback":"Batch size","type":"number","placeholder":"500"},
                     {"key":"intervalSeconds","labelFallback":"Interval (seconds)","type":"number","placeholder":"10"}
                 ]
+            },
+            {
+                "type": "reddb",
+                "label": "RedDB queue",
+                "description": "Publishes attributed usage with the delivery ID as the queue DEDUP key.",
+                "modes": ["instant"],
+                "fields": [
+                    {"key":"url","labelFallback":"RedDB URL","type":"text","required":true,"placeholder":"http://127.0.0.1:5000","helpFallback":"Private addresses require RED_ROUTER_ALLOW_PRIVATE_UPSTREAM=1; cloud metadata is always refused."},
+                    {"key":"queue","labelFallback":"Queue","type":"text","required":true,"placeholder":"usage_events","helpFallback":"Create it once with a DEDUP window, for example: CREATE QUEUE IF NOT EXISTS usage_events WITH DEDUP_WINDOW 1h"},
+                    {"key":"token","labelFallback":"Token (optional)","type":"password","secret":true,"placeholder":"rdb_k_...","helpFallback":"Write-only and encrypted at rest."},
+                    {"key":"tenant","labelFallback":"RedDB tenant (optional)","type":"text"}
+                ]
             }
         ],
         "windowSizesSec": []
@@ -14790,6 +14968,37 @@ mod tests {
         assert_eq!(view["config"]["secret"], "__stored__");
         assert_eq!(view["config"]["url"], "https://billing.example.com/usage");
         assert!(!encoded.contains("webhook-secret-ciphertext"));
+    }
+
+    #[test]
+    fn usage_reddb_views_expose_only_the_token_placeholder() {
+        let record = StoredUsageExport {
+            id: "usage-reddb".to_owned(),
+            tenant_id: "red".to_owned(),
+            name: "RedDB billing queue".to_owned(),
+            export_type: "reddb".to_owned(),
+            mode: "instant".to_owned(),
+            window_sec: 0,
+            api_key_ids_json: "[]".to_owned(),
+            project_id: String::new(),
+            dataset_id: String::new(),
+            table_id: String::new(),
+            service_account_ciphertext: String::new(),
+            config_json:
+                r#"{"url":"https://reddb.example.com","queue":"usage_events","tenant":"billing"}"#
+                    .to_owned(),
+            secret_ciphertext: "rrenc1:reddb-token-ciphertext".to_owned(),
+            batch_size: 8,
+            interval_seconds: 1,
+            enabled: true,
+            revision: 1_700_000_000_000_000_000,
+        };
+        let view = usage_export_view(&record, &[]).unwrap();
+        let encoded = view.to_string();
+        assert_eq!(view["config"]["token"], "__stored__");
+        assert_eq!(view["config"]["queue"], "usage_events");
+        assert_eq!(view["config"]["tenant"], "billing");
+        assert!(!encoded.contains("reddb-token-ciphertext"));
     }
 
     #[test]
