@@ -35,6 +35,8 @@ test(
         "/api/auth/config",
         "/api/auth/local/login",
         "/api/admin/providers",
+        "/api/admin/provider-health",
+        "/api/admin/provider-quotas",
         "/api/admin/combos",
         "/api/admin/client-keys",
         "/api/usage-sinks/types",

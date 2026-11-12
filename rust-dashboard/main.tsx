@@ -22,9 +22,11 @@ const ModelCatalog = lazy(() => import("./ModelCatalog"));
 const LegacyUsage = lazy(() => import("./LegacyUsage"));
 const Organizations = lazy(() => import("./Organizations"));
 const AuditLog = lazy(() => import("./AuditLog"));
+const ProviderResilience = lazy(() => import("./ProviderResilience"));
 
 const pages = [
   { path: "/dashboard/providers", label: "Providers", component: Providers },
+  { path: "/dashboard/provider-resilience", label: "Resilience", component: ProviderResilience },
   { path: "/dashboard/model-catalog", label: "Model catalog", component: ModelCatalog },
   { path: "/dashboard/combos", label: "Combos", component: Combos },
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
