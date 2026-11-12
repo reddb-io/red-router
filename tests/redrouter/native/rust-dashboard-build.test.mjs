@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -48,3 +48,27 @@ test(
     }
   }
 );
+
+async function sourceFiles(directory) {
+  const entries = await readdir(directory);
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const path = resolve(directory, entry);
+      return (await stat(path)).isDirectory()
+        ? sourceFiles(path)
+        : /\.(?:ts|tsx)$/.test(entry)
+          ? [path]
+          : [];
+    })
+  );
+  return nested.flat();
+}
+
+test("Rust SPA does not import the Next.js App Router", async () => {
+  const files = await sourceFiles(resolve("rust-dashboard"));
+  const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));
+  for (const source of sources) {
+    assert.doesNotMatch(source, /(?:from|import\s*\()\s*["'][^"']*src\/app\//);
+    assert.doesNotMatch(source, /next\/(?:navigation|headers|server|image|link)/);
+  }
+});

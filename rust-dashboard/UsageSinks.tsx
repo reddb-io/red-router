@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listRustClientKeys, rustUsageSinkFetch, type RustClientKey } from "@/lib/rustControlPlane/browserClient";
-import type { TransportDescriptor, UsageSink } from "../src/app/(dashboard)/dashboard/usage-sinks/types";
+import type { TransportDescriptor, UsageSink } from "./types/usageSinks";
 
 type Draft = {
   id: string | null;

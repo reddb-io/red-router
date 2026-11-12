@@ -51,7 +51,7 @@ features must not be implemented only there.
 | Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/rerank/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining modal unit types remain            |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware quota snapshots, terminal account states and a Rust SPA operator surface; the remaining versioned settings remain   |
 | Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, local bootstrap and browser PKCE sessions, CSRF/origin binding and logout                                                          |
-| SPA delivery                | Production default     | Rust serves a validated static bundle with provider, resilience, routing, key, identity, usage, audit and OIDC views; the Rust-only Docker artifact is the default Compose service and legacy Next requires an explicit profile |
+| SPA delivery                | Production default     | Rust serves a validated static bundle with provider, resilience, routing, key, identity, usage, audit and OIDC views; its product pages live under `rust-dashboard` and cannot import the Next.js App Router; the Rust-only Docker artifact is the default Compose service and legacy Next requires an explicit profile |
 | Legacy data migration       | Partial                | Offline preflight, bounded importers and an orchestrated generic cutover with structured report and retained rollback copy exist; provider-specific adoption, verification and activation remain                                |
 
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
@@ -151,7 +151,11 @@ Account-specific quota probes, the remaining provider authorization flows and th
 CLI-owned session lifecycle remain follow-up work.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
 headers, immutable caching for versioned chunks and no-store HTML. The Rust-only image
-packages that bundle and is the default Compose service. Remaining work is
+packages that bundle and is the default Compose service. Providers, combos, client keys,
+usage, identity, audit, catalog, resilience and OIDC are owned by the independent
+`rust-dashboard` source tree. Legacy Next pages only re-export the three shared Rust views
+needed by the compatibility runtime; the SPA itself is guarded from importing `src/app` or
+Next server/navigation modules. Remaining work is
 provider-specific diagnostics rather than a Next.js backend dependency.
 
 ## Rust-owned production slices

@@ -8,13 +8,9 @@ import {
 } from "@/lib/rustControlPlane/browserClient";
 import "./dashboard.css";
 
-const Providers = lazy(
-  () => import("../src/app/(dashboard)/dashboard/providers/RustProvidersPageClient")
-);
-const Combos = lazy(() => import("../src/app/(dashboard)/dashboard/combos/RustCombosPageClient"));
-const Keys = lazy(
-  () => import("../src/app/(dashboard)/dashboard/api-manager/RustApiManagerPageClient")
-);
+const Providers = lazy(() => import("./pages/RustProvidersPageClient"));
+const Combos = lazy(() => import("./pages/RustCombosPageClient"));
+const Keys = lazy(() => import("./pages/RustApiManagerPageClient"));
 const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
 const OidcSettings = lazy(() => import("./OidcSettings"));
