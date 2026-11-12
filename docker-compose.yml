@@ -2,8 +2,9 @@
 #  RedRouter — Docker Compose
 # ──────────────────────────────────────────────────────────────────────
 #
-#  Profiles:
-#    rust  → Rust proxy/control plane + static SPA, no Node.js runtime
+#  Default:
+#    redrouter-rust → Rust proxy/control plane + static SPA, no Node.js runtime
+#  Legacy profiles:
 #    base  → minimal image, no CLI tools
 #    web   → runner-web (+Chromium/Playwright) for web-cookie providers
 #    cli   → bundled CLIs installed inside the container (portable)
@@ -13,17 +14,17 @@
 #    bifrost → Bifrost Go sidecar on port 8080 (Tier-1 LLM router)
 #
 #  Usage:
-#    docker compose --profile rust up -d --build redrouter-rust
-#    docker compose --profile base up -d
-#    docker compose --profile web up -d   # gemini-web / claude-web / claude-turnstile
-#    docker compose --profile cli up -d
+#    docker compose up -d --build
+#    docker compose --profile base up -d omniroute-base redis
+#    docker compose --profile web up -d omniroute-web chatgpt-web-codex-browser redis
+#    docker compose --profile cli up -d omniroute-cli redis
 #    # Windows Docker Desktop: use the bundled CLI image and rebuild it
-#    docker compose --profile cli up -d --build
-#    docker compose --profile host up -d
-#    docker compose --profile cliproxyapi up -d
-#    docker compose --profile cli --profile cliproxyapi up -d
-#    docker compose --profile base --profile memory up -d   # adds Qdrant sidecar
-#    docker compose --profile base --profile bifrost up -d  # adds Bifrost sidecar
+#    docker compose --profile cli up -d --build omniroute-cli redis
+#    docker compose --profile host up -d omniroute-host redis
+#    docker compose --profile cliproxyapi up -d cliproxyapi
+#    docker compose --profile cli --profile cliproxyapi up -d omniroute-cli redis cliproxyapi
+#    docker compose --profile base --profile memory up -d omniroute-base redis qdrant
+#    docker compose --profile base --profile bifrost up -d omniroute-base redis bifrost
 #
 #  Docker Compose uses `--profile <name> <command>`; `load profile` is not a
 #  valid command. The `base` profile has no CLI tools, and `host` is Linux-only.
@@ -74,7 +75,7 @@ x-common: &common
     start_period: 15s
 
 services:
-  # ── Profile: rust (production proxy + static SPA) ─────────────────
+  # ── Default: production Rust proxy + static SPA ──────────────────
   # This is the Next.js-free serving topology. The image contains only
   # red-routerd, the compiled SPA and runtime CA/curl packages. Configure
   # RED_ROUTER_ADMIN_KEY and STORAGE_ENCRYPTION_KEY in .env before starting it.
@@ -99,9 +100,6 @@ services:
       - "${APP_BIND_HOST:-127.0.0.1}:${DASHBOARD_PORT:-25050}:${DASHBOARD_PORT:-25050}"
     volumes:
       - ./data:/app/data
-    profiles:
-      - rust
-
   # ── Redis (Rate Limiter Backend) ──────────────────────────────────
   redis:
     image: docker.io/library/redis:8.6.5-alpine
@@ -123,6 +121,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    profiles:
+      - legacy
 
   # ── Profile: base (minimal, no CLI tools) ──────────────────────────
   omniroute-base:

@@ -15,7 +15,7 @@ describe("Rust production entrypoint", () => {
     assert.match(pkg.scripts["start:rust"], /rust\/red-routerd\/Cargo\.toml/);
   });
 
-  it("defines a loopback-bound Rust and SQLite compose profile", async () => {
+  it("makes the loopback-bound Rust and SQLite service the compose default", async () => {
     const compose = await read("docker-compose.yml");
     const service = compose.match(/  redrouter-rust:\r?\n([\s\S]*?)(?=\r?\n  # ── Redis)/)?.[1];
 
@@ -24,8 +24,12 @@ describe("Rust production entrypoint", () => {
     assert.match(service, /RED_ROUTER_DB_BACKEND=sqlite/);
     assert.match(service, /RED_ROUTER_SPA_DIR=\/app\/dashboard/);
     assert.ok(service.includes("${APP_BIND_HOST:-127.0.0.1}"));
-    assert.match(service, /- rust/);
+    assert.doesNotMatch(service, /profiles:/);
     assert.doesNotMatch(service, /node|next/i);
+
+    const redis = compose.match(/  redis:\r?\n([\s\S]*?)(?=\r?\n  # ── Profile: base)/)?.[1];
+    assert.ok(redis);
+    assert.match(redis, /profiles:\r?\n\s+- legacy/);
   });
 
   it("keeps Node and Next.js out of the Rust runtime image", async () => {

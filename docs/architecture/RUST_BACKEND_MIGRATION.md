@@ -42,17 +42,17 @@ features must not be implemented only there.
 
 ## Delivery map
 
-| Slice                       | Rust authority         | Acceptance                                                                                                                                                                                                                    |
-| --------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness                                                                                                                          |
-| API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry                                                                                                                                                |
-| Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                                                                  |
-| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key request/token/day/monthly-spend admission, access schedules and chat/Responses JSON+SSE plus embedding/rerank/Anthropic/Gemini settlement; budgets and non-SQLite quota stores remain                      |
-| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/rerank/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining modal unit types remain          |
-| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware quota snapshots, terminal account states and a Rust SPA operator surface; the remaining versioned settings remain |
-| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, local bootstrap and browser PKCE sessions, CSRF/origin binding and logout                                                        |
-| SPA delivery                | Partial                | Rust serves a validated static bundle with provider, resilience, routing, key, identity, usage, audit and OIDC views, and the Rust-only Docker artifact packages it; default CLI/release cutover and remaining views remain   |
-| Legacy data migration       | Partial                | Offline preflight, bounded importers and an orchestrated generic cutover with structured report and retained rollback copy exist; provider-specific adoption, verification and activation remain                              |
+| Slice                       | Rust authority         | Acceptance                                                                                                                                                                                                                      |
+| --------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, tenant ownership, live reload, restart persistence, readiness                                                                                                                            |
+| API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry                                                                                                                                                  |
+| Combos and routing          | Implemented foundation | Tenant-isolated deterministic, metadata-ranked, deck-random and load-aware routes and reload                                                                                                                                    |
+| Pricing, quotas and budgets | SQLite foundation      | Rust-owned per-key request/token/day/monthly-spend admission, access schedules and chat/Responses JSON+SSE plus embedding/rerank/Anthropic/Gemini settlement; budgets and non-SQLite quota stores remain                        |
+| Usage and audit             | Rust-owned SQLite      | Chat and Responses JSON/SSE plus embedding/rerank/Anthropic/Gemini ledger, bounded expired-counter maintenance and cursor-paginated tenant reporting; detailed ledger archival and remaining modal unit types remain            |
+| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, model-aware quota snapshots, terminal account states and a Rust SPA operator surface; the remaining versioned settings remain   |
+| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, tenant-admin resource CRUD, scoped service provisioning, local bootstrap and browser PKCE sessions, CSRF/origin binding and logout                                                          |
+| SPA delivery                | Production default     | Rust serves a validated static bundle with provider, resilience, routing, key, identity, usage, audit and OIDC views; the Rust-only Docker artifact is the default Compose service and legacy Next requires an explicit profile |
+| Legacy data migration       | Partial                | Offline preflight, bounded importers and an orchestrated generic cutover with structured report and retained rollback copy exist; provider-specific adoption, verification and activation remain                                |
 
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
 
@@ -150,9 +150,9 @@ transport, bounds time and response bytes, and returns only a stable redacted re
 Account-specific quota probes, the remaining provider authorization flows and the local
 CLI-owned session lifecycle remain follow-up work.
 `red-routerd` can serve a prepared static bundle directly with route isolation, secure
-headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
-production dashboard export/packaging pipeline and provider-specific diagnostics rather
-than a Next.js backend dependency.
+headers, immutable caching for versioned chunks and no-store HTML. The Rust-only image
+packages that bundle and is the default Compose service. Remaining work is
+provider-specific diagnostics rather than a Next.js backend dependency.
 
 ## Rust-owned production slices
 
@@ -196,9 +196,9 @@ coverage includes SQLite and the common RedDB/PostgreSQL repository contract. A 
 non-secret auth bootstrap, bounded standard discovery endpoint and browser fetch bridge are
 implemented. With `RED_ROUTER_SPA_DIR`, Rust validates `index.html` at startup and serves the
 static build itself. Reserved API namespaces and missing asset paths never fall through to the
-SPA shell; HTML and the service worker are not cached, while `/_next/static/` assets are
-immutable. Building and packaging the complete production dashboard plus provider-specific
-diagnostics remain; neither requires a Next.js persistence or session backend.
+SPA shell; HTML and the service worker are not cached, while versioned assets are immutable.
+The production Rust image packages this dashboard. Provider-specific diagnostics remain;
+they do not require a Next.js persistence or session backend.
 
 The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
 `redrouter_control_client_keys`. Authenticated admin writes durably commit before a new

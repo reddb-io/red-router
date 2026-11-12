@@ -384,9 +384,10 @@ for literal-loopback development servers. Browser login uses Authorization Code 
 S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour sessions,
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
 The Rust dashboard can be built with `npm ci` and `npm run build:rust-dashboard`.
-This produces `.build/rust-dashboard`, a static bundle using the existing Rust-backed
-providers, combos, client-key, usage-report and usage-destination views. It uses Rust's
-local administrator or OIDC browser session; the remaining Next dashboard views are not yet ported.
+This produces `.build/rust-dashboard`, a static bundle using Rust-backed provider,
+resilience, combo, client-key, identity, OIDC, usage, export and audit views. It uses
+Rust's local administrator or OIDC browser session; compatibility-only product views
+remain in the legacy dashboard rather than adding a Next.js runtime dependency.
 Set `RED_ROUTER_SPA_DIR` to that directory or another prepared static build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
 directory. Browser navigation serves exported `route.html` or `route/index.html` pages
@@ -394,8 +395,9 @@ when present and otherwise falls back to the SPA shell. Reserved API namespaces,
 hidden paths and missing files with extensions never do. HTML and `sw.js` use `no-store`;
 versioned `/_next/static/` chunks use immutable one-year caching. Brotli and gzip sidecar
 files are selected when present. The server adds CSP, clickjacking, MIME-sniffing,
-referrer, permissions and opener protections. Producing and packaging the complete
-production dashboard export remains migration work.
+referrer, permissions and opener protections. `Dockerfile.rust` packages the bundle
+with `red-routerd`, and the default Compose service runs that image without Node.js.
+Legacy Next.js deployment shapes require an explicit Compose profile.
 For a non-mutating inventory before migrating a legacy Next.js SQLite database, set
 `RED_ROUTER_PRODUCT_DB_PATH` to that file and run `red-routerd inspect-legacy-sqlite`.
 It reads a single snapshot and reports counts without credentials or row contents. This
