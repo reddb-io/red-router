@@ -17,22 +17,13 @@ function readCompose(file: string): string {
   return fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
 }
 
-test("docker-compose.yml publishes the dashboard/API/live-WS ports on loopback by default", () => {
+test("docker-compose.yml publishes the single Rust listener on loopback by default", () => {
   const compose = readCompose("docker-compose.yml");
-  const barePublishSpecs = [
-    /- "\$\{DASHBOARD_PORT:-20128\}:\$\{DASHBOARD_PORT:-20128\}"/,
-    /- "\$\{API_PORT:-20129\}:\$\{API_PORT:-20129\}"/,
-    /- "\$\{LIVE_WS_PORT:-20132\}:\$\{LIVE_WS_PORT:-20132\}"/,
-  ];
-  for (const re of barePublishSpecs) {
-    assert.doesNotMatch(compose, re, `unqualified publish spec ${re} binds 0.0.0.0`);
-  }
   assert.match(
     compose,
-    /- "\$\{APP_BIND_HOST:-127\.0\.0\.1\}:\$\{DASHBOARD_PORT:-20128\}:\$\{DASHBOARD_PORT:-20128\}"/
+    /- "\$\{APP_BIND_HOST:-127\.0\.0\.1\}:\$\{DASHBOARD_PORT:-25050\}:\$\{DASHBOARD_PORT:-25050\}"/
   );
-  assert.doesNotMatch(compose, /API_HOST=\$\{API_HOST:-0\.0\.0\.0\}/);
-  assert.doesNotMatch(compose, /LIVE_WS_HOST=\$\{LIVE_WS_HOST:-0\.0\.0\.0\}/);
+  assert.doesNotMatch(compose, /API_PORT|LIVE_WS_PORT|node|next/i);
 });
 
 test("docker-compose.prod.yml publishes the app's ports on loopback by default", () => {

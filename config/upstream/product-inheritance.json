@@ -45,7 +45,7 @@
       "role": "metadata-source",
       "repository": "anomalyco/models.dev",
       "ref": "dev",
-      "sha": "592a849d85d184cad180803a60ecaa0a521f96b9",
+      "sha": "a2753d98dacece3d1b52a99de967556146fa4b38",
       "reviewScope": "Provider/native versus canonical identity, type filtering, reasoning_options, public HTTP validators and OpenRouter decision omission; schema source ref is separate from live asset provenance.",
       "licenseBoundary": "MIT; snapshot notice and upstream attribution retained."
     },
@@ -167,12 +167,16 @@
       "localPaths": [
         "open-sse/services/combo.ts",
         "open-sse/services/accountFallback.ts",
-        "src/shared/utils/circuitBreaker.ts"
+        "src/shared/utils/circuitBreaker.ts",
+        "rust/red-routerd/src/lib.rs",
+        "rust/red-routerd/src/control_plane.rs",
+        "rust/red-routerd/src/circuit.rs",
+        "rust/red-routerd/tests/control_plane.rs"
       ],
       "upstreamPaths": {
         "litellm": ["litellm/router.py", "litellm/router_strategy"]
       },
-      "remaining": "Preserve RedRouter model/account failover while comparing strategies, retry boundaries, context routing, quotas and connection affinity.",
+      "remaining": "The Rust authority now covers the 20 selectors advertised by the Rust capability boundary, including durable context relay, fusion panel/judge orchestration and ordered pipeline execution. Fusion persists dashboard tuning, bounds parallel fan-out with quorum grace, preserves tool-bearing requests, shares provider health/load controls and accounts every physical call in native SQLite usage. Pipeline persists per-step prompts and bounded transient retries, threads protocol-native intermediate text, preserves the final tool/streaming contract and accounts every successful physical call in native SQLite usage. Preserve RedRouter model/account failover while completing nested orchestration, product-database compatibility accounting and remaining catalog enrichment.",
       "acceptance": [
         "Do not retry a request after emitting upstream bytes or replay ambiguous billable writes.",
         "Account/model errors do not disable a whole provider.",
@@ -211,7 +215,7 @@
     {
       "id": "dashboard-auth-and-resource-scope",
       "sources": ["redrouter", "omniroute", "litellm"],
-      "status": "unverified",
+      "status": "partial",
       "baselinePaths": [
         "src/lib/auth/oidc.js",
         "src/lib/auth/saml.js",
@@ -219,7 +223,10 @@
       ],
       "localPaths": [
         "src/app/api/auth/oidc/login/route.ts",
-        "src/app/api/auth/oidc/callback/route.ts"
+        "src/app/api/auth/oidc/callback/route.ts",
+        "rust/red-routerd/src/oidc.rs",
+        "rust/red-routerd/src/control_plane.rs",
+        "rust/red-routerd/tests/control_plane.rs"
       ],
       "upstreamPaths": {
         "litellm": [
@@ -227,7 +234,7 @@
           "litellm/proxy/management_endpoints/organization_endpoints.py"
         ]
       },
-      "remaining": "OIDC source is present; no SAML dashboard implementation was located in the integrated tree. Compare resource isolation, keys, teams/organizations, roles and audit behavior independently.",
+      "remaining": "Rust owns OIDC discovery, PKCE browser login, signed bearer verification, canonical issuer+subject identity linking, tenant/role bindings and cross-replica enable/revoke convergence. SAML is not migrated, and the remaining user/team audit semantics still require independent implementation.",
       "acceptance": [
         "RedRouter password/OIDC/SAML workflows and resource scoping are preserved.",
         "Cross-user and cross-organization reads/writes are denied.",
@@ -389,9 +396,14 @@
         "src/lib/modelMetadataRegistry.ts",
         "src/lib/providerModels/modelDiscovery.ts",
         "src/app/api/v1/models/catalogCache.ts",
-        "tests/redrouter/native/models-dev-seed.test.ts"
+        "tests/redrouter/native/models-dev-seed.test.ts",
+        "rust/red-routerd/src/catalog.rs",
+        "rust/red-routerd/src/storage.rs",
+        "rust/red-routerd/src/control_plane.rs",
+        "rust/red-routerd/tests/control_plane.rs",
+        "rust/red-routerd/tests/storage.rs"
       ],
-      "remaining": "Local adaptations require the exact-commit CI gates. Public discovery does not prove credential entitlement or a successful typed decision evaluation; unimplemented decision protocols remain non-executable. Canonical links are optional, and models.dev does not define a complete HTTP parameter schema. Multi-process/replica invalidation remains outside these process-local catalog guarantees.",
+      "remaining": "The Rust authority now conditionally refreshes, normalizes, validates, atomically persists and publishes a last-good models.dev snapshot across every supported storage backend, while replicas poll only its revision and safely adopt changed generations. Local adaptations still require the exact-commit CI gates. Public discovery does not prove credential entitlement or a successful typed decision evaluation; unimplemented decision protocols remain non-executable. Canonical links are optional and models.dev does not define a complete HTTP parameter schema.",
       "acceptance": [
         "Bundled metadata works offline and never creates connections or enables models.",
         "Provider-native IDs and declared endpoint/credential/payload contracts survive enrichment and router federation.",

@@ -1,5 +1,5 @@
-import ApiManagerPageClient from "./ApiManagerPageClient";
+import ApiManagerBackendBoundary from "./ApiManagerBackendBoundary";
 
 export default function ApiManagerPage() {
-  return <ApiManagerPageClient />;
+  return <ApiManagerBackendBoundary />;
 }

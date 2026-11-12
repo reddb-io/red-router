@@ -50,12 +50,20 @@ export function buildServerSpawnArgs(serverPath, memoryLimit, env = process.env)
 export class ServerSupervisor {
   constructor({
     serverPath,
+    command,
+    args,
+    cwd,
+    listenPort,
     env,
     maxRestarts = DEFAULT_MAX_RESTARTS,
     memoryLimit = 512,
     onCrashCallback,
   }) {
     this.serverPath = serverPath;
+    this.command = command;
+    this.args = args;
+    this.cwd = cwd;
+    this.listenPort = listenPort;
     this.env = env;
     this.maxRestarts = maxRestarts;
     this.memoryLimit = memoryLimit;
@@ -87,15 +95,19 @@ export class ServerSupervisor {
     // Node args come from buildNodeRuntimeArgs (#9209 IPv4-first DNS + #5238
     // heap flag handling); the Bun branch keeps #9761's polyfill preload —
     // Bun does not accept the Node-only flags.
-    this.child = spawn(process.execPath, buildServerSpawnArgs(this.serverPath, this.memoryLimit), {
-      cwd: dirname(this.serverPath),
-      env: this.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      // Tray mode has no visible console. Keep the supervised server hidden on Windows,
-      // including when it is restarted after a crash. Without this, each supervised
-      // spawn can create a visible terminal window.
-      windowsHide: true,
-    });
+    this.child = spawn(
+      this.command ?? process.execPath,
+      this.args ?? buildServerSpawnArgs(this.serverPath, this.memoryLimit),
+      {
+        cwd: this.cwd ?? dirname(this.serverPath),
+        env: this.env,
+        stdio: ["ignore", "pipe", "pipe"],
+        // Tray mode has no visible console. Keep the supervised server hidden on Windows,
+        // including when it is restarted after a crash. Without this, each supervised
+        // spawn can create a visible terminal window.
+        windowsHide: true,
+      }
+    );
 
     writePidFile("server", this.child.pid);
     appendRuntimeLog(`Server child started (pid=${this.child.pid})`, { channel: "supervisor" });
@@ -231,7 +243,7 @@ export class ServerSupervisor {
     // immediately produced the EADDRINUSE cascade that exhausted the restart budget. Wait
     // (bounded) for the port to free up before respawning.
     setTimeout(async () => {
-      await waitUntilPortFree(process.env.PORT || 25050);
+      await waitUntilPortFree(this.listenPort ?? this.env?.PORT ?? process.env.PORT ?? 25050);
       this.start();
     }, delay);
   }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fast repository sanity and the on-demand Actions cost policy."""
 import json
+import subprocess
 from pathlib import Path
 import tomllib
 import yaml

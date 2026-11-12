@@ -1,8 +1,6 @@
-// Kept in lockstep with the `@openai/codex@x.y.z` pin in the root Dockerfile
-// (the CLI installed in the OmniRoute image). When that image pin is bumped,
-// refresh this so the fingerprint OpenAI sees from the OAuth/Responses face
-// matches the real client version. Overridable per-deployment via
-// CODEX_CLIENT_VERSION.
+// Captured from the official Codex CLI by refresh-cli-identities.mjs. The Rust
+// runtime does not install or shell out to provider CLIs; this value preserves
+// the compatible OAuth/Responses wire fingerprint. Overridable per deployment.
 export const DEFAULT_CODEX_CLIENT_VERSION = "0.163.0";
 export const CODEX_CLI_RS_ORIGINATOR = "codex_cli_rs";
 

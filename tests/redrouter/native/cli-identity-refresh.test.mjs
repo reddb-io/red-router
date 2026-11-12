@@ -44,7 +44,7 @@ test("CLI refresh changes only the selected pin and preserves literal version di
   assert.throws(() => replaceIdentityPin(source, "MISSING", "2.1.288"), /Cannot find/);
 });
 
-test("Docker installs the exact Claude and Codex versions announced by the Router", async () => {
+test("the Rust runtime image does not install provider CLIs", async () => {
   const [docker, codex, claude] = await Promise.all(
     [
       "Dockerfile",
@@ -52,8 +52,8 @@ test("Docker installs the exact Claude and Codex versions announced by the Route
       "src/shared/constants/claudeCodeClient.ts",
     ].map((file) => readFile(file, "utf8"))
   );
-  const codexVersion = codex.match(/DEFAULT_CODEX_CLIENT_VERSION = "([^"]+)"/)[1];
-  const claudeVersion = claude.match(/CLAUDE_CODE_CLIENT_VERSION = "([^"]+)"/)[1];
-  assert.ok(docker.includes(`@openai/codex@${codexVersion} `));
-  assert.ok(docker.includes(`@anthropic-ai/claude-code@${claudeVersion} `));
+  assert.match(codex, /DEFAULT_CODEX_CLIENT_VERSION = "\d+\.\d+\.\d+"/);
+  assert.match(claude, /CLAUDE_CODE_CLIENT_VERSION = "\d+\.\d+\.\d+"/);
+  assert.doesNotMatch(docker, /@openai\/codex|@anthropic-ai\/claude-code|npm install -g/);
+  assert.match(docker, /ENTRYPOINT \["red-routerd"\]/);
 });

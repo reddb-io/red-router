@@ -1,0 +1,42 @@
+[package]
+name = "red-routerd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+reddb-embedded = ["reddb-io-client/embedded", "dep:fs2"]
+
+[dependencies]
+axum = "0.8"
+futures-util = "0.3"
+fs2 = { version = "0.4", optional = true }
+getrandom = "=0.3.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+percent-encoding = "2"
+reddb-io-client = { version = "=1.28.19", default-features = false, features = ["redwire-tls"] }
+serde_json = { version = "1", features = ["raw_value"] }
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any"] }
+subtle = "2"
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+time = { version = "0.3.55", features = ["formatting", "parsing"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6.11", features = ["fs"] }
+url = "2"
+aes-gcm = "0.10"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = "0.10"
+scrypt = "0.11"
+hex = "0.4"
+jsonwebtoken = { version = "10.4.0", features = ["aws_lc_rs"] }
+libc = "0.2"
+rdkafka = { version = "0.39", default-features = false, features = ["cmake-build", "curl-static", "ssl-vendored"] }
+zeroize = "1"
+sha2 = "0.10"
+zip = { version = "=9.5.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile = "3"

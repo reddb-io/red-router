@@ -87,6 +87,9 @@ for (const scenario of [
         normalizedStreamStatus: scenario === "failed-stream" ? 502 : 200,
         traceId: requestId,
         calculateCost,
+        // The production call closes over the request-scoped shared-usage reservation.
+        // These scenarios exercise the legacy ledger path, so there is no reservation.
+        sharedUsageAttempt: null,
       });
     invoke();
     invoke();

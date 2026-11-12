@@ -20,6 +20,8 @@ out
 build
 dist
 coverage
+target
+**/target
 
 # Runtime data and logs
 data

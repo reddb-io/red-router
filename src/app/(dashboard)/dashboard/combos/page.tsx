@@ -1,6 +1,30 @@
 "use client";
 
-import { Activity, ArrowDown, ArrowRight, ArrowUp, Bot, Check, CircleAlert, CircleCheck, CircleQuestionMark, Compass, Copy, FileCheck, Funnel, GlobeLock, GripVertical, Info, Layers, Lightbulb, Pencil, Sparkles, Trash2, TriangleAlert, X } from "lucide-react";
+import {
+  Activity,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Bot,
+  Check,
+  CircleAlert,
+  CircleCheck,
+  CircleQuestionMark,
+  Compass,
+  Copy,
+  FileCheck,
+  Funnel,
+  GlobeLock,
+  GripVertical,
+  Info,
+  Layers,
+  Lightbulb,
+  Pencil,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import {
   useState,
@@ -93,6 +117,7 @@ import { resolveProviderAlias } from "@omniroute/open-sse/services/providerAlias
 import { resolveServerErrorMessage } from "@/lib/api/serverErrorMessage";
 import { useTranslations } from "next-intl";
 import ComboBulkBar from "./ComboBulkBar";
+import CombosBackendBoundary from "./CombosBackendBoundary";
 
 const ModelSelectModal = dynamic(() => import("@/shared/components/ModelSelectModal"), {
   ssr: false,
@@ -1443,7 +1468,9 @@ function CombosPageContent() {
                   onTest={() => handleTestCombo(combo)}
                   testing={testingCombo === combo.name}
                   onProxy={() => setProxyTargetCombo(combo)}
-                  hasProxy={comboProxyAssignedIds.has(combo.id) || !!proxyConfig?.combos?.[combo.id]}
+                  hasProxy={
+                    comboProxyAssignedIds.has(combo.id) || !!proxyConfig?.combos?.[combo.id]
+                  }
                   onToggle={() => handleToggleCombo(combo)}
                   dragDisabled={savingComboOrder || activeFilter !== "all" || combos.length < 2}
                   isDragged={comboDragIndex === index}
@@ -1509,7 +1536,7 @@ function CombosPageContent() {
 export default function CombosPage() {
   return (
     <Suspense fallback={null}>
-      <CombosPageContent />
+      <CombosBackendBoundary legacy={<CombosPageContent />} />
     </Suspense>
   );
 }
@@ -3440,7 +3467,12 @@ function ComboFormModal({
                 <label className="text-sm font-medium">{t("routingStrategy")}</label>
                 {!isExpertMode && (
                   <Tooltip content={getStrategyDescription(t, strategy)}>
-                    <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
+                    <Icon
+                      icon={CircleQuestionMark}
+                      size="sm"
+                      color="ink-muted"
+                      className="cursor-help"
+                    />
                   </Tooltip>
                 )}
               </div>
@@ -3875,7 +3907,12 @@ function ComboFormModal({
                       } ${dragIndex === index ? "opacity-50" : ""}`}
                     >
                       {/* Drag handle */}
-                      <Icon icon={GripVertical} size="sm" color="ink-muted" className="cursor-grab shrink-0" />
+                      <Icon
+                        icon={GripVertical}
+                        size="sm"
+                        color="ink-muted"
+                        className="cursor-grab shrink-0"
+                      />
 
                       {/* Index badge */}
                       <span className="text-[10px] font-medium text-text-muted w-3 text-center shrink-0">
@@ -4190,7 +4227,12 @@ function ComboFormModal({
                             ADVANCED_FIELD_HELP_FALLBACK.failoverBeforeRetry
                           )}
                         >
-                          <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
+                          <Icon
+                            icon={CircleQuestionMark}
+                            size="sm"
+                            color="ink-muted"
+                            className="cursor-help"
+                          />
                         </Tooltip>
                       </div>
                     </div>

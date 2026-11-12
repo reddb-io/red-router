@@ -290,7 +290,11 @@ let combosCachePromise: Promise<ComboLike[]> | null = null;
 let combosCacheTs = 0;
 let combosCacheVersionSnapshot = -1;
 const COMBOS_CACHE_TTL_MS = 10_000;
-const DEFER_METERED_BUDGET = { meteredBudget: "defer-to-candidate" } as const;
+const DEFER_METERED_BUDGET = {
+  meteredBudget: "defer-to-candidate",
+  // chatCore durably reserves every real provider attempt before dispatch.
+  concurrentUsageReservation: true,
+} as const;
 
 async function getCombosCachedForChat(): Promise<ComboLike[]> {
   const now = Date.now();
@@ -2194,6 +2198,12 @@ async function handleSingleModelChat(
           }
           releaseOAuthSession();
           return successResponse;
+        }
+
+        // This is a local, fail-closed quota decision made before provider dispatch.
+        // Never cool an account, retry, or emergency-route it as an upstream failure.
+        if (result.errorType === "shared_usage_admission") {
+          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
         }
 
         // A final hard-lease fence rejection is authoritative. It must never mutate

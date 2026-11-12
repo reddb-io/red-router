@@ -1,12 +1,59 @@
 ---
 title: "ADR: Pluggable persistence boundary"
 status: accepted
-lastUpdated: 2026-10-08
+lastUpdated: 2026-11-09
 ---
 
 # ADR: Pluggable persistence boundary
 
-- **Status:** Architecture accepted on 2026-10-08; first routing slice experimental
+**Rust-backend update, 2026-11-07:** The accepted production target is the Rust
+gateway plus a static SPA, as recorded in
+[Rust backend migration](RUST_BACKEND_MIGRATION.md). SQLite remains the default;
+embedded RedDB, remote RedDB and PostgreSQL remain explicit choices. The first
+Rust-owned control-plane slices persist encrypted provider configurations, hash-only
+client keys and their authorization policy, combos, provider circuit-breaker state, and
+OIDC bearer/browser configuration with an encrypted confidential-client secret.
+Configuration snapshots reload without restart and breaker/session policy survives restart.
+Provider, combo, rotated OAuth credential and OIDC policy snapshots are fingerprinted and
+converge across Rust replicas without continuously rebuilding upstream HTTP clients. OIDC
+storage or validation failure removes the verifier from that replica while the bootstrap
+administrator remains available for recovery.
+SQLite replicas use a dedicated `PRAGMA data_version` watcher and a compact control-row marker,
+so ordinary inference/accounting writes do not trigger full configuration table scans.
+OIDC authorization resolves a canonical opaque identity from the normalized issuer and signed
+`sub` claim. Verified e-mail remains only a legacy binding alias; changing or reassigning an
+e-mail cannot change a canonical binding's tenant or role.
+Rust persists tenant-scoped administrative audit events for tenant, identity-binding, client-key,
+provider, manual provider OAuth, provider health/quota and combo mutations plus explicit
+last-known-good pin clearing, and serves them through both the native admin route and the legacy
+compliance route. Audit snapshots are built from secret-free public views; provider and OAuth
+events omit the upstream URL and every credential/token field. Background OAuth refresh remains
+an operational event rather than an administrative writer. MCP, A2A and automatic route-learning
+writers remain migration work. SQL-backed audit publication now atomically appends both the query
+view and a versioned `redrouter.audit.v1` envelope to an ordered outbox journal. Independent sink
+cursors allow the same journal to feed BigQuery, SQS or another exporter without coupling the
+write path to an external service. The first Rust relay uses a SQL-backed monotonic cursor and
+lease to export bounded, idempotent batches to an existing BigQuery table; a failed or partially
+rejected batch leaves the cursor unchanged. Business-mutation/outbox atomicity, equivalent RedDB
+transactions, automatic BigQuery schema provisioning and dashboard-owned encrypted sink
+configuration remain migration work. Until those land, the journal closes the audit-to-export
+gap but not the earlier mutation-to-audit gap.
+The append-only Rust usage ledger is also a durable BigQuery source. Its independent leased cursor
+exports exact token categories, model/provider attribution, tenant, cost and the immutable client
+key ID plus a label snapshot; it never exports the client secret. Activating that relay enables
+verified terminal-usage capture for native keys without requiring a quota, while quota-enabled
+keys retain reservation-based admission. The usage writer and relay are SQLite-only for now.
+Usage BigQuery destinations are Rust-owned and dashboard-managed: tenant/key scope is persisted
+with the sink, service-account JSON is encrypted and write-only, and a revision-aware supervisor
+applies create/update/enable/disable changes without a process restart. Signed HTTPS webhooks use
+stable delivery IDs, encrypted write-only secrets, DNS-pinned public destinations and refused
+redirects. The SQS, Kafka and RedDB transports plus window aggregation still run only in the
+compatibility backend.
+The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
+They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
+or establish full domain parity.
+
+- **Status:** Architecture accepted on 2026-10-08; Rust production migration active
 - **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)
 - **Scope:** Local/offline SQLite and connected/server RedDB or PostgreSQL; this document records
   the selected architecture and delivery requirements; full backend support remains pending
@@ -201,6 +248,26 @@ The slice must include:
 - independent RedDB and PostgreSQL conformance, migration-ownership and outage checks;
 - encryption and redaction verification for stored credentials;
 - no change to the default startup configuration.
+
+## Rust-owned OAuth rotation
+
+The Rust control plane owns imported Codex and Claude OAuth token pairs. Access and refresh tokens
+are encrypted independently, are write-only in management responses, and rotate together with a
+generation compare-and-swap. Automatic refresh uses fixed upstream token endpoints, a bounded
+no-proxy HTTP client and a durable SQLite lease per upstream rotation group. This prevents two
+Rust replicas from spending the same one-time refresh token concurrently.
+After a successful rotation, peer Rust replicas detect the changed encrypted credential and
+OAuth generation in the durable snapshot and rebuild their affected routing snapshot. They do
+not continue serving the stale access token until restart.
+
+Terminal upstream responses such as `invalid_grant` are persisted as `reauth_required`; automatic
+and manual retries then stop until an operator replaces the credential. Transient failures remain
+retryable and do not replace the active token pair. The dashboard may request a refresh and display
+the resulting state, but it never receives either token.
+
+The atomic lease and token-pair rotation path is intentionally SQLite-only for now. RedDB and
+PostgreSQL can store imported OAuth metadata, but server-owned refresh must fail closed until each
+backend implements and tests equivalent cross-replica lease and compare-and-swap semantics.
 
 ## Alternatives considered
 

@@ -31,12 +31,21 @@ another project's release branches, freeze issues, VPS or operator identity.
 Respect the operator's main-only workflow; do not reset the tree, remove other
 sessions' work or bulk-copy an upstream tree over RedRouter.
 
-The persistence architecture is local/offline SQLite and connected/server RedDB
-or PostgreSQL. SQLite remains the zero-configuration default; external backends
-are explicit opt-in choices per installation. Losing database connectivity must
-not switch the durable authority to SQLite. Offline/online synchronization is a
-separate capability. This is the selected architecture, not a claim of current
-external-backend or multi-replica support. Follow
+The production migration target is a Rust server that owns the inference proxy,
+authentication, policy, accounting and all durable persistence. The web dashboard
+becomes a static SPA that talks only to authenticated Rust APIs; TypeScript is a
+compatibility source during migration, not a second production backend. FastLLM may
+remain an optional private Rust engine behind the RedRouter gateway, but it never owns
+client authentication or durable product state. Do not add new durable writes or proxy
+features exclusively to the TypeScript server.
+
+The existing TypeScript product and the Rust server use local/offline SQLite by
+default for now. The Rust server also supports explicitly selected embedded RedDB,
+remote RedDB and PostgreSQL backends. Losing database connectivity
+must not switch the durable authority to another backend. Offline/online
+synchronization is a separate capability. This is the selected architecture, not a
+claim of complete migration, external-backend or multi-replica support. Migrate in
+tested vertical slices while keeping one Rust-owned production boundary. Follow
 `docs/architecture/persistence-backend-boundary.md` for delivery and acceptance.
 
 For upstream work, record the RedRouter baseline, pinned upstream source,
@@ -113,20 +122,20 @@ Repository map and Reference Documentation sections below.
 **RedRouter** — a self-hosted control plane for AI model traffic. The implementation
 below includes upstream-derived modules; their presence is not a parity claim.
 
-| Layer         | Location                | Purpose                                                                                                                                                                   |
-| ------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API Routes    | `src/app/api/v1/`       | Next.js App Router — entry points                                                                                                                                         |
-| Handlers      | `open-sse/handlers/`    | Request processing (chat, embeddings, etc)                                                                                                                                |
-| Executors     | `open-sse/executors/`   | Provider-specific HTTP dispatch                                                                                                                                           |
-| Translators   | `open-sse/translator/`  | Format conversion (OpenAI↔Claude↔Gemini)                                                                                                                                  |
-| Transformer   | `open-sse/transformer/` | Responses API ↔ Chat Completions                                                                                                                                          |
-| Services      | `open-sse/services/`    | Combo routing, rate limits, caching, etc                                                                                                                                  |
-| Database      | `src/lib/db/`           | SQLite domain modules (188 migrations)                                                                                                                                    |
-| Domain/Policy | `src/domain/`           | Policy engine, cost rules, fallback logic                                                                                                                                 |
+| Layer         | Location                | Purpose                                                                                                                                                      |
+| ------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API Routes    | `src/app/api/v1/`       | Next.js App Router — entry points                                                                                                                            |
+| Handlers      | `open-sse/handlers/`    | Request processing (chat, embeddings, etc)                                                                                                                   |
+| Executors     | `open-sse/executors/`   | Provider-specific HTTP dispatch                                                                                                                              |
+| Translators   | `open-sse/translator/`  | Format conversion (OpenAI↔Claude↔Gemini)                                                                                                                     |
+| Transformer   | `open-sse/transformer/` | Responses API ↔ Chat Completions                                                                                                                             |
+| Services      | `open-sse/services/`    | Combo routing, rate limits, caching, etc                                                                                                                     |
+| Database      | `src/lib/db/`           | SQLite domain modules (188 migrations)                                                                                                                       |
+| Domain/Policy | `src/domain/`           | Policy engine, cost rules, fallback logic                                                                                                                    |
 | MCP Server    | `open-sse/mcp-server/`  | 102 tools (45 canonical + memory/skill/GitHub/pool/plugin/Notion/Obsidian/local-corpus/RTK modules), 3 transports (stdio / SSE / Streamable HTTP), 33 scopes |
-| A2A Server    | `src/lib/a2a/`          | JSON-RPC 2.0 agent protocol                                                                                                                                               |
-| Skills        | `src/lib/skills/`       | Extensible skill framework                                                                                                                                                |
-| Memory        | `src/lib/memory/`       | Persistent conversational memory                                                                                                                                          |
+| A2A Server    | `src/lib/a2a/`          | JSON-RPC 2.0 agent protocol                                                                                                                                  |
+| Skills        | `src/lib/skills/`       | Extensible skill framework                                                                                                                                   |
+| Memory        | `src/lib/memory/`       | Persistent conversational memory                                                                                                                             |
 
 Monorepo: `src/` (Next.js 16 app), `open-sse/` (streaming engine workspace), `electron/` (desktop app), `tests/`, `bin/` (CLI entry point).
 

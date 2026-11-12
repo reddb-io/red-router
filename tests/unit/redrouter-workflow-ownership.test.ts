@@ -26,6 +26,9 @@ test("RedRouter keeps manual quality separate from exact-artifact releases", () 
   assert.ok(quality.jobs.checks);
   assert.ok(quality.jobs["test-unit"]);
   assert.ok(quality.jobs["test-vitest"]);
+  assert.ok(quality.jobs["rust-data-plane"]);
+  assert.ok(quality.jobs["rust-windows-storage"]);
+  assert.ok(quality.on.workflow_dispatch.inputs.suite.options.includes("rust"));
   assert.ok(workflow.jobs.build);
   assert.ok(workflow.jobs.release);
   assert.deepEqual(workflow.jobs.release.needs, ["build"]);

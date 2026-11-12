@@ -20,8 +20,7 @@ test("removing pre-commit keeps RedRouter contracts and package validation in CI
     "test:unit:ci",
     "test:vitest",
     "check:tracked-artifacts",
-    "check:pack-artifact",
-    "check:pack-boot",
+    "check:rust-package",
   ]) {
     assert.ok(ci.includes(`npm run ${command}`), `${command} must remain in CI`);
   }

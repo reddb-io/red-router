@@ -1,0 +1,2849 @@
+use crate::storage::{Database, StoredAuditOutboxEvent, StoredUsageExport, StoredUsageExportEvent};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use futures_util::StreamExt;
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use reqwest::{Client, StatusCode, Url};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    net::SocketAddr,
+    sync::Arc,
+    time::Duration,
+};
+use tokio::sync::Mutex;
+use zeroize::Zeroizing;
+
+const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+const BIGQUERY_API: &str = "https://bigquery.googleapis.com/bigquery/v2/";
+const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_BATCH_BYTES: usize = 9 * 1024 * 1024;
+const MAX_BATCH_ROWS: usize = 500;
+const MAX_ATTEMPTS: usize = 3;
+const LEASE_MS: i64 = 120_000;
+const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
+const REDDB_MAX_STATEMENT_BYTES: usize = 1024 * 1024;
+const SQS_MAX_MESSAGE_BYTES: usize = 256 * 1024;
+
+#[derive(Clone)]
+pub struct BigQueryAuditConfig {
+    pub sink_id: String,
+    pub project_id: String,
+    pub dataset_id: String,
+    pub table_id: String,
+    pub service_account_json: Zeroizing<String>,
+    pub batch_size: usize,
+    pub interval: Duration,
+    pub tenant_id: Option<String>,
+    pub api_key_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct RawServiceAccountKey {
+    #[serde(default)]
+    r#type: String,
+    client_email: String,
+    private_key: String,
+    #[serde(default = "default_token_uri")]
+    token_uri: String,
+}
+
+struct ServiceAccountKey {
+    client_email: String,
+    private_key: Zeroizing<String>,
+}
+
+#[derive(Serialize)]
+struct ServiceAccountClaims<'a> {
+    iss: &'a str,
+    scope: &'static str,
+    aud: &'a str,
+    iat: i64,
+    exp: i64,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    #[serde(default = "default_token_ttl")]
+    expires_in: i64,
+}
+
+struct CachedToken {
+    value: Zeroizing<String>,
+    expires_at_unix_ms: i64,
+}
+
+pub struct BigQueryAuditSink {
+    config: BigQueryAuditConfig,
+    key: ServiceAccountKey,
+    client: Client,
+    token: Mutex<Option<CachedToken>>,
+    api_base: Url,
+    token_uri: Url,
+}
+
+impl BigQueryAuditConfig {
+    pub fn from_env() -> Result<Option<Self>, &'static str> {
+        let project_id = match env::var("RED_ROUTER_AUDIT_BIGQUERY_PROJECT_ID") {
+            Ok(value) => value,
+            Err(env::VarError::NotPresent) => return Ok(None),
+            Err(_) => return Err("BigQuery project ID must be valid Unicode"),
+        };
+        let required =
+            |name| env::var(name).map_err(|_| "BigQuery audit configuration is incomplete");
+        let batch_size = env::var("RED_ROUTER_AUDIT_BIGQUERY_BATCH_SIZE")
+            .ok()
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .map_err(|_| "BigQuery audit batch size is invalid")?
+            .unwrap_or(MAX_BATCH_ROWS);
+        let interval_seconds = env::var("RED_ROUTER_AUDIT_BIGQUERY_INTERVAL_SECONDS")
+            .ok()
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|_| "BigQuery audit interval is invalid")?
+            .unwrap_or(10);
+        let config = Self {
+            sink_id: env::var("RED_ROUTER_AUDIT_BIGQUERY_SINK_ID")
+                .unwrap_or_else(|_| "bigquery".to_owned()),
+            project_id,
+            dataset_id: required("RED_ROUTER_AUDIT_BIGQUERY_DATASET_ID")?,
+            table_id: required("RED_ROUTER_AUDIT_BIGQUERY_TABLE_ID")?,
+            service_account_json: Zeroizing::new(required(
+                "RED_ROUTER_AUDIT_BIGQUERY_SERVICE_ACCOUNT_JSON",
+            )?),
+            batch_size,
+            interval: Duration::from_secs(interval_seconds),
+            tenant_id: None,
+            api_key_ids: Vec::new(),
+        };
+        config.validate()?;
+        Ok(Some(config))
+    }
+
+    fn usage_from_env() -> Result<Option<Self>, &'static str> {
+        let project_id = match env::var("RED_ROUTER_USAGE_BIGQUERY_PROJECT_ID") {
+            Ok(value) => value,
+            Err(env::VarError::NotPresent) => return Ok(None),
+            Err(_) => return Err("BigQuery usage project ID must be valid Unicode"),
+        };
+        let required =
+            |name| env::var(name).map_err(|_| "BigQuery usage configuration is incomplete");
+        let batch_size = env::var("RED_ROUTER_USAGE_BIGQUERY_BATCH_SIZE")
+            .ok()
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .map_err(|_| "BigQuery usage batch size is invalid")?
+            .unwrap_or(MAX_BATCH_ROWS);
+        let interval_seconds = env::var("RED_ROUTER_USAGE_BIGQUERY_INTERVAL_SECONDS")
+            .ok()
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|_| "BigQuery usage interval is invalid")?
+            .unwrap_or(10);
+        let config = Self {
+            sink_id: env::var("RED_ROUTER_USAGE_BIGQUERY_SINK_ID")
+                .unwrap_or_else(|_| "bigquery-usage".to_owned()),
+            project_id,
+            dataset_id: required("RED_ROUTER_USAGE_BIGQUERY_DATASET_ID")?,
+            table_id: required("RED_ROUTER_USAGE_BIGQUERY_TABLE_ID")?,
+            service_account_json: Zeroizing::new(required(
+                "RED_ROUTER_USAGE_BIGQUERY_SERVICE_ACCOUNT_JSON",
+            )?),
+            batch_size,
+            interval: Duration::from_secs(interval_seconds),
+            tenant_id: None,
+            api_key_ids: Vec::new(),
+        };
+        config.validate()?;
+        Ok(Some(config))
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        validate_sink_id(&self.sink_id)?;
+        validate_project_id(&self.project_id)?;
+        validate_bigquery_name(&self.dataset_id)?;
+        validate_bigquery_name(&self.table_id)?;
+        if !(1..=MAX_BATCH_ROWS).contains(&self.batch_size) {
+            return Err("BigQuery audit batch size must be 1-500");
+        }
+        if !(1..=3_600).contains(&self.interval.as_secs()) {
+            return Err("BigQuery audit interval must be 1-3600 seconds");
+        }
+        if self.service_account_json.len() > 128 * 1024 {
+            return Err("BigQuery service account JSON is too large");
+        }
+        if self.api_key_ids.len() > 200
+            || self
+                .api_key_ids
+                .iter()
+                .any(|value| value.is_empty() || value.len() > 200)
+        {
+            return Err("BigQuery usage key filter is invalid");
+        }
+        Ok(())
+    }
+}
+
+impl BigQueryAuditSink {
+    pub fn new(config: BigQueryAuditConfig) -> Result<Self, &'static str> {
+        config.validate()?;
+        let raw: RawServiceAccountKey = serde_json::from_str(config.service_account_json.as_str())
+            .map_err(|_| "BigQuery service account JSON is invalid")?;
+        if !raw.r#type.is_empty() && raw.r#type != "service_account" {
+            return Err("BigQuery credential must be a service account");
+        }
+        if raw.client_email.is_empty() || raw.client_email.len() > 320 {
+            return Err("BigQuery service account email is invalid");
+        }
+        let encoded_private_key = Zeroizing::new(raw.private_key);
+        let private_key = Zeroizing::new(encoded_private_key.replace("\\n", "\n"));
+        if private_key.len() > 64 * 1024 {
+            return Err("BigQuery private key is too large");
+        }
+        let token_uri = Url::parse(&raw.token_uri).map_err(|_| "BigQuery token URI is invalid")?;
+        if token_uri.as_str() != GOOGLE_TOKEN_URI {
+            return Err("BigQuery token URI is not allowed");
+        }
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| "cannot initialize BigQuery audit client")?;
+        Ok(Self {
+            config,
+            key: ServiceAccountKey {
+                client_email: raw.client_email,
+                private_key,
+            },
+            client,
+            token: Mutex::new(None),
+            api_base: Url::parse(BIGQUERY_API).map_err(|_| "BigQuery API URL is invalid")?,
+            token_uri,
+        })
+    }
+
+    async fn access_token(&self, now_unix_ms: i64) -> Result<Zeroizing<String>, &'static str> {
+        let mut cached = self.token.lock().await;
+        if let Some(token) = cached.as_ref() {
+            if token.expires_at_unix_ms.saturating_sub(60_000) > now_unix_ms {
+                return Ok(token.value.clone());
+            }
+        }
+        let now_seconds = now_unix_ms / 1_000;
+        let claims = ServiceAccountClaims {
+            iss: &self.key.client_email,
+            scope: BIGQUERY_SCOPE,
+            aud: self.token_uri.as_str(),
+            iat: now_seconds,
+            exp: now_seconds.saturating_add(3_600),
+        };
+        let key = EncodingKey::from_rsa_pem(self.key.private_key.as_bytes())
+            .map_err(|_| "BigQuery private key is invalid")?;
+        let assertion = Zeroizing::new(
+            encode(&Header::new(Algorithm::RS256), &claims, &key)
+                .map_err(|_| "cannot sign BigQuery service account assertion")?,
+        );
+        let form = {
+            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+            serializer.append_pair("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+            serializer.append_pair("assertion", assertion.as_str());
+            serializer.finish()
+        };
+        let response = self
+            .client
+            .post(self.token_uri.clone())
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(form)
+            .send()
+            .await
+            .map_err(|_| "BigQuery token exchange unavailable")?;
+        if !response.status().is_success() {
+            return Err("BigQuery token exchange rejected");
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|_| "cannot read BigQuery token response")?;
+        if body.len() > MAX_RESPONSE_BYTES {
+            return Err("BigQuery token response is too large");
+        }
+        let response: TokenResponse =
+            serde_json::from_slice(&body).map_err(|_| "BigQuery token response is invalid")?;
+        if response.access_token.is_empty() || response.access_token.len() > 16 * 1024 {
+            return Err("BigQuery access token is invalid");
+        }
+        let ttl_ms = response.expires_in.clamp(60, 3_600).saturating_mul(1_000);
+        let value = Zeroizing::new(response.access_token);
+        *cached = Some(CachedToken {
+            value: value.clone(),
+            expires_at_unix_ms: now_unix_ms.saturating_add(ttl_ms),
+        });
+        Ok(value)
+    }
+
+    pub async fn send(&self, events: &[StoredAuditOutboxEvent]) -> Result<(), &'static str> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let chunks = bigquery_chunks(events)?;
+        for chunk in chunks {
+            self.send_chunk(&chunk).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn send_usage(&self, events: &[StoredUsageExportEvent]) -> Result<(), &'static str> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let chunks = bigquery_usage_chunks(events)?;
+        for chunk in chunks {
+            self.send_body(bigquery_usage_request(&chunk)?).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_chunk(&self, events: &[&StoredAuditOutboxEvent]) -> Result<(), &'static str> {
+        self.send_body(bigquery_request(events)?).await
+    }
+
+    async fn send_body(&self, body: Vec<u8>) -> Result<(), &'static str> {
+        let now = unix_time_ms()?;
+        let mut token = self.access_token(now).await?;
+        let mut refreshed_auth = false;
+        let path = format!(
+            "projects/{}/datasets/{}/tables/{}/insertAll",
+            self.config.project_id, self.config.dataset_id, self.config.table_id
+        );
+        let endpoint = self
+            .api_base
+            .join(&path)
+            .map_err(|_| "BigQuery table URL is invalid")?;
+        for attempt in 0..MAX_ATTEMPTS {
+            let response = self
+                .client
+                .post(endpoint.clone())
+                .bearer_auth(token.as_str())
+                .header("content-type", "application/json")
+                .body(body.clone())
+                .send()
+                .await;
+            match response {
+                Ok(response) => {
+                    let status = response.status();
+                    let bytes = response
+                        .bytes()
+                        .await
+                        .map_err(|_| "cannot read BigQuery insert response")?;
+                    if bytes.len() > MAX_RESPONSE_BYTES {
+                        return Err("BigQuery insert response is too large");
+                    }
+                    if status.is_success() {
+                        let value: serde_json::Value = serde_json::from_slice(&bytes)
+                            .map_err(|_| "BigQuery insert response is invalid")?;
+                        if value
+                            .get("insertErrors")
+                            .and_then(serde_json::Value::as_array)
+                            .is_some_and(|errors| !errors.is_empty())
+                        {
+                            return Err("BigQuery rejected part of the export batch");
+                        }
+                        return Ok(());
+                    }
+                    if status == StatusCode::UNAUTHORIZED && !refreshed_auth {
+                        *self.token.lock().await = None;
+                        token = self.access_token(unix_time_ms()?).await?;
+                        refreshed_auth = true;
+                        continue;
+                    }
+                    if !retryable_status(status) || attempt + 1 == MAX_ATTEMPTS {
+                        return Err("BigQuery rejected the export batch");
+                    }
+                }
+                Err(_) if attempt + 1 == MAX_ATTEMPTS => {
+                    return Err("BigQuery export transport unavailable")
+                }
+                Err(_) => {}
+            }
+            tokio::time::sleep(Duration::from_millis(500_u64 << attempt)).await;
+        }
+        Err("BigQuery export transport unavailable")
+    }
+}
+
+pub async fn spawn_from_env(database: &Arc<Database>) -> Result<bool, &'static str> {
+    let audit_config = BigQueryAuditConfig::from_env()?;
+    let usage_config = BigQueryAuditConfig::usage_from_env()?;
+    if audit_config.is_none() && usage_config.is_none() {
+        return Ok(false);
+    }
+    if let (Some(audit), Some(usage)) = (&audit_config, &usage_config) {
+        if audit.sink_id == usage.sink_id {
+            return Err("BigQuery audit and usage sink IDs must be distinct");
+        }
+        if audit.project_id == usage.project_id
+            && audit.dataset_id == usage.dataset_id
+            && audit.table_id == usage.table_id
+        {
+            return Err("BigQuery audit and usage tables must be distinct");
+        }
+    }
+    if !database.supports_audit_sink_leases() {
+        return Err("BigQuery export relay requires SQLite or PostgreSQL");
+    }
+    if usage_config.is_some() {
+        database.usage_export_events(0, "", 1).await?;
+    }
+    if let Some(config) = audit_config {
+        spawn_audit(database, config)?;
+    }
+    let usage_enabled = usage_config.is_some();
+    if let Some(config) = usage_config {
+        spawn_usage(database, config)?;
+    }
+    Ok(usage_enabled)
+}
+
+#[derive(Clone)]
+struct UsageWebhookSink {
+    sink_id: String,
+    sink_name: String,
+    url: Url,
+    secret: Zeroizing<Vec<u8>>,
+    client: Client,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRedDbConfig {
+    url: String,
+    queue: String,
+    #[serde(default)]
+    tenant: Option<String>,
+}
+
+#[derive(Clone)]
+struct UsageRedDbSink {
+    sink_id: String,
+    sink_name: String,
+    endpoint: Url,
+    queue: String,
+    tenant: Option<String>,
+    token: Option<Zeroizing<String>>,
+    client: Client,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSqsConfig {
+    queue_url: String,
+    region: String,
+    access_key_id: String,
+    #[serde(default)]
+    has_session_token: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSqsSecret {
+    secret_access_key: String,
+    #[serde(default)]
+    session_token: Option<String>,
+}
+
+#[derive(Clone)]
+struct UsageSqsSink {
+    sink_id: String,
+    queue_url: String,
+    endpoint: Url,
+    region: String,
+    access_key_id: String,
+    secret_access_key: Zeroizing<String>,
+    session_token: Option<Zeroizing<String>>,
+    client: Client,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredKafkaConfig {
+    brokers: Vec<String>,
+    topic: String,
+    client_id: String,
+    ssl: bool,
+    #[serde(default)]
+    sasl_mechanism: String,
+    #[serde(default)]
+    sasl_username: Option<String>,
+    #[serde(default)]
+    has_sasl_password: bool,
+}
+
+struct UsageKafkaSink {
+    sink_id: String,
+    topic: String,
+    producer: Arc<crate::kafka_export::GuardedKafkaProducer>,
+}
+
+enum ManagedUsageTransport {
+    BigQuery(Box<BigQueryAuditSink>),
+    Webhook(UsageWebhookSink),
+    RedDb(UsageRedDbSink),
+    Sqs(UsageSqsSink),
+    Kafka(UsageKafkaSink),
+}
+
+struct ManagedUsageRelay {
+    sink_id: String,
+    sink_name: String,
+    tenant_id: String,
+    api_key_ids: Vec<String>,
+    batch_size: usize,
+    interval: Duration,
+    window_sec: Option<i64>,
+    transport: ManagedUsageTransport,
+}
+
+impl ManagedUsageRelay {
+    async fn from_record(
+        record: &StoredUsageExport,
+        encryption_key: &str,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let api_key_ids = serde_json::from_str::<Vec<String>>(&record.api_key_ids_json)
+            .map_err(|_| "invalid usage export key filter")?;
+        let batch_size =
+            usize::try_from(record.batch_size).map_err(|_| "invalid usage export batch size")?;
+        if !(1..=MAX_BATCH_ROWS).contains(&batch_size) {
+            return Err("invalid usage export batch size");
+        }
+        let interval = Duration::from_secs(
+            u64::try_from(record.interval_seconds).map_err(|_| "invalid usage export interval")?,
+        );
+        if interval.is_zero() || interval > Duration::from_secs(3_600) {
+            return Err("invalid usage export interval");
+        }
+        let sink_id = format!("managed-{}", record.id);
+        let window_sec = match record.mode.as_str() {
+            "instant" if record.window_sec == 0 => None,
+            "window" if record.window_sec > 0 => Some(record.window_sec),
+            _ => return Err("invalid usage export mode"),
+        };
+        let transport = match record.export_type.as_str() {
+            "bigquery" => {
+                let aad = format!("usage-export:{}:service-account", record.id);
+                let service_account_json = crate::control_plane::decrypt(
+                    &record.service_account_ciphertext,
+                    &aad,
+                    encryption_key,
+                )?;
+                ManagedUsageTransport::BigQuery(Box::new(BigQueryAuditSink::new(
+                    BigQueryAuditConfig {
+                        sink_id: sink_id.clone(),
+                        project_id: record.project_id.clone(),
+                        dataset_id: record.dataset_id.clone(),
+                        table_id: record.table_id.clone(),
+                        service_account_json,
+                        batch_size,
+                        interval,
+                        tenant_id: Some(record.tenant_id.clone()),
+                        api_key_ids: api_key_ids.clone(),
+                    },
+                )?))
+            }
+            "webhook" => {
+                let aad = format!("usage-export:{}:secret", record.id);
+                let secret =
+                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                let url = usage_webhook_url(&record.config_json)?;
+                ManagedUsageTransport::Webhook(
+                    UsageWebhookSink::new(&record.id, &record.name, &url, secret.as_str()).await?,
+                )
+            }
+            "reddb" => {
+                let token = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{}:secret", record.id);
+                    Some(crate::control_plane::decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        encryption_key,
+                    )?)
+                };
+                ManagedUsageTransport::RedDb(
+                    UsageRedDbSink::new(
+                        &record.id,
+                        &record.name,
+                        &record.config_json,
+                        token,
+                        allow_private,
+                    )
+                    .await?,
+                )
+            }
+            "sqs" => {
+                let aad = format!("usage-export:{}:secret", record.id);
+                let secret =
+                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                ManagedUsageTransport::Sqs(
+                    UsageSqsSink::new(
+                        &record.id,
+                        &record.config_json,
+                        secret.as_str(),
+                        allow_private,
+                    )
+                    .await?,
+                )
+            }
+            "kafka" => {
+                let password = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{}:secret", record.id);
+                    Some(crate::control_plane::decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        encryption_key,
+                    )?)
+                };
+                ManagedUsageTransport::Kafka(
+                    UsageKafkaSink::new(&record.id, &record.config_json, password, allow_private)
+                        .await?,
+                )
+            }
+            _ => return Err("unsupported usage export type"),
+        };
+        Ok(Self {
+            sink_id,
+            sink_name: record.name.clone(),
+            tenant_id: record.tenant_id.clone(),
+            api_key_ids,
+            batch_size,
+            interval,
+            window_sec,
+            transport,
+        })
+    }
+
+    async fn send(&self, events: &[StoredUsageExportEvent]) -> Result<(), &'static str> {
+        if let Some(window_sec) = self.window_sec {
+            let Some(first) = events.first() else {
+                return Ok(());
+            };
+            let Some(last) = events.last() else {
+                return Ok(());
+            };
+            let window_ms = window_sec.saturating_mul(1_000);
+            let start = first.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+            let end = start.saturating_add(window_ms);
+            let delivery_id = usage_window_delivery_id(
+                &self.sink_id,
+                &first.event_id,
+                &last.event_id,
+                start,
+                end,
+            );
+            let body = usage_window_payload(
+                &self.sink_id,
+                &self.sink_name,
+                &delivery_id,
+                events,
+                start,
+                end,
+                window_sec,
+                false,
+            )?;
+            return match &self.transport {
+                ManagedUsageTransport::BigQuery(_) => Err("BigQuery window mode is unsupported"),
+                ManagedUsageTransport::Webhook(sink) => sink.send_payload(&delivery_id, body).await,
+                ManagedUsageTransport::RedDb(sink) => sink.send_payload(&delivery_id, &body).await,
+                ManagedUsageTransport::Sqs(sink) => sink.send_payload(&delivery_id, &body).await,
+                ManagedUsageTransport::Kafka(sink) => sink.send_payload(&delivery_id, &body).await,
+            };
+        }
+        match &self.transport {
+            ManagedUsageTransport::BigQuery(sink) => sink.send_usage(events).await,
+            ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::RedDb(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::Sqs(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::Kafka(sink) => sink.send(events, false).await,
+        }
+    }
+}
+
+impl UsageKafkaSink {
+    async fn new(
+        sink_id: &str,
+        config_json: &str,
+        password: Option<Zeroizing<String>>,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_kafka_config(config_json)?;
+        validate_kafka_brokers(&config.brokers, allow_private).await?;
+        let sasl = crate::kafka_export::SaslMechanism::parse(&config.sasl_mechanism)?;
+        if config.has_sasl_password != password.is_some() || sasl.is_some() != password.is_some() {
+            return Err("invalid Kafka usage credentials");
+        }
+        let producer = crate::kafka_export::GuardedKafkaProducer::new(
+            crate::kafka_export::KafkaProducerConfig {
+                brokers: config.brokers,
+                client_id: config.client_id,
+                tls: config.ssl,
+                sasl,
+                username: config.sasl_username,
+                password: password.map(|value| value.to_string()),
+                allow_private,
+            },
+        )?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            topic: config.topic,
+            producer: Arc::new(producer),
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            let payload = usage_webhook_payload(&self.sink_id, "Kafka", event, test)?;
+            self.send_payload(&event.event_id, &payload).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
+        let producer = self.producer.clone();
+        let topic = self.topic.clone();
+        let key = self.sink_id.clone();
+        let delivery_id = delivery_id.to_owned();
+        let payload = payload.to_vec();
+        tokio::task::spawn_blocking(move || producer.send(&topic, &key, &delivery_id, &payload))
+            .await
+            .map_err(|_| "Kafka usage delivery task failed")?
+    }
+}
+
+impl UsageRedDbSink {
+    async fn new(
+        sink_id: &str,
+        sink_name: &str,
+        config_json: &str,
+        token: Option<Zeroizing<String>>,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_reddb_config(config_json)?;
+        let (endpoint, client) = pinned_reddb_client(&config.url, allow_private).await?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            sink_name: sink_name.to_owned(),
+            endpoint,
+            queue: config.queue,
+            tenant: config.tenant,
+            token,
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let payload = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        self.send_payload(&event.event_id, &payload).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
+        let payload =
+            std::str::from_utf8(payload).map_err(|_| "cannot encode RedDB usage payload")?;
+        let statement = reddb_queue_push_statement(&self.queue, payload, delivery_id)?;
+        if statement.len() > REDDB_MAX_STATEMENT_BYTES {
+            return Err("RedDB usage payload is too large");
+        }
+        let mut request = self
+            .client
+            .post(self.endpoint.clone())
+            .header("content-type", "application/json")
+            .header("user-agent", "RedRouter-UsageSinks/1");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token.as_str());
+        }
+        if let Some(tenant) = &self.tenant {
+            request = request.header("x-reddb-tenant", tenant);
+        }
+        let response = request
+            .json(&serde_json::json!({"query": statement}))
+            .send()
+            .await
+            .map_err(|_| "RedDB usage request failed")?;
+        let status = response.status();
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        {
+            return Err("RedDB usage response is too large");
+        }
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "RedDB usage response failed")?;
+            if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                return Err("RedDB usage response is too large");
+            }
+            body.extend_from_slice(&chunk);
+        }
+        if !status.is_success() {
+            return Err("RedDB usage delivery was rejected");
+        }
+        if !body.is_empty()
+            && serde_json::from_slice::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+                == Some(false)
+        {
+            return Err("RedDB usage delivery was rejected");
+        }
+        Ok(())
+    }
+}
+
+impl UsageSqsSink {
+    async fn new(
+        sink_id: &str,
+        config_json: &str,
+        secret_json: &str,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_sqs_config(config_json)?;
+        let secret = parse_sqs_secret(secret_json)?;
+        if config.has_session_token != secret.session_token.is_some() {
+            return Err("invalid SQS usage credentials");
+        }
+        let (endpoint, client) = pinned_sqs_client(&config.queue_url, allow_private).await?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            queue_url: config.queue_url,
+            endpoint,
+            region: config.region,
+            access_key_id: config.access_key_id,
+            secret_access_key: Zeroizing::new(secret.secret_access_key),
+            session_token: secret.session_token.map(Zeroizing::new),
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let payload = usage_webhook_payload(&self.sink_id, "Amazon SQS", event, test)?;
+        self.send_payload(&event.event_id, &payload).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
+        if payload.len() > SQS_MAX_MESSAGE_BYTES {
+            return Err("SQS usage payload is too large");
+        }
+        let message_body =
+            std::str::from_utf8(payload).map_err(|_| "cannot encode SQS usage payload")?;
+        let fifo = self.queue_url.trim_end_matches('/').ends_with(".fifo");
+        let mut request_body = serde_json::json!({
+            "QueueUrl":self.queue_url,
+            "MessageBody":message_body,
+            "MessageAttributes":{
+                "redrouter-delivery-id":{"DataType":"String","StringValue":delivery_id}
+            }
+        });
+        if fifo {
+            request_body["MessageGroupId"] = serde_json::Value::String(self.sink_id.clone());
+            request_body["MessageDeduplicationId"] =
+                serde_json::Value::String(delivery_id.chars().take(128).collect());
+        }
+        let body =
+            serde_json::to_vec(&request_body).map_err(|_| "cannot encode SQS usage request")?;
+        let signed = sign_sqs_request(
+            &self.endpoint,
+            &self.region,
+            &self.access_key_id,
+            self.secret_access_key.as_str(),
+            self.session_token.as_ref().map(|token| token.as_str()),
+            &body,
+            unix_time_ms()?,
+        )?;
+        let mut request = self.client.post(self.endpoint.clone()).body(body);
+        for (name, value) in signed {
+            request = request.header(name.as_str(), value);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|_| "SQS usage request failed")?;
+        let status = response.status();
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        {
+            return Err("SQS usage response is too large");
+        }
+        let mut size = 0_usize;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "SQS usage response failed")?;
+            size = size.saturating_add(chunk.len());
+            if size > MAX_RESPONSE_BYTES {
+                return Err("SQS usage response is too large");
+            }
+        }
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err("SQS usage delivery was rejected")
+        }
+    }
+}
+
+impl UsageWebhookSink {
+    async fn new(
+        sink_id: &str,
+        sink_name: &str,
+        url: &str,
+        secret: &str,
+    ) -> Result<Self, &'static str> {
+        let (url, client) = pinned_usage_webhook_client(url).await?;
+        let secret = webhook_secret_bytes(secret)?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            sink_name: sink_name.to_owned(),
+            url,
+            secret: Zeroizing::new(secret),
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let body = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        self.send_payload(&event.event_id, body).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, body: Vec<u8>) -> Result<(), &'static str> {
+        if body.len() > MAX_RESPONSE_BYTES {
+            return Err("usage webhook payload is too large");
+        }
+        let timestamp = unix_time_ms()?.div_euclid(1_000).to_string();
+        let signature =
+            usage_webhook_signature(delivery_id, &timestamp, &body, self.secret.as_slice());
+        let response = self
+            .client
+            .post(self.url.clone())
+            .header("content-type", "application/json")
+            .header("user-agent", "RedRouter-UsageSinks/1")
+            .header("webhook-id", delivery_id)
+            .header("webhook-timestamp", timestamp)
+            .header("webhook-signature", signature)
+            .body(body)
+            .send()
+            .await
+            .map_err(|_| "usage webhook request failed")?;
+        let status = response.status();
+        drop(response);
+        if status.is_success() {
+            Ok(())
+        } else if status == StatusCode::GONE {
+            Err("usage webhook endpoint is gone")
+        } else {
+            Err("usage webhook rejected delivery")
+        }
+    }
+}
+
+pub async fn validate_usage_webhook(url: &str, secret: &str) -> Result<String, &'static str> {
+    let _secret = Zeroizing::new(webhook_secret_bytes(secret)?);
+    pinned_usage_webhook_client(url)
+        .await
+        .map(|(url, _)| url.to_string())
+}
+
+pub async fn send_usage_webhook_test(
+    sink_id: &str,
+    sink_name: &str,
+    url: &str,
+    secret: &str,
+    event: &StoredUsageExportEvent,
+) -> Result<(), &'static str> {
+    UsageWebhookSink::new(sink_id, sink_name, url, secret)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+pub async fn send_usage_webhook_window_test(
+    sink_id: &str,
+    sink_name: &str,
+    url: &str,
+    secret: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+) -> Result<(), &'static str> {
+    let sink = UsageWebhookSink::new(sink_id, sink_name, url, secret).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, sink_name, event, window_sec)?;
+    sink.send_payload(&delivery_id, body).await
+}
+
+pub async fn validate_usage_reddb(
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageRedDbSink::new(
+        "validation",
+        "Validation",
+        config_json,
+        token,
+        allow_private,
+    )
+    .await
+    .map(|_| ())
+}
+
+pub async fn send_usage_reddb_test(
+    sink_id: &str,
+    sink_name: &str,
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageRedDbSink::new(sink_id, sink_name, config_json, token, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+pub async fn send_usage_reddb_window_test(
+    sink_id: &str,
+    sink_name: &str,
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageRedDbSink::new(sink_id, sink_name, config_json, token, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, sink_name, event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
+pub async fn validate_usage_sqs(
+    config_json: &str,
+    secret_json: &str,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageSqsSink::new("validation", config_json, secret_json, allow_private)
+        .await
+        .map(|_| ())
+}
+
+pub async fn send_usage_sqs_test(
+    sink_id: &str,
+    config_json: &str,
+    secret_json: &str,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageSqsSink::new(sink_id, config_json, secret_json, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+pub async fn send_usage_sqs_window_test(
+    sink_id: &str,
+    config_json: &str,
+    secret_json: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageSqsSink::new(sink_id, config_json, secret_json, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, "Amazon SQS", event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
+pub async fn validate_usage_kafka(
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageKafkaSink::new("validation", config_json, password, allow_private)
+        .await
+        .map(|_| ())
+}
+
+pub async fn send_usage_kafka_test(
+    sink_id: &str,
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageKafkaSink::new(sink_id, config_json, password, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+pub async fn send_usage_kafka_window_test(
+    sink_id: &str,
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageKafkaSink::new(sink_id, config_json, password, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, "Kafka", event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
+fn usage_window_test_payload(
+    sink_id: &str,
+    sink_name: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+) -> Result<(String, Vec<u8>), &'static str> {
+    let window_ms = window_sec
+        .checked_mul(1_000)
+        .filter(|value| *value > 0)
+        .ok_or("invalid usage export window")?;
+    let start = event.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+    let end = start.saturating_add(window_ms);
+    let delivery_id =
+        usage_window_delivery_id(sink_id, &event.event_id, &event.event_id, start, end);
+    let body = usage_window_payload(
+        sink_id,
+        sink_name,
+        &delivery_id,
+        std::slice::from_ref(event),
+        start,
+        end,
+        window_sec,
+        true,
+    )?;
+    Ok((delivery_id, body))
+}
+
+fn parse_sqs_config(config_json: &str) -> Result<StoredSqsConfig, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid SQS usage configuration");
+    }
+    let mut config: StoredSqsConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid SQS usage configuration")?;
+    config.queue_url = config.queue_url.trim_end_matches('/').to_owned();
+    config.region = config.region.trim().to_owned();
+    config.access_key_id = config.access_key_id.trim().to_owned();
+    if config.queue_url.is_empty()
+        || config.queue_url.len() > 2048
+        || config.region.is_empty()
+        || config.region.len() > 32
+        || !config
+            .region
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || config.access_key_id.is_empty()
+        || config.access_key_id.len() > 128
+        || config.access_key_id.chars().any(char::is_control)
+    {
+        return Err("invalid SQS usage configuration");
+    }
+    Ok(config)
+}
+
+fn parse_kafka_config(config_json: &str) -> Result<StoredKafkaConfig, &'static str> {
+    if config_json.len() > 16 * 1024 {
+        return Err("invalid Kafka usage configuration");
+    }
+    let mut config: StoredKafkaConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid Kafka usage configuration")?;
+    config.brokers = config
+        .brokers
+        .into_iter()
+        .map(|value| value.trim().to_owned())
+        .collect();
+    config.topic = config.topic.trim().to_owned();
+    config.client_id = config.client_id.trim().to_owned();
+    config.sasl_mechanism = config.sasl_mechanism.trim().to_owned();
+    config.sasl_username = config
+        .sasl_username
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if config.brokers.is_empty()
+        || config.brokers.len() > 20
+        || config
+            .brokers
+            .iter()
+            .any(|broker| parse_kafka_broker(broker).is_err())
+        || config.client_id.is_empty()
+        || config.client_id.len() > 128
+        || !config
+            .client_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        || crate::kafka_export::validate_topic(&config.topic).is_err()
+        || crate::kafka_export::SaslMechanism::parse(&config.sasl_mechanism).is_err()
+        || (config.sasl_mechanism.is_empty() != config.sasl_username.is_none())
+        || (config.sasl_mechanism.is_empty() != !config.has_sasl_password)
+        || config
+            .sasl_username
+            .as_ref()
+            .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
+    {
+        return Err("invalid Kafka usage configuration");
+    }
+    Ok(config)
+}
+
+fn parse_kafka_broker(value: &str) -> Result<(&str, u16), &'static str> {
+    let (host, port) = value.rsplit_once(':').ok_or("invalid Kafka broker")?;
+    let port = port.parse::<u16>().map_err(|_| "invalid Kafka broker")?;
+    if host.is_empty()
+        || host.len() > 253
+        || port == 0
+        || host
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b'/' | b':' | b'@'))
+    {
+        return Err("invalid Kafka broker");
+    }
+    Ok((host, port))
+}
+
+async fn validate_kafka_brokers(
+    brokers: &[String],
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    for broker in brokers {
+        let (host, port) = parse_kafka_broker(broker)?;
+        let addresses = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| "Kafka broker cannot be resolved")?
+            .collect::<Vec<SocketAddr>>();
+        if addresses.is_empty()
+            || addresses
+                .iter()
+                .any(|address| !crate::allowed_address(address.ip(), allow_private))
+        {
+            return Err("Kafka broker resolved to a forbidden address");
+        }
+    }
+    Ok(())
+}
+
+fn parse_sqs_secret(secret_json: &str) -> Result<StoredSqsSecret, &'static str> {
+    if secret_json.len() > 8 * 1024 {
+        return Err("invalid SQS usage credentials");
+    }
+    let mut secret: StoredSqsSecret =
+        serde_json::from_str(secret_json).map_err(|_| "invalid SQS usage credentials")?;
+    secret.session_token = secret
+        .session_token
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if secret.secret_access_key.is_empty()
+        || secret.secret_access_key.len() > 1024
+        || secret
+            .session_token
+            .as_ref()
+            .is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control))
+    {
+        return Err("invalid SQS usage credentials");
+    }
+    Ok(secret)
+}
+
+fn sqs_region_from_host(host: &str) -> Option<&str> {
+    let rest = host.strip_prefix("sqs.")?;
+    rest.strip_suffix(".amazonaws.com")
+        .or_else(|| rest.strip_suffix(".amazonaws.com.cn"))
+        .filter(|region| !region.is_empty())
+}
+
+async fn pinned_sqs_client(
+    queue_url: &str,
+    allow_private: bool,
+) -> Result<(Url, Client), &'static str> {
+    let parsed = Url::parse(queue_url).map_err(|_| "SQS queue URL is invalid")?;
+    let host = parsed
+        .host_str()
+        .ok_or("SQS queue URL is invalid")?
+        .to_owned();
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || parsed.path() == "/"
+        || (sqs_region_from_host(&host).is_some() && parsed.scheme() != "https")
+    {
+        return Err("SQS queue URL is invalid");
+    }
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("SQS queue URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "SQS host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), allow_private))
+    {
+        return Err("SQS host resolved to a forbidden address");
+    }
+    let mut endpoint = parsed.clone();
+    endpoint.set_path("/");
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create SQS usage client")?;
+    Ok((endpoint, client))
+}
+
+fn hmac_sha256(key: &[u8], value: &[u8]) -> [u8; 32] {
+    let mut normalized = [0_u8; 64];
+    if key.len() > normalized.len() {
+        normalized[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0x36_u8; 64];
+    let mut outer_pad = [0x5c_u8; 64];
+    for index in 0..64 {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(value);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    let mut result = [0_u8; 32];
+    result.copy_from_slice(&outer.finalize());
+    result
+}
+
+fn sign_sqs_request(
+    endpoint: &Url,
+    region: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+    session_token: Option<&str>,
+    body: &[u8],
+    now_unix_ms: i64,
+) -> Result<BTreeMap<String, String>, &'static str> {
+    let timestamp = ::time::OffsetDateTime::from_unix_timestamp(now_unix_ms.div_euclid(1_000))
+        .map_err(|_| "SQS signing timestamp is invalid")?;
+    let date = format!(
+        "{:04}{:02}{:02}",
+        timestamp.year(),
+        timestamp.month() as u8,
+        timestamp.day()
+    );
+    let amz_date = format!(
+        "{date}T{:02}{:02}{:02}Z",
+        timestamp.hour(),
+        timestamp.minute(),
+        timestamp.second()
+    );
+    let hostname = endpoint.host_str().ok_or("SQS queue URL is invalid")?;
+    let host = match endpoint.port() {
+        Some(port) => format!("{hostname}:{port}"),
+        None => hostname.to_owned(),
+    };
+    let payload_hash = hex::encode(Sha256::digest(body));
+    let mut canonical_headers = BTreeMap::from([
+        (
+            "content-type".to_owned(),
+            "application/x-amz-json-1.0".to_owned(),
+        ),
+        ("host".to_owned(), host),
+        ("x-amz-content-sha256".to_owned(), payload_hash.clone()),
+        ("x-amz-date".to_owned(), amz_date.clone()),
+        (
+            "x-amz-target".to_owned(),
+            "AmazonSQS.SendMessage".to_owned(),
+        ),
+    ]);
+    if let Some(token) = session_token {
+        canonical_headers.insert("x-amz-security-token".to_owned(), token.to_owned());
+    }
+    let signed_headers = canonical_headers
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(";");
+    let canonical_header_text = canonical_headers
+        .iter()
+        .map(|(name, value)| format!("{name}:{}\n", value.trim()))
+        .collect::<String>();
+    let canonical_request =
+        format!("POST\n/\n\n{canonical_header_text}\n{signed_headers}\n{payload_hash}");
+    let scope = format!("{date}/{region}/sqs/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+        hex::encode(Sha256::digest(canonical_request.as_bytes()))
+    );
+    let date_key = hmac_sha256(
+        format!("AWS4{secret_access_key}").as_bytes(),
+        date.as_bytes(),
+    );
+    let region_key = hmac_sha256(&date_key, region.as_bytes());
+    let service_key = hmac_sha256(&region_key, b"sqs");
+    let signing_key = hmac_sha256(&service_key, b"aws4_request");
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    canonical_headers.insert(
+        "authorization".to_owned(),
+        format!(
+            "AWS4-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
+        ),
+    );
+    Ok(canonical_headers)
+}
+
+fn valid_reddb_queue(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    matches!(bytes.next(), Some(b) if b.is_ascii_alphabetic() || b == b'_')
+        && value.len() <= 128
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn parse_reddb_config(config_json: &str) -> Result<StoredRedDbConfig, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid RedDB usage configuration");
+    }
+    let mut config: StoredRedDbConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid RedDB usage configuration")?;
+    config.url = config.url.trim_end_matches('/').to_owned();
+    config.queue = config.queue.trim().to_owned();
+    config.tenant = config
+        .tenant
+        .map(|tenant| tenant.trim().to_owned())
+        .filter(|tenant| !tenant.is_empty());
+    if config.url.is_empty()
+        || !valid_reddb_queue(&config.queue)
+        || config
+            .tenant
+            .as_ref()
+            .is_some_and(|tenant| tenant.len() > 128 || tenant.chars().any(char::is_control))
+    {
+        return Err("invalid RedDB usage configuration");
+    }
+    Ok(config)
+}
+
+fn reddb_queue_push_statement(
+    queue: &str,
+    payload_json: &str,
+    delivery_id: &str,
+) -> Result<String, &'static str> {
+    if !valid_reddb_queue(queue)
+        || serde_json::from_str::<serde_json::Value>(payload_json).is_err()
+        || delivery_id.is_empty()
+        || delivery_id.len() > 512
+        || delivery_id.chars().any(char::is_control)
+    {
+        return Err("invalid RedDB usage message");
+    }
+    Ok(format!(
+        "QUEUE PUSH {queue} {payload_json} DEDUP '{}'",
+        delivery_id.replace('\'', "''")
+    ))
+}
+
+async fn pinned_reddb_client(
+    base_url: &str,
+    allow_private: bool,
+) -> Result<(Url, Client), &'static str> {
+    if base_url.len() > 2048 {
+        return Err("RedDB usage URL is invalid");
+    }
+    let mut parsed = Url::parse(base_url).map_err(|_| "RedDB usage URL is invalid")?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("RedDB usage URL is invalid");
+    }
+    let host = parsed
+        .host_str()
+        .ok_or("RedDB usage URL is invalid")?
+        .to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("RedDB usage URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "RedDB usage host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), allow_private))
+    {
+        return Err("RedDB usage host resolved to a forbidden address");
+    }
+    let path = format!("{}/query", parsed.path().trim_end_matches('/'));
+    parsed.set_path(&path);
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create RedDB usage client")?;
+    Ok((parsed, client))
+}
+
+async fn pinned_usage_webhook_client(url: &str) -> Result<(Url, Client), &'static str> {
+    if url.len() > 2048 {
+        return Err("usage webhook URL is invalid");
+    }
+    let parsed = Url::parse(url).map_err(|_| "usage webhook URL is invalid")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("usage webhook must use a public HTTPS URL");
+    }
+    let host = parsed
+        .host_str()
+        .ok_or("usage webhook URL is invalid")?
+        .to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("usage webhook URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "usage webhook host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), false))
+    {
+        return Err("usage webhook resolved to a forbidden address");
+    }
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create usage webhook client")?;
+    Ok((parsed, client))
+}
+
+fn webhook_secret_bytes(secret: &str) -> Result<Vec<u8>, &'static str> {
+    if !(16..=1024).contains(&secret.len()) || secret.chars().any(char::is_control) {
+        return Err("usage webhook secret is invalid");
+    }
+    if let Some(encoded) = secret.strip_prefix("whsec_") {
+        let bytes = BASE64_STANDARD
+            .decode(encoded)
+            .map_err(|_| "usage webhook secret is invalid")?;
+        if bytes.len() < 16 || bytes.len() > 768 {
+            return Err("usage webhook secret is invalid");
+        }
+        Ok(bytes)
+    } else {
+        Ok(secret.as_bytes().to_vec())
+    }
+}
+
+fn usage_webhook_signature(id: &str, timestamp: &str, body: &[u8], secret: &[u8]) -> String {
+    let mut key = Zeroizing::new([0_u8; 64]);
+    if secret.len() > key.len() {
+        key[..32].copy_from_slice(&Sha256::digest(secret));
+    } else {
+        key[..secret.len()].copy_from_slice(secret);
+    }
+    let mut inner_pad = Zeroizing::new([0x36_u8; 64]);
+    let mut outer_pad = Zeroizing::new([0x5c_u8; 64]);
+    for index in 0..64 {
+        inner_pad[index] ^= key[index];
+        outer_pad[index] ^= key[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad.as_slice());
+    inner.update(id.as_bytes());
+    inner.update(b".");
+    inner.update(timestamp.as_bytes());
+    inner.update(b".");
+    inner.update(body);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad.as_slice());
+    outer.update(inner.finalize());
+    format!("v1,{}", BASE64_STANDARD.encode(outer.finalize()))
+}
+
+fn usage_webhook_payload(
+    sink_id: &str,
+    sink_name: &str,
+    event: &StoredUsageExportEvent,
+    test: bool,
+) -> Result<Vec<u8>, &'static str> {
+    let timestamp = ::time::OffsetDateTime::from_unix_timestamp_nanos(
+        i128::from(event.created_at_unix_ms).saturating_mul(1_000_000),
+    )
+    .map_err(|_| "usage webhook timestamp is invalid")?
+    .format(&::time::format_description::well_known::Rfc3339)
+    .map_err(|_| "usage webhook timestamp is invalid")?;
+    let pricing = event
+        .pricing_snapshot
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .map_err(|_| "usage pricing snapshot is invalid")?;
+    let mut payload = serde_json::json!({
+        "type": "usage.recorded",
+        "version": 1,
+        "id": event.event_id,
+        "source": "redrouter_usage_ledger",
+        "coverage": "verified-terminal-usage",
+        "sink": {"id": sink_id, "name": sink_name},
+        "event": {
+            "usageId": event.event_id,
+            "eventId": event.event_id,
+            "tenantId": event.tenant_id,
+            "attributes": {},
+            "pricingKnown": event.pricing_known,
+            "pricing": pricing,
+            "requestId": event.event_id,
+            "timestamp": timestamp,
+            "apiKey": {"id": event.key_id, "name": event.key_name},
+            "endUser": event.end_user,
+            "tags": event.tags,
+            "provider": event.provider,
+            "model": event.model,
+            "usageKind": event.usage_kind,
+            "searchUnits": event.search_units,
+            "status": "ok",
+            "tokens": {
+                "promptTokens": event.tokens_input,
+                "completionTokens": event.tokens_output,
+                "cachedTokens": event.tokens_cache_read,
+                "cacheCreationTokens": event.tokens_cache_creation,
+                "reasoningTokens": event.tokens_reasoning,
+            },
+            "cost": event.amount_microusd as f64 / 1_000_000.0,
+        }
+    });
+    if test {
+        payload["test"] = serde_json::Value::Bool(true);
+    }
+    serde_json::to_vec(&payload).map_err(|_| "cannot encode usage webhook payload")
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowTotals {
+    requests: i64,
+    errors: i64,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    cached_tokens: i64,
+    cache_creation_tokens: i64,
+    reasoning_tokens: i64,
+    search_units: i64,
+    cost: f64,
+}
+
+impl UsageWindowTotals {
+    fn add(&mut self, event: &StoredUsageExportEvent) {
+        self.requests = self.requests.saturating_add(1);
+        self.prompt_tokens = self.prompt_tokens.saturating_add(event.tokens_input);
+        self.completion_tokens = self.completion_tokens.saturating_add(event.tokens_output);
+        self.cached_tokens = self.cached_tokens.saturating_add(event.tokens_cache_read);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(event.tokens_cache_creation);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(event.tokens_reasoning);
+        self.search_units = self.search_units.saturating_add(event.search_units);
+        self.cost += event.amount_microusd as f64 / 1_000_000.0;
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowModel {
+    provider: String,
+    model: String,
+    usage_kind: String,
+    pricing_known: bool,
+    pricing: Option<serde_json::Value>,
+    #[serde(flatten)]
+    totals: UsageWindowTotals,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowKey {
+    api_key: serde_json::Value,
+    tenant_id: String,
+    attributes: serde_json::Value,
+    totals: UsageWindowTotals,
+    by_model: Vec<UsageWindowModel>,
+}
+
+struct UsageWindowGroup {
+    key_id: String,
+    key_name: String,
+    tenant_id: String,
+    end_user: Option<String>,
+    tags: Vec<String>,
+    totals: UsageWindowTotals,
+    models: BTreeMap<String, UsageWindowModel>,
+}
+
+fn usage_window_delivery_id(
+    sink_id: &str,
+    first_event_id: &str,
+    last_event_id: &str,
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(sink_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(first_event_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(last_event_id.as_bytes());
+    digest.update(start_unix_ms.to_be_bytes());
+    digest.update(end_unix_ms.to_be_bytes());
+    format!("usage-window-{}", hex::encode(digest.finalize()))
+}
+
+fn rfc3339_millis(timestamp_unix_ms: i64) -> Result<String, &'static str> {
+    ::time::OffsetDateTime::from_unix_timestamp_nanos(
+        i128::from(timestamp_unix_ms).saturating_mul(1_000_000),
+    )
+    .map_err(|_| "usage window timestamp is invalid")?
+    .format(&::time::format_description::well_known::Rfc3339)
+    .map_err(|_| "usage window timestamp is invalid")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn usage_window_payload(
+    sink_id: &str,
+    sink_name: &str,
+    delivery_id: &str,
+    events: &[StoredUsageExportEvent],
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+    window_sec: i64,
+    test: bool,
+) -> Result<Vec<u8>, &'static str> {
+    let first = events.first().ok_or("usage window is empty")?;
+    let last = events.last().ok_or("usage window is empty")?;
+    let mut groups = BTreeMap::<String, UsageWindowGroup>::new();
+    for event in events {
+        let tags_json = serde_json::to_string(&event.tags)
+            .map_err(|_| "cannot encode usage window attributes")?;
+        let group_id = format!(
+            "{}\0{}\0{}\0{}",
+            event.key_id,
+            event.tenant_id,
+            event.end_user.as_deref().unwrap_or_default(),
+            tags_json
+        );
+        let group = groups.entry(group_id).or_insert_with(|| UsageWindowGroup {
+            key_id: event.key_id.clone(),
+            key_name: event.key_name.clone(),
+            tenant_id: event.tenant_id.clone(),
+            end_user: event.end_user.clone(),
+            tags: event.tags.clone(),
+            totals: UsageWindowTotals::default(),
+            models: BTreeMap::new(),
+        });
+        group.totals.add(event);
+        let pricing = event
+            .pricing_snapshot
+            .as_deref()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .transpose()
+            .map_err(|_| "usage pricing snapshot is invalid")?;
+        let model_id = serde_json::to_string(&serde_json::json!([
+            event.provider,
+            event.model,
+            event.usage_kind,
+            event.pricing_known,
+            &pricing
+        ]))
+        .map_err(|_| "cannot encode usage window model")?;
+        let model = group
+            .models
+            .entry(model_id)
+            .or_insert_with(|| UsageWindowModel {
+                provider: event.provider.clone(),
+                model: event.model.clone(),
+                usage_kind: event.usage_kind.clone(),
+                pricing_known: event.pricing_known,
+                pricing,
+                totals: UsageWindowTotals::default(),
+            });
+        model.totals.add(event);
+    }
+    let keys = groups
+        .into_values()
+        .map(|group| UsageWindowKey {
+            api_key: serde_json::json!({"id": group.key_id, "name": group.key_name}),
+            tenant_id: group.tenant_id,
+            attributes: serde_json::json!({"endUser": group.end_user, "tags": group.tags}),
+            totals: group.totals,
+            by_model: group.models.into_values().collect(),
+        })
+        .collect::<Vec<_>>();
+    let mut payload = serde_json::json!({
+        "type": "usage.window",
+        "version": 1,
+        "id": delivery_id,
+        "source": "redrouter_usage_ledger",
+        "coverage": "verified-terminal-usage",
+        "sink": {"id": sink_id, "name": sink_name},
+        "window": {
+            "start": rfc3339_millis(start_unix_ms)?,
+            "end": rfc3339_millis(end_unix_ms)?,
+            "sizeSec": window_sec,
+        },
+        "range": {
+            "fromEventId": first.event_id,
+            "toEventId": last.event_id,
+            "fromTimestamp": rfc3339_millis(first.created_at_unix_ms)?,
+            "toTimestamp": rfc3339_millis(last.created_at_unix_ms)?,
+        },
+        "keys": keys,
+    });
+    if test {
+        payload["test"] = serde_json::Value::Bool(true);
+    }
+    serde_json::to_vec(&payload).map_err(|_| "cannot encode usage window payload")
+}
+
+fn usage_webhook_url(config_json: &str) -> Result<String, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid usage webhook configuration");
+    }
+    serde_json::from_str::<serde_json::Value>(config_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .filter(|url| !url.is_empty() && url.len() <= 2048)
+        .ok_or("invalid usage webhook configuration")
+}
+
+/// Watches Rust-owned usage destinations and starts one revision-bound relay per enabled sink.
+/// A relay exits before its next delivery as soon as its record is edited, disabled, or deleted.
+pub fn spawn_persisted_usage(
+    database: &Arc<Database>,
+    encryption_key: &str,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    if !database.supports_audit_sink_leases() {
+        return Err("managed usage export requires SQLite or PostgreSQL");
+    }
+    let weak = Arc::downgrade(database);
+    let encryption_key = Zeroizing::new(encryption_key.to_owned());
+    tokio::spawn(async move {
+        let mut revisions = HashMap::<String, i64>::new();
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            let exports = match database.usage_exports().await {
+                Ok(exports) => exports,
+                Err(error) => {
+                    eprintln!("Rust managed usage export refresh failed: {error}");
+                    continue;
+                }
+            };
+            for export in exports {
+                if revisions.get(&export.id) == Some(&export.revision) {
+                    continue;
+                }
+                if !export.enabled {
+                    revisions.insert(export.id.clone(), export.revision);
+                    continue;
+                }
+                let relay = match ManagedUsageRelay::from_record(
+                    &export,
+                    encryption_key.as_str(),
+                    allow_private,
+                )
+                .await
+                {
+                    Ok(relay) => relay,
+                    Err(error) => {
+                        eprintln!("Rust managed usage export configuration failed: {error}");
+                        continue;
+                    }
+                };
+                let export_id = export.id.clone();
+                let export_revision = export.revision;
+                match spawn_managed_usage(&database, relay, export_id.clone(), export_revision) {
+                    Ok(()) => {
+                        revisions.insert(export_id, export_revision);
+                    }
+                    Err(error) => {
+                        eprintln!("Rust managed usage export start failed: {error}");
+                    }
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+fn spawn_managed_usage(
+    database: &Arc<Database>,
+    relay: ManagedUsageRelay,
+    record_id: String,
+    revision: i64,
+) -> Result<(), &'static str> {
+    let relay = Arc::new(relay);
+    let weak = Arc::downgrade(database);
+    let owner = random_owner()?;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(relay.interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            let current = database
+                .usage_exports()
+                .await
+                .ok()
+                .and_then(|exports| exports.into_iter().find(|item| item.id == record_id));
+            if !current.is_some_and(|item| item.enabled && item.revision == revision) {
+                return;
+            }
+            if let Err(error) = drain_managed_usage_once(&database, &relay, &owner).await {
+                eprintln!("Rust managed usage export failed: {error}");
+            }
+        }
+    });
+    Ok(())
+}
+
+fn spawn_audit(database: &Arc<Database>, config: BigQueryAuditConfig) -> Result<(), &'static str> {
+    let sink = Arc::new(BigQueryAuditSink::new(config.clone())?);
+    let weak = Arc::downgrade(database);
+    let owner = random_owner()?;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(config.interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            if let Err(error) = drain_once(&database, &sink, &owner).await {
+                eprintln!("Rust audit export failed: {error}");
+            }
+        }
+    });
+    Ok(())
+}
+
+fn spawn_usage(database: &Arc<Database>, config: BigQueryAuditConfig) -> Result<(), &'static str> {
+    let sink = Arc::new(BigQueryAuditSink::new(config.clone())?);
+    let weak = Arc::downgrade(database);
+    let owner = random_owner()?;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(config.interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let Some(database) = weak.upgrade() else {
+                return;
+            };
+            if let Err(error) = drain_usage_once(&database, &sink, &owner).await {
+                eprintln!("Rust usage export failed: {error}");
+            }
+        }
+    });
+    Ok(())
+}
+
+async fn drain_once(
+    database: &Database,
+    sink: &BigQueryAuditSink,
+    owner: &str,
+) -> Result<(), &'static str> {
+    let now = unix_time_ms()?;
+    if !database
+        .acquire_audit_sink_lease(
+            &sink.config.sink_id,
+            owner,
+            now,
+            now.saturating_add(LEASE_MS),
+        )
+        .await?
+    {
+        return Ok(());
+    }
+    let result = async {
+        let cursor = database.audit_sink_cursor(&sink.config.sink_id).await?;
+        let (created_at, event_id) = cursor
+            .as_ref()
+            .map(|cursor| {
+                (
+                    cursor.cursor_created_at_unix_ms,
+                    cursor.cursor_event_id.as_str(),
+                )
+            })
+            .unwrap_or((0, ""));
+        let events = database
+            .audit_outbox_events(created_at, event_id, sink.config.batch_size)
+            .await?;
+        if let Some(last) = events.last() {
+            sink.send(&events).await?;
+            database
+                .advance_audit_sink_cursor(&sink.config.sink_id, owner, last, unix_time_ms()?)
+                .await?;
+        }
+        Ok(())
+    }
+    .await;
+    let _ = database
+        .release_audit_sink_lease(&sink.config.sink_id, owner, unix_time_ms().unwrap_or(now))
+        .await;
+    result
+}
+
+async fn drain_usage_once(
+    database: &Database,
+    sink: &BigQueryAuditSink,
+    owner: &str,
+) -> Result<(), &'static str> {
+    let now = unix_time_ms()?;
+    if !database
+        .acquire_audit_sink_lease(
+            &sink.config.sink_id,
+            owner,
+            now,
+            now.saturating_add(LEASE_MS),
+        )
+        .await?
+    {
+        return Ok(());
+    }
+    let result = async {
+        let cursor = database.audit_sink_cursor(&sink.config.sink_id).await?;
+        let (created_at, event_id) = cursor
+            .as_ref()
+            .map(|cursor| {
+                (
+                    cursor.cursor_created_at_unix_ms,
+                    cursor.cursor_event_id.as_str(),
+                )
+            })
+            .unwrap_or((0, ""));
+        let events = database
+            .usage_export_events(created_at, event_id, sink.config.batch_size)
+            .await?;
+        if let Some(last) = events.last() {
+            let selected = events
+                .iter()
+                .filter(|event| usage_event_selected(&sink.config, event))
+                .cloned()
+                .collect::<Vec<_>>();
+            sink.send_usage(&selected).await?;
+            database
+                .advance_sink_cursor_position(
+                    &sink.config.sink_id,
+                    owner,
+                    last.created_at_unix_ms,
+                    &last.event_id,
+                    unix_time_ms()?,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    .await;
+    let _ = database
+        .release_audit_sink_lease(&sink.config.sink_id, owner, unix_time_ms().unwrap_or(now))
+        .await;
+    result
+}
+
+async fn drain_managed_usage_once(
+    database: &Database,
+    relay: &ManagedUsageRelay,
+    owner: &str,
+) -> Result<(), &'static str> {
+    let now = unix_time_ms()?;
+    if !database
+        .acquire_audit_sink_lease(&relay.sink_id, owner, now, now.saturating_add(LEASE_MS))
+        .await?
+    {
+        return Ok(());
+    }
+    let result = async {
+        let cursor = database.audit_sink_cursor(&relay.sink_id).await?;
+        let (created_at, event_id) = cursor
+            .as_ref()
+            .map(|cursor| {
+                (
+                    cursor.cursor_created_at_unix_ms,
+                    cursor.cursor_event_id.as_str(),
+                )
+            })
+            .unwrap_or((0, ""));
+        let events = database
+            .usage_export_events(created_at, event_id, relay.batch_size)
+            .await?;
+        let deliverable = if let Some(window_sec) = relay.window_sec {
+            completed_window_events(&events, window_sec, now)?
+        } else {
+            events.as_slice()
+        };
+        if let Some(last) = deliverable.last() {
+            let selected = deliverable
+                .iter()
+                .filter(|event| {
+                    usage_event_selected_for(&relay.tenant_id, &relay.api_key_ids, event)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            relay.send(&selected).await?;
+            database
+                .advance_sink_cursor_position(
+                    &relay.sink_id,
+                    owner,
+                    last.created_at_unix_ms,
+                    &last.event_id,
+                    unix_time_ms()?,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    .await;
+    let _ = database
+        .release_audit_sink_lease(&relay.sink_id, owner, unix_time_ms().unwrap_or(now))
+        .await;
+    result
+}
+
+fn completed_window_events(
+    events: &[StoredUsageExportEvent],
+    window_sec: i64,
+    now_unix_ms: i64,
+) -> Result<&[StoredUsageExportEvent], &'static str> {
+    let window_ms = window_sec
+        .checked_mul(1_000)
+        .filter(|value| *value > 0)
+        .ok_or("invalid usage export window")?;
+    let Some(first) = events.first() else {
+        return Ok(events);
+    };
+    let window_start = first.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+    let window_end = window_start.saturating_add(window_ms);
+    if window_end > now_unix_ms {
+        return Ok(&events[..0]);
+    }
+    let count = events
+        .iter()
+        .take_while(|event| event.created_at_unix_ms < window_end)
+        .count();
+    Ok(&events[..count])
+}
+
+fn usage_event_selected(config: &BigQueryAuditConfig, event: &StoredUsageExportEvent) -> bool {
+    config
+        .tenant_id
+        .as_ref()
+        .is_none_or(|tenant| event.tenant_id == *tenant)
+        && (config.api_key_ids.is_empty() || config.api_key_ids.contains(&event.key_id))
+}
+
+fn usage_event_selected_for(
+    tenant_id: &str,
+    api_key_ids: &[String],
+    event: &StoredUsageExportEvent,
+) -> bool {
+    event.tenant_id == tenant_id && (api_key_ids.is_empty() || api_key_ids.contains(&event.key_id))
+}
+
+fn bigquery_chunks(
+    events: &[StoredAuditOutboxEvent],
+) -> Result<Vec<Vec<&StoredAuditOutboxEvent>>, &'static str> {
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut bytes = 0_usize;
+    for event in events {
+        let row_bytes = bigquery_row(event)?.len();
+        if row_bytes > MAX_BATCH_BYTES {
+            return Err("audit outbox event is too large for BigQuery");
+        }
+        if !current.is_empty()
+            && (current.len() == MAX_BATCH_ROWS
+                || bytes.saturating_add(row_bytes) > MAX_BATCH_BYTES)
+        {
+            chunks.push(current);
+            current = Vec::new();
+            bytes = 0;
+        }
+        current.push(event);
+        bytes = bytes.saturating_add(row_bytes);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    Ok(chunks)
+}
+
+fn bigquery_request(events: &[&StoredAuditOutboxEvent]) -> Result<Vec<u8>, &'static str> {
+    let rows = events
+        .iter()
+        .map(|event| {
+            let payload: serde_json::Value = serde_json::from_str(&event.payload_json)
+                .map_err(|_| "audit outbox payload is invalid")?;
+            Ok(serde_json::json!({
+                "insertId": event.event_id,
+                "json": {
+                    "event_id": event.event_id,
+                    "created_at_unix_ms": event.created_at_unix_ms,
+                    "tenant_id": event.tenant_id,
+                    "topic": event.topic,
+                    "schema_version": event.schema_version,
+                    "payload_json": payload.to_string()
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    serde_json::to_vec(&serde_json::json!({
+        "kind": "bigquery#tableDataInsertAllRequest",
+        "skipInvalidRows": false,
+        "ignoreUnknownValues": false,
+        "rows": rows
+    }))
+    .map_err(|_| "cannot encode BigQuery audit batch")
+}
+
+fn bigquery_usage_chunks(
+    events: &[StoredUsageExportEvent],
+) -> Result<Vec<Vec<&StoredUsageExportEvent>>, &'static str> {
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut bytes = 0_usize;
+    for event in events {
+        let row_bytes = bigquery_usage_request(&[event])?.len();
+        if row_bytes > MAX_BATCH_BYTES {
+            return Err("usage event is too large for BigQuery");
+        }
+        if !current.is_empty()
+            && (current.len() == MAX_BATCH_ROWS
+                || bytes.saturating_add(row_bytes) > MAX_BATCH_BYTES)
+        {
+            chunks.push(current);
+            current = Vec::new();
+            bytes = 0;
+        }
+        current.push(event);
+        bytes = bytes.saturating_add(row_bytes);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    Ok(chunks)
+}
+
+fn bigquery_usage_request(events: &[&StoredUsageExportEvent]) -> Result<Vec<u8>, &'static str> {
+    let rows = events
+        .iter()
+        .map(|event| {
+            let tokens_total = event
+                .tokens_input
+                .checked_add(event.tokens_output)
+                .and_then(|value| value.checked_add(event.tokens_reasoning))
+                .ok_or("usage token total overflow")?;
+            let pricing_snapshot_json = event
+                .pricing_snapshot
+                .as_deref()
+                .map(|snapshot| {
+                    serde_json::from_str::<serde_json::Value>(snapshot)
+                        .map(|value| value.to_string())
+                        .map_err(|_| "usage pricing snapshot is invalid")
+                })
+                .transpose()?;
+            Ok(serde_json::json!({
+                "insertId": event.event_id,
+                "json": {
+                    "event_id": event.event_id,
+                    "created_at_unix_ms": event.created_at_unix_ms,
+                    "tenant_id": event.tenant_id,
+                    "api_key_id": event.key_id,
+                    "api_key_name": event.key_name,
+                    "end_user": event.end_user,
+                    "tags": event.tags,
+                    "provider": event.provider,
+                    "model": event.model,
+                    "usage_kind": event.usage_kind,
+                    "search_units": event.search_units,
+                    "tokens_input": event.tokens_input,
+                    "tokens_output": event.tokens_output,
+                    "tokens_cache_read": event.tokens_cache_read,
+                    "tokens_cache_creation": event.tokens_cache_creation,
+                    "tokens_reasoning": event.tokens_reasoning,
+                    "tokens_total": tokens_total,
+                    "amount_microusd": event.amount_microusd,
+                    "amount_usd": event.amount_microusd as f64 / 1_000_000.0,
+                    "pricing_known": event.pricing_known,
+                    "pricing_snapshot_json": pricing_snapshot_json
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    serde_json::to_vec(&serde_json::json!({
+        "kind": "bigquery#tableDataInsertAllRequest",
+        "skipInvalidRows": false,
+        "ignoreUnknownValues": false,
+        "rows": rows
+    }))
+    .map_err(|_| "cannot encode BigQuery usage batch")
+}
+
+fn bigquery_row(event: &StoredAuditOutboxEvent) -> Result<Vec<u8>, &'static str> {
+    bigquery_request(&[event])
+}
+
+fn retryable_status(status: StatusCode) -> bool {
+    matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn validate_sink_id(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err("BigQuery audit sink ID is invalid");
+    }
+    Ok(())
+}
+
+fn validate_project_id(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 200
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b':' | b'.'))
+    {
+        return Err("BigQuery project ID is invalid");
+    }
+    Ok(())
+}
+
+fn validate_bigquery_name(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 1_024
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return Err("BigQuery dataset or table ID is invalid");
+    }
+    Ok(())
+}
+
+fn unix_time_ms() -> Result<i64, &'static str> {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "system clock is before Unix epoch")?;
+    i64::try_from(elapsed.as_millis()).map_err(|_| "system clock is out of range")
+}
+
+fn random_owner() -> Result<String, &'static str> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| "cannot generate audit sink owner")?;
+    Ok(hex::encode(bytes))
+}
+
+fn default_token_uri() -> String {
+    GOOGLE_TOKEN_URI.to_owned()
+}
+
+fn default_token_ttl() -> i64 {
+    3_600
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kafka_usage_configuration_is_strict_and_write_only() {
+        let config = parse_kafka_config(
+            r#"{"brokers":["broker.example.com:9093"],"topic":"redrouter.usage","clientId":"red-router","ssl":true,"saslMechanism":"scram-sha-512","saslUsername":"billing","hasSaslPassword":true}"#,
+        )
+        .unwrap();
+        assert_eq!(config.brokers, ["broker.example.com:9093"]);
+        assert_eq!(config.topic, "redrouter.usage");
+        assert!(config.ssl);
+        assert!(parse_kafka_config(
+            r#"{"brokers":["broker.example.com:9093"],"topic":"bad/topic","clientId":"red-router","ssl":true,"saslMechanism":"","hasSaslPassword":false}"#,
+        )
+        .is_err());
+        assert!(parse_kafka_config(
+            r#"{"brokers":["127.0.0.1:9092"],"topic":"usage","clientId":"red-router","ssl":false,"saslMechanism":"plain","hasSaslPassword":false}"#,
+        )
+        .is_err());
+    }
+
+    fn event(id: &str, payload_size: usize) -> StoredAuditOutboxEvent {
+        StoredAuditOutboxEvent {
+            event_id: id.to_owned(),
+            created_at_unix_ms: 1,
+            tenant_id: "red".to_owned(),
+            topic: "redrouter.audit.v1".to_owned(),
+            schema_version: 1,
+            payload_json: serde_json::json!({"value":"x".repeat(payload_size)}).to_string(),
+        }
+    }
+
+    fn usage_event(id: &str) -> StoredUsageExportEvent {
+        StoredUsageExportEvent {
+            event_id: id.to_owned(),
+            created_at_unix_ms: 1_700_000_000_000,
+            tenant_id: "red".to_owned(),
+            key_id: "agent-key".to_owned(),
+            key_name: "Agent fleet".to_owned(),
+            end_user: Some("alice".to_owned()),
+            tags: vec!["production".to_owned(), "team-a".to_owned()],
+            provider: "openrouter".to_owned(),
+            model: "openai/gpt-5".to_owned(),
+            usage_kind: "tokens".to_owned(),
+            search_units: 0,
+            tokens_input: 100,
+            tokens_output: 40,
+            tokens_cache_read: 20,
+            tokens_cache_creation: 5,
+            tokens_reasoning: 10,
+            amount_microusd: 1234,
+            pricing_known: true,
+            pricing_snapshot: Some(r#"{"source":"models.dev"}"#.to_owned()),
+        }
+    }
+
+    #[test]
+    fn bigquery_rows_preserve_stable_insert_ids() {
+        let first = event("audit-one", 16);
+        let encoded = bigquery_request(&[&first]).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(value["rows"][0]["insertId"], "audit-one");
+        assert_eq!(value["rows"][0]["json"]["schema_version"], 1);
+        assert!(value["rows"][0]["json"]["payload_json"]
+            .as_str()
+            .unwrap()
+            .contains("value"));
+    }
+
+    #[test]
+    fn bigquery_chunks_are_bounded_by_row_count() {
+        let events = (0..501)
+            .map(|index| event(&format!("audit-{index}"), 8))
+            .collect::<Vec<_>>();
+        let chunks = bigquery_chunks(&events).unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 500);
+        assert_eq!(chunks[1].len(), 1);
+    }
+
+    #[test]
+    fn bigquery_identifiers_are_strict() {
+        assert!(validate_project_id("red-router-prod").is_ok());
+        assert!(validate_bigquery_name("audit_events_2026").is_ok());
+        assert!(validate_bigquery_name("audit/events").is_err());
+        assert!(validate_sink_id("bigquery.prod").is_ok());
+        assert!(validate_sink_id("../../escape").is_err());
+    }
+
+    #[test]
+    fn usage_rows_include_attribution_without_api_key_secrets() {
+        let event = usage_event("usage-one");
+        let encoded = bigquery_usage_request(&[&event]).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        let row = &value["rows"][0];
+        assert_eq!(row["insertId"], "usage-one");
+        assert_eq!(row["json"]["api_key_id"], "agent-key");
+        assert_eq!(row["json"]["api_key_name"], "Agent fleet");
+        assert_eq!(row["json"]["end_user"], "alice");
+        assert_eq!(
+            row["json"]["tags"],
+            serde_json::json!(["production", "team-a"])
+        );
+        assert_eq!(row["json"]["provider"], "openrouter");
+        assert_eq!(row["json"]["model"], "openai/gpt-5");
+        assert_eq!(row["json"]["usage_kind"], "tokens");
+        assert_eq!(row["json"]["search_units"], 0);
+        assert_eq!(row["json"]["tokens_total"], 150);
+        assert_eq!(row["json"]["amount_microusd"], 1234);
+        assert!(row["json"].get("api_key").is_none());
+    }
+
+    #[test]
+    fn usage_exports_preserve_rerank_units_without_tokens() {
+        let mut event = usage_event("rerank-one");
+        event.provider = "cohere".to_owned();
+        event.model = "rerank-v3.5".to_owned();
+        event.usage_kind = "rerank".to_owned();
+        event.search_units = 3;
+        event.tokens_input = 0;
+        event.tokens_output = 0;
+        event.tokens_cache_read = 0;
+        event.tokens_cache_creation = 0;
+        event.tokens_reasoning = 0;
+        event.pricing_snapshot =
+            Some(r#"{"source":"dashboard-user","unit":"search-unit"}"#.to_owned());
+        let bigquery: serde_json::Value =
+            serde_json::from_slice(&bigquery_usage_request(&[&event]).unwrap()).unwrap();
+        assert_eq!(bigquery["rows"][0]["json"]["usage_kind"], "rerank");
+        assert_eq!(bigquery["rows"][0]["json"]["search_units"], 3);
+        assert_eq!(bigquery["rows"][0]["json"]["tokens_total"], 0);
+        let webhook: serde_json::Value = serde_json::from_slice(
+            &usage_webhook_payload("sink-one", "Billing", &event, false).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(webhook["event"]["usageKind"], "rerank");
+        assert_eq!(webhook["event"]["searchUnits"], 3);
+        assert_eq!(webhook["event"]["tokens"]["promptTokens"], 0);
+        assert_eq!(webhook["event"]["tokens"]["completionTokens"], 0);
+    }
+
+    #[test]
+    fn managed_usage_filters_never_cross_tenant_or_key_scope() {
+        let config = BigQueryAuditConfig {
+            sink_id: "managed-report".to_owned(),
+            project_id: "red-router-prod".to_owned(),
+            dataset_id: "billing".to_owned(),
+            table_id: "usage".to_owned(),
+            service_account_json: Zeroizing::new("{}".to_owned()),
+            batch_size: 100,
+            interval: Duration::from_secs(10),
+            tenant_id: Some("red".to_owned()),
+            api_key_ids: vec!["agent-key".to_owned()],
+        };
+        let allowed = usage_event("allowed");
+        assert!(usage_event_selected(&config, &allowed));
+        let mut other_tenant = allowed.clone();
+        other_tenant.tenant_id = "other".to_owned();
+        assert!(!usage_event_selected(&config, &other_tenant));
+        let mut other_key = allowed;
+        other_key.key_id = "other-key".to_owned();
+        assert!(!usage_event_selected(&config, &other_key));
+    }
+
+    #[test]
+    fn usage_webhook_signatures_match_standard_webhooks_hmac_shape() {
+        assert_eq!(
+            usage_webhook_signature("evt_1", "1700000000", b"hello", b"0123456789abcdef"),
+            "v1,AxUhS/9Sfwls0U8oEtW1KoPCQDbD0wtqi8M7bVr9g/A="
+        );
+    }
+
+    #[test]
+    fn usage_webhook_payload_preserves_attribution_without_credentials() {
+        let event = usage_event("usage-webhook-one");
+        let encoded = usage_webhook_payload("sink-one", "Billing", &event, true).unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(payload["type"], "usage.recorded");
+        assert_eq!(payload["event"]["apiKey"]["id"], "agent-key");
+        assert_eq!(payload["event"]["apiKey"]["name"], "Agent fleet");
+        assert_eq!(payload["event"]["provider"], "openrouter");
+        assert_eq!(payload["event"]["model"], "openai/gpt-5");
+        assert_eq!(payload["event"]["usageKind"], "tokens");
+        assert_eq!(payload["event"]["searchUnits"], 0);
+        assert_eq!(payload["event"]["tokens"]["reasoningTokens"], 10);
+        assert_eq!(payload["test"], true);
+        assert!(!String::from_utf8(encoded).unwrap().contains("whsec_"));
+    }
+
+    #[test]
+    fn usage_window_payload_aggregates_keys_models_and_costs() {
+        let mut first = usage_event("usage-window-one");
+        first.created_at_unix_ms = 1_700_000_000_000;
+        let mut second = usage_event("usage-window-two");
+        second.created_at_unix_ms = 1_700_000_010_000;
+        second.tokens_input = 25;
+        second.tokens_output = 5;
+        second.amount_microusd = 766;
+        let start = first.created_at_unix_ms.div_euclid(300_000) * 300_000;
+        let encoded = usage_window_payload(
+            "sink-one",
+            "Billing",
+            "window-delivery-one",
+            &[first, second],
+            start,
+            start + 300_000,
+            300,
+            false,
+        )
+        .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(payload["type"], "usage.window");
+        assert_eq!(payload["id"], "window-delivery-one");
+        assert_eq!(payload["window"]["sizeSec"], 300);
+        assert_eq!(payload["keys"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["keys"][0]["apiKey"]["id"], "agent-key");
+        assert_eq!(payload["keys"][0]["totals"]["requests"], 2);
+        assert_eq!(payload["keys"][0]["totals"]["promptTokens"], 125);
+        assert_eq!(payload["keys"][0]["totals"]["completionTokens"], 45);
+        assert_eq!(payload["keys"][0]["totals"]["cost"], 0.002);
+        assert_eq!(payload["keys"][0]["byModel"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn completed_window_events_never_advance_into_an_open_window() {
+        let mut completed_one = usage_event("one");
+        completed_one.created_at_unix_ms = 300_001;
+        let mut completed_two = usage_event("two");
+        completed_two.created_at_unix_ms = 599_999;
+        let mut open = usage_event("three");
+        open.created_at_unix_ms = 600_000;
+        let events = vec![completed_one, completed_two, open];
+        let selected = completed_window_events(&events, 300, 650_000).unwrap();
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected.last().unwrap().event_id, "two");
+        assert!(completed_window_events(&events[2..], 300, 650_000)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn reddb_queue_statements_validate_names_and_escape_dedup_ids() {
+        let statement =
+            reddb_queue_push_statement("usage_events", r#"{"model":"openai/gpt-5"}"#, "usage-'one")
+                .unwrap();
+        assert_eq!(
+            statement,
+            r#"QUEUE PUSH usage_events {"model":"openai/gpt-5"} DEDUP 'usage-''one'"#
+        );
+        assert!(reddb_queue_push_statement("9invalid", "{}", "usage-one").is_err());
+        assert!(reddb_queue_push_statement("valid", "not-json", "usage-one").is_err());
+    }
+
+    #[tokio::test]
+    async fn reddb_usage_delivery_is_pinned_scoped_and_deduplicated() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::Mutex as StdMutex;
+
+        type Capture = Arc<StdMutex<Option<(HeaderMap, serde_json::Value)>>>;
+        let capture: Capture = Arc::new(StdMutex::new(None));
+        let app = Router::new()
+            .route(
+                "/query",
+                post(
+                    |State(capture): State<Capture>,
+                     headers: HeaderMap,
+                     Json(body): Json<serde_json::Value>| async move {
+                        *capture.lock().unwrap() = Some((headers, body));
+                        Json(serde_json::json!({"ok":true}))
+                    },
+                ),
+            )
+            .with_state(capture.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = serde_json::json!({
+            "url":format!("http://{address}"),
+            "queue":"usage_events",
+            "tenant":"billing"
+        })
+        .to_string();
+        send_usage_reddb_test(
+            "sink-one",
+            "Billing",
+            &config,
+            Some(Zeroizing::new("rdb_test_token".to_owned())),
+            &usage_event("usage-reddb-one"),
+            true,
+        )
+        .await
+        .unwrap();
+        let (headers, body) = capture.lock().unwrap().take().unwrap();
+        assert_eq!(headers["authorization"], "Bearer rdb_test_token");
+        assert_eq!(headers["x-reddb-tenant"], "billing");
+        let query = body["query"].as_str().unwrap();
+        assert!(query.starts_with("QUEUE PUSH usage_events "));
+        assert!(query.ends_with("DEDUP 'usage-reddb-one'"));
+        assert!(query.contains("\"model\":\"openai/gpt-5\""));
+        assert!(query.contains("\"id\":\"agent-key\""));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn reddb_usage_refuses_private_destinations_without_opt_in() {
+        let config = r#"{"url":"http://127.0.0.1:5000","queue":"usage_events"}"#;
+        assert!(validate_usage_reddb(config, None, false).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn sqs_usage_delivery_is_signed_attributed_and_fifo_deduplicated() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::Mutex as StdMutex;
+
+        type Capture = Arc<StdMutex<Option<(HeaderMap, Vec<u8>)>>>;
+        let capture: Capture = Arc::new(StdMutex::new(None));
+        let app = Router::new()
+            .route(
+                "/",
+                post(
+                    |State(capture): State<Capture>,
+                     headers: HeaderMap,
+                     body: axum::body::Bytes| async move {
+                        *capture.lock().unwrap() = Some((headers, body.to_vec()));
+                        Json(serde_json::json!({"MessageId":"message-one"}))
+                    },
+                ),
+            )
+            .with_state(capture.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = serde_json::json!({
+            "queueUrl":format!("http://{address}/123456789012/usage.fifo"),
+            "region":"us-east-1",
+            "accessKeyId":"AKIDEXAMPLE",
+            "hasSessionToken":true,
+        })
+        .to_string();
+        let secret = serde_json::json!({
+            "secretAccessKey":"secret-example",
+            "sessionToken":"session-example",
+        })
+        .to_string();
+        send_usage_sqs_test(
+            "sink-one",
+            &config,
+            &secret,
+            &usage_event("usage-sqs-one"),
+            true,
+        )
+        .await
+        .unwrap();
+        let (headers, body) = capture.lock().unwrap().take().unwrap();
+        assert_eq!(headers["x-amz-target"], "AmazonSQS.SendMessage");
+        assert_eq!(headers["x-amz-security-token"], "session-example");
+        assert_eq!(
+            headers["x-amz-content-sha256"].to_str().unwrap(),
+            hex::encode(Sha256::digest(&body))
+        );
+        let authorization = headers["authorization"].to_str().unwrap();
+        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
+        assert!(authorization.contains("/us-east-1/sqs/aws4_request"));
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["MessageGroupId"], "sink-one");
+        assert_eq!(body["MessageDeduplicationId"], "usage-sqs-one");
+        assert_eq!(
+            body["MessageAttributes"]["redrouter-delivery-id"]["StringValue"],
+            "usage-sqs-one"
+        );
+        assert!(body["MessageBody"]
+            .as_str()
+            .unwrap()
+            .contains("\"model\":\"openai/gpt-5\""));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn sqs_usage_refuses_private_destinations_without_opt_in() {
+        let config = r#"{"queueUrl":"http://127.0.0.1:4566/123/usage","region":"us-east-1","accessKeyId":"local","hasSessionToken":false}"#;
+        let secret = r#"{"secretAccessKey":"local-secret"}"#;
+        assert!(validate_usage_sqs(config, secret, false).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn usage_webhooks_refuse_private_destinations_before_sending() {
+        assert!(
+            validate_usage_webhook("https://127.0.0.1:8443/usage", "0123456789abcdef")
+                .await
+                .is_err()
+        );
+        assert!(
+            validate_usage_webhook("http://billing.example.com/usage", "0123456789abcdef")
+                .await
+                .is_err()
+        );
+        assert!(validate_usage_webhook(
+            "https://billing.example.com/usage?token=secret",
+            "0123456789abcdef"
+        )
+        .await
+        .is_err());
+    }
+}

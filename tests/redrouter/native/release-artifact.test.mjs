@@ -104,7 +104,7 @@ test("CI packs once and publication only promotes the verified artifact", async 
   const commands = build.steps.map((step) => step.run).filter(Boolean);
   assert.equal(commands.filter((cmd) => cmd === "npm run release:pack").length, 1);
   assert.ok(
-    commands.indexOf("npm run release:pack") < commands.indexOf("npm run check:pack-artifact")
+    commands.indexOf("npm run build:release") < commands.indexOf("npm run check:rust-package")
   );
   assert.equal(build.env.REDROUTER_RELEASE_ARTIFACT_DIR, "release-artifacts");
   assert.equal(build.env.OMNIROUTE_PLAYWRIGHT_SKIP_BUILD, "1");

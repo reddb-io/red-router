@@ -1,0 +1,64 @@
+# Production image for the Rust control plane, proxy, SQLite persistence and
+# static dashboard. It intentionally contains no Node.js or Next.js runtime.
+
+FROM node:26-trixie-slim AS dashboard-builder
+WORKDIR /src
+
+COPY package.json package-lock.json ./
+COPY open-sse/package.json ./open-sse/package.json
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund --legacy-peer-deps
+
+COPY rust-dashboard ./rust-dashboard
+COPY tsconfig.json postcss.config.mjs ./
+RUN npm run build:rust-dashboard \
+    && test -s /src/.build/rust-dashboard/index.html
+
+FROM rust:trixie AS rust-builder
+WORKDIR /src
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cmake pkg-config protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY rust/red-routerd/Cargo.toml rust/red-routerd/Cargo.lock ./rust/red-routerd/
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    mkdir -p rust/red-routerd/src \
+    && printf 'fn main() {}\n' > rust/red-routerd/src/main.rs \
+    && printf 'pub fn placeholder() {}\n' > rust/red-routerd/src/lib.rs \
+    && cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml \
+    && rm -rf rust/red-routerd/src
+
+COPY rust/red-routerd ./rust/red-routerd
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+
+FROM debian:trixie-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home redrouter \
+    && install -d -o redrouter -g redrouter /app/data /app/dashboard
+
+COPY --from=rust-builder /src/rust/red-routerd/target/release/red-routerd /usr/local/bin/red-routerd
+COPY --from=dashboard-builder --chown=redrouter:redrouter /src/.build/rust-dashboard/ /app/dashboard/
+
+ENV RED_ROUTER_LISTEN=0.0.0.0:25050 \
+    RED_ROUTER_ALLOW_REMOTE_LISTEN=1 \
+    RED_ROUTER_DB_BACKEND=sqlite \
+    RED_ROUTER_DATABASE_URL=sqlite:///app/data/red-router.sqlite \
+    RED_ROUTER_SPA_DIR=/app/dashboard
+ENV REQUIRE_API_KEY=true
+
+VOLUME ["/app/data"]
+EXPOSE 25050
+USER redrouter
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:25050/healthz"]
+
+ENTRYPOINT ["red-routerd"]

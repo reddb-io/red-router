@@ -30,6 +30,7 @@ export type RecordNonStreamingUsageStatsContext = {
     | {
         id?: string | null;
         name?: string | null;
+        sharedRpmReserved?: boolean;
         attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
       }
     | null
@@ -39,6 +40,8 @@ export type RecordNonStreamingUsageStatsContext = {
   comboStrategy: string | null | undefined;
   endpoint?: string | null | undefined;
   cpaAuthIndex?: string | null | undefined;
+  /** A shared SQLite transaction owns TPM for this completed provider attempt. */
+  sharedUsageReserved?: boolean;
 };
 
 function logUsageTrace(
@@ -78,7 +81,8 @@ function recordBillableTokens(
   usage: object,
   apiKeyInfo: RecordNonStreamingUsageStatsContext["apiKeyInfo"],
   provider: string | null | undefined,
-  model: string | null | undefined
+  model: string | null | undefined,
+  sharedUsageReserved: boolean | undefined
 ): void {
   if (!apiKeyInfo?.id) return;
   try {
@@ -86,7 +90,10 @@ function recordBillableTokens(
     // Key-quota tpm/rpm counters advance for every successful call regardless
     // of token count (rpm always +1), so the gate in apiKeyPolicy sees current
     // usage. Mirrors recordTokenUsage's swallow-and-continue.
-    recordKeyQuotaUsage(apiKeyInfo.id, billable);
+    recordKeyQuotaUsage(apiKeyInfo.id, billable, {
+      skipRpm: apiKeyInfo.sharedRpmReserved === true,
+      skipTpm: sharedUsageReserved === true,
+    });
     // Reusable budgets' tokens-per-minute counters advance on the same successful call.
     recordBudgetTokensFor(apiKeyInfo, provider, billable);
     if (billable > 0)
@@ -124,6 +131,6 @@ export function recordNonStreamingUsageStats(
 
   if (ctx.traceEnabled) logUsageTrace(usage, ctx.provider, ctx.connectionId);
   persistUsageRow(usage, ctx);
-  recordBillableTokens(usage, ctx.apiKeyInfo, ctx.provider, ctx.model);
+  recordBillableTokens(usage, ctx.apiKeyInfo, ctx.provider, ctx.model, ctx.sharedUsageReserved);
   recordNonStreamProviderHealth(ctx);
 }

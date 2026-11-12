@@ -2,8 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const dashboardPort = process.env.DASHBOARD_PORT || process.env.PORT || "25050";
 const dashboardBaseUrl = `http://localhost:${dashboardPort}`;
-const webServerReadyUrl = `${dashboardBaseUrl}/api/monitoring/health`;
-const playwrightServerMode = process.env.OMNIROUTE_PLAYWRIGHT_SERVER_MODE || "start";
+const webServerReadyUrl = dashboardBaseUrl;
 const playwrightWebServerTimeout = Number.parseInt(
   process.env.OMNIROUTE_PLAYWRIGHT_WEB_SERVER_TIMEOUT || "900000",
   10
@@ -54,7 +53,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `${JSON.stringify(process.execPath)} scripts/dev/run-next-playwright.mjs ${playwrightServerMode}`,
+    command: "node scripts/dev/run-rust-playwright-server.mjs",
     url: webServerReadyUrl,
     reuseExistingServer: !process.env.CI,
     timeout: Number.isFinite(playwrightWebServerTimeout) ? playwrightWebServerTimeout : 900_000,

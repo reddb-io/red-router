@@ -24,6 +24,7 @@ type LedgerDetails = {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  skipRequestLedger?: boolean;
 };
 
 /** Build a {@link LedgerDetails} for a completed streaming response. */
@@ -53,6 +54,7 @@ export function recordStreamingCost(args: {
       success?: boolean;
       timestamp?: string;
       requestId?: string | null;
+      skipRequestLedger?: boolean;
     }
   ) => void;
   ledger?: LedgerDetails;
@@ -72,6 +74,7 @@ export function recordStreamingCost(args: {
           success: args.ledger?.success ?? true,
           timestamp: args.ledger?.timestamp,
           requestId: args.ledger?.requestId,
+          skipRequestLedger: args.ledger?.skipRequestLedger,
         });
       }
     })
@@ -85,6 +88,7 @@ export function recordStreamingCost(args: {
           success: args.ledger?.success ?? true,
           timestamp: args.ledger?.timestamp,
           requestId: args.ledger?.requestId,
+          skipRequestLedger: args.ledger?.skipRequestLedger,
         });
       }
     });

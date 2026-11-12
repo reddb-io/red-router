@@ -1,7 +1,7 @@
 ---
 title: "Model Catalog Sources"
 version: 0.57.7
-lastUpdated: 2026-10-02
+lastUpdated: 2026-11-08
 ---
 
 # Model catalog sources

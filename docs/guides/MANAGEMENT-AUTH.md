@@ -1,7 +1,7 @@
 ---
 title: "Management Authentication"
 version: 3.8.50
-lastUpdated: 2026-09-22
+lastUpdated: 2026-11-08
 ---
 
 # Management Authentication
@@ -12,12 +12,12 @@ server unless they were explicitly granted `manage` or `admin` scope.
 
 Canonical implementation: `src/lib/api/requireManagementAuth.ts`.
 
-| Credential            | Typical form                        | Created where                                       | Intended use                  | Management capability                                                                  |
-| --------------------- | ----------------------------------- | --------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
-| Dashboard JWT session | `auth_token` cookie                 | Dashboard login                                     | Browser UI                    | Full dashboard management, subject to CSRF, locality, and always-protected-route rules |
-| CLI machine-id token  | internal / local                    | CLI bootstrap (`omniroute` on the same machine)     | Local CLI                     | Local management only                                                                  |
+| Credential            | Typical form                        | Created where                                        | Intended use                  | Management capability                                                                  |
+| --------------------- | ----------------------------------- | ---------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
+| Dashboard JWT session | `auth_token` cookie                 | Dashboard login                                      | Browser UI                    | Full dashboard management, subject to CSRF, locality, and always-protected-route rules |
+| CLI machine-id token  | internal / local                    | CLI bootstrap (`omniroute` on the same machine)      | Local CLI                     | Local management only                                                                  |
 | Scoped Access Token   | `oma_live_…`                        | **Settings → Access Tokens** or `red-router connect` | Remote CLI and management API | Must satisfy the route's required `read`, `write`, or `admin` scope                    |
-| Inference API key     | `sk-…` (and other API-key prefixes) | **API Manager / API Keys**                          | `/v1/*` inference             | **None** unless the key metadata includes `manage` or `admin`                          |
+| Inference API key     | `sk-…` (and other API-key prefixes) | **API Manager / API Keys**                           | `/v1/*` inference             | **None** unless the key metadata includes `manage` or `admin`                          |
 
 `oma_` credentials are management/CLI credentials. They are **not** inference API keys.
 
@@ -102,6 +102,68 @@ Role changes govern the next OIDC sign-in; existing dashboard sessions must be r
 Run **Check connection** and **Test sign-in** before disabling password login. Changing the claim
 policy invalidates the previous successful sign-in test. Password recovery and inference keys retain
 their existing behavior.
+
+#### Rust gateway browser flow
+
+The Rust migration has a separate, Rust-owned management boundary for `/api/admin/*`. It accepts
+the bootstrap `RED_ROUTER_ADMIN_KEY`, a signed OIDC bearer token, or the browser session minted by
+the Rust callback. The legacy Next.js `auth_token` cookie is not an implicit credential for this
+boundary.
+
+Configure the browser client through `PUT /api/admin/oidc`. The confidential client secret is
+encrypted before it is stored and is never returned by the API. Omitting `client_secret` on a later
+update preserves the existing encrypted value; `clear_browser: true` removes browser login while
+retaining the signed-bearer policy.
+
+The static dashboard first reads the non-secret `GET /api/auth/config` bootstrap. An authenticated
+operator can call `POST /api/admin/oidc/discover` with `{ "issuer": "..." }`; Rust fetches the
+standard discovery document with a bounded body, timeout, redirect refusal, DNS pinning and issuer
+equality check, then returns only the validated authorization, token and JWKS endpoints and scopes.
+
+For zero-config local and self-hosted operation, the same static dashboard can submit
+`RED_ROUTER_ADMIN_KEY` to `POST /api/auth/local/login`. Rust validates the key in constant time and
+returns only an encrypted HttpOnly session plus a readable double-submit CSRF cookie. The key is not
+stored in local storage or returned to the browser, and the session is bound to the exact login
+origin and current administrator-key hash. OIDC remains optional and can be configured after this
+bootstrap sign-in.
+
+```json
+{
+  "enabled": true,
+  "issuer": "https://id.example.com",
+  "audience": "red-router-admin",
+  "jwks_uri": "https://id.example.com/.well-known/jwks.json",
+  "required_claims": { "org_role": ["operator"] },
+  "allowed_subjects": ["operator@example.com"],
+  "browser": {
+    "public_origin": "https://router.example.com",
+    "client_id": "red-router-dashboard",
+    "client_secret": "<confidential-client-secret>",
+    "authorization_endpoint": "https://id.example.com/authorize",
+    "token_endpoint": "https://id.example.com/token",
+    "scopes": ["openid", "profile", "email"]
+  }
+}
+```
+
+`public_origin` is an exact, path-free HTTPS origin (literal loopback HTTP is allowed for local
+development). RedRouter derives the callback as `/api/auth/oidc/callback`; it never derives a
+security-sensitive redirect from `Host` or `X-Forwarded-*`. The authorization and token endpoints
+are explicit and validated, redirects are disabled for server-side token exchange, and JWKS/token
+fetches use bounded bodies, timeouts, DNS pinning, and the existing private-address policy.
+
+`GET /api/auth/oidc/login` starts Authorization Code + PKCE S256 with encrypted, ten-minute
+state/nonce/verifier state. The callback verifies signature, issuer, audience/authorized party,
+nonce, required claims, and subject before creating a 12-hour encrypted session. A configuration
+revision change invalidates all earlier Rust sessions.
+
+The Rust session uses `redrouter_admin_session` (HttpOnly) and `redrouter_admin_csrf`. SPA calls to
+`/api/admin/*` must send the CSRF value in `x-red-router-csrf`. Requests with `Origin` must match
+`public_origin` exactly. Same-origin browser reads, for which JavaScript cannot set `Origin` and the
+browser may omit it, must carry `Sec-Fetch-Site: same-origin`; missing or cross-site fetch metadata
+is rejected. This applies to reads as well as writes through the shared SPA fetch wrapper.
+`POST /api/auth/logout` expires both cookies. SQLite is the current default, and the same browser
+configuration record is implemented by the selected RedDB or PostgreSQL authority.
 
 ### CLI machine-id token
 
@@ -190,6 +252,6 @@ uses the session cookie.
 | ------------------------------------------ | ----------------------------------------------- |
 | Browser                                    | Dashboard session                               |
 | CLI on the server host                     | Machine token                                   |
-| CLI on a laptop talking to a remote server | `oma_live_…` from `red-router connect`           |
+| CLI on a laptop talking to a remote server | `oma_live_…` from `red-router connect`          |
 | CI / scripts (management only)             | `oma_live_…` with the smallest scope that works |
 | CI that must call both `/v1` and `/api`    | API key with `manage` **or** two credentials    |

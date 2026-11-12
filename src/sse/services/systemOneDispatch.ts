@@ -13,6 +13,7 @@ import {
 } from "@omniroute/open-sse/services/tokenLimitCounter.ts";
 import { computeBillableTokens } from "@omniroute/open-sse/handlers/chatCore/upstreamTimeouts.ts";
 import { checkKeyQuota, recordKeyQuotaUsage } from "@/domain/keyQuota";
+import { reserveSharedKeyRpm } from "@/lib/db/keyQuota";
 import { normalizeUsage } from "@omniroute/open-sse/utils/usageTracking.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
@@ -30,6 +31,11 @@ import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { rejectIfMeteredBudgetExceeded, meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
 import { recordCost } from "@/domain/costRules";
 import { beginFinancialRequest, finishFinancialRequest } from "@/lib/usage/financialAdmission";
+import {
+  beginSharedUsageAttempt,
+  settleSharedUsageAttempt,
+  type SharedUsageAttempt,
+} from "@/lib/usage/sharedUsageAdmission";
 import { recordBudgetTokensFor } from "@/domain/budgetEngine";
 import type { RequestAttribution } from "@/lib/usage/attribution";
 import {
@@ -53,6 +59,9 @@ const defaults = {
   keyQuota: checkKeyQuota,
   tokenLimits: checkTokenLimits,
   recordKeyQuota: recordKeyQuotaUsage,
+  reserveSharedRpm: reserveSharedKeyRpm,
+  beginSharedUsage: beginSharedUsageAttempt,
+  settleSharedUsage: settleSharedUsageAttempt,
   recordWindowTokens: recordTokenUsage,
   recover: clearRecoveredProviderState,
   unavailable: markAccountUnavailable,
@@ -63,6 +72,7 @@ export type SystemOneDispatchOptions = {
   forcedConnectionId?: string | null;
   apiKeyId?: string | null;
   apiKeyName?: string | null;
+  sharedRpmReserved?: boolean;
   attribution?: RequestAttribution | null;
   signal?: AbortSignal | null;
   timeoutMs?: number;
@@ -101,13 +111,24 @@ export async function dispatchSystemOne(
   }
   if (options.apiKeyId) {
     try {
-      const quota = deps.keyQuota(options.apiKeyId);
+      const quota = deps.keyQuota(options.apiKeyId, {
+        skipRpmCheck: options.sharedRpmReserved === true,
+      });
       if (!quota.allowed) return fail(429, quota.reason || "API key quota exceeded");
       if (deps.tokenLimits(options.apiKeyId, target.provider, target.model)) {
         return fail(429, "Token limit exceeded for this API key");
       }
     } catch {
       return fail(503, "System One quota policy unavailable");
+    }
+  }
+  let sharedRpmReserved = options.sharedRpmReserved === true;
+  if (options.apiKeyId && !sharedRpmReserved && process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1") {
+    try {
+      if (!deps.reserveSharedRpm(options.apiKeyId)) return fail(429, "Client RPM quota exceeded");
+      sharedRpmReserved = true;
+    } catch {
+      return fail(503, "Client quota accounting unavailable");
     }
   }
   const actor = { id: options.apiKeyId, attribution: options.attribution };
@@ -203,6 +224,29 @@ export async function dispatchSystemOne(
             continue;
           }
         }
+        let sharedUsageAttempt: SharedUsageAttempt | null = null;
+        if (options.apiKeyId) {
+          let sharedAdmission: Awaited<ReturnType<typeof beginSharedUsageAttempt>>;
+          try {
+            sharedAdmission = await deps.beginSharedUsage(
+              options.apiKeyId,
+              provider,
+              target.model,
+              id
+            );
+          } catch {
+            return fail(503, "System One usage accounting unavailable");
+          }
+          if (sharedAdmission.state === "denied") {
+            return fail(429, "Token or spend quota exceeded for this API key");
+          }
+          if (sharedAdmission.state === "unavailable") {
+            return fail(503, "System One usage accounting unavailable");
+          }
+          if (sharedAdmission.state === "reserved") {
+            sharedUsageAttempt = sharedAdmission.attempt;
+          }
+        }
         const started = Date.now();
         let result: Awaited<ReturnType<typeof forwardSystemOne>>;
         try {
@@ -238,6 +282,14 @@ export async function dispatchSystemOne(
           }
           const tokens = normalizeUsage(result.usage);
           if (tokens) {
+            if (sharedUsageAttempt) {
+              try {
+                deps.settleSharedUsage(sharedUsageAttempt, tokens, options.attribution);
+              } catch {
+                accountingSucceeded = false;
+                options.warn?.("System One shared usage settlement failed; reservation retained");
+              }
+            }
             try {
               const cost = await deps.cost(target.provider, target.model, tokens);
               if (!cost.priced)
@@ -251,6 +303,7 @@ export async function dispatchSystemOne(
                     model: target.model,
                     tokens,
                     requestId: randomUUID(),
+                    skipRequestLedger: sharedUsageAttempt !== null,
                     attribution: options.attribution,
                   }
                 );
@@ -263,7 +316,10 @@ export async function dispatchSystemOne(
               if (options.apiKeyId) {
                 const billable = computeBillableTokens(tokens);
                 deps.recordTokens(actor, target.provider, billable);
-                deps.recordKeyQuota(options.apiKeyId, billable);
+                deps.recordKeyQuota(options.apiKeyId, billable, {
+                  skipRpm: sharedRpmReserved,
+                  skipTpm: sharedUsageAttempt !== null,
+                });
                 deps.recordWindowTokens(options.apiKeyId, target.provider, target.model, billable);
               }
             } catch {
@@ -290,8 +346,15 @@ export async function dispatchSystemOne(
             }
           }
           if (!tokens && options.apiKeyId) {
+            if (sharedUsageAttempt) {
+              accountingSucceeded = false;
+              options.warn?.("System One returned no usage; reservation retained");
+            }
             try {
-              deps.recordKeyQuota(options.apiKeyId, 0);
+              deps.recordKeyQuota(options.apiKeyId, 0, {
+                skipRpm: sharedRpmReserved,
+                skipTpm: sharedUsageAttempt !== null,
+              });
             } catch {
               accountingSucceeded = false;
             }

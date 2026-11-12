@@ -81,6 +81,7 @@ import {
   buildCompactProviderEntriesForPage,
   getCompactProviderAuthType,
 } from "./providerCompactMode";
+import ProvidersBackendBoundary from "./ProvidersBackendBoundary";
 
 type DashboardProviderInfo = {
   id?: string;
@@ -1918,7 +1919,7 @@ function ProvidersPageContent() {
 export default function ProvidersPage() {
   return (
     <Suspense fallback={null}>
-      <ProvidersPageContent />
+      <ProvidersBackendBoundary legacy={<ProvidersPageContent />} />
     </Suspense>
   );
 }

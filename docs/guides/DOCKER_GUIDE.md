@@ -64,33 +64,38 @@ docker run -d \
 ## Docker Compose
 
 ```bash
-# Base profile (no CLI tools)
-docker compose --profile base up -d
+# Rust proxy/control plane + static SPA (no Node.js runtime)
+docker compose up -d --build
+
+# Legacy Next.js base profile (no CLI tools)
+docker compose --profile base up -d omniroute-base redis
 
 # CLI profile (Claude Code, Codex, OpenClaw built-in)
-docker compose --profile cli up -d
+docker compose --profile cli up -d omniroute-cli redis
 
 # Host profile (Linux-first; mounts host CLI binaries read-only)
-docker compose --profile host up -d
+docker compose --profile host up -d omniroute-host redis
 
 # Web profile (Chromium/Playwright for web-session providers)
-docker compose --profile web up -d
+docker compose --profile web up -d omniroute-web chatgpt-web-codex-browser redis
 
 # Combine CLI + CLIProxyAPI sidecar
-docker compose --profile cli --profile cliproxyapi up -d
+docker compose --profile cli --profile cliproxyapi up -d omniroute-cli redis cliproxyapi
 ```
 
 ## Available Profiles
 
-RedRouter ships Compose profiles for the main deployment shapes. Pick the one that matches your environment.
+RedRouter starts the Rust proxy and static SPA by default. The profiles below preserve
+explicit legacy and optional deployment shapes.
 
-| Profile          | Service          | When to use                                                                                                                        | Command                                      |
-| ---------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `base` (default) | `omniroute-base` | Headless server / minimal runtime, no provider CLIs bundled                                                                        | `docker compose --profile base up -d`        |
-| `cli`            | `omniroute-cli`  | Agentic workflows that call `red-router providers/setup/doctor` and bundled CLIs (Codex, Claude Code, Droid, OpenClaw)              | `docker compose --profile cli up -d`         |
-| `host`           | `omniroute-host` | Linux hosts that want `network_mode`-like access to host CLIs by mounting `~/.local/bin`, `~/.codex`, `~/.claude`, etc. read-only  | `docker compose --profile host up -d`        |
-| `cliproxyapi`    | `cliproxyapi`    | Run the [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) sidecar on port `8317` for upstream CLI proxying               | `docker compose --profile cliproxyapi up -d` |
-| `web`            | `omniroute-web`  | Web-session providers that need a browser: `gemini-web`, `claude-web`, `claude-turnstile` (builds `runner-web`, Chromium included) | `docker compose --profile web up -d`         |
+| Profile         | Service          | When to use                                                                                                                        | Command                                                                            |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| default         | `redrouter-rust` | Rust proxy/control plane plus static SPA; SQLite by default and no Node.js runtime                                                 | `docker compose up -d --build`                                                     |
+| `base` (legacy) | `omniroute-base` | Legacy Next.js headless server / minimal runtime, no provider CLIs bundled                                                         | `docker compose --profile base up -d omniroute-base redis`                         |
+| `cli`           | `omniroute-cli`  | Agentic workflows that call `red-router providers/setup/doctor` and bundled CLIs (Codex, Claude Code, Droid, OpenClaw)             | `docker compose --profile cli up -d omniroute-cli redis`                           |
+| `host`          | `omniroute-host` | Linux hosts that want `network_mode`-like access to host CLIs by mounting `~/.local/bin`, `~/.codex`, `~/.claude`, etc. read-only  | `docker compose --profile host up -d omniroute-host redis`                         |
+| `cliproxyapi`   | `cliproxyapi`    | Run the [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) sidecar on port `8317` for upstream CLI proxying               | `docker compose --profile cliproxyapi up -d`                                       |
+| `web`           | `omniroute-web`  | Web-session providers that need a browser: `gemini-web`, `claude-web`, `claude-turnstile` (builds `runner-web`, Chromium included) | `docker compose --profile web up -d omniroute-web chatgpt-web-codex-browser redis` |
 
 > Multiple profiles can be combined: `docker compose --profile cli --profile cliproxyapi up -d`.
 
@@ -112,7 +117,7 @@ with `containerEphemeralTarget: true`.
 The container serves the API; the CLI configures your host tools.
 
 ```bash
-docker compose --profile base up -d
+docker compose --profile base up -d omniroute-base redis
 
 npm install -g @reddb-io/red-router
 red-router connect http://localhost:20128   # point the CLI at the container
@@ -388,7 +393,7 @@ NEXT_PUBLIC_BASE_URL=https://myhostname.example.com/omniroute
 ```
 
 ```bash
-docker compose --profile base up -d --build
+docker compose --profile base up -d --build omniroute-base redis
 ```
 
 `docker-compose.yml` forwards `OMNIROUTE_BASE_PATH` as a Docker build-arg and as a

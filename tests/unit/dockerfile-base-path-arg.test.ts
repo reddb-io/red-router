@@ -5,21 +5,16 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
-test("Dockerfile exposes OMNIROUTE_BASE_PATH as a builder-stage build arg", () => {
+test("Dockerfile no longer contains the Next-specific base-path patch pipeline", () => {
   const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "Dockerfile"), "utf8");
-  assert.match(dockerfile, /ARG OMNIROUTE_BASE_PATH/);
-  assert.match(dockerfile, /ENV OMNIROUTE_BASE_PATH=\$OMNIROUTE_BASE_PATH/);
+  assert.doesNotMatch(dockerfile, /OMNIROUTE_BASE_PATH|patch-basepath|ensure-docker-base-path/);
+  assert.match(dockerfile, /ENTRYPOINT \["red-routerd"\]/);
 });
 
-test("docker-compose forwards OMNIROUTE_BASE_PATH into image builds", () => {
+test("docker-compose serves the SPA directly from the Rust process", () => {
   const compose = fs.readFileSync(path.join(REPO_ROOT, "docker-compose.yml"), "utf8");
-  assert.match(compose, /OMNIROUTE_BASE_PATH: \$\{OMNIROUTE_BASE_PATH:-\}/);
-  assert.match(compose, /- OMNIROUTE_BASE_PATH=\$\{OMNIROUTE_BASE_PATH:-\}/);
-});
-
-test("entrypoint runs the docker basePath guard before the server starts", () => {
-  const entrypoint = fs.readFileSync(path.join(REPO_ROOT, "scripts/check-permissions.sh"), "utf8");
-  assert.match(entrypoint, /docker\/ensure-docker-base-path\.mjs/);
+  assert.match(compose, /RED_ROUTER_SPA_DIR=\/app\/dashboard/);
+  assert.doesNotMatch(compose, /OMNIROUTE_BASE_PATH/);
 });
 
 test("Hard Rule #13: shell basePath helpers never interpolate into sed/awk", () => {
