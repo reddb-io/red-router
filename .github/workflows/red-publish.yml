@@ -106,9 +106,7 @@ jobs:
         if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
         run: npm run release:pack
       - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run check:pack-artifact
-      - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run check:pack-boot
+        run: npm run check:rust-package
       - name: Promote the successful main CI artifact
         id: promote
         if: ${{ inputs.artifact_run_id == '' && (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '') }}
