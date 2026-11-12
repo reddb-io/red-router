@@ -162,8 +162,6 @@ jobs:
     env:
       CARGO_INCREMENTAL: 0
       CARGO_PROFILE_RELEASE_DEBUG: 0
-      NODE_OPTIONS: --max-old-space-size=6144
-      OMNIROUTE_USE_TURBOPACK: "0"
       FASTLLM_POC_DEBUG: "1"
     steps:
       - uses: actions/checkout@v4
@@ -251,6 +249,8 @@ jobs:
     env:
       CARGO_INCREMENTAL: 0
       CARGO_PROFILE_RELEASE_DEBUG: 0
+      NODE_OPTIONS: --max-old-space-size=6144
+      OMNIROUTE_USE_TURBOPACK: "0"
     steps:
       - uses: actions/checkout@v4
         with:
