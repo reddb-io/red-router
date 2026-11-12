@@ -459,6 +459,8 @@ jobs:
           node-version: '24'
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
+      - name: Install Rust build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
       - run: npm run build:release
       - run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
       - run: npm run test:e2e
