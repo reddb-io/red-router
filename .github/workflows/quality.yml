@@ -243,25 +243,40 @@ jobs:
 
   runtime-performance:
     if: inputs.suite == 'performance'
-    name: Rust runtime performance
+    name: Next.js versus Rust runtime performance
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
       CARGO_PROFILE_RELEASE_DEBUG: 0
+      NODE_OPTIONS: --max-old-space-size=10240
+      OMNIROUTE_USE_TURBOPACK: "0"
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/red-routerd
-      - name: Benchmark concurrent proxy and dashboard paths
+      - uses: ./.github/actions/npm-ci-retry
+      - name: Build production runtimes
         run: |
-          cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test chat benchmark_mixed_combo -- --ignored --nocapture
-          cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test product_connection benchmark_dashboard_combo -- --ignored --nocapture
+          npm run build
+          cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Compare Next.js and Rust
+        run: node --no-warnings --import tsx/esm scripts/ci/runtime-performance.mjs
+      - name: Upload raw performance report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runtime-performance-${{ github.run_attempt }}
+          path: runtime-performance.json
+          if-no-files-found: error
 
   plugin-dependencies:
     if: inputs.suite == 'all' || inputs.suite == 'plugins'
