@@ -401,6 +401,16 @@ For a non-mutating inventory before migrating a legacy Next.js SQLite database, 
 It reads a single snapshot and reports counts without credentials or row contents. This
 is an inspection only; `migration_ready` remains false until data import and policy
 equivalence have been verified.
+For one coordinated offline pass, stop both servers and set
+`RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_MIGRATION_DEST_PATH`,
+`RED_ROUTER_MIGRATION_ROLLBACK_PATH` and `STORAGE_ENCRYPTION_KEY`, then run
+`red-routerd migrate-legacy --offline-confirmed`. The rollback path must not exist.
+The command creates it before writing, then imports pricing and supported disabled keys,
+stages encrypted provider records and archives usage/accounting tables. A failure in any
+later slice restores the exact destination copy and retains the rollback file. Success
+prints a machine-readable report and also retains that file; provider-specific OAuth
+adoption, quota reconciliation, verification and activation remain explicit follow-up
+steps and never happen automatically.
 To migrate the legacy pricing namespaces into an existing separate Rust SQLite database,
 set `RED_ROUTER_PRODUCT_DB_PATH` and `RED_ROUTER_MIGRATION_DEST_PATH` to the respective
 files and run `red-routerd import-legacy-pricing`. The source is read-only; inserts are

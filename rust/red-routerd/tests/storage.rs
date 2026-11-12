@@ -13,6 +13,8 @@ use url::Url;
 // well as its standalone integration test.
 #[path = "legacy_archive.rs"]
 mod legacy_archive_tests;
+#[path = "legacy_cutover.rs"]
+mod legacy_cutover_tests;
 #[path = "legacy_keys.rs"]
 mod legacy_key_tests;
 #[path = "legacy_preflight.rs"]

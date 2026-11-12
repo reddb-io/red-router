@@ -72,6 +72,27 @@ async fn run(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
+    if command.as_deref() == Some("migrate-legacy") {
+        if args.next().as_deref() != Some("--offline-confirmed") || args.next().is_some() {
+            return Err("usage: red-routerd migrate-legacy --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH, RED_ROUTER_MIGRATION_DEST_PATH, RED_ROUTER_MIGRATION_ROLLBACK_PATH and STORAGE_ENCRYPTION_KEY; stop both servers first)".into());
+        }
+        let source = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
+            .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
+        let rollback = env::var_os("RED_ROUTER_MIGRATION_ROLLBACK_PATH")
+            .ok_or("RED_ROUTER_MIGRATION_ROLLBACK_PATH is required")?;
+        let secret = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);
+        let report = red_routerd::legacy_cutover::migrate(
+            std::path::Path::new(&source),
+            std::path::Path::new(&destination),
+            std::path::Path::new(&rollback),
+            &secret,
+        )
+        .await?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     if command.as_deref() == Some("inspect-legacy-sqlite") {
         if args.next().is_some() {
             return Err(
@@ -406,7 +427,7 @@ async fn run(
         return Ok(());
     }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|import-legacy-pricing|import-legacy-keys|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|migrate-legacy|import-legacy-pricing|import-legacy-keys|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())
