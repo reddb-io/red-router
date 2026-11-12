@@ -31,7 +31,7 @@ const api = vi.hoisted(() => ({
   testRustProvider: vi.fn(),
 }));
 
-vi.mock("@/lib/rustControlPlane/browserClient", () => api);
+vi.mock("../../../rust-dashboard/api/browserClient", () => api);
 vi.mock("@/shared/components", () => ({
   Button: ({
     children,
