@@ -24,6 +24,15 @@ use std::{
 
 const KAFKA_TIMEOUT_MS: i32 = 10_000;
 
+#[cfg(windows)]
+const SOCKET_AF_INET: libc::c_int = 2;
+#[cfg(windows)]
+const SOCKET_AF_INET6: libc::c_int = 23;
+#[cfg(not(windows))]
+const SOCKET_AF_INET: libc::c_int = libc::AF_INET;
+#[cfg(not(windows))]
+const SOCKET_AF_INET6: libc::c_int = libc::AF_INET6;
+
 // POSIX and Winsock use these layouts for AF_INET/AF_INET6. Defining the
 // wire-compatible prefix locally keeps the callback portable because `libc`
 // intentionally does not expose `sockaddr_in{,6}` on Windows.
@@ -356,12 +365,12 @@ unsafe fn socket_ip(address: *const libc::sockaddr, length: libc::c_int) -> Opti
     }
     // SAFETY: caller guarantees the sockaddr is readable for `length` bytes.
     match unsafe { ptr::read_unaligned(address.cast::<u16>()) } as libc::c_int {
-        libc::AF_INET if length as usize >= std::mem::size_of::<SocketAddressV4>() => {
+        SOCKET_AF_INET if length as usize >= std::mem::size_of::<SocketAddressV4>() => {
             // SAFETY: family and length identify a complete IPv4 sockaddr.
             let value = unsafe { ptr::read_unaligned(address.cast::<SocketAddressV4>()) };
             Some(IpAddr::V4(Ipv4Addr::from(value.address)))
         }
-        libc::AF_INET6 if length as usize >= std::mem::size_of::<SocketAddressV6>() => {
+        SOCKET_AF_INET6 if length as usize >= std::mem::size_of::<SocketAddressV6>() => {
             // SAFETY: family and length identify a complete IPv6 sockaddr.
             let value = unsafe { ptr::read_unaligned(address.cast::<SocketAddressV6>()) };
             Some(IpAddr::V6(Ipv6Addr::from(value.address)))
