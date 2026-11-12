@@ -467,11 +467,33 @@ struct UsageSqsSink {
     client: Client,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredKafkaConfig {
+    brokers: Vec<String>,
+    topic: String,
+    client_id: String,
+    ssl: bool,
+    #[serde(default)]
+    sasl_mechanism: String,
+    #[serde(default)]
+    sasl_username: Option<String>,
+    #[serde(default)]
+    has_sasl_password: bool,
+}
+
+struct UsageKafkaSink {
+    sink_id: String,
+    topic: String,
+    producer: Arc<crate::kafka_export::GuardedKafkaProducer>,
+}
+
 enum ManagedUsageTransport {
     BigQuery(Box<BigQueryAuditSink>),
     Webhook(UsageWebhookSink),
     RedDb(UsageRedDbSink),
     Sqs(UsageSqsSink),
+    Kafka(UsageKafkaSink),
 }
 
 struct ManagedUsageRelay {
@@ -577,6 +599,22 @@ impl ManagedUsageRelay {
                     .await?,
                 )
             }
+            "kafka" => {
+                let password = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{}:secret", record.id);
+                    Some(crate::control_plane::decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        encryption_key,
+                    )?)
+                };
+                ManagedUsageTransport::Kafka(
+                    UsageKafkaSink::new(&record.id, &record.config_json, password, allow_private)
+                        .await?,
+                )
+            }
             _ => return Err("unsupported usage export type"),
         };
         Ok(Self {
@@ -624,6 +662,7 @@ impl ManagedUsageRelay {
                 ManagedUsageTransport::Webhook(sink) => sink.send_payload(&delivery_id, body).await,
                 ManagedUsageTransport::RedDb(sink) => sink.send_payload(&delivery_id, &body).await,
                 ManagedUsageTransport::Sqs(sink) => sink.send_payload(&delivery_id, &body).await,
+                ManagedUsageTransport::Kafka(sink) => sink.send_payload(&delivery_id, &body).await,
             };
         }
         match &self.transport {
@@ -631,7 +670,63 @@ impl ManagedUsageRelay {
             ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
             ManagedUsageTransport::RedDb(sink) => sink.send(events, false).await,
             ManagedUsageTransport::Sqs(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::Kafka(sink) => sink.send(events, false).await,
         }
+    }
+}
+
+impl UsageKafkaSink {
+    async fn new(
+        sink_id: &str,
+        config_json: &str,
+        password: Option<Zeroizing<String>>,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_kafka_config(config_json)?;
+        validate_kafka_brokers(&config.brokers, allow_private).await?;
+        let sasl = crate::kafka_export::SaslMechanism::parse(&config.sasl_mechanism)?;
+        if config.has_sasl_password != password.is_some() || sasl.is_some() != password.is_some() {
+            return Err("invalid Kafka usage credentials");
+        }
+        let producer = crate::kafka_export::GuardedKafkaProducer::new(
+            crate::kafka_export::KafkaProducerConfig {
+                brokers: config.brokers,
+                client_id: config.client_id,
+                tls: config.ssl,
+                sasl,
+                username: config.sasl_username,
+                password: password.map(|value| value.to_string()),
+                allow_private,
+            },
+        )?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            topic: config.topic,
+            producer: Arc::new(producer),
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            let payload = usage_webhook_payload(&self.sink_id, "Kafka", event, test)?;
+            self.send_payload(&event.event_id, &payload).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
+        let producer = self.producer.clone();
+        let topic = self.topic.clone();
+        let key = self.sink_id.clone();
+        let delivery_id = delivery_id.to_owned();
+        let payload = payload.to_vec();
+        tokio::task::spawn_blocking(move || producer.send(&topic, &key, &delivery_id, &payload))
+            .await
+            .map_err(|_| "Kafka usage delivery task failed")?
     }
 }
 
@@ -1019,6 +1114,42 @@ pub async fn send_usage_sqs_window_test(
     sink.send_payload(&delivery_id, &body).await
 }
 
+pub async fn validate_usage_kafka(
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageKafkaSink::new("validation", config_json, password, allow_private)
+        .await
+        .map(|_| ())
+}
+
+pub async fn send_usage_kafka_test(
+    sink_id: &str,
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageKafkaSink::new(sink_id, config_json, password, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+pub async fn send_usage_kafka_window_test(
+    sink_id: &str,
+    config_json: &str,
+    password: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageKafkaSink::new(sink_id, config_json, password, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, "Kafka", event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
 fn usage_window_test_payload(
     sink_id: &str,
     sink_name: &str,
@@ -1070,6 +1201,86 @@ fn parse_sqs_config(config_json: &str) -> Result<StoredSqsConfig, &'static str> 
         return Err("invalid SQS usage configuration");
     }
     Ok(config)
+}
+
+fn parse_kafka_config(config_json: &str) -> Result<StoredKafkaConfig, &'static str> {
+    if config_json.len() > 16 * 1024 {
+        return Err("invalid Kafka usage configuration");
+    }
+    let mut config: StoredKafkaConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid Kafka usage configuration")?;
+    config.brokers = config
+        .brokers
+        .into_iter()
+        .map(|value| value.trim().to_owned())
+        .collect();
+    config.topic = config.topic.trim().to_owned();
+    config.client_id = config.client_id.trim().to_owned();
+    config.sasl_mechanism = config.sasl_mechanism.trim().to_owned();
+    config.sasl_username = config
+        .sasl_username
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if config.brokers.is_empty()
+        || config.brokers.len() > 20
+        || config
+            .brokers
+            .iter()
+            .any(|broker| parse_kafka_broker(broker).is_err())
+        || config.client_id.is_empty()
+        || config.client_id.len() > 128
+        || !config
+            .client_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        || crate::kafka_export::validate_topic(&config.topic).is_err()
+        || crate::kafka_export::SaslMechanism::parse(&config.sasl_mechanism).is_err()
+        || (config.sasl_mechanism.is_empty() != config.sasl_username.is_none())
+        || (config.sasl_mechanism.is_empty() != !config.has_sasl_password)
+        || config
+            .sasl_username
+            .as_ref()
+            .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
+    {
+        return Err("invalid Kafka usage configuration");
+    }
+    Ok(config)
+}
+
+fn parse_kafka_broker(value: &str) -> Result<(&str, u16), &'static str> {
+    let (host, port) = value.rsplit_once(':').ok_or("invalid Kafka broker")?;
+    let port = port.parse::<u16>().map_err(|_| "invalid Kafka broker")?;
+    if host.is_empty()
+        || host.len() > 253
+        || port == 0
+        || host
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b'/' | b':' | b'@'))
+    {
+        return Err("invalid Kafka broker");
+    }
+    Ok((host, port))
+}
+
+async fn validate_kafka_brokers(
+    brokers: &[String],
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    for broker in brokers {
+        let (host, port) = parse_kafka_broker(broker)?;
+        let addresses = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| "Kafka broker cannot be resolved")?
+            .collect::<Vec<SocketAddr>>();
+        if addresses.is_empty()
+            || addresses
+                .iter()
+                .any(|address| !crate::allowed_address(address.ip(), allow_private))
+        {
+            return Err("Kafka broker resolved to a forbidden address");
+        }
+    }
+    Ok(())
 }
 
 fn parse_sqs_secret(secret_json: &str) -> Result<StoredSqsSecret, &'static str> {
@@ -2233,6 +2444,25 @@ fn default_token_ttl() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kafka_usage_configuration_is_strict_and_write_only() {
+        let config = parse_kafka_config(
+            r#"{"brokers":["broker.example.com:9093"],"topic":"redrouter.usage","clientId":"red-router","ssl":true,"saslMechanism":"scram-sha-512","saslUsername":"billing","hasSaslPassword":true}"#,
+        )
+        .unwrap();
+        assert_eq!(config.brokers, ["broker.example.com:9093"]);
+        assert_eq!(config.topic, "redrouter.usage");
+        assert!(config.ssl);
+        assert!(parse_kafka_config(
+            r#"{"brokers":["broker.example.com:9093"],"topic":"bad/topic","clientId":"red-router","ssl":true,"saslMechanism":"","hasSaslPassword":false}"#,
+        )
+        .is_err());
+        assert!(parse_kafka_config(
+            r#"{"brokers":["127.0.0.1:9092"],"topic":"usage","clientId":"red-router","ssl":false,"saslMechanism":"plain","hasSaslPassword":false}"#,
+        )
+        .is_err());
+    }
 
     fn event(id: &str, payload_size: usize) -> StoredAuditOutboxEvent {
         StoredAuditOutboxEvent {

@@ -812,6 +812,13 @@ pub struct UsageExportConfigInput {
     pub access_key_id: Option<String>,
     pub secret_access_key: Option<String>,
     pub session_token: Option<String>,
+    pub brokers: Option<String>,
+    pub topic: Option<String>,
+    pub client_id: Option<String>,
+    pub ssl: Option<bool>,
+    pub sasl_mechanism: Option<String>,
+    pub sasl_username: Option<String>,
+    pub sasl_password: Option<String>,
     pub project_id: Option<String>,
     pub dataset_id: Option<String>,
     pub table_id: Option<String>,
@@ -7469,6 +7476,13 @@ impl ControlPlane {
             access_key_id: None,
             secret_access_key: None,
             session_token: None,
+            brokers: None,
+            topic: None,
+            client_id: None,
+            ssl: None,
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -7536,7 +7550,7 @@ impl ControlPlane {
         }
         if !matches!(
             export_type.as_str(),
-            "bigquery" | "webhook" | "reddb" | "sqs"
+            "bigquery" | "webhook" | "reddb" | "sqs" | "kafka"
         ) {
             return Err("unsupported usage export type");
         }
@@ -7907,6 +7921,114 @@ impl ControlPlane {
                     1,
                 )
             }
+            "kafka" => {
+                if config.url.is_some()
+                    || config.secret.is_some()
+                    || config.queue.is_some()
+                    || config.token.is_some()
+                    || config.tenant.is_some()
+                    || config.queue_url.is_some()
+                    || config.region.is_some()
+                    || config.access_key_id.is_some()
+                    || config.secret_access_key.is_some()
+                    || config.session_token.is_some()
+                    || config.project_id.is_some()
+                    || config.dataset_id.is_some()
+                    || config.table_id.is_some()
+                    || config.service_account_json.is_some()
+                    || config.batch_size.is_some()
+                    || config.interval_seconds.is_some()
+                {
+                    return Err("invalid Kafka usage export fields");
+                }
+                let stored = current
+                    .map(|value| kafka_usage_config(&value.config_json))
+                    .transpose()?;
+                let brokers = config
+                    .brokers
+                    .map(|value| parse_kafka_brokers(&value))
+                    .or_else(|| stored.as_ref().map(|value| value.0.clone()))
+                    .filter(|value| !value.is_empty())
+                    .ok_or("Kafka brokers are required")?;
+                let topic = config
+                    .topic
+                    .or_else(|| stored.as_ref().map(|value| value.1.clone()))
+                    .ok_or("Kafka topic is required")?;
+                let client_id = config
+                    .client_id
+                    .map(|value| value.trim().to_owned())
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| stored.as_ref().map(|value| value.2.clone()))
+                    .unwrap_or_else(|| "red-router".to_owned());
+                let ssl = config
+                    .ssl
+                    .or_else(|| stored.as_ref().map(|value| value.3))
+                    .unwrap_or(false);
+                let sasl_mechanism = config
+                    .sasl_mechanism
+                    .or_else(|| stored.as_ref().map(|value| value.4.clone()))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                let sasl_username = config
+                    .sasl_username
+                    .or_else(|| stored.as_ref().and_then(|value| value.5.clone()))
+                    .map(|value| value.trim().to_owned())
+                    .filter(|value| !value.is_empty());
+                let aad = format!("usage-export:{id}:secret");
+                let (secret_ciphertext, password) = match config.sasl_password {
+                    Some(value) if value != "__stored__" => {
+                        if value.is_empty()
+                            || value.len() > 1024
+                            || value.chars().any(char::is_control)
+                        {
+                            return Err("Kafka SASL password is invalid");
+                        }
+                        let password = Zeroizing::new(value);
+                        let ciphertext =
+                            encrypt(password.as_str(), &aad, self.0.encryption_key.as_str())?;
+                        (ciphertext, Some(password))
+                    }
+                    _ => match current {
+                        Some(stored) if !stored.secret_ciphertext.is_empty() => (
+                            stored.secret_ciphertext.clone(),
+                            Some(decrypt(
+                                &stored.secret_ciphertext,
+                                &aad,
+                                self.0.encryption_key.as_str(),
+                            )?),
+                        ),
+                        _ => (String::new(), None),
+                    },
+                };
+                let has_sasl_password = password.is_some();
+                let config_json = serde_json::to_string(&serde_json::json!({
+                    "brokers":brokers,
+                    "topic":topic.trim(),
+                    "clientId":client_id.trim(),
+                    "ssl":ssl,
+                    "saslMechanism":sasl_mechanism,
+                    "saslUsername":sasl_username,
+                    "hasSaslPassword":has_sasl_password,
+                }))
+                .map_err(|_| "cannot encode Kafka usage configuration")?;
+                crate::audit_export::validate_usage_kafka(
+                    &config_json,
+                    password,
+                    self.0.allow_private,
+                )
+                .await?;
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    config_json,
+                    secret_ciphertext,
+                    8,
+                    1,
+                )
+            }
             _ => unreachable!("usage export type was validated"),
         };
         Ok(StoredUsageExport {
@@ -8007,6 +8129,13 @@ impl ControlPlane {
             access_key_id: None,
             secret_access_key: None,
             session_token: None,
+            brokers: None,
+            topic: None,
+            client_id: None,
+            ssl: None,
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -8163,6 +8292,38 @@ impl ControlPlane {
                         id,
                         &record.config_json,
                         secret_json.as_str(),
+                        &event,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                }
+            }
+            "kafka" => {
+                let password = if record.secret_ciphertext.is_empty() {
+                    None
+                } else {
+                    let aad = format!("usage-export:{id}:secret");
+                    Some(decrypt(
+                        &record.secret_ciphertext,
+                        &aad,
+                        self.0.encryption_key.as_str(),
+                    )?)
+                };
+                if record.mode == "window" {
+                    crate::audit_export::send_usage_kafka_window_test(
+                        id,
+                        &record.config_json,
+                        password,
+                        &event,
+                        record.window_sec,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                } else {
+                    crate::audit_export::send_usage_kafka_test(
+                        id,
+                        &record.config_json,
+                        password,
                         &event,
                         self.0.allow_private,
                     )
@@ -10604,6 +10765,34 @@ fn usage_export_view(
                 ),
             )
         }
+        "kafka" => {
+            let (brokers, topic, client_id, ssl, sasl_mechanism, sasl_username, has_password) =
+                kafka_usage_config(&record.config_json)?;
+            let mut config = serde_json::json!({
+                "brokers":brokers.join(", "),
+                "topic":topic.clone(),
+                "clientId":client_id,
+                "ssl":ssl,
+                "saslMechanism":sasl_mechanism,
+                "saslUsername":sasl_username,
+            });
+            if has_password {
+                config["saslPassword"] = serde_json::Value::String("__stored__".to_owned());
+            }
+            (
+                "Kafka",
+                config,
+                format!(
+                    "Kafka {topic} @ {}{}",
+                    brokers.first().map(String::as_str).unwrap_or("?"),
+                    if brokers.len() > 1 {
+                        format!(" +{}", brokers.len() - 1)
+                    } else {
+                        String::new()
+                    }
+                ),
+            )
+        }
         _ => return Err("invalid usage export configuration"),
     };
     let next_window_end = if record.mode == "window" && record.window_sec > 0 {
@@ -10750,6 +10939,95 @@ fn sqs_usage_config(config_json: &str) -> Result<(String, String, String, bool),
         return Err("invalid SQS usage configuration");
     }
     Ok((queue_url, region, access_key_id, has_session_token))
+}
+
+fn parse_kafka_brokers(value: &str) -> Vec<String> {
+    value
+        .split(|character: char| character == ',' || character.is_whitespace())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+type KafkaUsageConfig = (
+    Vec<String>,
+    String,
+    String,
+    bool,
+    String,
+    Option<String>,
+    bool,
+);
+
+fn kafka_usage_config(config_json: &str) -> Result<KafkaUsageConfig, &'static str> {
+    if config_json.len() > 16 * 1024 {
+        return Err("invalid Kafka usage configuration");
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(config_json).map_err(|_| "invalid Kafka usage configuration")?;
+    let brokers = value
+        .get("brokers")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("invalid Kafka usage configuration")?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && value.len() <= 260)
+                .map(str::to_owned)
+                .ok_or("invalid Kafka usage configuration")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let string = |name| {
+        value
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .map(str::to_owned)
+            .ok_or("invalid Kafka usage configuration")
+    };
+    let topic = string("topic")?;
+    let client_id = string("clientId")?;
+    let sasl_mechanism = string("saslMechanism")?;
+    let sasl_username = value
+        .get("saslUsername")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    let ssl = value
+        .get("ssl")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or("invalid Kafka usage configuration")?;
+    let has_password = value
+        .get("hasSaslPassword")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if brokers.is_empty()
+        || brokers.len() > 20
+        || topic.is_empty()
+        || client_id.is_empty()
+        || client_id.len() > 128
+        || !matches!(
+            sasl_mechanism.as_str(),
+            "" | "plain" | "scram-sha-256" | "scram-sha-512"
+        )
+        || (sasl_mechanism.is_empty() != sasl_username.is_none())
+        || (sasl_mechanism.is_empty() != !has_password)
+    {
+        return Err("invalid Kafka usage configuration");
+    }
+    Ok((
+        brokers,
+        topic,
+        client_id,
+        ssl,
+        sasl_mechanism,
+        sasl_username,
+        has_password,
+    ))
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -13237,6 +13515,26 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                     {"key":"secretAccessKey","labelFallback":"Secret access key","type":"password","required":true,"secret":true,"helpFallback":"Write-only and encrypted at rest; requires sqs:SendMessage."},
                     {"key":"sessionToken","labelFallback":"Session token (optional)","type":"password","secret":true,"helpFallback":"For temporary AWS credentials."}
                 ]
+            },
+            {
+                "type": "kafka",
+                "label": "Kafka",
+                "description": "Publishes attributed usage keyed by sink ID; the delivery ID is included as a record header for consumer deduplication.",
+                "modes": ["instant", "window"],
+                "fields": [
+                    {"key":"brokers","labelFallback":"Brokers","type":"text","required":true,"placeholder":"broker1:9092, broker2:9092","helpFallback":"Every resolved bootstrap and metadata-discovered broker is checked by the egress policy."},
+                    {"key":"topic","labelFallback":"Topic","type":"text","required":true,"placeholder":"redrouter.usage","helpFallback":"The topic must already exist."},
+                    {"key":"clientId","labelFallback":"Client ID","type":"text","placeholder":"red-router"},
+                    {"key":"ssl","labelFallback":"Connect over TLS","type":"boolean"},
+                    {"key":"saslMechanism","labelFallback":"SASL","type":"select","options":[
+                        {"value":"","labelFallback":"None"},
+                        {"value":"plain","labelFallback":"PLAIN"},
+                        {"value":"scram-sha-256","labelFallback":"SCRAM-SHA-256"},
+                        {"value":"scram-sha-512","labelFallback":"SCRAM-SHA-512"}
+                    ]},
+                    {"key":"saslUsername","labelFallback":"SASL username","type":"text"},
+                    {"key":"saslPassword","labelFallback":"SASL password","type":"password","secret":true,"helpFallback":"Write-only and encrypted at rest."}
+                ]
             }
         ],
         "windowSizesSec": [300, 900, 1800, 3600]
@@ -15329,6 +15627,35 @@ mod tests {
         assert_eq!(view["config"]["sessionToken"], "__stored__");
         assert_eq!(view["config"]["region"], "us-east-1");
         assert!(!encoded.contains("sqs-secret-ciphertext"));
+    }
+
+    #[test]
+    fn usage_kafka_views_expose_only_the_password_placeholder() {
+        let record = StoredUsageExport {
+            id: "usage-kafka".to_owned(),
+            tenant_id: "red".to_owned(),
+            name: "Billing events".to_owned(),
+            export_type: "kafka".to_owned(),
+            mode: "window".to_owned(),
+            window_sec: 900,
+            api_key_ids_json: "[]".to_owned(),
+            project_id: String::new(),
+            dataset_id: String::new(),
+            table_id: String::new(),
+            service_account_ciphertext: String::new(),
+            config_json: r#"{"brokers":["broker.example.com:9093"],"topic":"redrouter.usage","clientId":"red-router","ssl":true,"saslMechanism":"scram-sha-256","saslUsername":"billing","hasSaslPassword":true}"#.to_owned(),
+            secret_ciphertext: "rrenc1:kafka-password-ciphertext".to_owned(),
+            batch_size: 8,
+            interval_seconds: 1,
+            enabled: true,
+            revision: 1_700_000_000_000_000_000,
+        };
+        let view = usage_export_view(&record, &[]).unwrap();
+        let encoded = view.to_string();
+        assert_eq!(view["config"]["saslPassword"], "__stored__");
+        assert_eq!(view["config"]["ssl"], true);
+        assert_eq!(view["config"]["brokers"], "broker.example.com:9093");
+        assert!(!encoded.contains("kafka-password-ciphertext"));
     }
 
     #[test]

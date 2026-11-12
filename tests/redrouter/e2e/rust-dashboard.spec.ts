@@ -229,6 +229,26 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
                 },
               ],
             },
+            {
+              type: "kafka",
+              label: "Kafka",
+              description: "Kafka usage",
+              modes: ["instant", "window"],
+              fields: [
+                { key: "brokers", labelFallback: "Brokers", type: "text", required: true },
+                { key: "topic", labelFallback: "Topic", type: "text", required: true },
+                { key: "ssl", labelFallback: "Connect over TLS", type: "boolean" },
+                {
+                  key: "saslMechanism",
+                  labelFallback: "SASL",
+                  type: "select",
+                  options: [
+                    { value: "", labelFallback: "None" },
+                    { value: "scram-sha-256", labelFallback: "SCRAM-SHA-256" },
+                  ],
+                },
+              ],
+            },
           ],
           windowSizesSec: [300, 900, 1800, 3600],
         },
@@ -260,6 +280,26 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
     windowSec: 1800,
     apiKeyIds: ["key-one"],
     config: { url: "https://billing.example.com/usage", secret: "fixture-secret-123456789" },
+  });
+
+  await page.getByRole("button", { name: "Add destination" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Events");
+  await page.getByLabel("Destination type").selectOption("kafka");
+  await page.getByLabel("Brokers").fill("broker.example.com:9093");
+  await page.getByLabel("Topic").fill("redrouter.usage");
+  await page.getByLabel("Connect over TLS").check();
+  await page.getByLabel("SASL").selectOption("scram-sha-256");
+  await page.getByRole("button", { name: "Save destination" }).click();
+  expect(created).toMatchObject({
+    name: "Events",
+    type: "kafka",
+    mode: "instant",
+    config: {
+      brokers: "broker.example.com:9093",
+      topic: "redrouter.usage",
+      ssl: true,
+      saslMechanism: "scram-sha-256",
+    },
   });
 });
 

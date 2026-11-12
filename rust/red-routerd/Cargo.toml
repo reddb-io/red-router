@@ -32,6 +32,8 @@ chrono-tz = "0.10"
 scrypt = "0.11"
 hex = "0.4"
 jsonwebtoken = { version = "10.4.0", features = ["aws_lc_rs"] }
+libc = "0.2"
+rdkafka = { version = "0.39", default-features = false, features = ["cmake-build", "ssl-vendored"] }
 zeroize = "1"
 sha2 = "0.10"
 zip = { version = "=9.5.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

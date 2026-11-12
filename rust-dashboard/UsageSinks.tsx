@@ -111,10 +111,11 @@ export default function UsageSinks() {
     void perform(async () => {
       if (draft.selectedKeys && draft.keyIds.length === 0)
         throw new Error("Select at least one API key.");
-      const config: Record<string, string> = {};
+      const config: Record<string, string | boolean> = {};
       for (const field of descriptor.fields) {
         const value = draft.config[field.key] ?? "";
-        if (value.trim()) config[field.key] = value;
+        if (field.type === "boolean") config[field.key] = value === "true";
+        else if (value.trim()) config[field.key] = value;
         else if (field.secret && draft.id) config[field.key] = "__stored__";
       }
       const payload = {
@@ -184,7 +185,7 @@ export default function UsageSinks() {
           Add destination
         </button>
       </div>
-      <p>Export attributed usage to BigQuery, a signed webhook, RedDB, or Amazon SQS.</p>
+      <p>Export attributed usage to BigQuery, a signed webhook, RedDB, Amazon SQS, or Kafka.</p>
       {error && (
         <p role="alert" className="text-error">
           {error}
@@ -266,9 +267,7 @@ export default function UsageSinks() {
               <select
                 className={inputClass}
                 value={draft.windowSec}
-                onChange={(event) =>
-                  setDraft({ ...draft, windowSec: Number(event.target.value) })
-                }
+                onChange={(event) => setDraft({ ...draft, windowSec: Number(event.target.value) })}
               >
                 {windowSizes.map((seconds) => (
                   <option key={seconds} value={seconds}>
@@ -281,7 +280,36 @@ export default function UsageSinks() {
           {descriptor?.fields.map((field) => (
             <label key={field.key}>
               {field.labelFallback}
-              {field.type === "textarea" ? (
+              {field.type === "boolean" ? (
+                <input
+                  type="checkbox"
+                  checked={draft.config[field.key] === "true"}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      config: { ...draft.config, [field.key]: String(event.target.checked) },
+                    })
+                  }
+                />
+              ) : field.type === "select" ? (
+                <select
+                  className={inputClass}
+                  required={field.required}
+                  value={draft.config[field.key] ?? ""}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      config: { ...draft.config, [field.key]: event.target.value },
+                    })
+                  }
+                >
+                  {(field.options ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.labelFallback}
+                    </option>
+                  ))}
+                </select>
+              ) : field.type === "textarea" ? (
                 <textarea
                   className={inputClass}
                   autoComplete="off"
@@ -401,9 +429,7 @@ export default function UsageSinks() {
           <h2 className="font-semibold">{sink.name}</h2>
           <p>
             {sink.typeLabel} · {sink.enabled ? "Enabled" : "Paused"} ·{" "}
-            {sink.mode === "window"
-              ? `${(sink.windowSec ?? 0) / 60} minute windows`
-              : "Each event"}
+            {sink.mode === "window" ? `${(sink.windowSec ?? 0) / 60} minute windows` : "Each event"}
           </p>
           <p>{sink.summary}</p>
           <div className="flex flex-wrap gap-4">
