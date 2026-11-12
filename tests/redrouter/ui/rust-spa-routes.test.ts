@@ -3,7 +3,7 @@ import { resolveSpaPage, spaPageRoutes } from "../../../rust-dashboard/routes";
 
 describe("Rust SPA route compatibility", () => {
   it("owns a unique canonical route for every Rust dashboard surface", () => {
-    expect(spaPageRoutes.map((page) => page.id)).toHaveLength(13);
+    expect(spaPageRoutes.map((page) => page.id)).toHaveLength(14);
     expect(new Set(spaPageRoutes.map((page) => page.id)).size).toBe(spaPageRoutes.length);
     expect(new Set(spaPageRoutes.map((page) => page.path)).size).toBe(spaPageRoutes.length);
   });
@@ -13,6 +13,7 @@ describe("Rust SPA route compatibility", () => {
     ["/home", "overview"],
     ["/observe/health/runtime", "overview"],
     ["/proxy/providers/openrouter-main", "providers"],
+    ["/dashboard/resilience/connections", "resilience"],
     ["/proxy/models", "models"],
     ["/proxy/combos/agent-route", "combos"],
     ["/proxy/keys/routing", "keys"],
