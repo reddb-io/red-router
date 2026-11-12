@@ -9029,10 +9029,34 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         .bearer_auth(ADMIN_KEY)
         .send();
     let (first_refresh, second_refresh) = tokio::join!(first_refresh, second_refresh);
-    let first_refresh: serde_json::Value =
-        serde_json::from_str(&first_refresh.unwrap().text().await.unwrap()).unwrap();
-    let second_refresh: serde_json::Value =
-        serde_json::from_str(&second_refresh.unwrap().text().await.unwrap()).unwrap();
+    async fn refresh_json(
+        client: &reqwest::Client,
+        base: &str,
+        response: reqwest::Response,
+    ) -> serde_json::Value {
+        let response = if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            // A concurrent SQLite writer may make the first lease attempt fail
+            // closed. Retrying after the winning request commits must observe
+            // the settling lease instead of performing a second token refresh.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            client
+                .post(format!(
+                    "{base}/api/admin/providers/claude-refresh/oauth/refresh"
+                ))
+                .bearer_auth(ADMIN_KEY)
+                .send()
+                .await
+                .unwrap()
+        } else {
+            response
+        };
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        serde_json::from_str(&body).unwrap()
+    }
+    let first_refresh = refresh_json(&client, &first_base, first_refresh.unwrap()).await;
+    let second_refresh = refresh_json(&client, &second_base, second_refresh.unwrap()).await;
     let categories = [
         first_refresh["refresh"]["category"].as_str().unwrap(),
         second_refresh["refresh"]["category"].as_str().unwrap(),
