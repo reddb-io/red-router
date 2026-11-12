@@ -48,45 +48,65 @@ export default function AuditLog() {
   const [selected, setSelected] = useState<RustAuditEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const query: RustAuditQuery = {
-        limit: PAGE_SIZE,
-        offset,
-        action: applied.action.trim() || undefined,
-        actor: applied.actor.trim() || undefined,
-        target: applied.target.trim() || undefined,
-        resourceType: applied.resourceType.trim() || undefined,
-        status: applied.status.trim() || undefined,
-        requestId: applied.requestId.trim() || undefined,
-      };
-      const page = await listRustAuditEvents(query);
-      setEvents(page.events);
-      setTotal(page.total);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load the audit log.");
-    } finally {
-      setLoading(false);
-    }
+  const fetchPage = useCallback(async () => {
+    const query: RustAuditQuery = {
+      limit: PAGE_SIZE,
+      offset,
+      action: applied.action.trim() || undefined,
+      actor: applied.actor.trim() || undefined,
+      target: applied.target.trim() || undefined,
+      resourceType: applied.resourceType.trim() || undefined,
+      status: applied.status.trim() || undefined,
+      requestId: applied.requestId.trim() || undefined,
+    };
+    return listRustAuditEvents(query);
   }, [applied, offset]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    void fetchPage()
+      .then((page) => {
+        if (!active) return;
+        setEvents(page.events);
+        setTotal(page.total);
+        setError("");
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        setError(cause instanceof Error ? cause.message : "Could not load the audit log.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [fetchPage, refreshVersion]);
+
+  function refresh() {
+    setLoading(true);
+    setError("");
+    setRefreshVersion((current) => current + 1);
+  }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setLoading(true);
+    setError("");
     setOffset(0);
     setApplied(filters);
+    setRefreshVersion((current) => current + 1);
   }
 
   function clearFilters() {
+    setLoading(true);
+    setError("");
     setFilters(emptyFilters);
     setApplied(emptyFilters);
     setOffset(0);
+    setRefreshVersion((current) => current + 1);
   }
 
   function exportPage() {
@@ -112,7 +132,7 @@ export default function AuditLog() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button type="button" disabled={loading} onClick={() => void load()}>
+          <button type="button" disabled={loading} onClick={refresh}>
             Refresh
           </button>
           <button type="button" disabled={events.length === 0} onClick={exportPage}>
@@ -210,7 +230,11 @@ export default function AuditLog() {
         <button
           type="button"
           disabled={loading || offset === 0}
-          onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
+          onClick={() => {
+            setLoading(true);
+            setError("");
+            setOffset((current) => Math.max(0, current - PAGE_SIZE));
+          }}
         >
           Previous
         </button>
@@ -220,7 +244,11 @@ export default function AuditLog() {
         <button
           type="button"
           disabled={loading || offset + events.length >= total}
-          onClick={() => setOffset((current) => current + PAGE_SIZE)}
+          onClick={() => {
+            setLoading(true);
+            setError("");
+            setOffset((current) => current + PAGE_SIZE);
+          }}
         >
           Next
         </button>
