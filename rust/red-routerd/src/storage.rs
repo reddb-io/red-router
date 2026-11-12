@@ -87,6 +87,8 @@ const CREATE_LEGACY_QUOTA_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redroute
 const CREATE_LEGACY_MODEL_TOKEN_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_model_token_baselines (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, window_start_unix_ms BIGINT NOT NULL, tokens_used BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_CLIENT_MODEL_TOKEN_LIMITS: &str = "CREATE TABLE IF NOT EXISTS redrouter_client_model_token_limits (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, reset_minutes BIGINT NOT NULL, token_limit BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_REQUEST_RATE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_rate_counters (key_id TEXT NOT NULL, window_seconds BIGINT NOT NULL, bucket_index BIGINT NOT NULL, consumed_requests BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, window_seconds, bucket_index))";
+const CREATE_SHARED_BUDGETS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_budgets (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, max_microusd BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, duration TEXT NOT NULL, enabled BIGINT NOT NULL, key_ids_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const CREATE_SHARED_BUDGET_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_budgets_tenant ON redrouter_control_budgets (tenant_id, enabled, id)";
 const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
 const CREATE_USAGE_RESERVATIONS_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_tenant_time ON redrouter_usage_reservations (tenant_id, created_at_unix_ms DESC)";
 const CREATE_USAGE_LEDGER_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_key_time ON redrouter_usage_ledger (key_id, created_at_unix_ms DESC, event_id DESC)";
@@ -850,6 +852,8 @@ impl Database {
                         CREATE_LEGACY_MODEL_TOKEN_BASELINES,
                         CREATE_CLIENT_MODEL_TOKEN_LIMITS,
                         CREATE_REQUEST_RATE_COUNTERS,
+                        CREATE_SHARED_BUDGETS,
+                        CREATE_SHARED_BUDGET_TENANT_INDEX,
                         CREATE_USAGE_RESERVATIONS_KEY_INDEX,
                         CREATE_USAGE_RESERVATIONS_TENANT_INDEX,
                         CREATE_USAGE_LEDGER_KEY_INDEX,

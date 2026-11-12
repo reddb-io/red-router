@@ -11,6 +11,7 @@ import "./dashboard.css";
 const Providers = lazy(() => import("./pages/RustProvidersPageClient"));
 const Combos = lazy(() => import("./pages/RustCombosPageClient"));
 const Keys = lazy(() => import("./pages/RustApiManagerPageClient"));
+const SharedBudgets = lazy(() => import("./SharedBudgets"));
 const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
 const OidcSettings = lazy(() => import("./OidcSettings"));
@@ -26,6 +27,7 @@ const pages = [
   { path: "/dashboard/model-catalog", label: "Model catalog", component: ModelCatalog },
   { path: "/dashboard/combos", label: "Combos", component: Combos },
   { path: "/dashboard/api-manager", label: "API keys", component: Keys },
+  { path: "/dashboard/budgets", label: "Budgets", component: SharedBudgets },
   { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
   { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
   { path: "/dashboard/legacy-usage", label: "Historical usage", component: LegacyUsage },

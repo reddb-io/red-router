@@ -52,6 +52,34 @@ export interface RustIssuedClientKey {
   warning: string;
 }
 
+export type RustSharedBudgetDuration = "daily" | "monthly" | "total";
+
+export interface RustSharedBudget {
+  id: string;
+  tenant_id: string;
+  name: string;
+  max_spend_usd: number;
+  reservation_spend_usd: number;
+  duration: RustSharedBudgetDuration;
+  enabled: boolean;
+  key_ids: string[];
+  spent_usd: number;
+  reserved_usd: number;
+  window_start_unix_ms: number;
+  reset_at_unix_ms: number | null;
+  revision: string;
+}
+
+export interface RustSharedBudgetInput {
+  tenant_id?: string;
+  name: string;
+  max_spend_usd: number;
+  reservation_spend_usd: number;
+  duration: RustSharedBudgetDuration;
+  enabled: boolean;
+  key_ids: string[];
+}
+
 export interface RustTenant {
   id: string;
   slug: string;
@@ -1631,6 +1659,40 @@ export async function listRustClientKeys(): Promise<RustClientKey[]> {
     throw new Error("Invalid Rust client-key response");
   }
   return keys;
+}
+
+export async function listRustSharedBudgets(): Promise<RustSharedBudget[]> {
+  const value = (await rustAdminJson("/api/admin/budgets")) as {
+    budgets?: RustSharedBudget[];
+  };
+  if (!Array.isArray(value.budgets)) throw new Error("Invalid Rust shared budget response");
+  return value.budgets;
+}
+
+export async function createRustSharedBudget(
+  input: RustSharedBudgetInput
+): Promise<RustSharedBudget> {
+  const value = (await rustAdminJson("/api/admin/budgets", jsonRequest("POST", input))) as {
+    budget?: RustSharedBudget;
+  };
+  if (!value.budget) throw new Error("Invalid Rust shared budget response");
+  return value.budget;
+}
+
+export async function replaceRustSharedBudget(
+  id: string,
+  input: RustSharedBudgetInput
+): Promise<RustSharedBudget> {
+  const value = (await rustAdminJson(
+    `/api/admin/budgets/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  )) as { budget?: RustSharedBudget };
+  if (!value.budget) throw new Error("Invalid Rust shared budget response");
+  return value.budget;
+}
+
+export async function deleteRustSharedBudget(id: string): Promise<void> {
+  await rustAdminJson(`/api/admin/budgets/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function issueRustClientKey(input: RustClientKeyInput): Promise<RustIssuedClientKey> {

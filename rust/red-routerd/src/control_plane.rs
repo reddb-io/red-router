@@ -3395,6 +3395,106 @@ impl ControlPlane {
         Ok(report)
     }
 
+    pub(crate) async fn shared_budget_views(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<crate::shared_budget::BudgetView>, &'static str> {
+        crate::shared_budget::list(&self.0.database, tenant_id, unix_time_ms()?).await
+    }
+
+    pub(crate) async fn configure_shared_budget_as(
+        &self,
+        id: Option<&str>,
+        input: crate::shared_budget::BudgetInput,
+        actor: &str,
+        tenant_scope: Option<&str>,
+    ) -> Result<crate::shared_budget::BudgetView, &'static str> {
+        validate_actor(actor)?;
+        let requested_tenant = input
+            .tenant_id
+            .clone()
+            .unwrap_or_else(|| tenant_scope.unwrap_or("red").to_owned());
+        let tenant_id = tenant_scope.unwrap_or(&requested_tenant).to_owned();
+        if tenant_scope.is_some_and(|scope| scope != requested_tenant.as_str()) {
+            return Err("shared budget tenant mismatch");
+        }
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.id == tenant_id && tenant.enabled)
+        {
+            return Err("shared budget tenant not found");
+        }
+        if !input.key_ids.is_empty() {
+            let keys = self.client_views(Some(&tenant_id)).await?;
+            if input
+                .key_ids
+                .iter()
+                .any(|id| !keys.iter().any(|key| key.id == *id))
+            {
+                return Err("shared budget client key not found");
+            }
+        }
+        let id = id
+            .map(str::to_owned)
+            .unwrap_or(format!("budget_{}", random_token(12)?));
+        let view =
+            crate::shared_budget::upsert(&self.0.database, &id, &tenant_id, input, revision()?)
+                .await?;
+        let details = serde_json::to_value(&view).map_err(|_| "cannot encode shared budget")?;
+        self.record_audit_event(
+            AuditContext {
+                action: "budget.upsert",
+                actor,
+                tenant_id: &tenant_id,
+                target: &id,
+                resource_type: "budget",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&details),
+        )
+        .await;
+        Ok(view)
+    }
+
+    pub(crate) async fn delete_shared_budget_as(
+        &self,
+        id: &str,
+        actor: &str,
+        tenant_scope: Option<&str>,
+    ) -> Result<bool, &'static str> {
+        validate_actor(actor)?;
+        let existing = self
+            .shared_budget_views(tenant_scope)
+            .await?
+            .into_iter()
+            .find(|budget| budget.id == id);
+        let Some(existing) = existing else {
+            return Ok(false);
+        };
+        let deleted = crate::shared_budget::delete(&self.0.database, id, tenant_scope).await?;
+        if deleted {
+            let details =
+                serde_json::to_value(&existing).map_err(|_| "cannot encode shared budget")?;
+            self.record_audit_event(
+                AuditContext {
+                    action: "budget.delete",
+                    actor,
+                    tenant_id: &existing.tenant_id,
+                    target: id,
+                    resource_type: "budget",
+                },
+                Some(&details),
+                Option::<&serde_json::Value>::None,
+            )
+            .await;
+        }
+        Ok(deleted)
+    }
+
     pub(crate) async fn begin_native_usage(
         &self,
         identity: &crate::policy::ClientIdentity,
@@ -3409,15 +3509,28 @@ impl ControlPlane {
             .clone()
             .ok_or("native usage storage unavailable")?;
         let prices = self.native_usage_prices(provider, model).await?;
-        if identity
+        let shared_reservation = usage
+            .shared_budget_reservation(&identity.tenant_id, &identity.id)
+            .await?;
+        if (identity
             .usage_quota
             .is_some_and(|quota| quota.max_monthly_microusd > 0)
+            || shared_reservation.is_some())
             && prices.is_none()
         {
-            return Err("native spend quota requires catalog pricing");
+            return Err("native spend budget requires catalog pricing");
         }
         let event_id = format!("usage_{}", random_token(16)?);
-        if let Some(quota) = identity.usage_quota {
+        if identity.usage_quota.is_some() || shared_reservation.is_some() {
+            let quota = identity
+                .usage_quota
+                .unwrap_or(crate::native_usage::NativeQuota {
+                    max_tokens_per_minute: 0,
+                    max_tokens_per_day: 0,
+                    max_monthly_microusd: 0,
+                    reservation_tokens: 0,
+                    reservation_microusd: 0,
+                });
             let allowed = usage
                 .reserve(&crate::native_usage::Reservation {
                     event_id: &event_id,
@@ -3427,7 +3540,9 @@ impl ControlPlane {
                     model,
                     quota,
                     reserved_tokens: quota.reservation_tokens,
-                    reserved_microusd: quota.reservation_microusd,
+                    reserved_microusd: quota
+                        .reservation_microusd
+                        .max(shared_reservation.unwrap_or(0)),
                     now_ms: unix_time_ms()?,
                 })
                 .await?;
@@ -3488,15 +3603,28 @@ impl ControlPlane {
             .clone()
             .ok_or("native usage storage unavailable")?;
         let price = self.native_rerank_price(provider, model).await?;
-        if identity
+        let shared_reservation = usage
+            .shared_budget_reservation(&identity.tenant_id, &identity.id)
+            .await?;
+        if (identity
             .usage_quota
             .is_some_and(|quota| quota.max_monthly_microusd > 0)
+            || shared_reservation.is_some())
             && price.is_none()
         {
-            return Err("native spend quota requires rerank pricing");
+            return Err("native spend budget requires rerank pricing");
         }
         let event_id = format!("usage_{}", random_token(16)?);
-        if let Some(quota) = identity.usage_quota {
+        if identity.usage_quota.is_some() || shared_reservation.is_some() {
+            let quota = identity
+                .usage_quota
+                .unwrap_or(crate::native_usage::NativeQuota {
+                    max_tokens_per_minute: 0,
+                    max_tokens_per_day: 0,
+                    max_monthly_microusd: 0,
+                    reservation_tokens: 0,
+                    reservation_microusd: 0,
+                });
             let allowed = usage
                 .reserve(&crate::native_usage::Reservation {
                     event_id: &event_id,
@@ -3506,7 +3634,9 @@ impl ControlPlane {
                     model,
                     quota,
                     reserved_tokens: 0,
-                    reserved_microusd: quota.reservation_microusd,
+                    reserved_microusd: quota
+                        .reservation_microusd
+                        .max(shared_reservation.unwrap_or(0)),
                     now_ms: unix_time_ms()?,
                 })
                 .await?;
@@ -11926,6 +12056,103 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
             StatusCode::SERVICE_UNAVAILABLE,
             "Client key storage unavailable",
         ),
+    }
+}
+
+pub async fn list_shared_budgets(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .shared_budget_views(scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(budgets) => Json(serde_json::json!({"budgets":budgets})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Shared budget storage unavailable",
+        ),
+    }
+}
+
+pub async fn create_shared_budget(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<crate::shared_budget::BudgetInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .configure_shared_budget_as(None, input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(budget) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"budget":budget})),
+        )
+            .into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Shared budget storage unavailable",
+        ),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, error),
+    }
+}
+
+pub async fn put_shared_budget(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<crate::shared_budget::BudgetInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .configure_shared_budget_as(Some(&id), input, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(budget) => Json(serde_json::json!({"budget":budget})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Shared budget storage unavailable",
+        ),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, error),
+    }
+}
+
+pub async fn delete_shared_budget(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .delete_shared_budget_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => api_error(StatusCode::NOT_FOUND, "Shared budget not found"),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Shared budget storage unavailable",
+        ),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, error),
     }
 }
 

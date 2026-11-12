@@ -25,6 +25,7 @@ pub mod product_provider;
 mod provider_quota;
 pub mod reconcile;
 mod resilience;
+pub mod shared_budget;
 pub mod shared_usage;
 pub mod spa;
 pub mod storage;
@@ -2175,6 +2176,14 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/client-keys/{id}",
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
+        )
+        .route(
+            "/api/admin/budgets",
+            get(control_plane::list_shared_budgets).post(control_plane::create_shared_budget),
+        )
+        .route(
+            "/api/admin/budgets/{id}",
+            put(control_plane::put_shared_budget).delete(control_plane::delete_shared_budget),
         )
         .route(
             "/api/usage/token-limits",

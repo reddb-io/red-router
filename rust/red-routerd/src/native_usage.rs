@@ -172,6 +172,16 @@ impl NativeUsage {
         Ok(Self { database })
     }
 
+    pub(crate) async fn shared_budget_reservation(
+        &self,
+        tenant_id: &str,
+        key_id: &str,
+    ) -> Result<Option<i64>, &'static str> {
+        crate::shared_budget::reservation_policy(&self.database, tenant_id, key_id)
+            .await
+            .map(|policy| policy.map(|policy| policy.microusd))
+    }
+
     pub(crate) async fn prune_operational_state(
         &self,
         now_ms: i64,
@@ -549,13 +559,21 @@ impl NativeUsage {
         {
             return Err("invalid usage reservation bounds");
         }
-        if !quota.enabled()
+        let shared_reservation = self
+            .shared_budget_reservation(reservation.tenant_id, reservation.key_id)
+            .await?;
+        if (!quota.enabled() && shared_reservation.is_none())
             || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&reservation.now_ms)
         {
             return Err("invalid usage reservation");
         }
+        let reserved_microusd = shared_reservation
+            .unwrap_or(0)
+            .max(reservation.reserved_microusd);
         let mut connection = self.begin().await?;
-        let result = self.reserve_in(&mut connection, reservation).await;
+        let result = self
+            .reserve_in(&mut connection, reservation, reserved_microusd)
+            .await;
         match result {
             Ok(allowed) => {
                 sqlx::query("COMMIT")
@@ -575,8 +593,20 @@ impl NativeUsage {
         &self,
         connection: &mut PoolConnection<Any>,
         reservation: &Reservation<'_>,
+        reserved_microusd: i64,
     ) -> Result<bool, &'static str> {
         let quota = reservation.quota;
+        if !crate::shared_budget::admit_in(
+            connection,
+            reservation.tenant_id,
+            reservation.key_id,
+            reserved_microusd,
+            reservation.now_ms,
+        )
+        .await?
+        {
+            return Ok(false);
+        }
         let bucket = reservation.now_ms / 60_000;
         let pending = sqlx::query("SELECT COUNT(*) AS count, COALESCE(SUM(reserved_tokens),0) AS tokens, COALESCE(SUM(reserved_microusd),0) AS microusd FROM redrouter_usage_reservations WHERE key_id = $1")
             .bind(reservation.key_id)
@@ -651,7 +681,7 @@ impl NativeUsage {
         };
         let spend_total = used_month
             .checked_add(pending_microusd)
-            .and_then(|value| value.checked_add(reservation.reserved_microusd));
+            .and_then(|value| value.checked_add(reserved_microusd));
         let denied = (quota.max_tokens_per_minute > 0
             && token_total(used_minute).is_none_or(|value| value > quota.max_tokens_per_minute))
             || (quota.max_tokens_per_day > 0
@@ -717,7 +747,7 @@ impl NativeUsage {
             .bind(reservation.provider)
             .bind(reservation.model)
             .bind(reservation.reserved_tokens)
-            .bind(reservation.reserved_microusd)
+            .bind(reserved_microusd)
             .bind(reservation.now_ms)
             .execute(&mut **connection)
             .await
@@ -813,37 +843,16 @@ impl NativeUsage {
         amount_microusd: i64,
         pricing_snapshot: Option<&str>,
     ) -> Result<bool, &'static str> {
-        if !event.reserved {
-            let exists: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM redrouter_usage_ledger WHERE event_id = $1",
-            )
+        // Shared budgets reserve even when this key has no individual quota.
+        // Detect the durable hold instead of trusting the caller's legacy
+        // per-key `reserved` hint.
+        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
             .bind(event.event_id)
-            .fetch_one(&mut **connection)
+            .fetch_optional(&mut **connection)
             .await
-            .map_err(|_| "usage ledger unavailable")?;
-            if exists == 1 {
-                return Ok(false);
-            }
-        } else {
-            let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
-                .bind(event.event_id)
-                .fetch_optional(&mut **connection)
-                .await
-                .map_err(|_| "usage reservation unavailable")?;
-            let Some(reservation) = reservation else {
-                let exists: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM redrouter_usage_ledger WHERE event_id = $1",
-                )
-                .bind(event.event_id)
-                .fetch_one(&mut **connection)
-                .await
-                .map_err(|_| "usage ledger unavailable")?;
-                return if exists == 1 {
-                    Ok(false)
-                } else {
-                    Err("usage reservation unavailable")
-                };
-            };
+            .map_err(|_| "usage reservation unavailable")?;
+        let had_reservation = reservation.is_some();
+        if let Some(reservation) = reservation {
             let text = |name| reservation.try_get::<String, _>(name).ok();
             let reserved_tokens = reservation
                 .try_get::<i64, _>("reserved_tokens")
@@ -871,6 +880,20 @@ impl NativeUsage {
                     .await
                     .map_err(|_| "usage reservation unavailable")?;
                 return Err("usage exceeds reservation; reconciliation required");
+            }
+        } else {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM redrouter_usage_ledger WHERE event_id = $1",
+            )
+            .bind(event.event_id)
+            .fetch_one(&mut **connection)
+            .await
+            .map_err(|_| "usage ledger unavailable")?;
+            if exists == 1 {
+                return Ok(false);
+            }
+            if event.reserved {
+                return Err("usage reservation unavailable");
             }
         }
         let input = i64::try_from(event.usage.input).map_err(|_| "invalid token usage")?;
@@ -911,7 +934,7 @@ impl NativeUsage {
                 .await
                 .map_err(|_| "cannot update usage counter")?;
         }
-        if event.reserved {
+        if had_reservation {
             sqlx::query("DELETE FROM redrouter_usage_reservations WHERE event_id = $1")
                 .bind(event.event_id)
                 .execute(&mut **connection)

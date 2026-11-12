@@ -90,6 +90,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
       "/api/admin/providers": { providers: [] },
       "/api/admin/combos": { combos: [] },
       "/api/admin/client-keys": { client_keys: [] },
+      "/api/admin/budgets": { budgets: [] },
       "/api/admin/tenants": {
         tenants: [{ id: "red", slug: "red", name: "Red", enabled: true, revision: "1" }],
       },
@@ -147,6 +148,9 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await page.getByRole("link", { name: "API keys", exact: true }).click();
   await expect(page.getByRole("heading", { name: "API keys" })).toBeVisible();
   await expect(page.getByText("No Rust-owned client keys yet.")).toBeVisible();
+  await page.getByRole("link", { name: "Budgets", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Shared budgets" })).toBeVisible();
+  await expect(page.getByText("No shared budgets configured.")).toBeVisible();
   await page.getByRole("link", { name: "Usage report", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Usage report" })).toBeVisible();
   await expect(page.getByText("No usage in this period.")).toBeVisible();
@@ -161,6 +165,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
     "/api/admin/providers",
     "/api/admin/combos",
     "/api/admin/client-keys",
+    "/api/admin/budgets",
     "/api/admin/tenants",
     "/api/admin/identity-bindings",
     "/api/admin/audit-log",

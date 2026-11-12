@@ -39,6 +39,7 @@ test(
         "/api/admin/provider-quotas",
         "/api/admin/combos",
         "/api/admin/client-keys",
+        "/api/admin/budgets",
         "/api/usage-sinks/types",
       ]) {
         assert.ok(javascript.includes(route), `missing Rust API ${route}`);
