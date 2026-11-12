@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: optional-quality-${{ github.ref }}
+  group: optional-quality-${{ github.ref }}-${{ inputs.suite }}
   cancel-in-progress: true
 env:
   CI_NODE_VERSION: "24"
