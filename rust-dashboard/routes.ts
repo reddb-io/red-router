@@ -96,7 +96,7 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
   {
     id: "usage-sinks",
     path: "/dashboard/usage-sinks",
-    label: "Destinations",
+    label: "Usage destinations",
     aliases: [
       "/dashboard/log-export",
       "/dashboard/webhooks",
@@ -107,7 +107,7 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
   {
     id: "usage",
     path: "/dashboard/usage",
-    label: "Usage",
+    label: "Usage report",
     aliases: [
       "/dashboard/costs",
       "/dashboard/analytics",
@@ -122,7 +122,7 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
   {
     id: "legacy-usage",
     path: "/dashboard/legacy-usage",
-    label: "History",
+    label: "Usage history",
     aliases: ["/observe/logs/history"],
   },
   {
@@ -141,7 +141,7 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
   {
     id: "audit",
     path: "/dashboard/audit",
-    label: "Audit",
+    label: "Audit log",
     aliases: ["/observe/audit"],
     prefixes: ["/dashboard/audit/", "/observe/audit/"],
   },
