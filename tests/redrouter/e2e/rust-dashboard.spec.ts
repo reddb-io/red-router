@@ -217,7 +217,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
               type: "webhook",
               label: "Webhook",
               description: "Signed usage",
-              modes: ["instant"],
+              modes: ["instant", "window"],
               fields: [
                 { key: "url", labelFallback: "Webhook URL", type: "text", required: true },
                 {
@@ -230,6 +230,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
               ],
             },
           ],
+          windowSizesSec: [300, 900, 1800, 3600],
         },
       });
     } else if (request.method() === "POST") {
@@ -246,6 +247,8 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await page.getByLabel("Name", { exact: true }).fill("Billing");
   await page.getByLabel("Webhook URL").fill("https://billing.example.com/usage");
   await page.getByLabel("Signing secret").fill("fixture-secret-123456789");
+  await page.getByLabel("Delivery mode").selectOption("window");
+  await page.getByLabel("Window size").selectOption("1800");
   await page.getByLabel("Limit to selected keys").check();
   await page.getByLabel("Database (key-one)").check();
   await page.getByRole("button", { name: "Save destination" }).click();
@@ -253,7 +256,8 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   expect(created).toMatchObject({
     name: "Billing",
     type: "webhook",
-    mode: "instant",
+    mode: "window",
+    windowSec: 1800,
     apiKeyIds: ["key-one"],
     config: { url: "https://billing.example.com/usage", secret: "fixture-secret-123456789" },
   });

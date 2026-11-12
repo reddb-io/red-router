@@ -8,6 +8,8 @@ type Draft = {
   type: string;
   tenantId: string;
   enabled: boolean;
+  mode: "instant" | "window";
+  windowSec: number;
   keyIds: string[];
   selectedKeys: boolean;
   config: Record<string, string>;
@@ -18,6 +20,7 @@ const inputClass = "w-full rounded border border-border bg-surface px-3 py-2 tex
 type SinkResponse = {
   sinks?: UsageSink[];
   types?: TransportDescriptor[];
+  windowSizesSec?: number[];
   valid?: boolean;
   error?: string | { message?: string };
 };
@@ -34,7 +37,7 @@ async function json(path: string, init?: RequestInit): Promise<SinkResponse> {
   return value;
 }
 
-function newDraft(types: TransportDescriptor[], sink?: UsageSink): Draft {
+function newDraft(types: TransportDescriptor[], windowSizes: number[], sink?: UsageSink): Draft {
   const type = sink?.type ?? types[0]?.type ?? "";
   const descriptor = types.find((item) => item.type === type);
   return {
@@ -43,6 +46,8 @@ function newDraft(types: TransportDescriptor[], sink?: UsageSink): Draft {
     type,
     tenantId: "",
     enabled: sink?.enabled ?? true,
+    mode: sink?.mode ?? "instant",
+    windowSec: sink?.windowSec ?? windowSizes[1] ?? windowSizes[0] ?? 900,
     keyIds: sink?.apiKeyIds ?? [],
     selectedKeys: Boolean(sink?.apiKeyIds.length),
     config: Object.fromEntries(
@@ -56,6 +61,7 @@ function newDraft(types: TransportDescriptor[], sink?: UsageSink): Draft {
 
 export default function UsageSinks() {
   const [types, setTypes] = useState<TransportDescriptor[]>([]);
+  const [windowSizes, setWindowSizes] = useState<number[]>([]);
   const [sinks, setSinks] = useState<UsageSink[]>([]);
   const [keys, setKeys] = useState<RustClientKey[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -73,6 +79,7 @@ export default function UsageSinks() {
       throw new Error("Invalid usage export response");
     setSinks(sinkData.sinks);
     setTypes(typeData.types);
+    setWindowSizes(typeData.windowSizesSec ?? []);
     setKeys(clientKeys);
   }, []);
 
@@ -112,7 +119,8 @@ export default function UsageSinks() {
       }
       const payload = {
         name: draft.name.trim(),
-        mode: "instant",
+        mode: draft.mode,
+        ...(draft.mode === "window" ? { windowSec: draft.windowSec } : {}),
         enabled: draft.enabled,
         apiKeyIds: draft.selectedKeys ? draft.keyIds : [],
         config,
@@ -171,7 +179,7 @@ export default function UsageSinks() {
           type="button"
           className="rounded bg-primary px-4 py-2 text-white"
           disabled={busy || types.length === 0}
-          onClick={() => setDraft(newDraft(types))}
+          onClick={() => setDraft(newDraft(types, windowSizes))}
         >
           Add destination
         </button>
@@ -209,7 +217,16 @@ export default function UsageSinks() {
               className={inputClass}
               value={draft.type}
               disabled={Boolean(draft.id)}
-              onChange={(event) => setDraft({ ...draft, type: event.target.value, config: {} })}
+              onChange={(event) => {
+                const nextType = event.target.value;
+                const nextDescriptor = types.find((item) => item.type === nextType);
+                setDraft({
+                  ...draft,
+                  type: nextType,
+                  mode: nextDescriptor?.modes?.includes(draft.mode) ? draft.mode : "instant",
+                  config: {},
+                });
+              }}
             >
               {types.map((type) => (
                 <option key={type.type} value={type.type}>
@@ -226,6 +243,39 @@ export default function UsageSinks() {
                 value={draft.tenantId}
                 onChange={(event) => setDraft({ ...draft, tenantId: event.target.value })}
               />
+            </label>
+          )}
+          {(descriptor?.modes?.length ?? 0) > 1 && (
+            <label>
+              Delivery mode
+              <select
+                className={inputClass}
+                value={draft.mode}
+                onChange={(event) =>
+                  setDraft({ ...draft, mode: event.target.value as "instant" | "window" })
+                }
+              >
+                <option value="instant">Each usage event</option>
+                <option value="window">Aggregated windows</option>
+              </select>
+            </label>
+          )}
+          {draft.mode === "window" && (
+            <label>
+              Window size
+              <select
+                className={inputClass}
+                value={draft.windowSec}
+                onChange={(event) =>
+                  setDraft({ ...draft, windowSec: Number(event.target.value) })
+                }
+              >
+                {windowSizes.map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds < 3600 ? `${seconds / 60} minutes` : "1 hour"}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
           {descriptor?.fields.map((field) => (
@@ -350,11 +400,18 @@ export default function UsageSinks() {
         <article key={sink.id} className="flex flex-col gap-2 rounded border border-border p-4">
           <h2 className="font-semibold">{sink.name}</h2>
           <p>
-            {sink.typeLabel} · {sink.enabled ? "Enabled" : "Paused"}
+            {sink.typeLabel} · {sink.enabled ? "Enabled" : "Paused"} ·{" "}
+            {sink.mode === "window"
+              ? `${(sink.windowSec ?? 0) / 60} minute windows`
+              : "Each event"}
           </p>
           <p>{sink.summary}</p>
           <div className="flex flex-wrap gap-4">
-            <button type="button" disabled={busy} onClick={() => setDraft(newDraft(types, sink))}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setDraft(newDraft(types, windowSizes, sink))}
+            >
               Edit
             </button>
             <button

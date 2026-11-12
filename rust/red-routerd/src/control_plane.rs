@@ -7540,9 +7540,18 @@ impl ControlPlane {
         ) {
             return Err("unsupported usage export type");
         }
-        if mode != "instant" || window_sec.is_some_and(|value| value != 0) {
-            return Err("Rust usage exports currently support instant mode only");
-        }
+        let window_sec = match mode.as_str() {
+            "instant" if window_sec.is_none_or(|value| value == 0) => 0,
+            "window" if export_type != "bigquery" => {
+                let value = window_sec.unwrap_or(900);
+                if !matches!(value, 300 | 900 | 1_800 | 3_600) {
+                    return Err("unsupported usage export window size");
+                }
+                value
+            }
+            "window" => return Err("BigQuery usage exports support instant mode only"),
+            _ => return Err("invalid usage export mode"),
+        };
         if api_key_ids.len() > 200 {
             return Err("too many usage export key filters");
         }
@@ -7906,7 +7915,7 @@ impl ControlPlane {
             name,
             export_type,
             mode,
-            window_sec: 0,
+            window_sec,
             api_key_ids_json: serde_json::to_string(&api_key_ids)
                 .map_err(|_| "cannot encode usage export key filters")?,
             project_id,
@@ -8076,14 +8085,27 @@ impl ControlPlane {
                     &aad,
                     self.0.encryption_key.as_str(),
                 )?;
-                crate::audit_export::send_usage_webhook_test(
-                    id,
-                    &record.name,
-                    &webhook_usage_url(&record.config_json)?,
-                    secret.as_str(),
-                    &event,
-                )
-                .await?;
+                let url = webhook_usage_url(&record.config_json)?;
+                if record.mode == "window" {
+                    crate::audit_export::send_usage_webhook_window_test(
+                        id,
+                        &record.name,
+                        &url,
+                        secret.as_str(),
+                        &event,
+                        record.window_sec,
+                    )
+                    .await?;
+                } else {
+                    crate::audit_export::send_usage_webhook_test(
+                        id,
+                        &record.name,
+                        &url,
+                        secret.as_str(),
+                        &event,
+                    )
+                    .await?;
+                }
             }
             "reddb" => {
                 let token = if record.secret_ciphertext.is_empty() {
@@ -8096,15 +8118,28 @@ impl ControlPlane {
                         self.0.encryption_key.as_str(),
                     )?)
                 };
-                crate::audit_export::send_usage_reddb_test(
-                    id,
-                    &record.name,
-                    &record.config_json,
-                    token,
-                    &event,
-                    self.0.allow_private,
-                )
-                .await?;
+                if record.mode == "window" {
+                    crate::audit_export::send_usage_reddb_window_test(
+                        id,
+                        &record.name,
+                        &record.config_json,
+                        token,
+                        &event,
+                        record.window_sec,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                } else {
+                    crate::audit_export::send_usage_reddb_test(
+                        id,
+                        &record.name,
+                        &record.config_json,
+                        token,
+                        &event,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                }
             }
             "sqs" => {
                 let aad = format!("usage-export:{id}:secret");
@@ -8113,14 +8148,26 @@ impl ControlPlane {
                     &aad,
                     self.0.encryption_key.as_str(),
                 )?;
-                crate::audit_export::send_usage_sqs_test(
-                    id,
-                    &record.config_json,
-                    secret_json.as_str(),
-                    &event,
-                    self.0.allow_private,
-                )
-                .await?;
+                if record.mode == "window" {
+                    crate::audit_export::send_usage_sqs_window_test(
+                        id,
+                        &record.config_json,
+                        secret_json.as_str(),
+                        &event,
+                        record.window_sec,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                } else {
+                    crate::audit_export::send_usage_sqs_test(
+                        id,
+                        &record.config_json,
+                        secret_json.as_str(),
+                        &event,
+                        self.0.allow_private,
+                    )
+                    .await?;
+                }
             }
             _ => return Err("unsupported usage export type"),
         }
@@ -10559,6 +10606,27 @@ fn usage_export_view(
         }
         _ => return Err("invalid usage export configuration"),
     };
+    let next_window_end = if record.mode == "window" && record.window_sec > 0 {
+        let window_ms = record
+            .window_sec
+            .checked_mul(1_000)
+            .ok_or("invalid usage export window")?;
+        let now = unix_time_ms()?;
+        let next = now
+            .div_euclid(window_ms)
+            .saturating_add(1)
+            .saturating_mul(window_ms);
+        serde_json::Value::String(
+            ::time::OffsetDateTime::from_unix_timestamp_nanos(
+                i128::from(next).saturating_mul(1_000_000),
+            )
+            .map_err(|_| "invalid usage export window")?
+            .format(&::time::format_description::well_known::Rfc3339)
+            .map_err(|_| "invalid usage export window")?,
+        )
+    } else {
+        serde_json::Value::Null
+    };
     Ok(serde_json::json!({
         "id": record.id,
         "tenantId": record.tenant_id,
@@ -10573,7 +10641,7 @@ fn usage_export_view(
         "summary": summary,
         "enabled": record.enabled,
         "cursorId": 0,
-        "nextWindowEnd": null,
+        "nextWindowEnd": next_window_end,
         "createdAt": created_at,
         "updatedAt": created_at,
         "source": "redrouter_usage_ledger",
@@ -13125,7 +13193,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                 "type": "webhook",
                 "label": "Webhook (HTTPS POST, signed)",
                 "description": "Sends each attributed usage event with a stable ID and Standard Webhooks HMAC signature.",
-                "modes": ["instant"],
+                "modes": ["instant", "window"],
                 "fields": [
                     {"key":"url","labelFallback":"Webhook URL","type":"text","required":true,"placeholder":"https://billing.example.com/hooks/redrouter","helpFallback":"Public HTTPS only; credentials, query strings, redirects and private addresses are refused."},
                     {"key":"secret","labelFallback":"Signing secret","type":"password","required":true,"secret":true,"placeholder":"whsec_...","helpFallback":"Write-only and encrypted at rest. Used for webhook-signature HMAC-SHA256."}
@@ -13149,7 +13217,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                 "type": "reddb",
                 "label": "RedDB queue",
                 "description": "Publishes attributed usage with the delivery ID as the queue DEDUP key.",
-                "modes": ["instant"],
+                "modes": ["instant", "window"],
                 "fields": [
                     {"key":"url","labelFallback":"RedDB URL","type":"text","required":true,"placeholder":"http://127.0.0.1:5000","helpFallback":"Private addresses require RED_ROUTER_ALLOW_PRIVATE_UPSTREAM=1; cloud metadata is always refused."},
                     {"key":"queue","labelFallback":"Queue","type":"text","required":true,"placeholder":"usage_events","helpFallback":"Create it once with a DEDUP window, for example: CREATE QUEUE IF NOT EXISTS usage_events WITH DEDUP_WINDOW 1h"},
@@ -13161,7 +13229,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                 "type": "sqs",
                 "label": "Amazon SQS",
                 "description": "Publishes attributed usage through SendMessage; FIFO queues use the delivery ID for deduplication.",
-                "modes": ["instant"],
+                "modes": ["instant", "window"],
                 "fields": [
                     {"key":"queueUrl","labelFallback":"Queue URL","type":"text","required":true,"placeholder":"https://sqs.us-east-1.amazonaws.com/123456789012/usage"},
                     {"key":"region","labelFallback":"Region","type":"text","placeholder":"Read from the AWS queue URL"},
@@ -13171,7 +13239,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                 ]
             }
         ],
-        "windowSizesSec": []
+        "windowSizesSec": [300, 900, 1800, 3600]
     }))
     .into_response()
 }
@@ -15179,8 +15247,8 @@ mod tests {
             tenant_id: "red".to_owned(),
             name: "Billing webhook".to_owned(),
             export_type: "webhook".to_owned(),
-            mode: "instant".to_owned(),
-            window_sec: 0,
+            mode: "window".to_owned(),
+            window_sec: 900,
             api_key_ids_json: "[]".to_owned(),
             project_id: String::new(),
             dataset_id: String::new(),
@@ -15197,6 +15265,9 @@ mod tests {
         let encoded = view.to_string();
         assert_eq!(view["config"]["secret"], "__stored__");
         assert_eq!(view["config"]["url"], "https://billing.example.com/usage");
+        assert_eq!(view["mode"], "window");
+        assert_eq!(view["windowSec"], 900);
+        assert!(view["nextWindowEnd"].as_str().is_some());
         assert!(!encoded.contains("webhook-secret-ciphertext"));
     }
 

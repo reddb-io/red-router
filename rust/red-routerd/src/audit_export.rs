@@ -476,10 +476,12 @@ enum ManagedUsageTransport {
 
 struct ManagedUsageRelay {
     sink_id: String,
+    sink_name: String,
     tenant_id: String,
     api_key_ids: Vec<String>,
     batch_size: usize,
     interval: Duration,
+    window_sec: Option<i64>,
     transport: ManagedUsageTransport,
 }
 
@@ -503,6 +505,11 @@ impl ManagedUsageRelay {
             return Err("invalid usage export interval");
         }
         let sink_id = format!("managed-{}", record.id);
+        let window_sec = match record.mode.as_str() {
+            "instant" if record.window_sec == 0 => None,
+            "window" if record.window_sec > 0 => Some(record.window_sec),
+            _ => return Err("invalid usage export mode"),
+        };
         let transport = match record.export_type.as_str() {
             "bigquery" => {
                 let aad = format!("usage-export:{}:service-account", record.id);
@@ -574,15 +581,51 @@ impl ManagedUsageRelay {
         };
         Ok(Self {
             sink_id,
+            sink_name: record.name.clone(),
             tenant_id: record.tenant_id.clone(),
             api_key_ids,
             batch_size,
             interval,
+            window_sec,
             transport,
         })
     }
 
     async fn send(&self, events: &[StoredUsageExportEvent]) -> Result<(), &'static str> {
+        if let Some(window_sec) = self.window_sec {
+            let Some(first) = events.first() else {
+                return Ok(());
+            };
+            let Some(last) = events.last() else {
+                return Ok(());
+            };
+            let window_ms = window_sec.saturating_mul(1_000);
+            let start = first.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+            let end = start.saturating_add(window_ms);
+            let delivery_id = usage_window_delivery_id(
+                &self.sink_id,
+                &first.event_id,
+                &last.event_id,
+                start,
+                end,
+            );
+            let body = usage_window_payload(
+                &self.sink_id,
+                &self.sink_name,
+                &delivery_id,
+                events,
+                start,
+                end,
+                window_sec,
+                false,
+            )?;
+            return match &self.transport {
+                ManagedUsageTransport::BigQuery(_) => Err("BigQuery window mode is unsupported"),
+                ManagedUsageTransport::Webhook(sink) => sink.send_payload(&delivery_id, body).await,
+                ManagedUsageTransport::RedDb(sink) => sink.send_payload(&delivery_id, &body).await,
+                ManagedUsageTransport::Sqs(sink) => sink.send_payload(&delivery_id, &body).await,
+            };
+        }
         match &self.transport {
             ManagedUsageTransport::BigQuery(sink) => sink.send_usage(events).await,
             ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
@@ -630,9 +673,13 @@ impl UsageRedDbSink {
         test: bool,
     ) -> Result<(), &'static str> {
         let payload = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        self.send_payload(&event.event_id, &payload).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
         let payload =
-            std::str::from_utf8(&payload).map_err(|_| "cannot encode RedDB usage payload")?;
-        let statement = reddb_queue_push_statement(&self.queue, payload, &event.event_id)?;
+            std::str::from_utf8(payload).map_err(|_| "cannot encode RedDB usage payload")?;
+        let statement = reddb_queue_push_statement(&self.queue, payload, delivery_id)?;
         if statement.len() > REDDB_MAX_STATEMENT_BYTES {
             return Err("RedDB usage payload is too large");
         }
@@ -725,6 +772,10 @@ impl UsageSqsSink {
         test: bool,
     ) -> Result<(), &'static str> {
         let payload = usage_webhook_payload(&self.sink_id, "Amazon SQS", event, test)?;
+        self.send_payload(&event.event_id, &payload).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, payload: &[u8]) -> Result<(), &'static str> {
         if payload.len() > SQS_MAX_MESSAGE_BYTES {
             return Err("SQS usage payload is too large");
         }
@@ -735,13 +786,13 @@ impl UsageSqsSink {
             "QueueUrl":self.queue_url,
             "MessageBody":message_body,
             "MessageAttributes":{
-                "redrouter-delivery-id":{"DataType":"String","StringValue":event.event_id}
+                "redrouter-delivery-id":{"DataType":"String","StringValue":delivery_id}
             }
         });
         if fifo {
             request_body["MessageGroupId"] = serde_json::Value::String(self.sink_id.clone());
             request_body["MessageDeduplicationId"] =
-                serde_json::Value::String(event.event_id.chars().take(128).collect());
+                serde_json::Value::String(delivery_id.chars().take(128).collect());
         }
         let body =
             serde_json::to_vec(&request_body).map_err(|_| "cannot encode SQS usage request")?;
@@ -821,18 +872,22 @@ impl UsageWebhookSink {
         test: bool,
     ) -> Result<(), &'static str> {
         let body = usage_webhook_payload(&self.sink_id, &self.sink_name, event, test)?;
+        self.send_payload(&event.event_id, body).await
+    }
+
+    async fn send_payload(&self, delivery_id: &str, body: Vec<u8>) -> Result<(), &'static str> {
         if body.len() > MAX_RESPONSE_BYTES {
             return Err("usage webhook payload is too large");
         }
         let timestamp = unix_time_ms()?.div_euclid(1_000).to_string();
         let signature =
-            usage_webhook_signature(&event.event_id, &timestamp, &body, self.secret.as_slice());
+            usage_webhook_signature(delivery_id, &timestamp, &body, self.secret.as_slice());
         let response = self
             .client
             .post(self.url.clone())
             .header("content-type", "application/json")
             .header("user-agent", "RedRouter-UsageSinks/1")
-            .header("webhook-id", &event.event_id)
+            .header("webhook-id", delivery_id)
             .header("webhook-timestamp", timestamp)
             .header("webhook-signature", signature)
             .body(body)
@@ -871,6 +926,19 @@ pub async fn send_usage_webhook_test(
         .await
 }
 
+pub async fn send_usage_webhook_window_test(
+    sink_id: &str,
+    sink_name: &str,
+    url: &str,
+    secret: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+) -> Result<(), &'static str> {
+    let sink = UsageWebhookSink::new(sink_id, sink_name, url, secret).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, sink_name, event, window_sec)?;
+    sink.send_payload(&delivery_id, body).await
+}
+
 pub async fn validate_usage_reddb(
     config_json: &str,
     token: Option<Zeroizing<String>>,
@@ -901,6 +969,20 @@ pub async fn send_usage_reddb_test(
         .await
 }
 
+pub async fn send_usage_reddb_window_test(
+    sink_id: &str,
+    sink_name: &str,
+    config_json: &str,
+    token: Option<Zeroizing<String>>,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageRedDbSink::new(sink_id, sink_name, config_json, token, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, sink_name, event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
 pub async fn validate_usage_sqs(
     config_json: &str,
     secret_json: &str,
@@ -922,6 +1004,46 @@ pub async fn send_usage_sqs_test(
         .await?
         .send(std::slice::from_ref(event), true)
         .await
+}
+
+pub async fn send_usage_sqs_window_test(
+    sink_id: &str,
+    config_json: &str,
+    secret_json: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    let sink = UsageSqsSink::new(sink_id, config_json, secret_json, allow_private).await?;
+    let (delivery_id, body) = usage_window_test_payload(sink_id, "Amazon SQS", event, window_sec)?;
+    sink.send_payload(&delivery_id, &body).await
+}
+
+fn usage_window_test_payload(
+    sink_id: &str,
+    sink_name: &str,
+    event: &StoredUsageExportEvent,
+    window_sec: i64,
+) -> Result<(String, Vec<u8>), &'static str> {
+    let window_ms = window_sec
+        .checked_mul(1_000)
+        .filter(|value| *value > 0)
+        .ok_or("invalid usage export window")?;
+    let start = event.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+    let end = start.saturating_add(window_ms);
+    let delivery_id =
+        usage_window_delivery_id(sink_id, &event.event_id, &event.event_id, start, end);
+    let body = usage_window_payload(
+        sink_id,
+        sink_name,
+        &delivery_id,
+        std::slice::from_ref(event),
+        start,
+        end,
+        window_sec,
+        true,
+    )?;
+    Ok((delivery_id, body))
 }
 
 fn parse_sqs_config(config_json: &str) -> Result<StoredSqsConfig, &'static str> {
@@ -1363,6 +1485,191 @@ fn usage_webhook_payload(
     serde_json::to_vec(&payload).map_err(|_| "cannot encode usage webhook payload")
 }
 
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowTotals {
+    requests: i64,
+    errors: i64,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    cached_tokens: i64,
+    cache_creation_tokens: i64,
+    reasoning_tokens: i64,
+    search_units: i64,
+    cost: f64,
+}
+
+impl UsageWindowTotals {
+    fn add(&mut self, event: &StoredUsageExportEvent) {
+        self.requests = self.requests.saturating_add(1);
+        self.prompt_tokens = self.prompt_tokens.saturating_add(event.tokens_input);
+        self.completion_tokens = self.completion_tokens.saturating_add(event.tokens_output);
+        self.cached_tokens = self.cached_tokens.saturating_add(event.tokens_cache_read);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(event.tokens_cache_creation);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(event.tokens_reasoning);
+        self.search_units = self.search_units.saturating_add(event.search_units);
+        self.cost += event.amount_microusd as f64 / 1_000_000.0;
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowModel {
+    provider: String,
+    model: String,
+    usage_kind: String,
+    pricing_known: bool,
+    pricing: Option<serde_json::Value>,
+    #[serde(flatten)]
+    totals: UsageWindowTotals,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageWindowKey {
+    api_key: serde_json::Value,
+    tenant_id: String,
+    attributes: serde_json::Value,
+    totals: UsageWindowTotals,
+    by_model: Vec<UsageWindowModel>,
+}
+
+struct UsageWindowGroup {
+    key_id: String,
+    key_name: String,
+    tenant_id: String,
+    end_user: Option<String>,
+    tags: Vec<String>,
+    totals: UsageWindowTotals,
+    models: BTreeMap<String, UsageWindowModel>,
+}
+
+fn usage_window_delivery_id(
+    sink_id: &str,
+    first_event_id: &str,
+    last_event_id: &str,
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(sink_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(first_event_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(last_event_id.as_bytes());
+    digest.update(start_unix_ms.to_be_bytes());
+    digest.update(end_unix_ms.to_be_bytes());
+    format!("usage-window-{}", hex::encode(digest.finalize()))
+}
+
+fn rfc3339_millis(timestamp_unix_ms: i64) -> Result<String, &'static str> {
+    ::time::OffsetDateTime::from_unix_timestamp_nanos(
+        i128::from(timestamp_unix_ms).saturating_mul(1_000_000),
+    )
+    .map_err(|_| "usage window timestamp is invalid")?
+    .format(&::time::format_description::well_known::Rfc3339)
+    .map_err(|_| "usage window timestamp is invalid")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn usage_window_payload(
+    sink_id: &str,
+    sink_name: &str,
+    delivery_id: &str,
+    events: &[StoredUsageExportEvent],
+    start_unix_ms: i64,
+    end_unix_ms: i64,
+    window_sec: i64,
+    test: bool,
+) -> Result<Vec<u8>, &'static str> {
+    let first = events.first().ok_or("usage window is empty")?;
+    let last = events.last().ok_or("usage window is empty")?;
+    let mut groups = BTreeMap::<String, UsageWindowGroup>::new();
+    for event in events {
+        let tags_json = serde_json::to_string(&event.tags)
+            .map_err(|_| "cannot encode usage window attributes")?;
+        let group_id = format!(
+            "{}\0{}\0{}\0{}",
+            event.key_id,
+            event.tenant_id,
+            event.end_user.as_deref().unwrap_or_default(),
+            tags_json
+        );
+        let group = groups.entry(group_id).or_insert_with(|| UsageWindowGroup {
+            key_id: event.key_id.clone(),
+            key_name: event.key_name.clone(),
+            tenant_id: event.tenant_id.clone(),
+            end_user: event.end_user.clone(),
+            tags: event.tags.clone(),
+            totals: UsageWindowTotals::default(),
+            models: BTreeMap::new(),
+        });
+        group.totals.add(event);
+        let pricing = event
+            .pricing_snapshot
+            .as_deref()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .transpose()
+            .map_err(|_| "usage pricing snapshot is invalid")?;
+        let model_id = serde_json::to_string(&serde_json::json!([
+            event.provider,
+            event.model,
+            event.usage_kind,
+            event.pricing_known,
+            &pricing
+        ]))
+        .map_err(|_| "cannot encode usage window model")?;
+        let model = group
+            .models
+            .entry(model_id)
+            .or_insert_with(|| UsageWindowModel {
+                provider: event.provider.clone(),
+                model: event.model.clone(),
+                usage_kind: event.usage_kind.clone(),
+                pricing_known: event.pricing_known,
+                pricing,
+                totals: UsageWindowTotals::default(),
+            });
+        model.totals.add(event);
+    }
+    let keys = groups
+        .into_values()
+        .map(|group| UsageWindowKey {
+            api_key: serde_json::json!({"id": group.key_id, "name": group.key_name}),
+            tenant_id: group.tenant_id,
+            attributes: serde_json::json!({"endUser": group.end_user, "tags": group.tags}),
+            totals: group.totals,
+            by_model: group.models.into_values().collect(),
+        })
+        .collect::<Vec<_>>();
+    let mut payload = serde_json::json!({
+        "type": "usage.window",
+        "version": 1,
+        "id": delivery_id,
+        "source": "redrouter_usage_ledger",
+        "coverage": "verified-terminal-usage",
+        "sink": {"id": sink_id, "name": sink_name},
+        "window": {
+            "start": rfc3339_millis(start_unix_ms)?,
+            "end": rfc3339_millis(end_unix_ms)?,
+            "sizeSec": window_sec,
+        },
+        "range": {
+            "fromEventId": first.event_id,
+            "toEventId": last.event_id,
+            "fromTimestamp": rfc3339_millis(first.created_at_unix_ms)?,
+            "toTimestamp": rfc3339_millis(last.created_at_unix_ms)?,
+        },
+        "keys": keys,
+    });
+    if test {
+        payload["test"] = serde_json::Value::Bool(true);
+    }
+    serde_json::to_vec(&payload).map_err(|_| "cannot encode usage window payload")
+}
+
 fn usage_webhook_url(config_json: &str) -> Result<String, &'static str> {
     if config_json.len() > 8 * 1024 {
         return Err("invalid usage webhook configuration");
@@ -1646,8 +1953,13 @@ async fn drain_managed_usage_once(
         let events = database
             .usage_export_events(created_at, event_id, relay.batch_size)
             .await?;
-        if let Some(last) = events.last() {
-            let selected = events
+        let deliverable = if let Some(window_sec) = relay.window_sec {
+            completed_window_events(&events, window_sec, now)?
+        } else {
+            events.as_slice()
+        };
+        if let Some(last) = deliverable.last() {
+            let selected = deliverable
                 .iter()
                 .filter(|event| {
                     usage_event_selected_for(&relay.tenant_id, &relay.api_key_ids, event)
@@ -1672,6 +1984,30 @@ async fn drain_managed_usage_once(
         .release_audit_sink_lease(&relay.sink_id, owner, unix_time_ms().unwrap_or(now))
         .await;
     result
+}
+
+fn completed_window_events(
+    events: &[StoredUsageExportEvent],
+    window_sec: i64,
+    now_unix_ms: i64,
+) -> Result<&[StoredUsageExportEvent], &'static str> {
+    let window_ms = window_sec
+        .checked_mul(1_000)
+        .filter(|value| *value > 0)
+        .ok_or("invalid usage export window")?;
+    let Some(first) = events.first() else {
+        return Ok(events);
+    };
+    let window_start = first.created_at_unix_ms.div_euclid(window_ms) * window_ms;
+    let window_end = window_start.saturating_add(window_ms);
+    if window_end > now_unix_ms {
+        return Ok(&events[..0]);
+    }
+    let count = events
+        .iter()
+        .take_while(|event| event.created_at_unix_ms < window_end)
+        .count();
+    Ok(&events[..count])
 }
 
 fn usage_event_selected(config: &BigQueryAuditConfig, event: &StoredUsageExportEvent) -> bool {
@@ -2064,6 +2400,57 @@ mod tests {
         assert_eq!(payload["event"]["tokens"]["reasoningTokens"], 10);
         assert_eq!(payload["test"], true);
         assert!(!String::from_utf8(encoded).unwrap().contains("whsec_"));
+    }
+
+    #[test]
+    fn usage_window_payload_aggregates_keys_models_and_costs() {
+        let mut first = usage_event("usage-window-one");
+        first.created_at_unix_ms = 1_700_000_000_000;
+        let mut second = usage_event("usage-window-two");
+        second.created_at_unix_ms = 1_700_000_010_000;
+        second.tokens_input = 25;
+        second.tokens_output = 5;
+        second.amount_microusd = 766;
+        let start = first.created_at_unix_ms.div_euclid(300_000) * 300_000;
+        let encoded = usage_window_payload(
+            "sink-one",
+            "Billing",
+            "window-delivery-one",
+            &[first, second],
+            start,
+            start + 300_000,
+            300,
+            false,
+        )
+        .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(payload["type"], "usage.window");
+        assert_eq!(payload["id"], "window-delivery-one");
+        assert_eq!(payload["window"]["sizeSec"], 300);
+        assert_eq!(payload["keys"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["keys"][0]["apiKey"]["id"], "agent-key");
+        assert_eq!(payload["keys"][0]["totals"]["requests"], 2);
+        assert_eq!(payload["keys"][0]["totals"]["promptTokens"], 125);
+        assert_eq!(payload["keys"][0]["totals"]["completionTokens"], 45);
+        assert_eq!(payload["keys"][0]["totals"]["cost"], 0.002);
+        assert_eq!(payload["keys"][0]["byModel"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn completed_window_events_never_advance_into_an_open_window() {
+        let mut completed_one = usage_event("one");
+        completed_one.created_at_unix_ms = 300_001;
+        let mut completed_two = usage_event("two");
+        completed_two.created_at_unix_ms = 599_999;
+        let mut open = usage_event("three");
+        open.created_at_unix_ms = 600_000;
+        let events = vec![completed_one, completed_two, open];
+        let selected = completed_window_events(&events, 300, 650_000).unwrap();
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected.last().unwrap().event_id, "two");
+        assert!(completed_window_events(&events[2..], 300, 650_000)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
