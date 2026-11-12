@@ -9128,7 +9128,15 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
             {
                 break;
             }
-            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            // Before the follower observes the committed generation it may
+            // either serve one request with its still-valid prior snapshot or
+            // fail closed while reloading. The convergence condition above is
+            // the security property: the loop must eventually publish and use
+            // the rotated credential, and no other response class is valid.
+            assert!(matches!(
+                status,
+                StatusCode::OK | StatusCode::SERVICE_UNAVAILABLE
+            ));
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
