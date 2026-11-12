@@ -589,8 +589,7 @@ export default function RustCombosPageClient() {
       <div>
         <h1 className="text-2xl font-semibold text-text">Routing combos</h1>
         <p className="mt-1 max-w-3xl text-sm text-text-muted">
-          Target order, fallback, quota and resilience state are
-          applied without a Next.js persistence path.
+          Configure target order, fallback, quotas and resilience for each combo.
         </p>
       </div>
 

@@ -453,7 +453,7 @@ describe("Rust combo manager", () => {
     api.listRustCombos.mockResolvedValue([combo, nestedCombo]);
     api.replaceRustCombo.mockResolvedValue(nestedCombo);
     const container = await mount();
-    expect(container.textContent).toContain("Expanded safely by the Rust proxy");
+    expect(container.textContent).toContain("Expanded by the proxy");
     const editButtons = [...container.querySelectorAll("button")].filter(
       (button) => button.textContent === "Edit"
     );
