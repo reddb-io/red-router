@@ -249,12 +249,20 @@ function agentPayload(model) {
 
 async function oneRequest(target, payload) {
   const startedAt = performance.now();
-  const response = await fetch(target.url, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${target.key}` },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(30_000),
-  });
+  let response;
+  try {
+    response = await fetch(target.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${target.key}` },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (error) {
+    throw new Error(
+      `${target.name} request failed after ${rounded(performance.now() - startedAt)} ms: ${error}`,
+      { cause: error }
+    );
+  }
   const firstByteMs = performance.now() - startedAt;
   const body = await response.text();
   const totalMs = performance.now() - startedAt;
@@ -327,12 +335,14 @@ async function compareCase(spec, next, rust) {
     next: spec.payload(next.model),
     rust: spec.payload(rust.model),
   };
-  await warm(next, payloads.next);
-  await warm(rust, payloads.rust);
+  process.stdout.write(`benchmark: warming ${spec.name}\n`);
+  await warm(next, payloads.next, 4);
+  await warm(rust, payloads.rust, 4);
   const trials = { next: [], rust: [] };
   for (let round = 0; round < spec.rounds; round += 1) {
     const order = round % 2 === 0 ? [next, rust] : [rust, next];
     for (const target of order) {
+      process.stdout.write(`benchmark: ${spec.name} round ${round + 1} ${target.name}\n`);
       trials[target.name].push(
         await runTrial(target, payloads[target.name], spec.requests, spec.concurrency)
       );
@@ -496,8 +506,9 @@ try {
       model: "bench-model",
     },
   };
-  await warm(targets.next, smallPayload(targets.next.model), 32);
-  await warm(targets.rust, smallPayload(targets.rust.model), 32);
+  process.stdout.write("benchmark: initial warmup\n");
+  await warm(targets.next, smallPayload(targets.next.model), 4);
+  await warm(targets.rust, smallPayload(targets.rust.model), 4);
   const idleRss = {
     next: processTreeRssMiB(targets.next.pid),
     rust: processTreeRssMiB(targets.rust.pid),
