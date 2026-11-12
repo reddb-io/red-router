@@ -402,6 +402,7 @@ try {
   upstream = await startUpstream();
   const providersDb = await import("../../src/lib/db/providers.ts");
   const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
+  const modelsDb = await import("../../src/lib/db/models.ts");
   const coreDb = await import("../../src/lib/db/core.ts");
   const providerId = "openai-compatible-chat-runtime-benchmark";
   await providersDb.createProviderNode({
@@ -422,6 +423,8 @@ try {
     testStatus: "active",
     providerSpecificData: { baseUrl: upstream.url, apiType: "chat", chatPath: "/chat/completions" },
   });
+  await modelsDb.addCustomModel(providerId, "bench-model", "Runtime benchmark model");
+  await modelsDb.setModelActivation(providerId, "bench-model", true);
   const client = await apiKeysDb.createApiKey("Runtime benchmark", "0000000000000001");
   coreDb.closeDbInstance();
 
