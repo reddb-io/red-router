@@ -759,6 +759,9 @@ export default function RustProvidersPageClient() {
           <Button variant="secondary" onClick={() => setOauthDialog({ provider: "agy" })}>
             Connect Antigravity
           </Button>
+          <Button variant="secondary" onClick={() => setOauthDialog({ provider: "xai-oauth" })}>
+            Connect xAI OAuth
+          </Button>
           <Button variant="secondary" onClick={() => setSessionImportOpen(true)}>
             Import existing CLI sessions
           </Button>
@@ -1571,8 +1574,7 @@ export default function RustProvidersPageClient() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {provider.credential_type === "oauth" &&
                     provider.oauth_provider &&
-                    provider.oauth_provider !== "github" &&
-                    provider.oauth_provider !== "xai-oauth" && (
+                    provider.oauth_provider !== "github" && (
                       <Button
                         variant="secondary"
                         disabled={saving}

@@ -72,6 +72,10 @@ const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GITHUB_COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
+const XAI_OAUTH_AUTHORIZE_URL: &str = "https://auth.x.ai/oauth2/authorize";
+const XAI_OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:56121/callback";
+const XAI_OAUTH_SCOPES: &str = "openid profile email offline_access grok-cli:access api:access";
+const XAI_PROVIDER_URL: &str = "https://api.x.ai/v1/chat/completions";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -174,6 +178,7 @@ struct OAuthRefreshConfig {
     github_endpoint: reqwest::Url,
     xai_endpoint: reqwest::Url,
     xai_client_id: String,
+    xai_provider_endpoint: reqwest::Url,
     agy_client_id: Option<String>,
     agy_client_secret: Option<Zeroizing<String>>,
     agy_redirect_uri: Option<String>,
@@ -1483,6 +1488,8 @@ impl OAuthRefreshConfig {
             xai_endpoint: reqwest::Url::parse(XAI_OAUTH_TOKEN_URL)
                 .map_err(|_| "invalid xAI OAuth token URL")?,
             xai_client_id,
+            xai_provider_endpoint: reqwest::Url::parse(XAI_PROVIDER_URL)
+                .map_err(|_| "invalid xAI provider URL")?,
             agy_client_id,
             agy_client_secret,
             agy_redirect_uri,
@@ -1564,6 +1571,10 @@ impl OAuthRefreshConfig {
         xai_endpoint.set_path("/xai-token");
         xai_endpoint.set_query(None);
         xai_endpoint.set_fragment(None);
+        let mut xai_provider_endpoint = codex_endpoint.clone();
+        xai_provider_endpoint.set_path("/xai-chat");
+        xai_provider_endpoint.set_query(None);
+        xai_provider_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
             codex_endpoint: codex_endpoint.clone(),
@@ -1580,6 +1591,7 @@ impl OAuthRefreshConfig {
             github_endpoint,
             xai_endpoint,
             xai_client_id: "test-xai-client".to_owned(),
+            xai_provider_endpoint,
             agy_client_id: Some("test-antigravity-client".to_owned()),
             agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
             agy_redirect_uri: None,
@@ -3830,6 +3842,14 @@ impl ControlPlane {
                 )?;
                 redirect_uri
             }
+            "xai-oauth" => {
+                if requested_redirect_uri
+                    .is_some_and(|value| value.trim() != XAI_OAUTH_REDIRECT_URI)
+                {
+                    return Err("invalid xAI OAuth redirect URI");
+                }
+                XAI_OAUTH_REDIRECT_URI
+            }
             _ => return Err("unsupported browser OAuth provider"),
         };
         if requested_redirect_uri.is_some_and(|value| {
@@ -3840,6 +3860,7 @@ impl ControlPlane {
         let code_verifier = random_token(32)?;
         let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
         let now = unix_time_seconds()?;
+        let oauth_nonce = random_token(16)?;
         let flow = ProviderOAuthFlowState {
             provider: provider.to_owned(),
             redirect_uri: redirect_uri.to_owned(),
@@ -3849,7 +3870,7 @@ impl ControlPlane {
             expires_at: now
                 .checked_add(PROVIDER_OAUTH_FLOW_SECONDS)
                 .ok_or("system clock is out of range")?,
-            nonce: random_token(16)?,
+            nonce: oauth_nonce.clone(),
         };
         let flow =
             serde_json::to_string(&flow).map_err(|_| "cannot encode provider OAuth state")?;
@@ -3875,6 +3896,10 @@ impl ControlPlane {
                     .as_deref()
                     .ok_or("Antigravity OAuth client is not configured")?,
             ),
+            "xai-oauth" => (
+                XAI_OAUTH_AUTHORIZE_URL,
+                self.0.oauth_refresh.xai_client_id.as_str(),
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
         let mut auth_url = reqwest::Url::parse(authorize_url)
@@ -3889,8 +3914,10 @@ impl ControlPlane {
             if provider != "agy" {
                 query
                     .append_pair("code_challenge", &code_challenge)
-                    .append_pair("code_challenge_method", "S256")
-                    .append_pair("prompt", "login");
+                    .append_pair("code_challenge_method", "S256");
+                if provider != "xai-oauth" {
+                    query.append_pair("prompt", "login");
+                }
             }
             if provider == "codex" {
                 query
@@ -3903,11 +3930,17 @@ impl ControlPlane {
                     "scope",
                     "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
                 );
-            } else {
+            } else if provider == "agy" {
                 query
                     .append_pair("scope", AGY_OAUTH_SCOPES)
                     .append_pair("access_type", "offline")
                     .append_pair("prompt", "consent");
+            } else {
+                query
+                    .append_pair("scope", XAI_OAUTH_SCOPES)
+                    .append_pair("nonce", &oauth_nonce)
+                    .append_pair("plan", "generic")
+                    .append_pair("referrer", "cli-proxy-api");
             }
         }
         let mut view = serde_json::json!({
@@ -3918,10 +3951,12 @@ impl ControlPlane {
             "redirectUri":redirect_uri,
             "flowType":if provider == "agy" { "authorization_code" } else { "authorization_code_pkce" },
             "callbackPath":if provider == "codex" { "/auth/callback" } else { "/callback" },
-            "callbackHost":"localhost"
+            "callbackHost":if provider == "xai-oauth" { "127.0.0.1" } else { "localhost" }
         });
         if provider == "codex" {
             view["fixedPort"] = serde_json::json!(1455);
+        } else if provider == "xai-oauth" {
+            view["fixedPort"] = serde_json::json!(56121);
         }
         Ok(view)
     }
@@ -3951,9 +3986,13 @@ impl ControlPlane {
                     .as_deref()
                     .ok_or("Antigravity OAuth client is not configured")?,
             ),
+            "xai-oauth" => (
+                &self.0.oauth_refresh.xai_endpoint,
+                self.0.oauth_refresh.xai_client_id.as_str(),
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
-        let request = if provider == "codex" || provider == "agy" {
+        let request = if matches!(provider, "codex" | "agy" | "xai-oauth") {
             let form = {
                 let mut serializer = url::form_urlencoded::Serializer::new(String::new());
                 serializer
@@ -3961,7 +4000,7 @@ impl ControlPlane {
                     .append_pair("client_id", client_id)
                     .append_pair("code", code)
                     .append_pair("redirect_uri", redirect_uri);
-                if provider == "codex" {
+                if matches!(provider, "codex" | "xai-oauth") {
                     serializer.append_pair("code_verifier", code_verifier);
                 } else if let Some(secret) = self.0.oauth_refresh.agy_client_secret.as_deref() {
                     serializer.append_pair("client_secret", secret);
@@ -4181,6 +4220,94 @@ impl ControlPlane {
                     input.connection_id.as_deref(),
                 )
                 .await
+            }
+            "xai-oauth" => {
+                let claims = token_data
+                    .get("id_token")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(decode_unverified_jwt_payload);
+                let email = claims
+                    .as_ref()
+                    .and_then(|claims| {
+                        json_non_empty_string(claims.get("email"))
+                            .or_else(|| json_non_empty_string(claims.get("preferred_username")))
+                    })
+                    .filter(|value| {
+                        value.len() <= 320
+                            && value.trim() == *value
+                            && !value.chars().any(char::is_control)
+                    })
+                    .map(str::to_owned);
+                let identity = claims.as_ref().and_then(|claims| {
+                    json_non_empty_string(claims.get("sub"))
+                        .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
+                        .map(str::to_owned)
+                });
+                let provider_id = match input.connection_id.as_deref() {
+                    Some(value) => value.to_owned(),
+                    None => identity.as_deref().map_or_else(
+                        || random_token(12).map(|token| format!("xai-{token}")),
+                        |identity| Ok(provider_import_id("xai", tenant_id, identity)),
+                    )?,
+                };
+                validate_id(&provider_id)?;
+                let existing = self
+                    .0
+                    .database
+                    .providers()
+                    .await?
+                    .into_iter()
+                    .find(|provider| provider.id == provider_id);
+                if existing
+                    .as_ref()
+                    .is_some_and(|provider| provider.provider != "xai-oauth")
+                {
+                    return Err("xAI OAuth connection conflicts with another provider");
+                }
+                let created = existing.is_none();
+                let connection = self
+                    .configure_provider_as(
+                        &provider_id,
+                        ProviderInput {
+                            tenant_id: Some(tenant_id.to_owned()),
+                            provider: "xai-oauth".to_owned(),
+                            upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
+                            api_key: access_token,
+                            enabled: true,
+                            rate_limit_scope: "model".to_owned(),
+                            auth_scheme: "bearer".to_owned(),
+                            label: Some(email.clone().unwrap_or_else(|| "xAI OAuth".to_owned())),
+                            account_email: email,
+                            expires_at_unix: Some(expires_at),
+                            credential_type: "oauth".to_owned(),
+                            oauth_provider: Some("xai-oauth".to_owned()),
+                            refresh_token: Some(refresh_token),
+                        },
+                        None,
+                        actor,
+                        enforced_tenant,
+                    )
+                    .await?;
+                self.record_audit_event(
+                    AuditContext {
+                        action: "provider.credentials.imported",
+                        actor,
+                        tenant_id,
+                        target: &provider_id,
+                        resource_type: "provider_credentials",
+                    },
+                    Option::<&serde_json::Value>::None,
+                    Some(&serde_json::json!({
+                        "provider":"xai-oauth",
+                        "created":created,
+                        "browser_oauth":true,
+                    })),
+                )
+                .await;
+                Ok(ProviderAuthImportView {
+                    connection,
+                    created,
+                })
             }
             _ => Err("unsupported browser OAuth provider"),
         }

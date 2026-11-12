@@ -6,12 +6,12 @@ import {
   extractRustProviderSessionZip,
   importRustProviderSession,
   importRustProviderSessionsBulk,
-  type RustBrowserOAuthKind,
+  type RustSessionImportOAuthKind,
   type RustProviderSessionBulkResult,
   type RustProviderSessionImportEntry,
 } from "@/lib/rustControlPlane/browserClient";
 
-const providerNames: Record<RustBrowserOAuthKind, string> = {
+const providerNames: Record<RustSessionImportOAuthKind, string> = {
   codex: "OpenAI Codex CLI",
   claude: "Claude Code",
   agy: "Antigravity",
@@ -44,7 +44,7 @@ type Props = {
 };
 
 export default function RustProviderSessionImportModal({ onClose, onImported }: Props) {
-  const [provider, setProvider] = useState<RustBrowserOAuthKind>("codex");
+  const [provider, setProvider] = useState<RustSessionImportOAuthKind>("codex");
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -181,7 +181,7 @@ export default function RustProviderSessionImportModal({ onClose, onImported }: 
               value={provider}
               disabled={busy}
               onChange={(event) => {
-                setProvider(event.target.value as RustBrowserOAuthKind);
+                setProvider(event.target.value as RustSessionImportOAuthKind);
                 setEntries([]);
                 setResult(null);
               }}

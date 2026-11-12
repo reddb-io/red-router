@@ -1302,14 +1302,17 @@ async fn provider_browser_oauth_server() -> (
     Arc<AtomicUsize>,
     Arc<AtomicUsize>,
     Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
     tokio::task::JoinHandle<()>,
 ) {
     let codex_requests = Arc::new(AtomicUsize::new(0));
     let claude_requests = Arc::new(AtomicUsize::new(0));
     let agy_requests = Arc::new(AtomicUsize::new(0));
+    let xai_requests = Arc::new(AtomicUsize::new(0));
     let observed_codex = codex_requests.clone();
     let observed_claude = claude_requests.clone();
     let observed_agy = agy_requests.clone();
+    let observed_xai = xai_requests.clone();
     let expiry = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1325,6 +1328,11 @@ async fn provider_browser_oauth_server() -> (
         }
     }));
     let codex_access_token = unverified_jwt(serde_json::json!({"exp":expiry}));
+    let xai_id_token = unverified_jwt(serde_json::json!({
+        "email":"browser-xai@example.com",
+        "sub":"browser-xai-user",
+        "exp":expiry
+    }));
     let app = Router::new()
         .route(
             "/codex-token",
@@ -1369,6 +1377,35 @@ async fn provider_browser_oauth_server() -> (
                         "refresh_token":"codex-browser-refresh",
                         "id_token":id_token,
                         "expires_in":3600
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/xai-token",
+            post(move |headers: HeaderMap, body: String| {
+                let observed = observed_xai.clone();
+                let id_token = xai_id_token.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    let fields = url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect::<std::collections::HashMap<_, _>>();
+                    assert_eq!(fields["grant_type"], "authorization_code");
+                    assert_eq!(fields["client_id"], "test-xai-client");
+                    assert_eq!(fields["code"], "xai-browser-code");
+                    assert_eq!(fields["redirect_uri"], "http://127.0.0.1:56121/callback");
+                    assert_eq!(fields["code_verifier"].len(), 43);
+                    Json(serde_json::json!({
+                        "access_token":"xai-browser-access",
+                        "refresh_token":"xai-browser-refresh",
+                        "id_token":id_token,
+                        "expires_in":3600,
+                        "token_type":"Bearer"
                     }))
                 }
             }),
@@ -1448,6 +1485,7 @@ async fn provider_browser_oauth_server() -> (
         codex_requests,
         claude_requests,
         agy_requests,
+        xai_requests,
         task,
     )
 }
@@ -7229,7 +7267,7 @@ async fn rust_extracts_auth_zip_for_codex_and_claude_with_bounded_safe_entries()
 }
 
 #[tokio::test]
-async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
+async fn rust_owns_provider_browser_oauth_across_replicas() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("browser-oauth.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -7240,6 +7278,7 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
         codex_requests,
         claude_requests,
         agy_requests,
+        xai_requests,
         oauth_task,
     ) = provider_browser_oauth_server().await;
     let first = ControlPlane::new_with_oauth_refresh_endpoints(
@@ -7476,10 +7515,62 @@ async fn rust_owns_codex_and_claude_browser_oauth_across_replicas() {
     assert!(!agy_exchange.to_string().contains("agy-browser-refresh"));
     assert_eq!(agy_requests.load(Ordering::SeqCst), 2);
 
+    let xai_authorize = client
+        .get(format!("{first_base}/api/oauth/xai-oauth/authorize"))
+        .bearer_auth(ADMIN_KEY)
+        .query(&[("redirect_uri", "http://127.0.0.1:56121/callback")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(xai_authorize.status(), StatusCode::OK);
+    let xai_authorize: serde_json::Value = xai_authorize.json().await.unwrap();
+    assert_eq!(xai_authorize["flowType"], "authorization_code_pkce");
+    assert_eq!(xai_authorize["fixedPort"], 56121);
+    assert_eq!(xai_authorize["callbackHost"], "127.0.0.1");
+    let xai_url = Url::parse(xai_authorize["authUrl"].as_str().unwrap()).unwrap();
+    assert_eq!(xai_url.host_str(), Some("auth.x.ai"));
+    let xai_query: std::collections::HashMap<_, _> = xai_url.query_pairs().into_owned().collect();
+    assert_eq!(xai_query["client_id"], "test-xai-client");
+    assert_eq!(xai_query["plan"], "generic");
+    assert_eq!(xai_query["referrer"], "cli-proxy-api");
+    assert_eq!(xai_query["code_challenge_method"], "S256");
+    assert!(!xai_query.contains_key("prompt"));
+    assert!(xai_query["scope"]
+        .split_whitespace()
+        .any(|scope| scope == "api:access"));
+    assert_eq!(xai_query["nonce"].len(), 22);
+
+    let xai_exchange = client
+        .post(format!("{second_base}/api/oauth/xai-oauth/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"xai-browser-code",
+            "redirectUri":"http://127.0.0.1:56121/callback",
+            "codeVerifier":xai_authorize["codeVerifier"],
+            "state":xai_authorize["state"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(xai_exchange.status(), StatusCode::OK);
+    let xai_exchange: serde_json::Value = xai_exchange.json().await.unwrap();
+    assert_eq!(xai_exchange["success"], true);
+    assert_eq!(xai_exchange["connection"]["provider"], "xai-oauth");
+    assert_eq!(
+        xai_exchange["connection"]["email"],
+        "browser-xai@example.com"
+    );
+    assert!(xai_exchange["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .starts_with("xai-"));
+    assert!(!xai_exchange.to_string().contains("xai-browser-refresh"));
+    assert_eq!(xai_requests.load(Ordering::SeqCst), 1);
+
     let providers = database.providers().await.unwrap();
-    assert_eq!(providers.len(), 3);
+    assert_eq!(providers.len(), 4);
     let oauth = database.provider_oauth().await.unwrap();
-    assert_eq!(oauth.len(), 3);
+    assert_eq!(oauth.len(), 4);
     assert!(oauth
         .iter()
         .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));

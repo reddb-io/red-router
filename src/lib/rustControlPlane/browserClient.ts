@@ -165,7 +165,8 @@ export interface RustUsageSummary {
 export type RustRateLimitScope = "auto" | "connection" | "model";
 export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
 export type RustProviderOAuthKind = "codex" | "claude" | "agy" | "github" | "xai-oauth";
-export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github" | "xai-oauth">;
+export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github">;
+export type RustSessionImportOAuthKind = Exclude<RustProviderOAuthKind, "github" | "xai-oauth">;
 
 export interface RustProvider {
   id: string;
@@ -1763,7 +1764,7 @@ export async function exchangeRustProviderOAuth(
 }
 
 export async function importRustProviderSession(
-  provider: RustBrowserOAuthKind,
+  provider: RustSessionImportOAuthKind,
   entry: RustProviderSessionImportEntry,
   overwriteExisting: boolean
 ): Promise<RustProviderSessionImportResult> {
@@ -1790,7 +1791,7 @@ export async function importRustProviderSession(
 }
 
 export async function importRustProviderSessionsBulk(
-  provider: RustBrowserOAuthKind,
+  provider: RustSessionImportOAuthKind,
   entries: RustProviderSessionImportEntry[],
   overwriteExisting: boolean
 ): Promise<RustProviderSessionBulkResult> {
@@ -1823,7 +1824,7 @@ export async function importRustProviderSessionsBulk(
 }
 
 export async function extractRustProviderSessionZip(
-  provider: RustBrowserOAuthKind,
+  provider: RustSessionImportOAuthKind,
   file: Blob
 ): Promise<RustProviderSessionZipEntry[]> {
   const response = await rustProviderSessionFetch(`/api/providers/${provider}-auth/zip-extract`, {
