@@ -53,6 +53,7 @@ describe("Rust production entrypoint", () => {
     const runtime = dockerfile.slice(dockerfile.lastIndexOf("FROM debian:"));
 
     assert.ok(runtime.includes('ENTRYPOINT ["red-routerd"]'));
+    assert.match(dockerfile, /protobuf-compiler/);
     assert.ok(
       runtime.includes(
         "COPY --from=dashboard-builder --chown=redrouter:redrouter /src/.build/rust-dashboard/ /app/dashboard/"

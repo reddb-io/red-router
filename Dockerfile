@@ -18,7 +18,7 @@ FROM rust:trixie AS rust-builder
 WORKDIR /src
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends cmake pkg-config \
+    && apt-get install -y --no-install-recommends cmake pkg-config protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 COPY rust/red-routerd/Cargo.toml rust/red-routerd/Cargo.lock ./rust/red-routerd/
