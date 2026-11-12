@@ -67,8 +67,6 @@ export default function Overview() {
   const [error, setError] = useState("");
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError("");
     try {
       const [runtime, providers, health, combos, keys, usage] = await Promise.all([
         readRustRuntimeStatus(signal),
@@ -86,6 +84,12 @@ export default function Overview() {
       if (!signal?.aborted) setLoading(false);
     }
   }, []);
+
+  const refresh = () => {
+    setLoading(true);
+    setError("");
+    void load();
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -118,7 +122,7 @@ export default function Overview() {
             Live state from the Rust proxy, control plane and SQLite usage authority.
           </p>
         </div>
-        <Button variant="outline" loading={loading} onClick={() => void load()}>
+        <Button variant="outline" loading={loading} onClick={refresh}>
           Refresh
         </Button>
       </div>
