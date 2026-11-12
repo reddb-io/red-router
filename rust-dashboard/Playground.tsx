@@ -4,12 +4,55 @@ import { Button, Card } from "./components";
 type Message = { role: "user" | "assistant"; content: string };
 const inputClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";
 
+export async function readChatStream(response: Response, onText: (text: string) => void): Promise<string> {
+  if (!response.body) throw new Error("The response stream is unavailable.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let done = false;
+  const processEvent = (event: string) => {
+    const data = event.split(/\r?\n/).filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, "")).join("\n");
+    if (!data) return;
+    if (data === "[DONE]") { done = true; return; }
+    let parsed: { error?: { message?: unknown }; choices?: Array<{ delta?: { content?: unknown } }> };
+    try { parsed = JSON.parse(data); } catch { throw new Error("The response stream contained invalid data."); }
+    if (parsed.error) throw new Error(typeof parsed.error.message === "string" ? parsed.error.message : "The response stream failed.");
+    const delta = parsed.choices?.[0]?.delta?.content;
+    if (typeof delta === "string") { text += delta; onText(text); }
+  };
+  try {
+    while (!done) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      let separator: RegExpExecArray | null;
+      while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+        processEvent(buffer.slice(0, separator.index));
+        buffer = buffer.slice(separator.index + separator[0].length);
+        if (done) break;
+      }
+      if (chunk.done) {
+        if (buffer.trim()) processEvent(buffer);
+        break;
+      }
+    }
+    if (!done) throw new Error("The response stream ended unexpectedly.");
+    return text;
+  } finally {
+    if (done) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 export default function Playground() {
   const [key, setKey] = useState("");
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
+  const [stream, setStream] = useState(true);
+  const [partial, setPartial] = useState("");
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
 
@@ -23,25 +66,31 @@ export default function Playground() {
     const next: Message[] = [...messages, { role: "user", content: prompt.trim() }];
     setBusy(true);
     setError("");
+    setPartial("");
     try {
       const response = await fetch("/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key.trim()}` },
-        body: JSON.stringify({ model: model.trim(), messages: next, stream: false }),
+        body: JSON.stringify({ model: model.trim(), messages: next, stream }),
         signal: controller.signal,
       });
-      const result: unknown = await response.json().catch(() => null);
       if (!response.ok) {
+        const result: unknown = await response.json().catch(() => null);
         const detail = result && typeof result === "object" && "error" in result
           ? (result as { error?: { message?: unknown } }).error?.message
           : null;
         throw new Error(typeof detail === "string" ? detail : `Request failed (${response.status}).`);
       }
-      const content = (result as { choices?: Array<{ message?: { content?: unknown } }> } | null)
-        ?.choices?.[0]?.message?.content;
+      let content: unknown;
+      if (stream) content = await readChatStream(response, setPartial);
+      else {
+        const result = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+        content = result?.choices?.[0]?.message?.content;
+      }
       if (typeof content !== "string") throw new Error("The response did not contain text.");
       setMessages([...next, { role: "assistant", content }]);
       setPrompt("");
+      setPartial("");
     } catch (cause) {
       setError(controller.signal.aborted ? "Request cancelled." : cause instanceof Error ? cause.message : "Request failed.");
     } finally {
@@ -62,6 +111,7 @@ export default function Playground() {
           <label>Model or combo<input className={inputClass} disabled={busy} value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model" /></label>
         </div>
         <p className="mt-2 text-sm text-text-muted">The key stays in this page's memory and is sent with each request.</p>
+        <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={stream} disabled={busy} onChange={(event) => setStream(event.target.checked)} /> Stream responses</label>
       </Card>
       <Card title="Conversation" action={<Button variant="outline" disabled={busy || messages.length === 0} onClick={() => setMessages([])}>Clear</Button>}>
         {messages.length === 0 ? <p className="text-sm text-text-muted">Your conversation will appear here.</p> : (
@@ -74,6 +124,7 @@ export default function Playground() {
             ))}
           </ol>
         )}
+        {partial && <div className="mt-4 rounded border border-border p-3"><strong className="text-sm">Assistant (partial)</strong><p className="mt-2 whitespace-pre-wrap break-words">{partial}</p></div>}
         {error && <p role="alert" className="mt-4 text-sm text-error">{error}</p>}
         <form onSubmit={(event) => void send(event)} className="mt-4 space-y-3">
           <label className="block">Message<textarea className={inputClass} rows={4} disabled={busy} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>

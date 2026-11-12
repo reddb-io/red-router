@@ -59,12 +59,15 @@ test("playground sends a multi-turn conversation using the supplied client key",
   const requests: unknown[] = [];
   await page.route("**/v1/chat/completions", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer local-client-key");
-    requests.push(route.request().postDataJSON());
-    await route.fulfill({ json: { choices: [{ message: { content: `Reply ${requests.length}` } }] } });
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    if (body.stream) await route.fulfill({ contentType: "text/event-stream", body: 'data: {"choices":[{"delta":{"content":"Streamed "}}]}\n\ndata: {"choices":[{"delta":{"content":"reply"}}]}\n\ndata: [DONE]\n\n' });
+    else await route.fulfill({ json: { choices: [{ message: { content: `Reply ${requests.length}` } }] } });
   });
   await page.goto(`${origin}/dashboard/playground`);
   await page.getByLabel("API key", { exact: true }).fill("local-client-key");
   await page.getByLabel("Model or combo").fill("openrouter/example");
+  await page.getByLabel("Stream responses").uncheck();
   await page.getByLabel("Message", { exact: true }).fill("Hello");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText("Reply 1", { exact: true })).toBeVisible();
@@ -77,6 +80,11 @@ test("playground sends a multi-turn conversation using the supplied client key",
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("local-client-key");
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(page.getByText("Reply 1", { exact: true })).not.toBeVisible();
+  await page.getByLabel("Stream responses").check();
+  await page.getByLabel("Message", { exact: true }).fill("Stream this");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText("Streamed reply", { exact: true })).toBeVisible();
+  expect(requests[2]).toMatchObject({ stream: true, messages: [{ role: "user", content: "Stream this" }] });
 });
 
 test("static dashboard uses Rust session and API routes", async ({ page, context }) => {
