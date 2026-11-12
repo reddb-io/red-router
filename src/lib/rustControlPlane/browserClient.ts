@@ -164,8 +164,8 @@ export interface RustUsageSummary {
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
 export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
-export type RustProviderOAuthKind = "codex" | "claude" | "agy" | "github";
-export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github">;
+export type RustProviderOAuthKind = "codex" | "claude" | "agy" | "github" | "xai-oauth";
+export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github" | "xai-oauth">;
 
 export interface RustProvider {
   id: string;
@@ -928,7 +928,8 @@ function isRustProvider(value: unknown): value is RustProvider {
       provider.oauth_provider === "codex" ||
       provider.oauth_provider === "claude" ||
       provider.oauth_provider === "agy" ||
-      provider.oauth_provider === "github") &&
+      provider.oauth_provider === "github" ||
+      provider.oauth_provider === "xai-oauth") &&
     (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
     typeof provider.refreshable === "boolean" &&
     (provider.oauth_refresh_state === undefined ||

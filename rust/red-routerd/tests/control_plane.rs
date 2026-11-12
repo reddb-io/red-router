@@ -1180,6 +1180,78 @@ async fn github_copilot_fixture() -> (
     )
 }
 
+async fn xai_oauth_fixture() -> (
+    Url,
+    String,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    let refreshes = Arc::new(AtomicUsize::new(0));
+    let inference = Arc::new(AtomicUsize::new(0));
+    let observed_refreshes = refreshes.clone();
+    let observed_inference = inference.clone();
+    let app = Router::new()
+        .route(
+            "/xai-token",
+            post(move |headers: HeaderMap, body: String| {
+                let observed_refreshes = observed_refreshes.clone();
+                async move {
+                    observed_refreshes.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    let form = url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect::<std::collections::HashMap<_, _>>();
+                    assert_eq!(form.get("grant_type").map(String::as_str), Some("refresh_token"));
+                    assert_eq!(form.get("client_id").map(String::as_str), Some("test-xai-client"));
+                    assert_eq!(
+                        form.get("refresh_token").map(String::as_str),
+                        Some("xai-refresh-token")
+                    );
+                    Json(serde_json::json!({
+                        "access_token":"xai-rotated-access-token",
+                        "refresh_token":"xai-rotated-refresh-token",
+                        "expires_in":3600,
+                        "token_type":"Bearer"
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/chat/completions",
+            post(move |headers: HeaderMap| {
+                let observed_inference = observed_inference.clone();
+                async move {
+                    observed_inference.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::AUTHORIZATION].to_str().unwrap(),
+                        "Bearer xai-rotated-access-token"
+                    );
+                    Json(serde_json::json!({
+                        "id":"xai-oauth-fixture",
+                        "object":"chat.completion",
+                        "model":"grok-4.3",
+                        "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+                        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        Url::parse(&format!("http://{address}/token")).unwrap(),
+        format!("http://{address}/chat/completions"),
+        refreshes,
+        inference,
+        task,
+    )
+}
+
 async fn codex_quota_server() -> (
     Url,
     Arc<AtomicUsize>,
@@ -8409,6 +8481,100 @@ async fn rust_refreshes_and_routes_imported_github_copilot_oauth() {
         StatusCode::OK
     );
     let response = chat_model(&client, &base, CLIENT_KEY, "github-copilot-fixture").await;
+    let response_status = response.status();
+    let response_body = response.text().await.unwrap();
+    assert_eq!(response_status, StatusCode::OK, "{response_body}");
+    assert_eq!(inference.load(Ordering::SeqCst), 1);
+
+    gateway_task.abort();
+    fixture_task.abort();
+}
+
+#[tokio::test]
+async fn rust_refreshes_and_routes_imported_xai_oauth() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("xai-oauth.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let (token_endpoint, upstream, refreshes, inference, fixture_task) = xai_oauth_fixture().await;
+    let control = ControlPlane::new_with_oauth_refresh_endpoints(
+        database,
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        token_endpoint.clone(),
+        token_endpoint,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 60;
+
+    let configured = client
+        .put(format!("{base}/api/admin/providers/xai-oauth"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"xai-oauth",
+                "upstream_url":upstream,
+                "api_key":"xai-initial-access-token",
+                "auth_scheme":"bearer",
+                "expires_at_unix":expiry,
+                "credential_type":"oauth",
+                "oauth_provider":"xai-oauth",
+                "refresh_token":"xai-refresh-token"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), StatusCode::OK);
+    let configured: serde_json::Value = configured.json().await.unwrap();
+    assert_eq!(configured["provider"]["oauth_provider"], "xai-oauth");
+    assert_eq!(configured["provider"]["refreshable"], true);
+    assert!(!configured.to_string().contains("xai-refresh-token"));
+
+    let refreshed = client
+        .post(format!(
+            "{base}/api/admin/providers/xai-oauth/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value = refreshed.json().await.unwrap();
+    assert_eq!(refreshed["refresh"]["category"], "refreshed");
+    assert_eq!(refreshed["refresh"]["generation"], "1");
+    assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/xai-oauth-fixture"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai",
+                    "strategy":"priority",
+                    "targets":[{"provider_id":"xai-oauth","model":"grok-4.3"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let response = chat_model(&client, &base, CLIENT_KEY, "xai-oauth-fixture").await;
     let response_status = response.status();
     let response_body = response.text().await.unwrap();
     assert_eq!(response_status, StatusCode::OK, "{response_body}");

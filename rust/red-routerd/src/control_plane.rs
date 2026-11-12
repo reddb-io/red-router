@@ -71,6 +71,7 @@ const CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLAUDE_OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const AGY_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GITHUB_COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
+const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -107,6 +108,11 @@ const AGY_QUOTA_USER_AGENT: &str =
     "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const PUBLIC_CREDENTIAL_MASK: &[u8] = b"omniroute-public-v1";
+const XAI_OAUTH_CLIENT_ID_MASKED: &[u8] = &[
+    13, 92, 15, 89, 66, 91, 76, 70, 72, 29, 71, 70, 3, 65, 93, 84, 72, 23, 28, 87, 92, 88, 15, 95,
+    91, 22, 71, 87, 20, 66, 67, 86, 13, 81, 81, 21,
+];
 const AUTH_ZIP_BODY_LIMIT_BYTES: usize = 11 * 1024 * 1024;
 const AUTH_ZIP_MAX_ENTRIES: usize = 1_024;
 const AUTH_ZIP_MAX_JSON_FILES: usize = 50;
@@ -166,6 +172,8 @@ struct OAuthRefreshConfig {
     claude_client_id: String,
     agy_endpoint: reqwest::Url,
     github_endpoint: reqwest::Url,
+    xai_endpoint: reqwest::Url,
+    xai_client_id: String,
     agy_client_id: Option<String>,
     agy_client_secret: Option<Zeroizing<String>>,
     agy_redirect_uri: Option<String>,
@@ -1432,6 +1440,10 @@ impl OAuthRefreshConfig {
             .unwrap_or_else(|_| CODEX_OAUTH_CLIENT_ID.to_owned());
         let claude_client_id = std::env::var("CLAUDE_OAUTH_CLIENT_ID")
             .unwrap_or_else(|_| CLAUDE_OAUTH_CLIENT_ID.to_owned());
+        let xai_client_id = std::env::var("GROK_OAUTH_CLIENT_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(embedded_xai_oauth_client_id);
         let agy_client_id = std::env::var("ANTIGRAVITY_OAUTH_CLIENT_ID")
             .ok()
             .filter(|value| !value.trim().is_empty());
@@ -1444,6 +1456,7 @@ impl OAuthRefreshConfig {
             .filter(|value| !value.trim().is_empty());
         validate_oauth_client_id(&codex_client_id)?;
         validate_oauth_client_id(&claude_client_id)?;
+        validate_oauth_client_id(&xai_client_id)?;
         if let Some(client_id) = agy_client_id.as_deref() {
             validate_oauth_client_id(client_id)?;
         }
@@ -1467,6 +1480,9 @@ impl OAuthRefreshConfig {
                 .map_err(|_| "invalid Antigravity OAuth token URL")?,
             github_endpoint: reqwest::Url::parse(GITHUB_COPILOT_TOKEN_URL)
                 .map_err(|_| "invalid GitHub Copilot token URL")?,
+            xai_endpoint: reqwest::Url::parse(XAI_OAUTH_TOKEN_URL)
+                .map_err(|_| "invalid xAI OAuth token URL")?,
+            xai_client_id,
             agy_client_id,
             agy_client_secret,
             agy_redirect_uri,
@@ -1544,6 +1560,10 @@ impl OAuthRefreshConfig {
         github_endpoint.set_path("/copilot-token");
         github_endpoint.set_query(None);
         github_endpoint.set_fragment(None);
+        let mut xai_endpoint = codex_endpoint.clone();
+        xai_endpoint.set_path("/xai-token");
+        xai_endpoint.set_query(None);
+        xai_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
             codex_endpoint: codex_endpoint.clone(),
@@ -1558,6 +1578,8 @@ impl OAuthRefreshConfig {
             claude_client_id: CLAUDE_OAUTH_CLIENT_ID.to_owned(),
             agy_endpoint: codex_endpoint,
             github_endpoint,
+            xai_endpoint,
+            xai_client_id: "test-xai-client".to_owned(),
             agy_client_id: Some("test-antigravity-client".to_owned()),
             agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
             agy_redirect_uri: None,
@@ -1566,6 +1588,16 @@ impl OAuthRefreshConfig {
             agy_load_code_assist_endpoint,
         }
     }
+}
+
+fn embedded_xai_oauth_client_id() -> String {
+    XAI_OAUTH_CLIENT_ID_MASKED
+        .iter()
+        .enumerate()
+        .map(|(index, byte)| {
+            char::from(*byte ^ PUBLIC_CREDENTIAL_MASK[index % PUBLIC_CREDENTIAL_MASK.len()])
+        })
+        .collect()
 }
 
 fn validate_oauth_client_id(value: &str) -> Result<(), &'static str> {
@@ -2845,6 +2877,12 @@ impl ControlPlane {
                     false,
                 )
             }
+            "xai-oauth" => (
+                &self.0.oauth_refresh.xai_endpoint,
+                self.0.oauth_refresh.xai_client_id.as_str(),
+                None,
+                false,
+            ),
             _ => {
                 return Err(OAuthExchangeFailure::Transient {
                     category: "unsupported_provider",
@@ -4835,7 +4873,10 @@ impl ControlPlane {
                     .oauth_provider
                     .as_deref()
                     .ok_or("OAuth provider is required")?;
-                if !matches!(oauth_provider, "codex" | "claude" | "agy" | "github") {
+                if !matches!(
+                    oauth_provider,
+                    "codex" | "claude" | "agy" | "github" | "xai-oauth"
+                ) {
                     return Err("unsupported OAuth provider");
                 }
                 if input.provider != oauth_provider {
@@ -7987,7 +8028,7 @@ impl ControlPlane {
             .map(|record| {
                 if !matches!(
                     record.oauth_provider.as_str(),
-                    "codex" | "claude" | "agy" | "github"
+                    "codex" | "claude" | "agy" | "github" | "xai-oauth"
                 ) || record.generation < 0
                     || record.refresh_token_ciphertext.is_empty()
                 {
@@ -10352,6 +10393,7 @@ fn oauth_rotation_group(provider: &str) -> Result<&'static str, &'static str> {
         "claude" => Ok("anthropic-oauth"),
         "agy" => Ok("google-antigravity-oauth"),
         "github" => Ok("github-copilot-oauth"),
+        "xai-oauth" => Ok("xai-oauth"),
         _ => Err("unsupported OAuth provider"),
     }
 }
@@ -10864,6 +10906,14 @@ fn oauth_terminal_error(provider: &str, status: u16, code: &str) -> bool {
             "invalid_grant" | "invalid_client" | "unauthorized_client"
         ),
         "github" => status == 401 || status == 403 || code == "invalid_token",
+        "xai-oauth" => {
+            status == 401
+                || status == 403
+                || matches!(
+                    code,
+                    "invalid_grant" | "invalid_client" | "unauthorized_client"
+                )
+        }
         _ => false,
     }
 }

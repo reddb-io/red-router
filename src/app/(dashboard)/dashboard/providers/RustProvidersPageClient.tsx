@@ -91,6 +91,11 @@ const EMPTY_DRAFT: Draft = {
   refreshToken: "",
 };
 
+const OAUTH_UPSTREAM_DEFAULTS: Partial<Record<RustProviderOAuthKind, string>> = {
+  github: "https://api.githubcopilot.com/chat/completions",
+  "xai-oauth": "https://api.x.ai/v1/chat/completions",
+};
+
 const inputClass =
   "w-full rounded-lg border border-black/10 dark:border-white/10 bg-surface px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary/40";
 const labelClass = "flex flex-col gap-1 text-xs font-medium text-text-muted";
@@ -869,14 +874,17 @@ export default function RustProvidersPageClient() {
                 value={draft.oauthProvider}
                 onChange={(event) => {
                   const oauthProvider = event.target.value as Draft["oauthProvider"];
+                  const upstreamDefault = OAUTH_UPSTREAM_DEFAULTS[oauthProvider];
                   setDraft((current) => ({
                     ...current,
                     oauthProvider,
                     provider: oauthProvider,
                     authScheme: "bearer",
                     upstreamUrl:
-                      oauthProvider === "github" && !current.upstreamUrl.trim()
-                        ? "https://api.githubcopilot.com/chat/completions"
+                      (!current.upstreamUrl.trim() ||
+                        Object.values(OAUTH_UPSTREAM_DEFAULTS).includes(current.upstreamUrl)) &&
+                      upstreamDefault
+                        ? upstreamDefault
                         : current.upstreamUrl,
                   }));
                 }}
@@ -885,6 +893,7 @@ export default function RustProvidersPageClient() {
                 <option value="claude">Claude Code</option>
                 <option value="agy">Antigravity</option>
                 <option value="github">GitHub Copilot (imported token)</option>
+                <option value="xai-oauth">xAI API OAuth (imported token)</option>
               </select>
             </label>
           )}
@@ -1562,7 +1571,8 @@ export default function RustProvidersPageClient() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {provider.credential_type === "oauth" &&
                     provider.oauth_provider &&
-                    provider.oauth_provider !== "github" && (
+                    provider.oauth_provider !== "github" &&
+                    provider.oauth_provider !== "xai-oauth" && (
                       <Button
                         variant="secondary"
                         disabled={saving}

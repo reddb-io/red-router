@@ -168,6 +168,17 @@ const githubCopilotProvider: RustProvider = {
   refreshable: true,
 };
 
+const xaiOAuthProvider: RustProvider = {
+  ...provider,
+  id: "xai-oauth",
+  provider: "xai-oauth",
+  upstream_url: "https://api.x.ai/v1/chat/completions",
+  credential_type: "oauth",
+  oauth_provider: "xai-oauth",
+  oauth_generation: "3",
+  refreshable: true,
+};
+
 const combo: RustCombo = {
   id: "agent-route",
   tenant_id: "red",
@@ -666,7 +677,9 @@ describe("Rust control-plane browser client", () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const fetch = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ providers: [provider, githubCopilotProvider] }))
+      .mockResolvedValueOnce(
+        Response.json({ providers: [provider, githubCopilotProvider, xaiOAuthProvider] })
+      )
       .mockResolvedValueOnce(Response.json({ provider }))
       .mockResolvedValueOnce(
         Response.json({
@@ -686,7 +699,11 @@ describe("Rust control-plane browser client", () => {
       );
     vi.stubGlobal("fetch", fetch);
 
-    await expect(listRustProviders()).resolves.toEqual([provider, githubCopilotProvider]);
+    await expect(listRustProviders()).resolves.toEqual([
+      provider,
+      githubCopilotProvider,
+      xaiOAuthProvider,
+    ]);
     await expect(
       replaceRustProvider(provider.id, {
         provider: provider.provider,
