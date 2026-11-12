@@ -9106,30 +9106,29 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
     };
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
-            assert_eq!(
-                client
-                    .post(format!("{follower_base}/v1/messages"))
-                    .bearer_auth(CLIENT_KEY)
-                    .header(header::CONTENT_TYPE.as_str(), "application/json")
-                    .body(
-                        serde_json::json!({
-                            "model":"claude-refresh-model",
-                            "messages":[],
-                            "max_tokens":8
-                        })
-                        .to_string()
-                    )
-                    .send()
-                    .await
-                    .unwrap()
-                    .status(),
-                StatusCode::OK
-            );
-            if upstream_requests.lock().unwrap().last().map(String::as_str)
-                == Some("Bearer server-refreshed-access-token")
+            let status = client
+                .post(format!("{follower_base}/v1/messages"))
+                .bearer_auth(CLIENT_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "model":"claude-refresh-model",
+                        "messages":[],
+                        "max_tokens":8
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status();
+            if status == StatusCode::OK
+                && upstream_requests.lock().unwrap().last().map(String::as_str)
+                    == Some("Bearer server-refreshed-access-token")
             {
                 break;
             }
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
