@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createRustAdminSession,
@@ -7,7 +7,9 @@ import {
   type RustAuthConfig,
 } from "./api/browserClient";
 import "./dashboard.css";
+import { resolveSpaPage, spaPageRoutes, type SpaPageId } from "./routes";
 
+const Overview = lazy(() => import("./Overview"));
 const Providers = lazy(() => import("./pages/RustProvidersPageClient"));
 const Combos = lazy(() => import("./pages/RustCombosPageClient"));
 const Keys = lazy(() => import("./pages/RustApiManagerPageClient"));
@@ -21,20 +23,21 @@ const Organizations = lazy(() => import("./Organizations"));
 const AuditLog = lazy(() => import("./AuditLog"));
 const ProviderResilience = lazy(() => import("./ProviderResilience"));
 
-const pages = [
-  { path: "/dashboard/providers", label: "Providers", component: Providers },
-  { path: "/dashboard/provider-resilience", label: "Resilience", component: ProviderResilience },
-  { path: "/dashboard/model-catalog", label: "Model catalog", component: ModelCatalog },
-  { path: "/dashboard/combos", label: "Combos", component: Combos },
-  { path: "/dashboard/api-manager", label: "API keys", component: Keys },
-  { path: "/dashboard/budgets", label: "Budgets", component: SharedBudgets },
-  { path: "/dashboard/usage-sinks", label: "Usage destinations", component: UsageSinks },
-  { path: "/dashboard/usage", label: "Usage report", component: UsageReport },
-  { path: "/dashboard/legacy-usage", label: "Historical usage", component: LegacyUsage },
-  { path: "/dashboard/organizations", label: "Organizations", component: Organizations },
-  { path: "/dashboard/audit", label: "Audit log", component: AuditLog },
-  { path: "/dashboard/oidc", label: "Single sign-on", component: OidcSettings },
-];
+const pageComponents: Record<SpaPageId, ComponentType> = {
+  overview: Overview,
+  providers: Providers,
+  resilience: ProviderResilience,
+  models: ModelCatalog,
+  combos: Combos,
+  keys: Keys,
+  budgets: SharedBudgets,
+  "usage-sinks": UsageSinks,
+  usage: UsageReport,
+  "legacy-usage": LegacyUsage,
+  organizations: Organizations,
+  audit: AuditLog,
+  oidc: OidcSettings,
+};
 
 function Dashboard() {
   const [config, setConfig] = useState<RustAuthConfig | null | undefined>(undefined);
@@ -129,11 +132,8 @@ function Dashboard() {
       </main>
     );
 
-  const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  const current =
-    pages.find((page) => page.path === path) ??
-    (path === "/" || path === "/dashboard" ? pages[0] : null);
-  const Page = current?.component;
+  const current = resolveSpaPage(window.location.pathname);
+  const Page = current ? pageComponents[current.id] : null;
   return (
     <div className="min-h-screen bg-bg text-text-main">
       <header className="flex flex-wrap items-center gap-4 border-b border-border px-6 py-4">
@@ -141,11 +141,11 @@ function Dashboard() {
           RedRouter
         </a>
         <nav aria-label="Dashboard" className="flex flex-wrap gap-4">
-          {pages.map((page) => (
+          {spaPageRoutes.map((page) => (
             <a
               key={page.path}
               href={page.path}
-              aria-current={current?.path === page.path ? "page" : undefined}
+              aria-current={current?.id === page.id ? "page" : undefined}
             >
               {page.label}
             </a>

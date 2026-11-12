@@ -28,6 +28,7 @@ import {
   listRustTenants,
   readRustCatalogProvider,
   readRustModelCatalog,
+  readRustRuntimeStatus,
   readRustUsageSummary,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
@@ -308,6 +309,20 @@ afterEach(() => {
 });
 
 describe("Rust control-plane browser client", () => {
+  it("reads liveness and readiness from the Rust runtime without cached responses", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(readRustRuntimeStatus()).resolves.toMatchObject({ live: true, ready: false });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/healthz", "/readyz"]);
+    for (const [, init] of fetch.mock.calls as Array<[string, RequestInit]>) {
+      expect(init).toMatchObject({ method: "GET", credentials: "same-origin", cache: "no-store" });
+    }
+  });
+
   it("detects the Rust public auth bootstrap without accepting lookalike payloads", async () => {
     const fetch = vi
       .fn()

@@ -5,6 +5,12 @@ export interface RustAuthConfig {
   password_login: boolean;
 }
 
+export interface RustRuntimeStatus {
+  live: boolean;
+  ready: boolean;
+  checked_at: string;
+}
+
 export interface RustClientAccessSchedule {
   enabled: boolean;
   from: string;
@@ -672,6 +678,19 @@ export async function readRustAuthConfig(signal?: AbortSignal): Promise<RustAuth
     return null;
   }
   return value as RustAuthConfig;
+}
+
+export async function readRustRuntimeStatus(signal?: AbortSignal): Promise<RustRuntimeStatus> {
+  const request = (path: "/healthz" | "/readyz") =>
+    fetch(path, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+      headers: { accept: "text/plain, application/json" },
+    }).then((response) => response.ok);
+  const [live, ready] = await Promise.all([request("/healthz"), request("/readyz")]);
+  return { live, ready, checked_at: new Date().toISOString() };
 }
 
 export async function createRustAdminSession(adminKey: string): Promise<void> {
