@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import {
-  listRustAuditEvents,
-  type RustAuditEvent,
-  type RustAuditQuery,
-} from "@/lib/rustControlPlane/browserClient";
+import { listRustAuditEvents, type RustAuditEvent, type RustAuditQuery } from "./api/browserClient";
 
 const PAGE_SIZE = 50;
 const fieldClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";

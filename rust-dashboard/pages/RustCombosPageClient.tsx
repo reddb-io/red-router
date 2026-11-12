@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card } from "@/shared/components";
+import { Button, Card } from "../components";
 import {
   clearRustComboRoutePin,
   disableRustCombo,
@@ -20,7 +20,7 @@ import {
   type RustProvider,
   type RustProviderHealth,
   type RustProviderQuota,
-} from "@/lib/rustControlPlane/browserClient";
+} from "../api/browserClient";
 
 type TargetDraft = {
   kind: "model" | "combo-ref";
@@ -235,11 +235,7 @@ function requiredInteger(value: string, label: string, minimum: number, maximum:
   return parsed;
 }
 
-function comboInput(
-  draft: Draft,
-  providers: RustProvider[],
-  combos: RustCombo[]
-): RustComboInput {
+function comboInput(draft: Draft, providers: RustProvider[], combos: RustCombo[]): RustComboInput {
   const id = draft.id.trim();
   if (!id || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) {
     throw new Error("Combo ID must contain only letters, numbers, dashes or underscores");
@@ -1127,51 +1123,55 @@ export default function RustCombosPageClient() {
                   )}
                   {target.kind === "model" &&
                     (draft.strategy === "cost-optimized" || draft.strategy === "auto") && (
-                    <>
-                      <label className={labelClass}>
-                        Input USD / million
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={target.inputCost}
-                          placeholder="models.dev when blank"
-                          onChange={(event) => setTarget(index, { inputCost: event.target.value })}
-                        />
-                      </label>
-                      <label className={labelClass}>
-                        Output USD / million
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={target.outputCost}
-                          placeholder="models.dev when blank"
-                          onChange={(event) => setTarget(index, { outputCost: event.target.value })}
-                        />
-                      </label>
-                    </>
-                  )}
+                      <>
+                        <label className={labelClass}>
+                          Input USD / million
+                          <input
+                            className={inputClass}
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={target.inputCost}
+                            placeholder="models.dev when blank"
+                            onChange={(event) =>
+                              setTarget(index, { inputCost: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className={labelClass}>
+                          Output USD / million
+                          <input
+                            className={inputClass}
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={target.outputCost}
+                            placeholder="models.dev when blank"
+                            onChange={(event) =>
+                              setTarget(index, { outputCost: event.target.value })
+                            }
+                          />
+                        </label>
+                      </>
+                    )}
                   {target.kind === "model" &&
                     (draft.strategy === "context-optimized" || draft.strategy === "auto") && (
-                    <label className={labelClass}>
-                      Context window tokens
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min={1}
-                        max={10000000}
-                        step={1}
-                        value={target.contextWindow}
-                        placeholder="models.dev when blank"
-                        onChange={(event) =>
-                          setTarget(index, { contextWindow: event.target.value })
-                        }
-                      />
-                    </label>
-                  )}
+                      <label className={labelClass}>
+                        Context window tokens
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={1}
+                          max={10000000}
+                          step={1}
+                          value={target.contextWindow}
+                          placeholder="models.dev when blank"
+                          onChange={(event) =>
+                            setTarget(index, { contextWindow: event.target.value })
+                          }
+                        />
+                      </label>
+                    )}
                 </div>
                 {provider && (
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-muted">

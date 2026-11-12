@@ -5,7 +5,7 @@ import {
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   type RustAuthConfig,
-} from "@/lib/rustControlPlane/browserClient";
+} from "./api/browserClient";
 import "./dashboard.css";
 
 const Providers = lazy(() => import("./pages/RustProvidersPageClient"));

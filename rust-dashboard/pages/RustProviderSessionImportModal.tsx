@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
-import { Button } from "@/shared/components";
+import { Button } from "../components";
 import {
   extractRustProviderSessionZip,
   importRustProviderSession,
@@ -9,7 +9,7 @@ import {
   type RustSessionImportOAuthKind,
   type RustProviderSessionBulkResult,
   type RustProviderSessionImportEntry,
-} from "@/lib/rustControlPlane/browserClient";
+} from "../api/browserClient";
 
 const providerNames: Record<RustSessionImportOAuthKind, string> = {
   codex: "OpenAI Codex CLI",

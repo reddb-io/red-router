@@ -12,7 +12,7 @@ import {
   type RustProviderHealth,
   type RustProviderQuota,
   type RustProviderQuotaWindow,
-} from "@/lib/rustControlPlane/browserClient";
+} from "./api/browserClient";
 
 const fieldClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";
 

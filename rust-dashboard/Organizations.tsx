@@ -8,7 +8,7 @@ import {
   type RustIdentityBinding,
   type RustIdentityRole,
   type RustTenant,
-} from "@/lib/rustControlPlane/browserClient";
+} from "./api/browserClient";
 
 type TenantDraft = { id: string; slug: string; name: string; enabled: boolean };
 type BindingDraft = {

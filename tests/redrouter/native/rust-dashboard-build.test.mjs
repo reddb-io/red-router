@@ -71,5 +71,13 @@ test("Rust SPA does not import the Next.js App Router", async () => {
   for (const source of sources) {
     assert.doesNotMatch(source, /(?:from|import\s*\()\s*["'][^"']*src\/app\//);
     assert.doesNotMatch(source, /next\/(?:navigation|headers|server|image|link)/);
+    assert.doesNotMatch(source, /(?:from|import\s*\()\s*["']@\//);
+    assert.doesNotMatch(source, /(?:from|import\s*\()\s*["'][^"']*\bsrc\//);
   }
+});
+
+test("Rust production image builds the SPA without copying the Next source tree", async () => {
+  const dockerfile = await readFile(resolve("Dockerfile.rust"), "utf8");
+  assert.doesNotMatch(dockerfile, /^COPY\s+src\s+/m);
+  assert.match(dockerfile, /^COPY\s+rust-dashboard\s+\.\/rust-dashboard$/m);
 });

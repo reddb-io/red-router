@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/shared/components";
+import { Button } from "../components";
 import {
   authorizeRustProviderOAuth,
   exchangeRustProviderOAuth,
   type RustProviderOAuthAuthorization,
   type RustBrowserOAuthKind,
-} from "@/lib/rustControlPlane/browserClient";
+} from "../api/browserClient";
 
 const providerNames: Record<RustBrowserOAuthKind, string> = {
   codex: "OpenAI Codex CLI",

@@ -10,7 +10,6 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts --no-audit --no-fund --legacy-peer-deps
 
 COPY rust-dashboard ./rust-dashboard
-COPY src ./src
 COPY tsconfig.json next-env.d.ts postcss.config.mjs ./
 RUN npm run build:rust-dashboard \
     && test -s /src/.build/rust-dashboard/index.html

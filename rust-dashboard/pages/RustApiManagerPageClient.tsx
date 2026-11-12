@@ -15,7 +15,7 @@ import {
   type RustTokenLimit,
   type RustTokenLimitInterval,
   type RustUsageSummary,
-} from "@/lib/rustControlPlane/browserClient";
+} from "../api/browserClient";
 
 type Draft = {
   label: string;

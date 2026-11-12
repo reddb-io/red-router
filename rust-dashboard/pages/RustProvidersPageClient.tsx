@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card } from "@/shared/components";
+import { Button, Card } from "../components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
 import {
@@ -33,7 +33,7 @@ import {
   type RustProviderQuota,
   type RustProviderQuotaRefreshCategory,
   type RustRateLimitScope,
-} from "@/lib/rustControlPlane/browserClient";
+} from "../api/browserClient";
 
 type Draft = {
   id: string;

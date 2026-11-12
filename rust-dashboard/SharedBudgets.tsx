@@ -9,7 +9,7 @@ import {
   type RustSharedBudget,
   type RustSharedBudgetDuration,
   type RustSharedBudgetInput,
-} from "@/lib/rustControlPlane/browserClient";
+} from "./api/browserClient";
 
 type Draft = {
   id: string | null;
