@@ -780,7 +780,7 @@ impl UsageSqsSink {
             return Err("SQS usage payload is too large");
         }
         let message_body =
-            std::str::from_utf8(&payload).map_err(|_| "cannot encode SQS usage payload")?;
+            std::str::from_utf8(payload).map_err(|_| "cannot encode SQS usage payload")?;
         let fifo = self.queue_url.trim_end_matches('/').ends_with(".fifo");
         let mut request_body = serde_json::json!({
             "QueueUrl":self.queue_url,
