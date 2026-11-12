@@ -19,6 +19,7 @@ import { resolveSpaPage, spaPageRoutes, type SpaPageId } from "./routes";
 
 const Overview = lazy(() => import("./Overview"));
 const Endpoints = lazy(() => import("./Endpoints"));
+const Playground = lazy(() => import("./Playground"));
 const Providers = lazy(() => import("./pages/RustProvidersPageClient"));
 const Combos = lazy(() => import("./pages/RustCombosPageClient"));
 const Keys = lazy(() => import("./pages/RustApiManagerPageClient"));
@@ -35,6 +36,7 @@ const ProviderResilience = lazy(() => import("./ProviderResilience"));
 const pageComponents: Record<SpaPageId, ComponentType> = {
   overview: Overview,
   endpoints: Endpoints,
+  playground: Playground,
   providers: Providers,
   resilience: ProviderResilience,
   models: ModelCatalog,
@@ -87,6 +89,13 @@ const navigationAreas: readonly NavigationArea[] = [
     pages: ["usage", "legacy-usage", "usage-sinks", "audit"],
   },
   {
+    id: "tools",
+    label: "Tools",
+    description: "Test your gateway",
+    icon: "build",
+    pages: ["playground"],
+  },
+  {
     id: "system",
     label: "System",
     description: "Authentication and security",
@@ -98,6 +107,7 @@ const navigationAreas: readonly NavigationArea[] = [
 const pageIcons: Record<SpaPageId, string> = {
   overview: "space_dashboard",
   endpoints: "cable",
+  playground: "science",
   providers: "dns",
   resilience: "health_and_safety",
   models: "database",

@@ -51,6 +51,34 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test("playground sends a multi-turn conversation using the supplied client key", async ({ page, context }) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  await page.route("**/api/auth/config", (route) => route.fulfill({ json: {
+    backend: "rust", control_plane_enabled: true, oidc_browser_login: false, password_login: true,
+  } }));
+  const requests: unknown[] = [];
+  await page.route("**/v1/chat/completions", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer local-client-key");
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ json: { choices: [{ message: { content: `Reply ${requests.length}` } }] } });
+  });
+  await page.goto(`${origin}/dashboard/playground`);
+  await page.getByLabel("API key", { exact: true }).fill("local-client-key");
+  await page.getByLabel("Model or combo").fill("openrouter/example");
+  await page.getByLabel("Message", { exact: true }).fill("Hello");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText("Reply 1", { exact: true })).toBeVisible();
+  await page.getByLabel("Message", { exact: true }).fill("Again");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText("Reply 2", { exact: true })).toBeVisible();
+  expect(requests[1]).toMatchObject({ model: "openrouter/example", stream: false, messages: [
+    { role: "user", content: "Hello" }, { role: "assistant", content: "Reply 1" }, { role: "user", content: "Again" },
+  ] });
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("local-client-key");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.getByText("Reply 1", { exact: true })).not.toBeVisible();
+});
+
 test("static dashboard uses Rust session and API routes", async ({ page, context }) => {
   const calls: Array<{ path: string; csrf: string | undefined }> = [];
   await page.route("**/api/**", async (route) => {

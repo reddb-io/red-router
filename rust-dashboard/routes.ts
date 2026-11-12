@@ -1,6 +1,7 @@
 export type SpaPageId =
   | "overview"
   | "endpoints"
+  | "playground"
   | "providers"
   | "resilience"
   | "models"
@@ -43,6 +44,12 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
     path: "/dashboard/endpoint",
     label: "Endpoint",
     aliases: ["/proxy/endpoint"],
+  },
+  {
+    id: "playground",
+    path: "/dashboard/playground",
+    label: "Playground",
+    aliases: ["/tools/playground"],
   },
   {
     id: "providers",
