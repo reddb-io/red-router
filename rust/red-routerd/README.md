@@ -122,10 +122,10 @@ those environment secrets.
   e-mail rename does not change ownership and reusing the e-mail with another subject does not
   inherit access. Existing `subject: "oidc:..."` e-mail/sub bindings remain compatibility aliases,
   but canonical pair bindings take precedence when both exist. `DELETE
-  /api/admin/identity-bindings/{id}` removes a binding durably and immediately revokes bearer and
+/api/admin/identity-bindings/{id}` removes a binding durably and immediately revokes bearer and
   browser-session management access backed by it.
 - `GET /api/admin/audit-log` and the compatibility route `GET
-  /api/compliance/audit-log` read Rust-owned audit events with actor, tenant, action, target,
+/api/compliance/audit-log` read Rust-owned audit events with actor, tenant, action, target,
   status and redacted before/after snapshots. Tenant administrators see only their tenant. The
   migrated writers cover tenants, identity bindings, client-key create/update/revoke, provider
   create/update/disable, manual OAuth rotation/refresh, provider health configuration/reset,
@@ -364,7 +364,11 @@ legacy environment keys are confined to tenant `red`.
   enablement and deletion propagate without restart. A failed reload disables OIDC on that
   replica; the bootstrap administrator remains the recovery path.
 - `GET /api/auth/config` is a cache-disabled, non-secret bootstrap for the static
-  dashboard. `POST /api/admin/oidc/discover` performs authenticated, bounded and
+  dashboard. `POST /api/auth/local/login` exchanges the bootstrap administrator key for
+  an encrypted 12-hour browser session without persisting the key in browser storage. The
+  login requires an exact HTTP(S) Origin and the resulting cookie remains bound to that
+  origin, the current administrator-key hash and a double-submit CSRF token.
+  `POST /api/admin/oidc/discover` performs authenticated, bounded and
   DNS-pinned standard issuer discovery and returns validated endpoints and scopes.
 
 All management endpoints accept `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
@@ -381,8 +385,8 @@ S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
 The Rust dashboard can be built with `npm ci` and `npm run build:rust-dashboard`.
 This produces `.build/rust-dashboard`, a static bundle using the existing Rust-backed
-providers, combos, client-key, usage-report and usage-destination views. It uses Rust's OIDC browser session and requires
-OIDC browser login to be configured; the remaining Next dashboard views are not yet ported.
+providers, combos, client-key, usage-report and usage-destination views. It uses Rust's
+local administrator or OIDC browser session; the remaining Next dashboard views are not yet ported.
 Set `RED_ROUTER_SPA_DIR` to that directory or another prepared static build containing `index.html` and
 Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
 directory. Browser navigation serves exported `route.html` or `route/index.html` pages

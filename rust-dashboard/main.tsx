@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  createRustAdminSession,
   readRustAdminCsrfCookie,
   readRustAuthConfig,
   type RustAuthConfig,
@@ -38,6 +39,8 @@ const pages = [
 function Dashboard() {
   const [config, setConfig] = useState<RustAuthConfig | null | undefined>(undefined);
   const [session, setSession] = useState(() => Boolean(readRustAdminCsrfCookie()));
+  const [adminKey, setAdminKey] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
@@ -65,6 +68,21 @@ function Dashboard() {
     }
   };
 
+  const signIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSigningIn(true);
+    setError("");
+    try {
+      await createRustAdminSession(adminKey);
+      setAdminKey("");
+      setSession(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to sign in.");
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
   if (config === undefined) return <main className="p-6">Loading RedRouter…</main>;
   if (!config?.control_plane_enabled)
     return <main className="p-6">Rust control plane is unavailable.</main>;
@@ -72,6 +90,11 @@ function Dashboard() {
     return (
       <main className="mx-auto max-w-lg p-8">
         <h1 className="text-2xl font-semibold">RedRouter</h1>
+        {error && (
+          <p role="alert" className="mt-4 text-error">
+            {error}
+          </p>
+        )}
         {config.oidc_browser_login ? (
           <button
             className="mt-6 inline-block rounded bg-primary px-4 py-2 text-white"
@@ -80,11 +103,29 @@ function Dashboard() {
           >
             Sign in with OpenID Connect
           </button>
-        ) : (
-          <p className="mt-4">
-            Configure OpenID Connect browser login in the Rust control plane to use this dashboard.
-          </p>
-        )}
+        ) : null}
+        {config.password_login ? (
+          <form className="mt-6 space-y-4" onSubmit={(event) => void signIn(event)}>
+            <label className="block">
+              Administrator key
+              <input
+                className="mt-1 w-full rounded border border-border bg-surface px-3 py-2"
+                type="password"
+                autoComplete="current-password"
+                minLength={32}
+                maxLength={512}
+                required
+                value={adminKey}
+                onChange={(event) => setAdminKey(event.target.value)}
+              />
+            </label>
+            <button type="submit" disabled={signingIn || adminKey.length < 32}>
+              {signingIn ? "Signing in…" : "Sign in locally"}
+            </button>
+          </form>
+        ) : !config.oidc_browser_login ? (
+          <p className="mt-4">Configure a Rust management login to use this dashboard.</p>
+        ) : null}
       </main>
     );
 

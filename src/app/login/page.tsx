@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { Button, Input } from "@/shared/components";
 import { useBranding } from "@/shared/components/BrandingProvider";
 import { useRouter } from "next/navigation";
-import { readRustAuthConfig } from "@/lib/rustControlPlane/browserClient";
+import { createRustAdminSession, readRustAuthConfig } from "@/lib/rustControlPlane/browserClient";
 
 import TenantSignIn from "./TenantSignIn";
 
@@ -54,7 +54,7 @@ export default function LoginPage() {
             setHasPassword(true);
             setSetupComplete(rust.control_plane_enabled);
             setOidcEnabled(rust.oidc_browser_login);
-            setOidcDisablePasswordLogin(true);
+            setOidcDisablePasswordLogin(!rust.password_login);
             return;
           }
         } catch {
@@ -106,6 +106,11 @@ export default function LoginPage() {
     setError("");
 
     try {
+      if (rustBackend) {
+        await createRustAdminSession(password);
+        enterDashboard();
+        return;
+      }
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -263,7 +268,9 @@ export default function LoginPage() {
         <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 shadow-soft">
           <div className="mb-4 flex items-center gap-3">
             <Icon icon={ShieldUser} size="lg" color="primary" />
-            <h1 className="text-xl font-semibold text-text-main">Dashboard sign-in is not configured</h1>
+            <h1 className="text-xl font-semibold text-text-main">
+              Dashboard sign-in is not configured
+            </h1>
           </div>
           <p className="text-sm leading-relaxed text-text-muted">
             The Rust control plane is running, but browser OIDC is not enabled. Configure it with

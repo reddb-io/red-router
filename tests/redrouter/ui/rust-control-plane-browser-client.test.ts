@@ -6,6 +6,7 @@ import {
   clearRustProviderQuota,
   configureRustProviderHealth,
   configureRustProviderQuota,
+  createRustAdminSession,
   deleteRustClientKey,
   deleteRustIdentityBinding,
   deleteRustTokenLimit,
@@ -327,6 +328,23 @@ describe("Rust control-plane browser client", () => {
       cache: "no-store",
       credentials: "same-origin",
     });
+  });
+
+  it("creates a same-origin Rust administrator session without retaining the key", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+    const adminKey = "a".repeat(32);
+
+    await expect(createRustAdminSession("short")).rejects.toThrow("between 32 and 512");
+    expect(fetch).not.toHaveBeenCalled();
+    await createRustAdminSession(adminKey);
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [path, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/auth/local/login");
+    expect(init).toMatchObject({ method: "POST", cache: "no-store", credentials: "same-origin" });
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({ admin_key: adminKey });
   });
 
   it("copies the double-submit cookie into same-origin Rust admin requests", async () => {

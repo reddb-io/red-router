@@ -1276,6 +1276,12 @@ pub struct OidcCallbackQuery {
     pub error_description: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalAdminLoginInput {
+    admin_key: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct OidcFlowState {
     state: String,
@@ -1292,6 +1298,10 @@ struct AdminSession {
     csrf_hash: String,
     expires_at: u64,
     revision: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bootstrap_hash: Option<String>,
 }
 
 const OIDC_FLOW_COOKIE: &str = "redrouter_oidc_flow";
@@ -1304,6 +1314,12 @@ const ADMIN_SESSION_SECONDS: u64 = 12 * 60 * 60;
 struct BrowserLogin {
     location: String,
     flow_cookie: String,
+    secure: bool,
+}
+
+struct LocalAdminSession {
+    session_cookie: String,
+    csrf: String,
     secure: bool,
 }
 
@@ -5902,6 +5918,8 @@ impl ControlPlane {
                 .checked_add(ADMIN_SESSION_SECONDS)
                 .ok_or("system clock is out of range")?,
             revision: browser.revision,
+            origin: Some(browser.public_origin.origin().ascii_serialization()),
+            bootstrap_hash: None,
         };
         let session = serde_json::to_string(&session).map_err(|_| "cannot encode admin session")?;
         let session_cookie = encrypt(
@@ -5918,6 +5936,44 @@ impl ControlPlane {
             session_cookie,
             csrf,
             secure: browser.secure_cookies(),
+        })
+    }
+
+    fn create_local_admin_session(
+        &self,
+        candidate: &str,
+        origin: String,
+        secure: bool,
+    ) -> Result<LocalAdminSession, &'static str> {
+        if !(32..=512).contains(&candidate.len()) {
+            return Err("invalid admin authentication");
+        }
+        let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
+        if !bool::from(self.0.admin_hash.ct_eq(&digest)) {
+            return Err("invalid admin authentication");
+        }
+        let now = unix_time_seconds()?;
+        let csrf = random_token(32)?;
+        let session = AdminSession {
+            subject: "bootstrap-admin".to_owned(),
+            csrf_hash: hex::encode(Sha256::digest(csrf.as_bytes())),
+            expires_at: now
+                .checked_add(ADMIN_SESSION_SECONDS)
+                .ok_or("system clock is out of range")?,
+            revision: 0,
+            origin: Some(origin),
+            bootstrap_hash: Some(hex::encode(self.0.admin_hash)),
+        };
+        let session = serde_json::to_string(&session).map_err(|_| "cannot encode admin session")?;
+        let session_cookie = encrypt(
+            &session,
+            "oidc-browser-admin-session",
+            self.0.encryption_key.as_str(),
+        )?;
+        Ok(LocalAdminSession {
+            session_cookie,
+            csrf,
+            secure,
         })
     }
 
@@ -9239,22 +9295,6 @@ impl ControlPlane {
         {
             return None;
         }
-        let (verifier, browser) = self.oidc_runtime_snapshot().await;
-        let (Some(browser), Some(verifier)) = (browser, verifier) else {
-            return None;
-        };
-        let expected_origin = browser.public_origin.origin().ascii_serialization();
-        let fetch_site = headers
-            .get("sec-fetch-site")
-            .and_then(|value| value.to_str().ok());
-        let same_origin = fetch_site.is_none_or(|site| site == "same-origin")
-            && match headers.get(header::ORIGIN) {
-                Some(origin) => origin.to_str().ok() == Some(expected_origin.as_str()),
-                None => fetch_site == Some("same-origin"),
-            };
-        if !same_origin {
-            return None;
-        }
         let Ok(session) = decrypt(
             &session_cookie,
             "oidc-browser-admin-session",
@@ -9268,12 +9308,48 @@ impl ControlPlane {
         let Ok(now) = unix_time_seconds() else {
             return None;
         };
-        if session.subject.is_empty()
-            || session.subject.len() > 512
-            || session.expires_at < now
-            || session.revision != verifier.policy().revision
-            || session.revision != browser.revision
-        {
+        if session.subject.is_empty() || session.subject.len() > 512 || session.expires_at < now {
+            return None;
+        }
+        let expected_origin = if let Some(bootstrap_hash) = session.bootstrap_hash.as_deref() {
+            let current_hash = hex::encode(self.0.admin_hash);
+            if session.subject != "bootstrap-admin"
+                || session.revision != 0
+                || bootstrap_hash.len() != current_hash.len()
+                || !bool::from(bootstrap_hash.as_bytes().ct_eq(current_hash.as_bytes()))
+            {
+                return None;
+            }
+            session.origin.clone()?
+        } else {
+            let (verifier, browser) = self.oidc_runtime_snapshot().await;
+            let (Some(browser), Some(verifier)) = (browser, verifier) else {
+                return None;
+            };
+            if session.revision != verifier.policy().revision
+                || session.revision != browser.revision
+            {
+                return None;
+            }
+            let configured_origin = browser.public_origin.origin().ascii_serialization();
+            if session
+                .origin
+                .as_deref()
+                .is_some_and(|origin| origin != configured_origin)
+            {
+                return None;
+            }
+            session.origin.clone().unwrap_or(configured_origin)
+        };
+        let fetch_site = headers
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok());
+        let same_origin = fetch_site.is_none_or(|site| site == "same-origin")
+            && match headers.get(header::ORIGIN) {
+                Some(origin) => origin.to_str().ok() == Some(expected_origin.as_str()),
+                None => fetch_site == Some("same-origin"),
+            };
+        if !same_origin {
             return None;
         }
         let csrf_hash = hex::encode(Sha256::digest(csrf_cookie.as_bytes()));
@@ -11511,6 +11587,34 @@ fn api_error_code(status: StatusCode, message: &'static str, code: &'static str)
         .into_response()
 }
 
+fn local_login_origin(headers: &HeaderMap) -> Option<(String, bool)> {
+    if headers.get_all(header::ORIGIN).iter().count() != 1
+        || headers.get_all("sec-fetch-site").iter().count() > 1
+        || headers
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value != "same-origin")
+    {
+        return None;
+    }
+    let raw = headers.get(header::ORIGIN)?.to_str().ok()?;
+    let parsed = reqwest::Url::parse(raw).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+    let origin = parsed.origin().ascii_serialization();
+    if origin == "null" {
+        return None;
+    }
+    Some((origin, parsed.scheme() == "https"))
+}
+
 pub async fn auth_config(State(state): State<ProxyState>) -> Response {
     let (control_plane_enabled, oidc_browser_login) = match &state.control_plane {
         Some(control) => (true, control.oidc_browser_enabled().await),
@@ -11520,13 +11624,60 @@ pub async fn auth_config(State(state): State<ProxyState>) -> Response {
         "backend":"rust",
         "control_plane_enabled":control_plane_enabled,
         "oidc_browser_login":oidc_browser_login,
-        "password_login":false
+        "password_login":control_plane_enabled
     }))
     .into_response();
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("no-store, max-age=0"),
     );
+    response
+}
+
+pub async fn local_admin_login(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<LocalAdminLoginInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some((origin, secure)) = local_login_origin(&headers) else {
+        return api_error(StatusCode::FORBIDDEN, "Invalid dashboard login origin");
+    };
+    let admin_key = Zeroizing::new(input.admin_key);
+    let session = match control.create_local_admin_session(admin_key.as_str(), origin, secure) {
+        Ok(session) => session,
+        Err(_) => return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication"),
+    };
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    for value in [
+        cookie(
+            ADMIN_SESSION_COOKIE,
+            &session.session_cookie,
+            ADMIN_SESSION_SECONDS,
+            true,
+            session.secure,
+            "Strict",
+        ),
+        cookie(
+            ADMIN_CSRF_COOKIE,
+            &session.csrf,
+            ADMIN_SESSION_SECONDS,
+            false,
+            session.secure,
+            "Strict",
+        ),
+    ] {
+        let Ok(value) = HeaderValue::from_str(&value) else {
+            return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid session cookie");
+        };
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
     response
 }
 

@@ -12,12 +12,12 @@ server unless they were explicitly granted `manage` or `admin` scope.
 
 Canonical implementation: `src/lib/api/requireManagementAuth.ts`.
 
-| Credential            | Typical form                        | Created where                                       | Intended use                  | Management capability                                                                  |
-| --------------------- | ----------------------------------- | --------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
-| Dashboard JWT session | `auth_token` cookie                 | Dashboard login                                     | Browser UI                    | Full dashboard management, subject to CSRF, locality, and always-protected-route rules |
-| CLI machine-id token  | internal / local                    | CLI bootstrap (`omniroute` on the same machine)     | Local CLI                     | Local management only                                                                  |
+| Credential            | Typical form                        | Created where                                        | Intended use                  | Management capability                                                                  |
+| --------------------- | ----------------------------------- | ---------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
+| Dashboard JWT session | `auth_token` cookie                 | Dashboard login                                      | Browser UI                    | Full dashboard management, subject to CSRF, locality, and always-protected-route rules |
+| CLI machine-id token  | internal / local                    | CLI bootstrap (`omniroute` on the same machine)      | Local CLI                     | Local management only                                                                  |
 | Scoped Access Token   | `oma_live_…`                        | **Settings → Access Tokens** or `red-router connect` | Remote CLI and management API | Must satisfy the route's required `read`, `write`, or `admin` scope                    |
-| Inference API key     | `sk-…` (and other API-key prefixes) | **API Manager / API Keys**                          | `/v1/*` inference             | **None** unless the key metadata includes `manage` or `admin`                          |
+| Inference API key     | `sk-…` (and other API-key prefixes) | **API Manager / API Keys**                           | `/v1/*` inference             | **None** unless the key metadata includes `manage` or `admin`                          |
 
 `oma_` credentials are management/CLI credentials. They are **not** inference API keys.
 
@@ -119,6 +119,13 @@ The static dashboard first reads the non-secret `GET /api/auth/config` bootstrap
 operator can call `POST /api/admin/oidc/discover` with `{ "issuer": "..." }`; Rust fetches the
 standard discovery document with a bounded body, timeout, redirect refusal, DNS pinning and issuer
 equality check, then returns only the validated authorization, token and JWKS endpoints and scopes.
+
+For zero-config local and self-hosted operation, the same static dashboard can submit
+`RED_ROUTER_ADMIN_KEY` to `POST /api/auth/local/login`. Rust validates the key in constant time and
+returns only an encrypted HttpOnly session plus a readable double-submit CSRF cookie. The key is not
+stored in local storage or returned to the browser, and the session is bound to the exact login
+origin and current administrator-key hash. OIDC remains optional and can be configured after this
+bootstrap sign-in.
 
 ```json
 {
@@ -245,6 +252,6 @@ uses the session cookie.
 | ------------------------------------------ | ----------------------------------------------- |
 | Browser                                    | Dashboard session                               |
 | CLI on the server host                     | Machine token                                   |
-| CLI on a laptop talking to a remote server | `oma_live_…` from `red-router connect`           |
+| CLI on a laptop talking to a remote server | `oma_live_…` from `red-router connect`          |
 | CI / scripts (management only)             | `oma_live_…` with the smallest scope that works |
 | CI that must call both `/v1` and `/api`    | API key with `manage` **or** two credentials    |

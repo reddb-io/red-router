@@ -4216,7 +4216,91 @@ async fn rust_control_plane_exposes_safe_browser_bootstrap_and_oidc_discovery() 
     assert_eq!(config["backend"], "rust");
     assert_eq!(config["control_plane_enabled"], true);
     assert_eq!(config["oidc_browser_login"], false);
-    assert_eq!(config["password_login"], false);
+    assert_eq!(config["password_login"], true);
+
+    let local_login = format!("{base}/api/auth/local/login");
+    assert_eq!(
+        client
+            .post(&local_login)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(serde_json::json!({"admin_key":ADMIN_KEY}).to_string())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(&local_login)
+            .header(header::ORIGIN, &base)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({"admin_key":"wrong-admin-key-that-is-long-enough"}).to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let local_session = client
+        .post(&local_login)
+        .header(header::ORIGIN, &base)
+        .header("sec-fetch-site", "same-origin")
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"admin_key":ADMIN_KEY}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(local_session.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        local_session.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    assert_eq!(
+        local_session
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .count(),
+        2
+    );
+    let local_session_cookie = response_cookie(&local_session, "redrouter_admin_session").unwrap();
+    let local_csrf_cookie = response_cookie(&local_session, "redrouter_admin_csrf").unwrap();
+    let local_csrf = local_csrf_cookie.split_once('=').unwrap().1.to_owned();
+    let local_cookies = format!("{local_session_cookie}; {local_csrf_cookie}");
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &local_cookies)
+            .header("x-red-router-csrf", &local_csrf)
+            .header(header::ORIGIN, &base)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for denied in [
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &local_cookies)
+            .header(header::ORIGIN, &base)
+            .send()
+            .await
+            .unwrap(),
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &local_cookies)
+            .header("x-red-router-csrf", &local_csrf)
+            .header(header::ORIGIN, "https://attacker.example")
+            .send()
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    }
 
     let endpoint = format!("{base}/api/admin/oidc/discover");
     assert_eq!(

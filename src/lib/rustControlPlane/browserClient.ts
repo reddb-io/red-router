@@ -2,7 +2,7 @@ export interface RustAuthConfig {
   backend: "rust";
   control_plane_enabled: boolean;
   oidc_browser_login: boolean;
-  password_login: false;
+  password_login: boolean;
 }
 
 export interface RustClientAccessSchedule {
@@ -611,11 +611,28 @@ export async function readRustAuthConfig(signal?: AbortSignal): Promise<RustAuth
     (value as { backend?: unknown }).backend !== "rust" ||
     typeof (value as { control_plane_enabled?: unknown }).control_plane_enabled !== "boolean" ||
     typeof (value as { oidc_browser_login?: unknown }).oidc_browser_login !== "boolean" ||
-    (value as { password_login?: unknown }).password_login !== false
+    typeof (value as { password_login?: unknown }).password_login !== "boolean"
   ) {
     return null;
   }
   return value as RustAuthConfig;
+}
+
+export async function createRustAdminSession(adminKey: string): Promise<void> {
+  if (adminKey.length < 32 || adminKey.length > 512) {
+    throw new Error("The administrator key must contain between 32 and 512 characters.");
+  }
+  const response = await fetch("/api/auth/local/login", {
+    method: "POST",
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ admin_key: adminKey }),
+  });
+  if (!response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    throw new Error(rustAdminError(value, response.status));
+  }
 }
 
 export async function rustAdminFetch(path: string, init: RequestInit = {}): Promise<Response> {

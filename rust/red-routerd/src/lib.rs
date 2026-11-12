@@ -2073,6 +2073,10 @@ pub fn router(state: ProxyState) -> Router {
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/readyz", get(ready))
         .route("/api/auth/config", get(control_plane::auth_config))
+        .route(
+            "/api/auth/local/login",
+            post(control_plane::local_admin_login),
+        )
         .route("/api/auth/oidc/login", get(control_plane::oidc_login))
         .route("/api/auth/oidc/callback", get(control_plane::oidc_callback))
         .route("/api/auth/logout", post(control_plane::oidc_logout))
