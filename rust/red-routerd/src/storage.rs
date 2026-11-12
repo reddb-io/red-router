@@ -146,6 +146,9 @@ const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_r
 const LIST_RESILIENCE: &str = "SELECT provider_id, rate_limit_scope, revision FROM redrouter_provider_resilience ORDER BY provider_id ASC, revision DESC";
 const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (record_id, provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET rate_limit_scope = $3";
 const DELETE_RESILIENCE: &str = "DELETE FROM redrouter_provider_resilience WHERE provider_id = $1";
+const CREATE_RUNTIME_SETTINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_runtime_settings (id BIGINT PRIMARY KEY, quota_preflight_enabled BIGINT NOT NULL, quota_preflight_threshold_ppm BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const READ_RUNTIME_SETTINGS: &str = "SELECT quota_preflight_enabled, quota_preflight_threshold_ppm, revision FROM redrouter_runtime_settings WHERE id = 1";
+const UPSERT_RUNTIME_SETTINGS: &str = "INSERT INTO redrouter_runtime_settings (id, quota_preflight_enabled, quota_preflight_threshold_ppm, revision) VALUES (1,$1,$2,$3) ON CONFLICT (id) DO UPDATE SET quota_preflight_enabled = $1, quota_preflight_threshold_ppm = $2, revision = $3";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
@@ -495,6 +498,14 @@ pub struct StoredResilience {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredRuntimeSettings {
+    pub quota_preflight_enabled: bool,
+    /// Parts per million remaining. Two percent is stored as 20_000.
+    pub quota_preflight_threshold_ppm: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredOidcConfig {
     pub enabled: bool,
     pub issuer: String,
@@ -634,6 +645,7 @@ impl Database {
                         CREATE_BREAKERS,
                         CREATE_AVAILABILITY,
                         CREATE_RESILIENCE,
+                        CREATE_RUNTIME_SETTINGS,
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
                         CREATE_MODEL_CATALOG,
@@ -760,6 +772,7 @@ impl Database {
                 db.remote_schema_query(CREATE_BREAKERS).await?;
                 db.remote_schema_query(CREATE_AVAILABILITY).await?;
                 db.remote_schema_query(CREATE_RESILIENCE).await?;
+                db.remote_schema_query(CREATE_RUNTIME_SETTINGS).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 db.remote_schema_query(CREATE_MODEL_CATALOG).await?;
@@ -833,6 +846,7 @@ impl Database {
                     CREATE_BREAKERS,
                     CREATE_AVAILABILITY,
                     CREATE_RESILIENCE,
+                    CREATE_RUNTIME_SETTINGS,
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
                     CREATE_MODEL_CATALOG,
@@ -3530,6 +3544,69 @@ impl Database {
         Ok(())
     }
 
+    pub async fn runtime_settings(&self) -> Result<Option<StoredRuntimeSettings>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_RUNTIME_SETTINGS)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read runtime settings")?
+                .as_ref()
+                .map(read_sql_runtime_settings)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_RUNTIME_SETTINGS, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_runtime_settings)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_RUNTIME_SETTINGS)
+                .await
+                .map_err(|_| "cannot read runtime settings")?
+                .rows
+                .first()
+                .map(read_reddb_runtime_settings)
+                .transpose(),
+        }
+    }
+
+    pub async fn upsert_runtime_settings(
+        &self,
+        settings: &StoredRuntimeSettings,
+    ) -> Result<(), &'static str> {
+        let enabled = i64::from(settings.quota_preflight_enabled);
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_RUNTIME_SETTINGS)
+                    .bind(enabled)
+                    .bind(settings.quota_preflight_threshold_ppm)
+                    .bind(settings.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write runtime settings")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_RUNTIME_SETTINGS,
+                    &runtime_settings_params(settings, enabled),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_RUNTIME_SETTINGS,
+                    runtime_settings_params(settings, enabled),
+                )
+                .await
+                .map_err(|_| "cannot write runtime settings")?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn oidc_config(&self) -> Result<Option<StoredOidcConfig>, &'static str> {
         match self {
             Self::Sql(pool) => sqlx::query(READ_OIDC)
@@ -5894,6 +5971,56 @@ fn resilience_params(resilience: &StoredResilience) -> Vec<reddb_client::Value> 
 
 fn resilience_record_id(resilience: &StoredResilience) -> String {
     format!("{}:{}", resilience.provider_id, resilience.revision)
+}
+
+fn read_sql_runtime_settings(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredRuntimeSettings, &'static str> {
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid runtime settings record")
+    };
+    let enabled = integer("quota_preflight_enabled")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid runtime settings record");
+    }
+    Ok(StoredRuntimeSettings {
+        quota_preflight_enabled: enabled == 1,
+        quota_preflight_threshold_ppm: integer("quota_preflight_threshold_ppm")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_runtime_settings(
+    row: &reddb_client::Row,
+) -> Result<StoredRuntimeSettings, &'static str> {
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid runtime settings record"),
+    };
+    let enabled = integer("quota_preflight_enabled")?;
+    if !matches!(enabled, 0 | 1) {
+        return Err("invalid runtime settings record");
+    }
+    Ok(StoredRuntimeSettings {
+        quota_preflight_enabled: enabled == 1,
+        quota_preflight_threshold_ppm: integer("quota_preflight_threshold_ppm")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn runtime_settings_params(
+    settings: &StoredRuntimeSettings,
+    enabled: i64,
+) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(settings.quota_preflight_threshold_ppm),
+        reddb_client::Value::Int(settings.revision),
+    ]
 }
 
 fn read_sql_oidc(row: &sqlx::any::AnyRow) -> Result<StoredOidcConfig, &'static str> {

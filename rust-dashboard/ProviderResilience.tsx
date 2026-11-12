@@ -6,12 +6,15 @@ import {
   listRustProviderHealth,
   listRustProviderQuotas,
   listRustProviders,
+  readRustRuntimeSettings,
   refreshRustProviderQuota,
   resetRustProviderHealth,
+  saveRustRuntimeSettings,
   type RustProvider,
   type RustProviderHealth,
   type RustProviderQuota,
   type RustProviderQuotaWindow,
+  type RustRuntimeSettings,
 } from "./api/browserClient";
 
 const fieldClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";
@@ -30,6 +33,18 @@ type QuotaDraft = {
   limitReached: boolean;
   ttlSeconds: string;
 };
+
+type RuntimeSettingsDraft = {
+  quotaPreflightEnabled: boolean;
+  quotaPreflightThresholdPercent: string;
+};
+
+function runtimeSettingsDraft(settings?: RustRuntimeSettings): RuntimeSettingsDraft {
+  return {
+    quotaPreflightEnabled: settings?.quota_preflight_enabled ?? false,
+    quotaPreflightThresholdPercent: String(settings?.quota_preflight_threshold_percent ?? 2),
+  };
+}
 
 function healthDraft(health?: RustProviderHealth): HealthDraft {
   return {
@@ -103,20 +118,29 @@ export default function ProviderResilience() {
   const [selectedId, setSelectedId] = useState("");
   const [healthForm, setHealthForm] = useState<HealthDraft>(() => healthDraft());
   const [quotaForm, setQuotaForm] = useState<QuotaDraft>(() => quotaDraft());
+  const [runtimeSettingsForm, setRuntimeSettingsForm] = useState<RuntimeSettingsDraft>(() =>
+    runtimeSettingsDraft()
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const load = useCallback(
-    () => Promise.all([listRustProviders(), listRustProviderHealth(), listRustProviderQuotas()]),
+    () =>
+      Promise.all([
+        listRustProviders(),
+        listRustProviderHealth(),
+        listRustProviderQuotas(),
+        readRustRuntimeSettings(),
+      ]),
     []
   );
 
   useEffect(() => {
     let active = true;
     void load()
-      .then(([nextProviders, nextHealth, nextQuotas]) => {
+      .then(([nextProviders, nextHealth, nextQuotas, nextRuntimeSettings]) => {
         if (!active) return;
         const nextSelected = nextProviders[0]?.id || "";
         setProviders(nextProviders);
@@ -125,6 +149,7 @@ export default function ProviderResilience() {
         setSelectedId(nextSelected);
         setHealthForm(healthDraft(nextHealth.find((item) => item.provider_id === nextSelected)));
         setQuotaForm(quotaDraft(nextQuotas.find((item) => item.provider_id === nextSelected)));
+        setRuntimeSettingsForm(runtimeSettingsDraft(nextRuntimeSettings));
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause, "Could not load provider resilience."));
@@ -152,12 +177,13 @@ export default function ProviderResilience() {
     setNotice("");
     try {
       const message = await action();
-      const [nextProviders, nextHealth, nextQuotas] = await load();
+      const [nextProviders, nextHealth, nextQuotas, nextRuntimeSettings] = await load();
       setProviders(nextProviders);
       setHealth(nextHealth);
       setQuotas(nextQuotas);
       setHealthForm(healthDraft(nextHealth.find((item) => item.provider_id === selectedId)));
       setQuotaForm(quotaDraft(nextQuotas.find((item) => item.provider_id === selectedId)));
+      setRuntimeSettingsForm(runtimeSettingsDraft(nextRuntimeSettings));
       setNotice(message);
     } catch (cause) {
       setError(errorMessage(cause, "Provider resilience update failed."));
@@ -197,6 +223,21 @@ export default function ProviderResilience() {
     });
   }
 
+  function saveRuntimeSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void perform(async () => {
+      const threshold = Number(runtimeSettingsForm.quotaPreflightThresholdPercent);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+        throw new Error("Quota cutoff must be between 0 and 100 percent.");
+      }
+      await saveRustRuntimeSettings({
+        quota_preflight_enabled: runtimeSettingsForm.quotaPreflightEnabled,
+        quota_preflight_threshold_percent: threshold,
+      });
+      return "Global Rust routing policy saved.";
+    });
+  }
+
   const currentProvider = providers.find((provider) => provider.id === selectedId);
 
   function selectProvider(providerId: string) {
@@ -223,6 +264,50 @@ export default function ProviderResilience() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+
+      <form className="space-y-4 rounded border border-border p-4" onSubmit={saveRuntimeSettings}>
+        <div>
+          <h2 className="text-lg font-semibold">Global quota preflight</h2>
+          <p className="text-sm text-text-muted">
+            Skip connections whose fresh session or weekly quota is at or below the cutoff before
+            reserving usage or calling the provider. Unknown and expired telemetry remains eligible.
+          </p>
+        </div>
+        <label className="block">
+          <input
+            type="checkbox"
+            checked={runtimeSettingsForm.quotaPreflightEnabled}
+            onChange={(event) =>
+              setRuntimeSettingsForm({
+                ...runtimeSettingsForm,
+                quotaPreflightEnabled: event.target.checked,
+              })
+            }
+          />{" "}
+          Enable quota preflight
+        </label>
+        <label className="block max-w-xs">
+          Minimum remaining quota (%)
+          <input
+            className={fieldClass}
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            required
+            value={runtimeSettingsForm.quotaPreflightThresholdPercent}
+            onChange={(event) =>
+              setRuntimeSettingsForm({
+                ...runtimeSettingsForm,
+                quotaPreflightThresholdPercent: event.target.value,
+              })
+            }
+          />
+        </label>
+        <button type="submit" disabled={busy}>
+          Save global policy
+        </button>
+      </form>
 
       {providers.length === 0 ? (
         <p>Add a provider before configuring resilience.</p>

@@ -11,8 +11,8 @@ use crate::{
         StoredContextRelaySession, StoredIdentityBinding, StoredModelCatalogSnapshot,
         StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderAuth,
         StoredProviderModelQuota, StoredProviderOAuth, StoredProviderOAuthStatus,
-        StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin, StoredTenant,
-        StoredUsageExport,
+        StoredProviderQuota, StoredProviderSession, StoredResilience, StoredRoutePin,
+        StoredRuntimeSettings, StoredTenant, StoredUsageExport,
     },
     LiveProvider, ModelRoute, ProviderAuthScheme, ProviderProtocol, ProxyState, RouteStrategy,
     TargetQuota,
@@ -136,6 +136,7 @@ UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
+UNION ALL SELECT 'runtime-settings', CAST(id AS TEXT), revision, 0 FROM redrouter_runtime_settings
 UNION ALL SELECT 'provider-quota', provider_id, revision, 0 FROM redrouter_provider_quotas
 UNION ALL SELECT 'provider-model-quota', record_id, revision, 0 FROM redrouter_provider_model_quotas
 UNION ALL SELECT 'combo', id, revision, 0 FROM redrouter_control_combos
@@ -154,6 +155,7 @@ struct Inner {
     model_quotas: RwLock<HashMap<(String, String), Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
+    runtime_settings: RwLock<RuntimeSettingsView>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     sqlite_changes: Option<tokio::sync::Mutex<SqliteChangeWatcher>>,
@@ -1211,6 +1213,30 @@ pub struct ProviderHealthInput {
     pub reset_timeout_ms: u64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeSettingsInput {
+    pub quota_preflight_enabled: bool,
+    pub quota_preflight_threshold_percent: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RuntimeSettingsView {
+    pub quota_preflight_enabled: bool,
+    pub quota_preflight_threshold_percent: f64,
+    pub revision: String,
+}
+
+impl Default for RuntimeSettingsView {
+    fn default() -> Self {
+        Self {
+            quota_preflight_enabled: false,
+            quota_preflight_threshold_percent: 2.0,
+            revision: "0".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ProviderHealthView {
     #[serde(flatten)]
@@ -1911,6 +1937,13 @@ impl ControlPlane {
                 return Err("duplicate provider availability state");
             }
         }
+        let runtime_settings = database
+            .runtime_settings()
+            .await?
+            .as_ref()
+            .map(runtime_settings_view)
+            .transpose()?
+            .unwrap_or_default();
         let stored_oidc = database.oidc_config().await?;
         let oidc = stored_oidc
             .as_ref()
@@ -1994,6 +2027,7 @@ impl ControlPlane {
             model_quotas: RwLock::new(model_quotas),
             breakers: RwLock::new(breakers),
             availability: RwLock::new(availability),
+            runtime_settings: RwLock::new(runtime_settings),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
             sqlite_changes,
@@ -2164,11 +2198,26 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        self.refresh_runtime_settings().await?;
         if let Err(error) = self.refresh_routes().await {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
         *self.0.provider_snapshot_signature.write().await = latest;
+        Ok(())
+    }
+
+    async fn refresh_runtime_settings(&self) -> Result<(), &'static str> {
+        let settings = self
+            .0
+            .database
+            .runtime_settings()
+            .await?
+            .as_ref()
+            .map(runtime_settings_view)
+            .transpose()?
+            .unwrap_or_default();
+        *self.0.runtime_settings.write().await = settings;
         Ok(())
     }
 
@@ -4014,6 +4063,7 @@ impl ControlPlane {
             && breakers_ready
             && availability_ready
             && self.0.database.provider_resilience().await.is_ok()
+            && self.0.database.runtime_settings().await.is_ok()
             && self.0.database.provider_auth().await.is_ok()
             && self.0.database.provider_oauth().await.is_ok()
             && self.0.database.provider_sessions().await.is_ok()
@@ -7796,6 +7846,11 @@ impl ControlPlane {
             signature_text(&mut digest, &record.rate_limit_scope);
             signature_i64(&mut digest, record.revision);
         }
+        if let Some(record) = self.0.database.runtime_settings().await? {
+            signature_bool(&mut digest, record.quota_preflight_enabled);
+            signature_i64(&mut digest, record.quota_preflight_threshold_ppm);
+            signature_i64(&mut digest, record.revision);
+        }
         for record in self.0.database.provider_quotas().await? {
             signature_text(&mut digest, &record.provider_id);
             signature_i64(&mut digest, record.session_remaining_ppm);
@@ -9200,6 +9255,50 @@ impl ControlPlane {
         Ok(statuses)
     }
 
+    pub(crate) async fn quota_preflight_threshold_ppm(&self) -> Option<i64> {
+        let settings = self.0.runtime_settings.read().await;
+        settings
+            .quota_preflight_enabled
+            .then(|| (settings.quota_preflight_threshold_percent * 10_000.0).round() as i64)
+    }
+
+    async fn runtime_settings_view(&self) -> RuntimeSettingsView {
+        self.0.runtime_settings.read().await.clone()
+    }
+
+    async fn configure_runtime_settings_as(
+        &self,
+        input: RuntimeSettingsInput,
+        actor: &str,
+    ) -> Result<RuntimeSettingsView, &'static str> {
+        validate_actor(actor)?;
+        validate_runtime_settings_input(&input)?;
+        let _mutation = self.0.mutation.lock().await;
+        let before = self.runtime_settings_view().await;
+        let record = StoredRuntimeSettings {
+            quota_preflight_enabled: input.quota_preflight_enabled,
+            quota_preflight_threshold_ppm: (input.quota_preflight_threshold_percent * 10_000.0)
+                .round() as i64,
+            revision: revision()?,
+        };
+        self.0.database.upsert_runtime_settings(&record).await?;
+        let after = runtime_settings_view(&record)?;
+        *self.0.runtime_settings.write().await = after.clone();
+        self.record_audit_event(
+            AuditContext {
+                action: "runtime_settings.configure",
+                actor,
+                tenant_id: "red",
+                target: "global",
+                resource_type: "runtime_settings",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        Ok(after)
+    }
+
     async fn provider_health_snapshot(
         &self,
         provider: &StoredProvider,
@@ -10135,6 +10234,28 @@ fn route_pin_view(record: StoredRoutePin) -> RoutePinView {
         model: record.model,
         revision: record.revision.to_string(),
     }
+}
+
+fn validate_runtime_settings_input(input: &RuntimeSettingsInput) -> Result<(), &'static str> {
+    if !input.quota_preflight_threshold_percent.is_finite()
+        || !(0.0..=100.0).contains(&input.quota_preflight_threshold_percent)
+    {
+        return Err("invalid runtime settings");
+    }
+    Ok(())
+}
+
+fn runtime_settings_view(
+    record: &StoredRuntimeSettings,
+) -> Result<RuntimeSettingsView, &'static str> {
+    if !(0..=1_000_000).contains(&record.quota_preflight_threshold_ppm) || record.revision < 0 {
+        return Err("invalid runtime settings record");
+    }
+    Ok(RuntimeSettingsView {
+        quota_preflight_enabled: record.quota_preflight_enabled,
+        quota_preflight_threshold_percent: record.quota_preflight_threshold_ppm as f64 / 10_000.0,
+        revision: record.revision.to_string(),
+    })
 }
 
 fn validate_quota_input(input: &ProviderQuotaInput) -> Result<(), &'static str> {
@@ -12795,6 +12916,38 @@ pub async fn list_provider_health(State(state): State<ProxyState>, headers: Head
             StatusCode::SERVICE_UNAVAILABLE,
             "Provider health storage unavailable",
         ),
+    }
+}
+
+pub async fn get_runtime_settings(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if control.authorized_admin_actor(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    Json(serde_json::json!({"runtime_settings": control.runtime_settings_view().await}))
+        .into_response()
+}
+
+pub async fn put_runtime_settings(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<RuntimeSettingsInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.configure_runtime_settings_as(input, &actor).await {
+        Ok(settings) => Json(serde_json::json!({"runtime_settings": settings})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Runtime settings storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid runtime settings"),
     }
 }
 

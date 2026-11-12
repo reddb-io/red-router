@@ -3,7 +3,7 @@ use red_routerd::storage::{
     StoredClientKey, StoredCombo, StoredContextRelayHandoff, StoredContextRelaySession,
     StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig,
     StoredProvider, StoredProviderModelQuota, StoredProviderQuota, StoredProviderSession,
-    StoredResilience, StoredRoutePin, StoredTenant, StoredUsageExport,
+    StoredResilience, StoredRoutePin, StoredRuntimeSettings, StoredTenant, StoredUsageExport,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -378,6 +378,17 @@ async fn exercise(backend: Backend, url: &str) {
         db.provider_resilience().await.unwrap(),
         vec![resilience.clone(), previous_resilience.clone()]
     );
+    let runtime_settings = StoredRuntimeSettings {
+        quota_preflight_enabled: true,
+        quota_preflight_threshold_ppm: 20_000,
+        revision: 14,
+    };
+    assert_eq!(db.runtime_settings().await.unwrap(), None);
+    db.upsert_runtime_settings(&runtime_settings).await.unwrap();
+    assert_eq!(
+        db.runtime_settings().await.unwrap(),
+        Some(runtime_settings.clone())
+    );
     let oidc = StoredOidcConfig {
         enabled: true,
         issuer: "https://issuer.example".into(),
@@ -488,6 +499,10 @@ async fn exercise(backend: Backend, url: &str) {
     );
     reopened.delete_provider_resilience("first").await.unwrap();
     assert!(reopened.provider_resilience().await.unwrap().is_empty());
+    assert_eq!(
+        reopened.runtime_settings().await.unwrap(),
+        Some(runtime_settings)
+    );
     assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
     assert_eq!(
         reopened.oidc_browser_config().await.unwrap(),

@@ -436,6 +436,14 @@ export interface RustProviderHealthInput {
   reset_timeout_ms: number;
 }
 
+export interface RustRuntimeSettings {
+  quota_preflight_enabled: boolean;
+  quota_preflight_threshold_percent: number;
+  revision: string;
+}
+
+export type RustRuntimeSettingsInput = Omit<RustRuntimeSettings, "revision">;
+
 export type RustComboProtocol =
   | "openai"
   | "openai-responses"
@@ -1486,6 +1494,24 @@ function isRustProviderHealth(value: unknown): value is RustProviderHealth {
   );
 }
 
+function isRustRuntimeSettings(value: unknown): value is RustRuntimeSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(settings, [
+      "quota_preflight_enabled",
+      "quota_preflight_threshold_percent",
+      "revision",
+    ]) &&
+    typeof settings.quota_preflight_enabled === "boolean" &&
+    typeof settings.quota_preflight_threshold_percent === "number" &&
+    Number.isFinite(settings.quota_preflight_threshold_percent) &&
+    settings.quota_preflight_threshold_percent >= 0 &&
+    settings.quota_preflight_threshold_percent <= 100 &&
+    typeof settings.revision === "string"
+  );
+}
+
 function isRustCatalogManifest(value: unknown): value is RustCatalogManifest {
   if (!value || typeof value !== "object") return false;
   const manifest = value as Record<string, unknown>;
@@ -2061,6 +2087,32 @@ export async function configureRustProviderHealth(
     ...jsonRequest("PUT", input),
   });
   if (!response.ok) await rustError(response);
+}
+
+export async function readRustRuntimeSettings(): Promise<RustRuntimeSettings> {
+  const value = await rustAdminJson("/api/admin/runtime-settings");
+  const settings =
+    value && typeof value === "object"
+      ? (value as { runtime_settings?: unknown }).runtime_settings
+      : undefined;
+  if (!isRustRuntimeSettings(settings)) {
+    throw new Error("Invalid Rust runtime settings response");
+  }
+  return settings;
+}
+
+export async function saveRustRuntimeSettings(
+  input: RustRuntimeSettingsInput
+): Promise<RustRuntimeSettings> {
+  const value = await rustAdminJson("/api/admin/runtime-settings", jsonRequest("PUT", input));
+  const settings =
+    value && typeof value === "object"
+      ? (value as { runtime_settings?: unknown }).runtime_settings
+      : undefined;
+  if (!isRustRuntimeSettings(settings)) {
+    throw new Error("Invalid Rust runtime settings response");
+  }
+  return settings;
 }
 
 export async function refreshRustProviderQuota(id: string): Promise<RustProviderQuotaRefresh> {

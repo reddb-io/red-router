@@ -1670,6 +1670,93 @@ async fn chat_model_with_body(
         .unwrap()
 }
 
+#[tokio::test]
+async fn runtime_settings_are_authenticated_versioned_and_persisted() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("runtime-settings.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let endpoint = format!("{base}/api/admin/runtime-settings");
+
+    assert_eq!(
+        client.get(&endpoint).send().await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let defaults: serde_json::Value = client
+        .get(&endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        defaults["runtime_settings"]["quota_preflight_enabled"],
+        false
+    );
+    assert_eq!(
+        defaults["runtime_settings"]["quota_preflight_threshold_percent"],
+        2.0
+    );
+
+    assert_eq!(
+        client
+            .put(&endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "quota_preflight_enabled":true,
+                "quota_preflight_threshold_percent":101
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let updated: serde_json::Value = client
+        .put(&endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "quota_preflight_enabled":true,
+            "quota_preflight_threshold_percent":2.5
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(updated["runtime_settings"]["quota_preflight_enabled"], true);
+    assert_eq!(
+        updated["runtime_settings"]["quota_preflight_threshold_percent"],
+        2.5
+    );
+    assert_ne!(updated["runtime_settings"]["revision"], "0");
+    gateway_task.abort();
+
+    let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    let persisted: serde_json::Value = client
+        .get(format!("{restarted_base}/api/admin/runtime-settings"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(persisted["runtime_settings"], updated["runtime_settings"]);
+    restarted_task.abort();
+}
+
 async fn set_provider_quota(
     client: &reqwest::Client,
     base: &str,

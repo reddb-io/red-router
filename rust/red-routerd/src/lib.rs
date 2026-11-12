@@ -1051,6 +1051,19 @@ fn quota_headroom(target: &ModelTarget, now_unix_ms: i64) -> f64 {
     .unwrap_or(1.0)
 }
 
+fn quota_preflight_allows(target: &ModelTarget, now_unix_ms: i64, threshold_ppm: i64) -> bool {
+    let Some(quota) = target_quota(target, now_unix_ms) else {
+        return true;
+    };
+    if quota.limit_reached {
+        return false;
+    }
+    [quota.session_remaining_ppm, quota.weekly_remaining_ppm]
+        .into_iter()
+        .filter(|remaining| *remaining >= 0)
+        .all(|remaining| remaining > threshold_ppm)
+}
+
 fn quota_reset(target: &ModelTarget, now_unix_ms: i64) -> i64 {
     let Some(quota) = target_quota(target, now_unix_ms) else {
         return i64::MAX;
@@ -2275,6 +2288,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/provider-health",
             get(control_plane::list_provider_health),
+        )
+        .route(
+            "/api/admin/runtime-settings",
+            get(control_plane::get_runtime_settings).put(control_plane::put_runtime_settings),
         )
         .route(
             "/api/admin/provider-health/{id}",
@@ -5504,7 +5521,7 @@ async fn proxy_request(
             "Provider does not support this protocol",
         );
     }
-    let eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
+    let mut eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
         route
             .targets
             .iter()
@@ -5519,6 +5536,19 @@ async fn proxy_request(
     }
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
+    }
+    if let Some(threshold_ppm) = match &state.control_plane {
+        Some(control) => control.quota_preflight_threshold_ppm().await,
+        None => None,
+    } {
+        let now = unix_time_ms();
+        eligible.retain(|target| quota_preflight_allows(target, now, threshold_ppm));
+        if route.is_some() && eligible.is_empty() {
+            return error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "All permitted route targets are below the quota cutoff",
+            );
+        }
     }
     if let Some(target) = product_target {
         parsed["model"] = serde_json::Value::String(target);
@@ -7729,6 +7759,7 @@ mod address_tests {
             in_flight: Arc::new(AtomicUsize::new(0)),
         };
         assert!(target_quota(&target, 2).unwrap().limit_reached);
+        assert!(!quota_preflight_allows(&target, 2, 20_000));
         model_quota.clear();
         assert_eq!(
             target_quota(&target, 2).unwrap().session_remaining_ppm,
@@ -7759,6 +7790,8 @@ mod address_tests {
             revision: 4,
         });
         assert_eq!(context_relay_quota_expiry(&target, 0.8, 2), None);
+        assert!(quota_preflight_allows(&target, 2, 20_000));
+        assert!(!quota_preflight_allows(&target, 2, 40_000));
     }
 
     #[test]
