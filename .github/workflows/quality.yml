@@ -231,6 +231,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - name: Verify TypeScript quota admission
         run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --test tests/redrouter/native/shared-rpm.test.ts tests/redrouter/native/systemone-dispatch.test.ts
@@ -464,3 +468,4 @@ jobs:
       - run: npm run build:release
       - run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
       - run: npm run test:e2e
+
