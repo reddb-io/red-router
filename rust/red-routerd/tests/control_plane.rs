@@ -1742,7 +1742,7 @@ async fn runtime_settings_are_authenticated_versioned_and_persisted() {
             .bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({
                 "provider":"openai",
-                "upstream_url":"https://api.example.test/v1",
+                "upstream_url":"https://api.openai.com/v1",
                 "api_key":"global-breaker-secret"
             }))
             .send()
