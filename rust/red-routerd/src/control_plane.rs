@@ -807,6 +807,11 @@ pub struct UsageExportConfigInput {
     pub queue: Option<String>,
     pub token: Option<String>,
     pub tenant: Option<String>,
+    pub queue_url: Option<String>,
+    pub region: Option<String>,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
+    pub session_token: Option<String>,
     pub project_id: Option<String>,
     pub dataset_id: Option<String>,
     pub table_id: Option<String>,
@@ -7459,6 +7464,11 @@ impl ControlPlane {
             queue: None,
             token: None,
             tenant: None,
+            queue_url: None,
+            region: None,
+            access_key_id: None,
+            secret_access_key: None,
+            session_token: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -7524,7 +7534,10 @@ impl ControlPlane {
         if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
             return Err("invalid usage export name");
         }
-        if !matches!(export_type.as_str(), "bigquery" | "webhook" | "reddb") {
+        if !matches!(
+            export_type.as_str(),
+            "bigquery" | "webhook" | "reddb" | "sqs"
+        ) {
             return Err("unsupported usage export type");
         }
         if mode != "instant" || window_sec.is_some_and(|value| value != 0) {
@@ -7568,6 +7581,11 @@ impl ControlPlane {
                     || config.queue.is_some()
                     || config.token.is_some()
                     || config.tenant.is_some()
+                    || config.queue_url.is_some()
+                    || config.region.is_some()
+                    || config.access_key_id.is_some()
+                    || config.secret_access_key.is_some()
+                    || config.session_token.is_some()
                 {
                     return Err("invalid BigQuery usage export fields");
                 }
@@ -7647,6 +7665,11 @@ impl ControlPlane {
                     || config.queue.is_some()
                     || config.token.is_some()
                     || config.tenant.is_some()
+                    || config.queue_url.is_some()
+                    || config.region.is_some()
+                    || config.access_key_id.is_some()
+                    || config.secret_access_key.is_some()
+                    || config.session_token.is_some()
                 {
                     return Err("invalid webhook usage export fields");
                 }
@@ -7700,6 +7723,11 @@ impl ControlPlane {
                     || config.service_account_json.is_some()
                     || config.batch_size.is_some()
                     || config.interval_seconds.is_some()
+                    || config.queue_url.is_some()
+                    || config.region.is_some()
+                    || config.access_key_id.is_some()
+                    || config.secret_access_key.is_some()
+                    || config.session_token.is_some()
                 {
                     return Err("invalid RedDB usage export fields");
                 }
@@ -7754,6 +7782,108 @@ impl ControlPlane {
                 crate::audit_export::validate_usage_reddb(
                     &config_json,
                     token,
+                    self.0.allow_private,
+                )
+                .await?;
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    config_json,
+                    secret_ciphertext,
+                    8,
+                    1,
+                )
+            }
+            "sqs" => {
+                if config.url.is_some()
+                    || config.secret.is_some()
+                    || config.queue.is_some()
+                    || config.token.is_some()
+                    || config.tenant.is_some()
+                    || config.project_id.is_some()
+                    || config.dataset_id.is_some()
+                    || config.table_id.is_some()
+                    || config.service_account_json.is_some()
+                    || config.batch_size.is_some()
+                    || config.interval_seconds.is_some()
+                {
+                    return Err("invalid SQS usage export fields");
+                }
+                let stored = current
+                    .map(|value| sqs_usage_config(&value.config_json))
+                    .transpose()?;
+                let queue_url = config
+                    .queue_url
+                    .or_else(|| stored.as_ref().map(|value| value.0.clone()))
+                    .ok_or("SQS queue URL is required")?;
+                let region = config
+                    .region
+                    .or_else(|| stored.as_ref().map(|value| value.1.clone()))
+                    .or_else(|| sqs_region_from_url(&queue_url))
+                    .ok_or("SQS region is required")?;
+                let access_key_id = config
+                    .access_key_id
+                    .or_else(|| stored.as_ref().map(|value| value.2.clone()))
+                    .ok_or("SQS access key ID is required")?;
+                let aad = format!("usage-export:{id}:secret");
+                let (secret_ciphertext, secret_json, has_session_token) = match config
+                    .secret_access_key
+                {
+                    Some(value) if value != "__stored__" => {
+                        if value.is_empty() || value.len() > 1024 {
+                            return Err("SQS secret access key is invalid");
+                        }
+                        let session_token = config
+                            .session_token
+                            .map(|value| value.trim().to_owned())
+                            .filter(|value| !value.is_empty());
+                        if session_token.as_ref().is_some_and(|value| {
+                            value.len() > 4096 || value.chars().any(char::is_control)
+                        }) {
+                            return Err("SQS session token is invalid");
+                        }
+                        let has_session_token = session_token.is_some();
+                        let secret_json = Zeroizing::new(
+                            serde_json::to_string(&serde_json::json!({
+                                "secretAccessKey":value,
+                                "sessionToken":session_token,
+                            }))
+                            .map_err(|_| "cannot encode SQS usage credentials")?,
+                        );
+                        let ciphertext =
+                            encrypt(secret_json.as_str(), &aad, self.0.encryption_key.as_str())?;
+                        (ciphertext, secret_json, has_session_token)
+                    }
+                    _ => {
+                        let stored = current.ok_or("SQS secret access key is required")?;
+                        if stored.secret_ciphertext.is_empty() {
+                            return Err("SQS secret access key is required");
+                        }
+                        let secret_json = decrypt(
+                            &stored.secret_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )?;
+                        let (_, _, _, has_session_token) = sqs_usage_config(&stored.config_json)?;
+                        (
+                            stored.secret_ciphertext.clone(),
+                            secret_json,
+                            has_session_token,
+                        )
+                    }
+                };
+                let config_json = serde_json::to_string(&serde_json::json!({
+                    "queueUrl":queue_url.trim_end_matches('/'),
+                    "region":region.trim(),
+                    "accessKeyId":access_key_id.trim(),
+                    "hasSessionToken":has_session_token,
+                }))
+                .map_err(|_| "cannot encode SQS usage configuration")?;
+                crate::audit_export::validate_usage_sqs(
+                    &config_json,
+                    secret_json.as_str(),
                     self.0.allow_private,
                 )
                 .await?;
@@ -7863,6 +7993,11 @@ impl ControlPlane {
             queue: None,
             token: None,
             tenant: None,
+            queue_url: None,
+            region: None,
+            access_key_id: None,
+            secret_access_key: None,
+            session_token: None,
             project_id: None,
             dataset_id: None,
             table_id: None,
@@ -7966,6 +8101,22 @@ impl ControlPlane {
                     &record.name,
                     &record.config_json,
                     token,
+                    &event,
+                    self.0.allow_private,
+                )
+                .await?;
+            }
+            "sqs" => {
+                let aad = format!("usage-export:{id}:secret");
+                let secret_json = decrypt(
+                    &record.secret_ciphertext,
+                    &aad,
+                    self.0.encryption_key.as_str(),
+                )?;
+                crate::audit_export::send_usage_sqs_test(
+                    id,
+                    &record.config_json,
+                    secret_json.as_str(),
                     &event,
                     self.0.allow_private,
                 )
@@ -10385,6 +10536,27 @@ fn usage_export_view(
             }
             ("RedDB queue", config, format!("QUEUE {queue} @ {url}"))
         }
+        "sqs" => {
+            let (queue_url, region, access_key_id, has_session_token) =
+                sqs_usage_config(&record.config_json)?;
+            let mut config = serde_json::json!({
+                "queueUrl":queue_url,
+                "region":region,
+                "accessKeyId":access_key_id,
+                "secretAccessKey":"__stored__",
+            });
+            if has_session_token {
+                config["sessionToken"] = serde_json::Value::String("__stored__".to_owned());
+            }
+            (
+                "Amazon SQS",
+                config,
+                format!(
+                    "SQS {} ({region})",
+                    queue_url.rsplit('/').next().unwrap_or("?")
+                ),
+            )
+        }
         _ => return Err("invalid usage export configuration"),
     };
     Ok(serde_json::json!({
@@ -10465,6 +10637,51 @@ fn reddb_usage_config(config_json: &str) -> Result<(String, String, Option<Strin
         return Err("invalid RedDB usage configuration");
     }
     Ok((url, queue, tenant))
+}
+
+fn sqs_region_from_url(queue_url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(queue_url).ok()?;
+    let host = parsed.host_str()?;
+    let rest = host.strip_prefix("sqs.")?;
+    rest.strip_suffix(".amazonaws.com")
+        .or_else(|| rest.strip_suffix(".amazonaws.com.cn"))
+        .filter(|region| !region.is_empty())
+        .map(str::to_owned)
+}
+
+fn sqs_usage_config(config_json: &str) -> Result<(String, String, String, bool), &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid SQS usage configuration");
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(config_json).map_err(|_| "invalid SQS usage configuration")?;
+    let field = |name| {
+        value
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or("invalid SQS usage configuration")
+    };
+    let queue_url = field("queueUrl")?;
+    let region = field("region")?;
+    let access_key_id = field("accessKeyId")?;
+    let has_session_token = value
+        .get("hasSessionToken")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if queue_url.len() > 2048
+        || region.len() > 32
+        || !region
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || access_key_id.len() > 128
+        || access_key_id.chars().any(char::is_control)
+    {
+        return Err("invalid SQS usage configuration");
+    }
+    Ok((queue_url, region, access_key_id, has_session_token))
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -12939,6 +13156,19 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
                     {"key":"token","labelFallback":"Token (optional)","type":"password","secret":true,"placeholder":"rdb_k_...","helpFallback":"Write-only and encrypted at rest."},
                     {"key":"tenant","labelFallback":"RedDB tenant (optional)","type":"text"}
                 ]
+            },
+            {
+                "type": "sqs",
+                "label": "Amazon SQS",
+                "description": "Publishes attributed usage through SendMessage; FIFO queues use the delivery ID for deduplication.",
+                "modes": ["instant"],
+                "fields": [
+                    {"key":"queueUrl","labelFallback":"Queue URL","type":"text","required":true,"placeholder":"https://sqs.us-east-1.amazonaws.com/123456789012/usage"},
+                    {"key":"region","labelFallback":"Region","type":"text","placeholder":"Read from the AWS queue URL"},
+                    {"key":"accessKeyId","labelFallback":"Access key ID","type":"text","required":true},
+                    {"key":"secretAccessKey","labelFallback":"Secret access key","type":"password","required":true,"secret":true,"helpFallback":"Write-only and encrypted at rest; requires sqs:SendMessage."},
+                    {"key":"sessionToken","labelFallback":"Session token (optional)","type":"password","secret":true,"helpFallback":"For temporary AWS credentials."}
+                ]
             }
         ],
         "windowSizesSec": []
@@ -14999,6 +15229,35 @@ mod tests {
         assert_eq!(view["config"]["queue"], "usage_events");
         assert_eq!(view["config"]["tenant"], "billing");
         assert!(!encoded.contains("reddb-token-ciphertext"));
+    }
+
+    #[test]
+    fn usage_sqs_views_expose_only_write_only_credential_placeholders() {
+        let record = StoredUsageExport {
+            id: "usage-sqs".to_owned(),
+            tenant_id: "red".to_owned(),
+            name: "Billing queue".to_owned(),
+            export_type: "sqs".to_owned(),
+            mode: "instant".to_owned(),
+            window_sec: 0,
+            api_key_ids_json: "[]".to_owned(),
+            project_id: String::new(),
+            dataset_id: String::new(),
+            table_id: String::new(),
+            service_account_ciphertext: String::new(),
+            config_json: r#"{"queueUrl":"https://sqs.us-east-1.amazonaws.com/123/usage","region":"us-east-1","accessKeyId":"AKIDEXAMPLE","hasSessionToken":true}"#.to_owned(),
+            secret_ciphertext: "rrenc1:sqs-secret-ciphertext".to_owned(),
+            batch_size: 8,
+            interval_seconds: 1,
+            enabled: true,
+            revision: 1_700_000_000_000_000_000,
+        };
+        let view = usage_export_view(&record, &[]).unwrap();
+        let encoded = view.to_string();
+        assert_eq!(view["config"]["secretAccessKey"], "__stored__");
+        assert_eq!(view["config"]["sessionToken"], "__stored__");
+        assert_eq!(view["config"]["region"], "us-east-1");
+        assert!(!encoded.contains("sqs-secret-ciphertext"));
     }
 
     #[test]

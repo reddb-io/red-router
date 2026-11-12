@@ -5,7 +5,13 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, env, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    net::SocketAddr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
@@ -19,6 +25,7 @@ const MAX_ATTEMPTS: usize = 3;
 const LEASE_MS: i64 = 120_000;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 const REDDB_MAX_STATEMENT_BYTES: usize = 1024 * 1024;
+const SQS_MAX_MESSAGE_BYTES: usize = 256 * 1024;
 
 #[derive(Clone)]
 pub struct BigQueryAuditConfig {
@@ -430,10 +437,41 @@ struct UsageRedDbSink {
     client: Client,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSqsConfig {
+    queue_url: String,
+    region: String,
+    access_key_id: String,
+    #[serde(default)]
+    has_session_token: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSqsSecret {
+    secret_access_key: String,
+    #[serde(default)]
+    session_token: Option<String>,
+}
+
+#[derive(Clone)]
+struct UsageSqsSink {
+    sink_id: String,
+    queue_url: String,
+    endpoint: Url,
+    region: String,
+    access_key_id: String,
+    secret_access_key: Zeroizing<String>,
+    session_token: Option<Zeroizing<String>>,
+    client: Client,
+}
+
 enum ManagedUsageTransport {
     BigQuery(Box<BigQueryAuditSink>),
     Webhook(UsageWebhookSink),
     RedDb(UsageRedDbSink),
+    Sqs(UsageSqsSink),
 }
 
 struct ManagedUsageRelay {
@@ -518,6 +556,20 @@ impl ManagedUsageRelay {
                     .await?,
                 )
             }
+            "sqs" => {
+                let aad = format!("usage-export:{}:secret", record.id);
+                let secret =
+                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                ManagedUsageTransport::Sqs(
+                    UsageSqsSink::new(
+                        &record.id,
+                        &record.config_json,
+                        secret.as_str(),
+                        allow_private,
+                    )
+                    .await?,
+                )
+            }
             _ => return Err("unsupported usage export type"),
         };
         Ok(Self {
@@ -535,6 +587,7 @@ impl ManagedUsageRelay {
             ManagedUsageTransport::BigQuery(sink) => sink.send_usage(events).await,
             ManagedUsageTransport::Webhook(sink) => sink.send(events, false).await,
             ManagedUsageTransport::RedDb(sink) => sink.send(events, false).await,
+            ManagedUsageTransport::Sqs(sink) => sink.send(events, false).await,
         }
     }
 }
@@ -627,6 +680,109 @@ impl UsageRedDbSink {
             return Err("RedDB usage delivery was rejected");
         }
         Ok(())
+    }
+}
+
+impl UsageSqsSink {
+    async fn new(
+        sink_id: &str,
+        config_json: &str,
+        secret_json: &str,
+        allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        let config = parse_sqs_config(config_json)?;
+        let secret = parse_sqs_secret(secret_json)?;
+        if config.has_session_token != secret.session_token.is_some() {
+            return Err("invalid SQS usage credentials");
+        }
+        let (endpoint, client) = pinned_sqs_client(&config.queue_url, allow_private).await?;
+        Ok(Self {
+            sink_id: sink_id.to_owned(),
+            queue_url: config.queue_url,
+            endpoint,
+            region: config.region,
+            access_key_id: config.access_key_id,
+            secret_access_key: Zeroizing::new(secret.secret_access_key),
+            session_token: secret.session_token.map(Zeroizing::new),
+            client,
+        })
+    }
+
+    async fn send(
+        &self,
+        events: &[StoredUsageExportEvent],
+        test: bool,
+    ) -> Result<(), &'static str> {
+        for event in events {
+            self.send_one(event, test).await?;
+        }
+        Ok(())
+    }
+
+    async fn send_one(
+        &self,
+        event: &StoredUsageExportEvent,
+        test: bool,
+    ) -> Result<(), &'static str> {
+        let payload = usage_webhook_payload(&self.sink_id, "Amazon SQS", event, test)?;
+        if payload.len() > SQS_MAX_MESSAGE_BYTES {
+            return Err("SQS usage payload is too large");
+        }
+        let message_body =
+            std::str::from_utf8(&payload).map_err(|_| "cannot encode SQS usage payload")?;
+        let fifo = self.queue_url.trim_end_matches('/').ends_with(".fifo");
+        let mut request_body = serde_json::json!({
+            "QueueUrl":self.queue_url,
+            "MessageBody":message_body,
+            "MessageAttributes":{
+                "redrouter-delivery-id":{"DataType":"String","StringValue":event.event_id}
+            }
+        });
+        if fifo {
+            request_body["MessageGroupId"] = serde_json::Value::String(self.sink_id.clone());
+            request_body["MessageDeduplicationId"] =
+                serde_json::Value::String(event.event_id.chars().take(128).collect());
+        }
+        let body =
+            serde_json::to_vec(&request_body).map_err(|_| "cannot encode SQS usage request")?;
+        let signed = sign_sqs_request(
+            &self.endpoint,
+            &self.region,
+            &self.access_key_id,
+            self.secret_access_key.as_str(),
+            self.session_token.as_ref().map(|token| token.as_str()),
+            &body,
+            unix_time_ms()?,
+        )?;
+        let mut request = self.client.post(self.endpoint.clone()).body(body);
+        for (name, value) in signed {
+            request = request.header(name.as_str(), value);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|_| "SQS usage request failed")?;
+        let status = response.status();
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        {
+            return Err("SQS usage response is too large");
+        }
+        let mut size = 0_usize;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "SQS usage response failed")?;
+            size = size.saturating_add(chunk.len());
+            if size > MAX_RESPONSE_BYTES {
+                return Err("SQS usage response is too large");
+            }
+        }
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err("SQS usage delivery was rejected")
+        }
     }
 }
 
@@ -743,6 +899,230 @@ pub async fn send_usage_reddb_test(
         .await?
         .send(std::slice::from_ref(event), true)
         .await
+}
+
+pub async fn validate_usage_sqs(
+    config_json: &str,
+    secret_json: &str,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageSqsSink::new("validation", config_json, secret_json, allow_private)
+        .await
+        .map(|_| ())
+}
+
+pub async fn send_usage_sqs_test(
+    sink_id: &str,
+    config_json: &str,
+    secret_json: &str,
+    event: &StoredUsageExportEvent,
+    allow_private: bool,
+) -> Result<(), &'static str> {
+    UsageSqsSink::new(sink_id, config_json, secret_json, allow_private)
+        .await?
+        .send(std::slice::from_ref(event), true)
+        .await
+}
+
+fn parse_sqs_config(config_json: &str) -> Result<StoredSqsConfig, &'static str> {
+    if config_json.len() > 8 * 1024 {
+        return Err("invalid SQS usage configuration");
+    }
+    let mut config: StoredSqsConfig =
+        serde_json::from_str(config_json).map_err(|_| "invalid SQS usage configuration")?;
+    config.queue_url = config.queue_url.trim_end_matches('/').to_owned();
+    config.region = config.region.trim().to_owned();
+    config.access_key_id = config.access_key_id.trim().to_owned();
+    if config.queue_url.is_empty()
+        || config.queue_url.len() > 2048
+        || config.region.is_empty()
+        || config.region.len() > 32
+        || !config
+            .region
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || config.access_key_id.is_empty()
+        || config.access_key_id.len() > 128
+        || config.access_key_id.chars().any(char::is_control)
+    {
+        return Err("invalid SQS usage configuration");
+    }
+    Ok(config)
+}
+
+fn parse_sqs_secret(secret_json: &str) -> Result<StoredSqsSecret, &'static str> {
+    if secret_json.len() > 8 * 1024 {
+        return Err("invalid SQS usage credentials");
+    }
+    let mut secret: StoredSqsSecret =
+        serde_json::from_str(secret_json).map_err(|_| "invalid SQS usage credentials")?;
+    secret.session_token = secret
+        .session_token
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if secret.secret_access_key.is_empty()
+        || secret.secret_access_key.len() > 1024
+        || secret
+            .session_token
+            .as_ref()
+            .is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control))
+    {
+        return Err("invalid SQS usage credentials");
+    }
+    Ok(secret)
+}
+
+fn sqs_region_from_host(host: &str) -> Option<&str> {
+    let rest = host.strip_prefix("sqs.")?;
+    rest.strip_suffix(".amazonaws.com")
+        .or_else(|| rest.strip_suffix(".amazonaws.com.cn"))
+        .filter(|region| !region.is_empty())
+}
+
+async fn pinned_sqs_client(
+    queue_url: &str,
+    allow_private: bool,
+) -> Result<(Url, Client), &'static str> {
+    let parsed = Url::parse(queue_url).map_err(|_| "SQS queue URL is invalid")?;
+    let host = parsed
+        .host_str()
+        .ok_or("SQS queue URL is invalid")?
+        .to_owned();
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || parsed.path() == "/"
+        || (sqs_region_from_host(&host).is_some() && parsed.scheme() != "https")
+    {
+        return Err("SQS queue URL is invalid");
+    }
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("SQS queue URL is invalid")?;
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|_| "SQS host cannot be resolved")?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !crate::allowed_address(address.ip(), allow_private))
+    {
+        return Err("SQS host resolved to a forbidden address");
+    }
+    let mut endpoint = parsed.clone();
+    endpoint.set_path("/");
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(WEBHOOK_TIMEOUT)
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "cannot create SQS usage client")?;
+    Ok((endpoint, client))
+}
+
+fn hmac_sha256(key: &[u8], value: &[u8]) -> [u8; 32] {
+    let mut normalized = [0_u8; 64];
+    if key.len() > normalized.len() {
+        normalized[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0x36_u8; 64];
+    let mut outer_pad = [0x5c_u8; 64];
+    for index in 0..64 {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(value);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    let mut result = [0_u8; 32];
+    result.copy_from_slice(&outer.finalize());
+    result
+}
+
+fn sign_sqs_request(
+    endpoint: &Url,
+    region: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+    session_token: Option<&str>,
+    body: &[u8],
+    now_unix_ms: i64,
+) -> Result<BTreeMap<String, String>, &'static str> {
+    let timestamp = ::time::OffsetDateTime::from_unix_timestamp(now_unix_ms.div_euclid(1_000))
+        .map_err(|_| "SQS signing timestamp is invalid")?;
+    let date = format!(
+        "{:04}{:02}{:02}",
+        timestamp.year(),
+        timestamp.month() as u8,
+        timestamp.day()
+    );
+    let amz_date = format!(
+        "{date}T{:02}{:02}{:02}Z",
+        timestamp.hour(),
+        timestamp.minute(),
+        timestamp.second()
+    );
+    let hostname = endpoint.host_str().ok_or("SQS queue URL is invalid")?;
+    let host = match endpoint.port() {
+        Some(port) => format!("{hostname}:{port}"),
+        None => hostname.to_owned(),
+    };
+    let payload_hash = hex::encode(Sha256::digest(body));
+    let mut canonical_headers = BTreeMap::from([
+        (
+            "content-type".to_owned(),
+            "application/x-amz-json-1.0".to_owned(),
+        ),
+        ("host".to_owned(), host),
+        ("x-amz-content-sha256".to_owned(), payload_hash.clone()),
+        ("x-amz-date".to_owned(), amz_date.clone()),
+        (
+            "x-amz-target".to_owned(),
+            "AmazonSQS.SendMessage".to_owned(),
+        ),
+    ]);
+    if let Some(token) = session_token {
+        canonical_headers.insert("x-amz-security-token".to_owned(), token.to_owned());
+    }
+    let signed_headers = canonical_headers
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(";");
+    let canonical_header_text = canonical_headers
+        .iter()
+        .map(|(name, value)| format!("{name}:{}\n", value.trim()))
+        .collect::<String>();
+    let canonical_request =
+        format!("POST\n/\n\n{canonical_header_text}\n{signed_headers}\n{payload_hash}");
+    let scope = format!("{date}/{region}/sqs/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+        hex::encode(Sha256::digest(canonical_request.as_bytes()))
+    );
+    let date_key = hmac_sha256(
+        format!("AWS4{secret_access_key}").as_bytes(),
+        date.as_bytes(),
+    );
+    let region_key = hmac_sha256(&date_key, region.as_bytes());
+    let service_key = hmac_sha256(&region_key, b"sqs");
+    let signing_key = hmac_sha256(&service_key, b"aws4_request");
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    canonical_headers.insert(
+        "authorization".to_owned(),
+        format!(
+            "AWS4-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
+        ),
+    );
+    Ok(canonical_headers)
 }
 
 fn valid_reddb_queue(value: &str) -> bool {
@@ -1753,6 +2133,81 @@ mod tests {
     async fn reddb_usage_refuses_private_destinations_without_opt_in() {
         let config = r#"{"url":"http://127.0.0.1:5000","queue":"usage_events"}"#;
         assert!(validate_usage_reddb(config, None, false).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn sqs_usage_delivery_is_signed_attributed_and_fifo_deduplicated() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::Mutex as StdMutex;
+
+        type Capture = Arc<StdMutex<Option<(HeaderMap, Vec<u8>)>>>;
+        let capture: Capture = Arc::new(StdMutex::new(None));
+        let app = Router::new()
+            .route(
+                "/",
+                post(
+                    |State(capture): State<Capture>,
+                     headers: HeaderMap,
+                     body: axum::body::Bytes| async move {
+                        *capture.lock().unwrap() = Some((headers, body.to_vec()));
+                        Json(serde_json::json!({"MessageId":"message-one"}))
+                    },
+                ),
+            )
+            .with_state(capture.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = serde_json::json!({
+            "queueUrl":format!("http://{address}/123456789012/usage.fifo"),
+            "region":"us-east-1",
+            "accessKeyId":"AKIDEXAMPLE",
+            "hasSessionToken":true,
+        })
+        .to_string();
+        let secret = serde_json::json!({
+            "secretAccessKey":"secret-example",
+            "sessionToken":"session-example",
+        })
+        .to_string();
+        send_usage_sqs_test(
+            "sink-one",
+            &config,
+            &secret,
+            &usage_event("usage-sqs-one"),
+            true,
+        )
+        .await
+        .unwrap();
+        let (headers, body) = capture.lock().unwrap().take().unwrap();
+        assert_eq!(headers["x-amz-target"], "AmazonSQS.SendMessage");
+        assert_eq!(headers["x-amz-security-token"], "session-example");
+        assert_eq!(
+            headers["x-amz-content-sha256"].to_str().unwrap(),
+            hex::encode(Sha256::digest(&body))
+        );
+        let authorization = headers["authorization"].to_str().unwrap();
+        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
+        assert!(authorization.contains("/us-east-1/sqs/aws4_request"));
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["MessageGroupId"], "sink-one");
+        assert_eq!(body["MessageDeduplicationId"], "usage-sqs-one");
+        assert_eq!(
+            body["MessageAttributes"]["redrouter-delivery-id"]["StringValue"],
+            "usage-sqs-one"
+        );
+        assert!(body["MessageBody"]
+            .as_str()
+            .unwrap()
+            .contains("\"model\":\"openai/gpt-5\""));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn sqs_usage_refuses_private_destinations_without_opt_in() {
+        let config = r#"{"queueUrl":"http://127.0.0.1:4566/123/usage","region":"us-east-1","accessKeyId":"local","hasSessionToken":false}"#;
+        let secret = r#"{"secretAccessKey":"local-secret"}"#;
+        assert!(validate_usage_sqs(config, secret, false).await.is_err());
     }
 
     #[tokio::test]
