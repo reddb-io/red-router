@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,5 +30,10 @@ rmSync(join(destination, "dashboard"), { recursive: true, force: true });
 mkdirSync(join(destination, `${platform}-${arch}`), { recursive: true });
 cpSync(dashboard, join(destination, "dashboard"), { recursive: true });
 cpSync(binary, join(destination, `${platform}-${arch}`, executable));
+const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: root,
+  encoding: "utf8",
+}).trim();
+writeFileSync(join(destination, "BUILD_SHA"), `${sourceSha}\n`);
 
-console.log(`Staged Rust runtime for ${platform}-${arch}`);
+console.log(`Staged Rust runtime for ${platform}-${arch} from ${sourceSha.slice(0, 12)}`);

@@ -71,7 +71,7 @@ export async function packArtifact(root = process.cwd()) {
     throw new Error("Version RedRouter with Changesets before building");
   }
   const { stdout: sha } = await exec("git", ["rev-parse", "HEAD"], { cwd: root });
-  const buildSha = (await readFile(join(root, "dist/BUILD_SHA"), "utf8")).trim();
+  const buildSha = (await readFile(join(root, "rust-runtime/BUILD_SHA"), "utf8")).trim();
   if (!/^[a-f0-9]{7,40}$/.test(buildSha) || !sha.trim().startsWith(buildSha)) {
     throw new Error("The built package does not belong to the current source commit");
   }

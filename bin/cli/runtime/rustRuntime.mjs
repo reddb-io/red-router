@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const SUPPORTED_RUNTIME_MODES = new Set(["auto", "rust", "next"]);
+const SUPPORTED_RUNTIME_MODES = new Set(["auto", "rust"]);
 
 function executableName(platform) {
   return platform === "win32" ? "red-routerd.exe" : "red-routerd";
@@ -56,43 +56,31 @@ export function resolveRuntimeMode(value = process.env.RED_ROUTER_RUNTIME) {
     .trim()
     .toLowerCase();
   if (!SUPPORTED_RUNTIME_MODES.has(mode)) {
-    throw new Error("runtime must be one of: auto, rust, next");
+    throw new Error("runtime must be one of: auto, rust");
   }
   return mode;
 }
 
 /**
- * Rust is the production default whenever the native artifact is available.
- * `next` remains an explicit rollback mode during the release transition.
+ * RedRouter has one backend runtime: the native Rust server. `auto` exists for
+ * CLI compatibility, but it resolves to Rust and fails closed when the native
+ * artifact is missing instead of reviving the retired Next.js backend.
  */
-export function selectServerRuntime({ mode, rust, nextServerPath }) {
-  const selected = resolveRuntimeMode(mode);
-  if (selected === "next") return { kind: "next", serverPath: nextServerPath };
+export function selectServerRuntime({ mode, rust }) {
+  resolveRuntimeMode(mode);
   if (rust) return rust;
-  if (selected === "rust") {
-    throw new Error(
-      "Rust runtime is not installed (expected red-routerd and the static dashboard)"
-    );
-  }
-  return { kind: "next", serverPath: nextServerPath };
+  throw new Error(
+    "Rust runtime is not installed (expected red-routerd and the static dashboard)"
+  );
 }
 
-export function buildRuntimeSpawn(runtime, memoryLimit, env = process.env, node = {}) {
-  if (runtime.kind === "rust") {
-    return {
-      command: runtime.binaryPath,
-      args: [],
-      cwd: node.dataDir,
-    };
+export function buildRuntimeSpawn(runtime, _memoryLimit, _env = process.env, native = {}) {
+  if (runtime.kind !== "rust") {
+    throw new Error(`Unsupported server runtime: ${runtime.kind || "unknown"}`);
   }
   return {
-    command: process.versions.bun ? process.execPath : "node",
-    args: [
-      ...(process.versions.bun
-        ? ["--preload", node.bunPreloadPath]
-        : node.buildNodeHeapArgs(env, memoryLimit)),
-      runtime.serverPath,
-    ],
-    cwd: node.appDir,
+    command: runtime.binaryPath,
+    args: [],
+    cwd: native.dataDir,
   };
 }

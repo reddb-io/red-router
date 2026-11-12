@@ -27,12 +27,14 @@ describe("Rust CLI runtime", () => {
     );
   });
 
-  it("uses Rust in auto mode and keeps Next as explicit rollback", () => {
+  it("uses Rust for every supported mode and never falls back to Next", () => {
     const rust = { kind: "rust", binaryPath: "/bin/red-routerd", spaDir: "/dashboard" };
     assert.equal(selectServerRuntime({ mode: "auto", rust }).kind, "rust");
-    assert.deepEqual(
-      selectServerRuntime({ mode: "next", rust, nextServerPath: "/dist/server.js" }),
-      { kind: "next", serverPath: "/dist/server.js" }
+    assert.equal(selectServerRuntime({ mode: "rust", rust }).kind, "rust");
+    assert.throws(() => selectServerRuntime({ mode: "next", rust }), /auto, rust/);
+    assert.throws(
+      () => selectServerRuntime({ mode: "auto", rust: null }),
+      /Rust runtime is not installed/
     );
     assert.throws(
       () => selectServerRuntime({ mode: "rust", rust: null }),
@@ -42,7 +44,7 @@ describe("Rust CLI runtime", () => {
 
   it("rejects unknown runtime modes", () => {
     assert.equal(resolveRuntimeMode(), "auto");
-    assert.throws(() => resolveRuntimeMode("python"), /auto, rust, next/);
+    assert.throws(() => resolveRuntimeMode("python"), /auto, rust/);
   });
 
   it("executes red-routerd directly without a Node heap", () => {
@@ -57,5 +59,9 @@ describe("Rust CLI runtime", () => {
       args: [],
       cwd: "/data",
     });
+    assert.throws(
+      () => buildRuntimeSpawn({ kind: "next", serverPath: "/dist/server.js" }, 4096),
+      /Unsupported server runtime/
+    );
   });
 });

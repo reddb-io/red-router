@@ -80,8 +80,7 @@ test("manual quality runs product suites and release owns one package build", ()
     "npm run test:unit:ci",
     "npm run test:vitest",
     "npm run test:e2e",
-    "npm run check:pack-artifact",
-    "npm run check:pack-boot",
+    "npm run check:rust-package",
   ]) {
     assert.ok(commands.includes(command), command);
   }

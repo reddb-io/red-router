@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts --no-audit --no-fund --legacy-peer-deps
 
 COPY rust-dashboard ./rust-dashboard
-COPY tsconfig.json next-env.d.ts postcss.config.mjs ./
+COPY tsconfig.json postcss.config.mjs ./
 RUN npm run build:rust-dashboard \
     && test -s /src/.build/rust-dashboard/index.html
 
@@ -52,6 +52,7 @@ ENV RED_ROUTER_LISTEN=0.0.0.0:25050 \
     RED_ROUTER_DB_BACKEND=sqlite \
     RED_ROUTER_DATABASE_URL=sqlite:///app/data/red-router.sqlite \
     RED_ROUTER_SPA_DIR=/app/dashboard
+ENV REQUIRE_API_KEY=true
 
 VOLUME ["/app/data"]
 EXPOSE 25050
