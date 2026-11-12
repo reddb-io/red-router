@@ -249,7 +249,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: 0
       CARGO_PROFILE_RELEASE_DEBUG: 0
-      NODE_OPTIONS: --max-old-space-size=6144
+      NODE_OPTIONS: --max-old-space-size=10240
       OMNIROUTE_USE_TURBOPACK: "0"
     steps:
       - uses: actions/checkout@v4
