@@ -108,21 +108,24 @@ export default function ProviderResilience() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
-    const [nextProviders, nextHealth, nextQuotas] = await Promise.all([
-      listRustProviders(),
-      listRustProviderHealth(),
-      listRustProviderQuotas(),
-    ]);
-    setProviders(nextProviders);
-    setHealth(nextHealth);
-    setQuotas(nextQuotas);
-    setSelectedId((current) => current || nextProviders[0]?.id || "");
-  }, []);
+  const load = useCallback(
+    () => Promise.all([listRustProviders(), listRustProviderHealth(), listRustProviderQuotas()]),
+    []
+  );
 
   useEffect(() => {
     let active = true;
     void load()
+      .then(([nextProviders, nextHealth, nextQuotas]) => {
+        if (!active) return;
+        const nextSelected = nextProviders[0]?.id || "";
+        setProviders(nextProviders);
+        setHealth(nextHealth);
+        setQuotas(nextQuotas);
+        setSelectedId(nextSelected);
+        setHealthForm(healthDraft(nextHealth.find((item) => item.provider_id === nextSelected)));
+        setQuotaForm(quotaDraft(nextQuotas.find((item) => item.provider_id === nextSelected)));
+      })
       .catch((cause) => {
         if (active) setError(errorMessage(cause, "Could not load provider resilience."));
       })
@@ -143,18 +146,18 @@ export default function ProviderResilience() {
     [quotas, selectedId]
   );
 
-  useEffect(() => {
-    setHealthForm(healthDraft(selectedHealth));
-    setQuotaForm(quotaDraft(selectedQuota));
-  }, [selectedHealth, selectedId, selectedQuota]);
-
   async function perform(action: () => Promise<string>) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const message = await action();
-      await load();
+      const [nextProviders, nextHealth, nextQuotas] = await load();
+      setProviders(nextProviders);
+      setHealth(nextHealth);
+      setQuotas(nextQuotas);
+      setHealthForm(healthDraft(nextHealth.find((item) => item.provider_id === selectedId)));
+      setQuotaForm(quotaDraft(nextQuotas.find((item) => item.provider_id === selectedId)));
       setNotice(message);
     } catch (cause) {
       setError(errorMessage(cause, "Provider resilience update failed."));
@@ -196,6 +199,12 @@ export default function ProviderResilience() {
 
   const currentProvider = providers.find((provider) => provider.id === selectedId);
 
+  function selectProvider(providerId: string) {
+    setSelectedId(providerId);
+    setHealthForm(healthDraft(health.find((item) => item.provider_id === providerId)));
+    setQuotaForm(quotaDraft(quotas.find((item) => item.provider_id === providerId)));
+  }
+
   if (loading) return <div className="p-6">Loading provider resilience…</div>;
 
   return (
@@ -225,7 +234,7 @@ export default function ProviderResilience() {
               className={fieldClass}
               value={selectedId}
               disabled={busy}
-              onChange={(event) => setSelectedId(event.target.value)}
+              onChange={(event) => selectProvider(event.target.value)}
             >
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>

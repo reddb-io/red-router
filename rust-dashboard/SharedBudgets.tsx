@@ -92,19 +92,25 @@ export default function SharedBudgets() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
-    const [budgetRows, keyRows] = await Promise.all([
-      listRustSharedBudgets(),
-      listRustClientKeys(),
-    ]);
-    setBudgets(budgetRows);
-    setKeys(keyRows);
-  }, []);
+  const load = useCallback(() => Promise.all([listRustSharedBudgets(), listRustClientKeys()]), []);
 
   useEffect(() => {
+    let active = true;
     void load()
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load budgets"))
-      .finally(() => setLoading(false));
+      .then(([budgetRows, keyRows]) => {
+        if (!active) return;
+        setBudgets(budgetRows);
+        setKeys(keyRows);
+      })
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : "Cannot load budgets");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [load]);
 
   const save = async () => {
@@ -116,7 +122,9 @@ export default function SharedBudgets() {
       if (draft.id) await replaceRustSharedBudget(draft.id, payload);
       else await createRustSharedBudget(payload);
       setDraft(emptyDraft);
-      await load();
+      const [budgetRows, keyRows] = await load();
+      setBudgets(budgetRows);
+      setKeys(keyRows);
       setNotice("Shared budget saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Cannot save budget");
@@ -132,7 +140,9 @@ export default function SharedBudgets() {
     try {
       await deleteRustSharedBudget(budget.id);
       if (draft.id === budget.id) setDraft(emptyDraft);
-      await load();
+      const [budgetRows, keyRows] = await load();
+      setBudgets(budgetRows);
+      setKeys(keyRows);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Cannot delete budget");
     } finally {
