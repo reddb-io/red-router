@@ -63,6 +63,8 @@ export interface RustSharedBudget {
   duration: RustSharedBudgetDuration;
   enabled: boolean;
   key_ids: string[];
+  tags: string[];
+  users: string[];
   spent_usd: number;
   reserved_usd: number;
   window_start_unix_ms: number;
@@ -78,6 +80,8 @@ export interface RustSharedBudgetInput {
   duration: RustSharedBudgetDuration;
   enabled: boolean;
   key_ids: string[];
+  tags: string[];
+  users: string[];
 }
 
 export interface RustTenant {

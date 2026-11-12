@@ -14,6 +14,30 @@ const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 const MIN_USAGE_TIMESTAMP_MS: i64 = 946_684_800_000;
 const MAX_USAGE_TIMESTAMP_MS: i64 = 4_102_444_800_000;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UsageAttribution {
+    pub(crate) end_user: Option<String>,
+    pub(crate) tags: Vec<String>,
+}
+
+impl UsageAttribution {
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.end_user.as_ref().is_some_and(|value| {
+            value.is_empty() || value.len() > 128 || value.chars().any(char::is_control)
+        }) || self.tags.len() > 20
+            || self.tags.iter().any(|value| {
+                value.is_empty()
+                    || value.len() > 32
+                    || value.chars().any(char::is_control)
+                    || value != &value.to_lowercase()
+            })
+        {
+            return Err("invalid usage attribution");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct NativeQuota {
     pub(crate) max_tokens_per_minute: i64,
@@ -176,8 +200,10 @@ impl NativeUsage {
         &self,
         tenant_id: &str,
         key_id: &str,
+        attribution: &UsageAttribution,
     ) -> Result<Option<i64>, &'static str> {
-        crate::shared_budget::reservation_policy(&self.database, tenant_id, key_id)
+        attribution.validate()?;
+        crate::shared_budget::reservation_policy(&self.database, tenant_id, key_id, attribution)
             .await
             .map(|policy| policy.map(|policy| policy.microusd))
     }
@@ -540,12 +566,22 @@ impl NativeUsage {
         &self,
         reservation: &Reservation<'_>,
     ) -> Result<bool, &'static str> {
+        self.reserve_attributed(reservation, &UsageAttribution::default())
+            .await
+    }
+
+    pub(crate) async fn reserve_attributed(
+        &self,
+        reservation: &Reservation<'_>,
+        attribution: &UsageAttribution,
+    ) -> Result<bool, &'static str> {
         validate_identity(
             reservation.event_id,
             reservation.key_id,
             reservation.tenant_id,
         )?;
         validate_route(reservation.provider, reservation.model)?;
+        attribution.validate()?;
         let quota = reservation.quota.validate()?;
         if !(0..=MAX_SAFE_INTEGER).contains(&reservation.reserved_tokens)
             || !(0..=MAX_SAFE_INTEGER).contains(&reservation.reserved_microusd)
@@ -560,7 +596,7 @@ impl NativeUsage {
             return Err("invalid usage reservation bounds");
         }
         let shared_reservation = self
-            .shared_budget_reservation(reservation.tenant_id, reservation.key_id)
+            .shared_budget_reservation(reservation.tenant_id, reservation.key_id, attribution)
             .await?;
         if (!quota.enabled() && shared_reservation.is_none())
             || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&reservation.now_ms)
@@ -572,7 +608,7 @@ impl NativeUsage {
             .max(reservation.reserved_microusd);
         let mut connection = self.begin().await?;
         let result = self
-            .reserve_in(&mut connection, reservation, reserved_microusd)
+            .reserve_in(&mut connection, reservation, attribution, reserved_microusd)
             .await;
         match result {
             Ok(allowed) => {
@@ -593,6 +629,7 @@ impl NativeUsage {
         &self,
         connection: &mut PoolConnection<Any>,
         reservation: &Reservation<'_>,
+        attribution: &UsageAttribution,
         reserved_microusd: i64,
     ) -> Result<bool, &'static str> {
         let quota = reservation.quota;
@@ -600,6 +637,7 @@ impl NativeUsage {
             connection,
             reservation.tenant_id,
             reservation.key_id,
+            attribution,
             reserved_microusd,
             reservation.now_ms,
         )
@@ -740,7 +778,9 @@ impl NativeUsage {
                 return Ok(false);
             }
         }
-        let inserted = sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'dispatched') ON CONFLICT (event_id) DO NOTHING")
+        let tags_json =
+            serde_json::to_string(&attribution.tags).map_err(|_| "invalid usage attribution")?;
+        let inserted = sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'dispatched',$9,$10) ON CONFLICT (event_id) DO NOTHING")
             .bind(reservation.event_id)
             .bind(reservation.key_id)
             .bind(reservation.tenant_id)
@@ -749,6 +789,8 @@ impl NativeUsage {
             .bind(reservation.reserved_tokens)
             .bind(reserved_microusd)
             .bind(reservation.now_ms)
+            .bind(attribution.end_user.as_deref())
+            .bind(tags_json)
             .execute(&mut **connection)
             .await
             .map_err(|_| "cannot create usage reservation")?
@@ -760,11 +802,21 @@ impl NativeUsage {
     }
 
     pub(crate) async fn settle(&self, event: &UsageEvent<'_>) -> Result<bool, &'static str> {
+        self.settle_attributed(event, &UsageAttribution::default())
+            .await
+    }
+
+    pub(crate) async fn settle_attributed(
+        &self,
+        event: &UsageEvent<'_>,
+        attribution: &UsageAttribution,
+    ) -> Result<bool, &'static str> {
         validate_identity(event.event_id, event.key_id, event.tenant_id)?;
         if event.key_name.is_empty() || event.key_name.len() > 256 {
             return Err("invalid usage event");
         }
         validate_route(event.provider, event.model)?;
+        attribution.validate()?;
         if !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&event.now_ms) {
             return Err("invalid usage event");
         }
@@ -803,6 +855,7 @@ impl NativeUsage {
             .settle_in(
                 &mut connection,
                 event,
+                attribution,
                 tokens,
                 search_units,
                 amount_microusd,
@@ -838,6 +891,7 @@ impl NativeUsage {
         &self,
         connection: &mut PoolConnection<Any>,
         event: &UsageEvent<'_>,
+        attribution: &UsageAttribution,
         tokens: i64,
         search_units: i64,
         amount_microusd: i64,
@@ -846,7 +900,7 @@ impl NativeUsage {
         // Shared budgets reserve even when this key has no individual quota.
         // Detect the durable hold instead of trusting the caller's legacy
         // per-key `reserved` hint.
-        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state FROM redrouter_usage_reservations WHERE event_id = $1")
+        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state,end_user,tags_json FROM redrouter_usage_reservations WHERE event_id = $1")
             .bind(event.event_id)
             .fetch_optional(&mut **connection)
             .await
@@ -860,11 +914,20 @@ impl NativeUsage {
             let reserved_microusd = reservation
                 .try_get::<i64, _>("reserved_microusd")
                 .map_err(|_| "invalid usage reservation")?;
+            let reserved_end_user = reservation
+                .try_get::<Option<String>, _>("end_user")
+                .map_err(|_| "invalid usage reservation")?;
+            let reserved_tags = reservation
+                .try_get::<String, _>("tags_json")
+                .ok()
+                .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok());
             if text("key_id").as_deref() != Some(event.key_id)
                 || text("tenant_id").as_deref() != Some(event.tenant_id)
                 || text("provider").as_deref() != Some(event.provider)
                 || text("model").as_deref() != Some(event.model)
                 || text("state").as_deref() != Some("dispatched")
+                || reserved_end_user != attribution.end_user
+                || reserved_tags.as_ref() != Some(&attribution.tags)
                 || reserved_tokens < 0
                 || reserved_microusd < 0
             {
@@ -903,7 +966,9 @@ impl NativeUsage {
         let cache_creation =
             i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)")
+        let tags_json =
+            serde_json::to_string(&attribution.tags).map_err(|_| "invalid usage attribution")?;
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
             .bind(event.event_id)
             .bind(event.key_id)
             .bind(event.key_name)
@@ -921,6 +986,8 @@ impl NativeUsage {
             .bind(i64::from(event.prices.is_some() || event.rerank_price.is_some()))
             .bind(pricing_snapshot)
             .bind(event.now_ms)
+            .bind(attribution.end_user.as_deref())
+            .bind(tags_json)
             .execute(&mut **connection)
             .await
             .map_err(|_| "cannot record usage ledger")?;

@@ -23,6 +23,7 @@ pub(crate) enum UsageContext {
     Native {
         control: crate::control_plane::ControlPlane,
         identity: crate::policy::ClientIdentity,
+        attribution: crate::native_usage::UsageAttribution,
         provider: String,
         model: String,
         prices: Option<TokenPrices>,
@@ -55,6 +56,7 @@ impl UsageContext {
             Self::Native {
                 control,
                 identity,
+                attribution,
                 provider,
                 model,
                 prices,
@@ -68,6 +70,7 @@ impl UsageContext {
                         &model,
                         usage,
                         prices.as_ref(),
+                        &attribution,
                     )
                     .await
             }

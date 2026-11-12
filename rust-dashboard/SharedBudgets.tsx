@@ -20,6 +20,8 @@ type Draft = {
   duration: RustSharedBudgetDuration;
   enabled: boolean;
   keyIds: string[];
+  tags: string;
+  users: string;
 };
 
 const emptyDraft: Draft = {
@@ -31,6 +33,8 @@ const emptyDraft: Draft = {
   duration: "monthly",
   enabled: true,
   keyIds: [],
+  tags: "",
+  users: "",
 };
 
 const inputClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";
@@ -53,6 +57,14 @@ function input(draft: Draft): RustSharedBudgetInput {
     duration: draft.duration,
     enabled: draft.enabled,
     key_ids: draft.keyIds,
+    tags: draft.tags
+      .split(",")
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean),
+    users: draft.users
+      .split(",")
+      .map((user) => user.trim())
+      .filter(Boolean),
   };
 }
 
@@ -66,6 +78,8 @@ function fromBudget(budget: RustSharedBudget): Draft {
     duration: budget.duration,
     enabled: budget.enabled,
     keyIds: budget.key_ids,
+    tags: budget.tags.join(", "),
+    users: budget.users.join(", "),
   };
 }
 
@@ -132,8 +146,8 @@ export default function SharedBudgets() {
       <header>
         <h1 className="text-2xl font-semibold">Shared budgets</h1>
         <p className="mt-1 max-w-3xl text-sm text-text-muted">
-          Enforce one spend ceiling across an organization or selected client keys. Admission and
-          holds are serialized by SQLite across every Rust proxy process.
+          Enforce one spend ceiling across an organization, client keys, request tags, or end users.
+          Admission and holds are serialized by SQLite across every Rust proxy process.
         </p>
       </header>
       {error && (
@@ -227,6 +241,32 @@ export default function SharedBudgets() {
               ))}
           </div>
         </fieldset>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="text-sm">
+            Request tags
+            <input
+              className={inputClass}
+              value={draft.tags}
+              placeholder="team-a, production"
+              onChange={(event) => setDraft({ ...draft, tags: event.target.value })}
+            />
+            <span className="text-xs text-text-muted">
+              Comma-separated; matches metadata.tags or x-red-router-tags.
+            </span>
+          </label>
+          <label className="text-sm">
+            End users
+            <input
+              className={inputClass}
+              value={draft.users}
+              placeholder="alice, service-account"
+              onChange={(event) => setDraft({ ...draft, users: event.target.value })}
+            />
+            <span className="text-xs text-text-muted">
+              Comma-separated; matches body user or x-red-router-end-user.
+            </span>
+          </label>
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -268,8 +308,14 @@ export default function SharedBudgets() {
                   </div>
                 </td>
                 <td className="p-3">
-                  {budget.key_ids.length
-                    ? `${budget.key_ids.length} selected key(s)`
+                  {budget.key_ids.length || budget.tags.length || budget.users.length
+                    ? [
+                        budget.key_ids.length && `${budget.key_ids.length} key(s)`,
+                        budget.tags.length && `${budget.tags.length} tag(s)`,
+                        budget.users.length && `${budget.users.length} user(s)`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
                     : "All organization keys"}
                 </td>
                 <td className="p-3">

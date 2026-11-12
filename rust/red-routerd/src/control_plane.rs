@@ -3500,6 +3500,7 @@ impl ControlPlane {
         identity: &crate::policy::ClientIdentity,
         provider: &str,
         model: &str,
+        attribution: &crate::native_usage::UsageAttribution,
     ) -> Result<(String, Option<crate::accounting::TokenPrices>), &'static str> {
         let usage = self
             .0
@@ -3510,7 +3511,7 @@ impl ControlPlane {
             .ok_or("native usage storage unavailable")?;
         let prices = self.native_usage_prices(provider, model).await?;
         let shared_reservation = usage
-            .shared_budget_reservation(&identity.tenant_id, &identity.id)
+            .shared_budget_reservation(&identity.tenant_id, &identity.id, attribution)
             .await?;
         if (identity
             .usage_quota
@@ -3532,19 +3533,22 @@ impl ControlPlane {
                     reservation_microusd: 0,
                 });
             let allowed = usage
-                .reserve(&crate::native_usage::Reservation {
-                    event_id: &event_id,
-                    key_id: &identity.id,
-                    tenant_id: &identity.tenant_id,
-                    provider,
-                    model,
-                    quota,
-                    reserved_tokens: quota.reservation_tokens,
-                    reserved_microusd: quota
-                        .reservation_microusd
-                        .max(shared_reservation.unwrap_or(0)),
-                    now_ms: unix_time_ms()?,
-                })
+                .reserve_attributed(
+                    &crate::native_usage::Reservation {
+                        event_id: &event_id,
+                        key_id: &identity.id,
+                        tenant_id: &identity.tenant_id,
+                        provider,
+                        model,
+                        quota,
+                        reserved_tokens: quota.reservation_tokens,
+                        reserved_microusd: quota
+                            .reservation_microusd
+                            .max(shared_reservation.unwrap_or(0)),
+                        now_ms: unix_time_ms()?,
+                    },
+                    attribution,
+                )
                 .await?;
             if !allowed {
                 return Err("native usage quota exceeded");
@@ -3561,6 +3565,7 @@ impl ControlPlane {
         model: &str,
         usage_event: &crate::accounting::ChatUsage,
         prices: Option<&crate::accounting::TokenPrices>,
+        attribution: &crate::native_usage::UsageAttribution,
     ) -> Result<(), &'static str> {
         let store = self
             .0
@@ -3570,21 +3575,24 @@ impl ControlPlane {
             .clone()
             .ok_or("native usage storage unavailable")?;
         store
-            .settle(&crate::native_usage::UsageEvent {
-                event_id,
-                key_id: &identity.id,
-                key_name: &identity.name,
-                tenant_id: &identity.tenant_id,
-                provider,
-                model,
-                usage: usage_event,
-                prices,
-                kind: crate::native_usage::UsageKind::Tokens,
-                search_units: 0,
-                rerank_price: None,
-                now_ms: unix_time_ms()?,
-                reserved: identity.usage_quota.is_some(),
-            })
+            .settle_attributed(
+                &crate::native_usage::UsageEvent {
+                    event_id,
+                    key_id: &identity.id,
+                    key_name: &identity.name,
+                    tenant_id: &identity.tenant_id,
+                    provider,
+                    model,
+                    usage: usage_event,
+                    prices,
+                    kind: crate::native_usage::UsageKind::Tokens,
+                    search_units: 0,
+                    rerank_price: None,
+                    now_ms: unix_time_ms()?,
+                    reserved: identity.usage_quota.is_some(),
+                },
+                attribution,
+            )
             .await?;
         Ok(())
     }
@@ -3594,6 +3602,7 @@ impl ControlPlane {
         identity: &crate::policy::ClientIdentity,
         provider: &str,
         model: &str,
+        attribution: &crate::native_usage::UsageAttribution,
     ) -> Result<(String, Option<crate::native_usage::RerankPrice>), &'static str> {
         let usage = self
             .0
@@ -3604,7 +3613,7 @@ impl ControlPlane {
             .ok_or("native usage storage unavailable")?;
         let price = self.native_rerank_price(provider, model).await?;
         let shared_reservation = usage
-            .shared_budget_reservation(&identity.tenant_id, &identity.id)
+            .shared_budget_reservation(&identity.tenant_id, &identity.id, attribution)
             .await?;
         if (identity
             .usage_quota
@@ -3626,19 +3635,22 @@ impl ControlPlane {
                     reservation_microusd: 0,
                 });
             let allowed = usage
-                .reserve(&crate::native_usage::Reservation {
-                    event_id: &event_id,
-                    key_id: &identity.id,
-                    tenant_id: &identity.tenant_id,
-                    provider,
-                    model,
-                    quota,
-                    reserved_tokens: 0,
-                    reserved_microusd: quota
-                        .reservation_microusd
-                        .max(shared_reservation.unwrap_or(0)),
-                    now_ms: unix_time_ms()?,
-                })
+                .reserve_attributed(
+                    &crate::native_usage::Reservation {
+                        event_id: &event_id,
+                        key_id: &identity.id,
+                        tenant_id: &identity.tenant_id,
+                        provider,
+                        model,
+                        quota,
+                        reserved_tokens: 0,
+                        reserved_microusd: quota
+                            .reservation_microusd
+                            .max(shared_reservation.unwrap_or(0)),
+                        now_ms: unix_time_ms()?,
+                    },
+                    attribution,
+                )
                 .await?;
             if !allowed {
                 return Err("native usage quota exceeded");
@@ -3655,6 +3667,7 @@ impl ControlPlane {
         model: &str,
         search_units: u64,
         price: Option<&crate::native_usage::RerankPrice>,
+        attribution: &crate::native_usage::UsageAttribution,
     ) -> Result<(), &'static str> {
         let store = self
             .0
@@ -3671,21 +3684,24 @@ impl ControlPlane {
             cache_creation: 0,
         };
         store
-            .settle(&crate::native_usage::UsageEvent {
-                event_id,
-                key_id: &identity.id,
-                key_name: &identity.name,
-                tenant_id: &identity.tenant_id,
-                provider,
-                model,
-                usage: &zero,
-                prices: None,
-                kind: crate::native_usage::UsageKind::Rerank,
-                search_units,
-                rerank_price: price,
-                now_ms: unix_time_ms()?,
-                reserved: identity.usage_quota.is_some(),
-            })
+            .settle_attributed(
+                &crate::native_usage::UsageEvent {
+                    event_id,
+                    key_id: &identity.id,
+                    key_name: &identity.name,
+                    tenant_id: &identity.tenant_id,
+                    provider,
+                    model,
+                    usage: &zero,
+                    prices: None,
+                    kind: crate::native_usage::UsageKind::Rerank,
+                    search_units,
+                    rerank_price: price,
+                    now_ms: unix_time_ms()?,
+                    reserved: identity.usage_quota.is_some(),
+                },
+                attribution,
+            )
             .await?;
         Ok(())
     }
@@ -7567,6 +7583,8 @@ impl ControlPlane {
             tenant_id: record.tenant_id.clone(),
             key_id: "test".to_owned(),
             key_name: "Red Router destination test".to_owned(),
+            end_user: None,
+            tags: Vec::new(),
             provider: "red-router".to_owned(),
             model: "destination-test".to_owned(),
             usage_kind: "tokens".to_owned(),

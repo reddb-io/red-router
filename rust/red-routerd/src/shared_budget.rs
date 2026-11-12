@@ -25,6 +25,10 @@ pub struct BudgetInput {
     pub enabled: bool,
     #[serde(default)]
     pub key_ids: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub users: Vec<String>,
 }
 
 fn enabled_default() -> bool {
@@ -41,6 +45,8 @@ pub struct BudgetView {
     pub duration: String,
     pub enabled: bool,
     pub key_ids: Vec<String>,
+    pub tags: Vec<String>,
+    pub users: Vec<String>,
     pub spent_usd: f64,
     pub reserved_usd: f64,
     pub window_start_unix_ms: i64,
@@ -58,6 +64,8 @@ struct Budget {
     duration: String,
     enabled: bool,
     key_ids: Vec<String>,
+    tags: Vec<String>,
+    users: Vec<String>,
     revision: i64,
 }
 
@@ -70,6 +78,7 @@ pub(crate) async fn reservation_policy(
     database: &Arc<Database>,
     tenant_id: &str,
     key_id: &str,
+    attribution: &crate::native_usage::UsageAttribution,
 ) -> Result<Option<ReservationPolicy>, &'static str> {
     let pool = database
         .sql_pool()
@@ -77,7 +86,7 @@ pub(crate) async fn reservation_policy(
     let budgets = read_budgets(pool, Some(tenant_id)).await?;
     let microusd = budgets
         .into_iter()
-        .filter(|budget| budget.enabled && applies(budget, key_id))
+        .filter(|budget| budget.enabled && applies(budget, key_id, attribution))
         .map(|budget| budget.reservation_microusd)
         .max();
     Ok(microusd.map(|microusd| ReservationPolicy { microusd }))
@@ -87,20 +96,21 @@ pub(crate) async fn admit_in(
     connection: &mut PoolConnection<Any>,
     tenant_id: &str,
     key_id: &str,
+    attribution: &crate::native_usage::UsageAttribution,
     reserved_microusd: i64,
     now_ms: i64,
 ) -> Result<bool, &'static str> {
     if reserved_microusd < 0 {
         return Err("invalid shared budget reservation");
     }
-    let rows = sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,revision FROM redrouter_control_budgets WHERE tenant_id=$1 AND enabled=1 ORDER BY id")
+    let rows = sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,tags_json,users_json,revision FROM redrouter_control_budgets WHERE tenant_id=$1 AND enabled=1 ORDER BY id")
         .bind(tenant_id)
         .fetch_all(&mut **connection)
         .await
         .map_err(|_| "shared budget storage unavailable")?;
     for row in rows {
         let budget = decode_budget(&row)?;
-        if !applies(&budget, key_id) {
+        if !applies(&budget, key_id, attribution) {
             continue;
         }
         if reserved_microusd == 0 {
@@ -143,6 +153,8 @@ pub async fn list(
             duration: budget.duration,
             enabled: budget.enabled,
             key_ids: budget.key_ids,
+            tags: budget.tags,
+            users: budget.users,
             spent_usd: micros_to_usd(spent),
             reserved_usd: micros_to_usd(reserved),
             window_start_unix_ms: window_start,
@@ -167,7 +179,9 @@ pub async fn upsert(
         .sql_pool()
         .ok_or("shared budgets require SQLite storage")?;
     let key_ids = serde_json::to_string(&input.key_ids).map_err(|_| "invalid shared budget")?;
-    let affected = sqlx::query("INSERT INTO redrouter_control_budgets (id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3,max_microusd=$4,reservation_microusd=$5,duration=$6,enabled=$7,key_ids_json=$8,revision=$9 WHERE redrouter_control_budgets.tenant_id=$2")
+    let tags = serde_json::to_string(&input.tags).map_err(|_| "invalid shared budget")?;
+    let users = serde_json::to_string(&input.users).map_err(|_| "invalid shared budget")?;
+    let affected = sqlx::query("INSERT INTO redrouter_control_budgets (id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,tags_json,users_json,revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET name=$3,max_microusd=$4,reservation_microusd=$5,duration=$6,enabled=$7,key_ids_json=$8,tags_json=$9,users_json=$10,revision=$11 WHERE redrouter_control_budgets.tenant_id=$2")
         .bind(id)
         .bind(tenant_id)
         .bind(&input.name)
@@ -176,6 +190,8 @@ pub async fn upsert(
         .bind(&input.duration)
         .bind(i64::from(input.enabled))
         .bind(key_ids)
+        .bind(tags)
+        .bind(users)
         .bind(revision)
         .execute(pool)
         .await
@@ -222,12 +238,12 @@ async fn read_budgets(
     tenant_id: Option<&str>,
 ) -> Result<Vec<Budget>, &'static str> {
     let rows = if let Some(tenant_id) = tenant_id {
-        sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,revision FROM redrouter_control_budgets WHERE tenant_id=$1 ORDER BY name,id")
+        sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,tags_json,users_json,revision FROM redrouter_control_budgets WHERE tenant_id=$1 ORDER BY name,id")
             .bind(tenant_id)
             .fetch_all(pool)
             .await
     } else {
-        sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,revision FROM redrouter_control_budgets ORDER BY tenant_id,name,id")
+        sqlx::query("SELECT id,tenant_id,name,max_microusd,reservation_microusd,duration,enabled,key_ids_json,tags_json,users_json,revision FROM redrouter_control_budgets ORDER BY tenant_id,name,id")
             .fetch_all(pool)
             .await
     }
@@ -246,6 +262,10 @@ fn decode_budget(row: &sqlx::any::AnyRow) -> Result<Budget, &'static str> {
     };
     let key_ids = serde_json::from_str::<Vec<String>>(&text("key_ids_json")?)
         .map_err(|_| "invalid shared budget")?;
+    let tags = serde_json::from_str::<Vec<String>>(&text("tags_json")?)
+        .map_err(|_| "invalid shared budget")?;
+    let users = serde_json::from_str::<Vec<String>>(&text("users_json")?)
+        .map_err(|_| "invalid shared budget")?;
     let budget = Budget {
         id: text("id")?,
         tenant_id: text("tenant_id")?,
@@ -259,6 +279,8 @@ fn decode_budget(row: &sqlx::any::AnyRow) -> Result<Budget, &'static str> {
             _ => return Err("invalid shared budget"),
         },
         key_ids,
+        tags,
+        users,
         revision: integer("revision")?,
     };
     validate_budget(&budget)?;
@@ -276,6 +298,18 @@ fn validate_budget(budget: &Budget) -> Result<(), &'static str> {
         || !matches!(budget.duration.as_str(), "daily" | "monthly" | "total")
         || budget.key_ids.len() > 1_000
         || budget.key_ids.iter().any(|id| validate_id(id).is_err())
+        || budget.tags.len() > 100
+        || budget.tags.iter().any(|tag| {
+            tag.is_empty()
+                || tag.len() > 32
+                || tag.chars().any(char::is_control)
+                || tag != &tag.to_lowercase()
+        })
+        || budget.users.len() > 1_000
+        || budget
+            .users
+            .iter()
+            .any(|user| user.is_empty() || user.len() > 128 || user.chars().any(char::is_control))
         || budget.revision < 0
     {
         return Err("invalid shared budget");
@@ -287,6 +321,20 @@ fn validate_input(mut input: BudgetInput) -> Result<BudgetInput, &'static str> {
     input.name = input.name.trim().to_owned();
     input.key_ids.sort();
     input.key_ids.dedup();
+    input.tags = input
+        .tags
+        .into_iter()
+        .map(|tag| tag.trim().to_lowercase())
+        .collect();
+    input.tags.sort();
+    input.tags.dedup();
+    input.users = input
+        .users
+        .into_iter()
+        .map(|user| user.trim().to_owned())
+        .collect();
+    input.users.sort();
+    input.users.dedup();
     let budget = Budget {
         id: "validation".to_owned(),
         tenant_id: "validation".to_owned(),
@@ -296,14 +344,31 @@ fn validate_input(mut input: BudgetInput) -> Result<BudgetInput, &'static str> {
         duration: input.duration.clone(),
         enabled: input.enabled,
         key_ids: input.key_ids.clone(),
+        tags: input.tags.clone(),
+        users: input.users.clone(),
         revision: 0,
     };
     validate_budget(&budget)?;
     Ok(input)
 }
 
-fn applies(budget: &Budget, key_id: &str) -> bool {
-    budget.key_ids.is_empty() || budget.key_ids.iter().any(|candidate| candidate == key_id)
+fn applies(
+    budget: &Budget,
+    key_id: &str,
+    attribution: &crate::native_usage::UsageAttribution,
+) -> bool {
+    let unrestricted =
+        budget.key_ids.is_empty() && budget.tags.is_empty() && budget.users.is_empty();
+    unrestricted
+        || budget.key_ids.iter().any(|candidate| candidate == key_id)
+        || attribution
+            .end_user
+            .as_ref()
+            .is_some_and(|user| budget.users.iter().any(|candidate| candidate == user))
+        || attribution
+            .tags
+            .iter()
+            .any(|tag| budget.tags.iter().any(|candidate| candidate == tag))
 }
 
 async fn ledger_total(
@@ -391,13 +456,36 @@ fn total_query<'a>(
         .push_bind(&budget.tenant_id)
         .push(" AND created_at_unix_ms >= ")
         .push_bind(window_start);
+    let scoped = !budget.key_ids.is_empty() || !budget.tags.is_empty() || !budget.users.is_empty();
+    if scoped {
+        query.push(" AND (0=1");
+    }
     if !budget.key_ids.is_empty() {
-        query.push(" AND key_id IN (");
+        query.push(" OR key_id IN (");
         let mut separated = query.separated(",");
         for key in &budget.key_ids {
             separated.push_bind(key);
         }
         separated.push_unseparated(")");
+    }
+    if !budget.users.is_empty() {
+        query.push(" OR end_user IN (");
+        let mut separated = query.separated(",");
+        for user in &budget.users {
+            separated.push_bind(user);
+        }
+        separated.push_unseparated(")");
+    }
+    if !budget.tags.is_empty() {
+        query.push(" OR EXISTS (SELECT 1 FROM json_each(tags_json) AS budget_tag WHERE budget_tag.value IN (");
+        let mut separated = query.separated(",");
+        for tag in &budget.tags {
+            separated.push_bind(tag);
+        }
+        separated.push_unseparated("))");
+    }
+    if scoped {
+        query.push(")");
     }
     query
 }
@@ -512,10 +600,52 @@ mod tests {
             duration: "daily".to_owned(),
             enabled: true,
             key_ids: vec!["key-b".to_owned(), "key-a".to_owned(), "key-a".to_owned()],
+            tags: vec![" Team-A ".to_owned(), "team-a".to_owned()],
+            users: vec![" alice ".to_owned(), "alice".to_owned()],
         })
         .unwrap();
         assert_eq!(input.name, "Shared");
         assert_eq!(input.key_ids, vec!["key-a", "key-b"]);
+        assert_eq!(input.tags, vec!["team-a"]);
+        assert_eq!(input.users, vec!["alice"]);
+    }
+
+    #[test]
+    fn applies_to_matching_users_or_request_tags() {
+        let budget = Budget {
+            id: "budget-team".to_owned(),
+            tenant_id: "tenant".to_owned(),
+            name: "Team".to_owned(),
+            max_microusd: 1_000_000,
+            reservation_microusd: 100_000,
+            duration: "daily".to_owned(),
+            enabled: true,
+            key_ids: vec!["key-a".to_owned()],
+            tags: vec!["team-a".to_owned()],
+            users: vec!["alice".to_owned()],
+            revision: 1,
+        };
+        assert!(applies(
+            &budget,
+            "key-b",
+            &crate::native_usage::UsageAttribution {
+                end_user: Some("alice".to_owned()),
+                tags: Vec::new(),
+            }
+        ));
+        assert!(applies(
+            &budget,
+            "key-b",
+            &crate::native_usage::UsageAttribution {
+                end_user: None,
+                tags: vec!["team-a".to_owned()],
+            }
+        ));
+        assert!(!applies(
+            &budget,
+            "key-b",
+            &crate::native_usage::UsageAttribution::default()
+        ));
     }
 
     #[tokio::test]
@@ -536,6 +666,8 @@ mod tests {
                 duration: "daily".to_owned(),
                 enabled: true,
                 key_ids: Vec::new(),
+                tags: vec!["team-a".to_owned()],
+                users: Vec::new(),
             },
             1,
         )
@@ -572,7 +704,14 @@ mod tests {
             reserved_microusd: 600_000,
             now_ms: 1_700_000_000_000,
         };
-        let (left, right) = tokio::join!(one.reserve(&first_hold), two.reserve(&second_hold));
+        let attribution = crate::native_usage::UsageAttribution {
+            end_user: None,
+            tags: vec!["team-a".to_owned()],
+        };
+        let (left, right) = tokio::join!(
+            one.reserve_attributed(&first_hold, &attribution),
+            two.reserve_attributed(&second_hold, &attribution)
+        );
         assert_ne!(left.unwrap(), right.unwrap());
         let views = list(&first, Some("tenant"), 1_700_000_000_000)
             .await

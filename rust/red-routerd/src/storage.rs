@@ -79,15 +79,15 @@ const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_
 const CREATE_CLIENT_KEY_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_quotas (key_id TEXT PRIMARY KEY, max_tokens_per_minute BIGINT NOT NULL, max_tokens_per_day BIGINT NOT NULL, max_monthly_microusd BIGINT NOT NULL, reservation_tokens BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_QUOTAS: &str = "SELECT key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision FROM redrouter_control_client_key_quotas ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_quotas (key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO UPDATE SET max_tokens_per_minute = $2, max_tokens_per_day = $3, max_monthly_microusd = $4, reservation_tokens = $5, reservation_microusd = $6, revision = $7";
-const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL)";
+const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
 const CREATE_DASHBOARD_KEY_VALUE: &str = "CREATE TABLE IF NOT EXISTS key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (namespace,key))";
-const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL)";
+const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_LEGACY_QUOTA_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_quota_baselines (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, day_start_unix_ms BIGINT NOT NULL, daily_tokens BIGINT NOT NULL, month_start_unix_ms BIGINT NOT NULL, monthly_microusd BIGINT NOT NULL)";
 const CREATE_LEGACY_MODEL_TOKEN_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_model_token_baselines (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, window_start_unix_ms BIGINT NOT NULL, tokens_used BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_CLIENT_MODEL_TOKEN_LIMITS: &str = "CREATE TABLE IF NOT EXISTS redrouter_client_model_token_limits (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, reset_minutes BIGINT NOT NULL, token_limit BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
 const CREATE_REQUEST_RATE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_rate_counters (key_id TEXT NOT NULL, window_seconds BIGINT NOT NULL, bucket_index BIGINT NOT NULL, consumed_requests BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, window_seconds, bucket_index))";
-const CREATE_SHARED_BUDGETS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_budgets (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, max_microusd BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, duration TEXT NOT NULL, enabled BIGINT NOT NULL, key_ids_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const CREATE_SHARED_BUDGETS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_budgets (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, max_microusd BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, duration TEXT NOT NULL, enabled BIGINT NOT NULL, key_ids_json TEXT NOT NULL, tags_json TEXT NOT NULL DEFAULT '[]', users_json TEXT NOT NULL DEFAULT '[]', revision BIGINT NOT NULL)";
 const CREATE_SHARED_BUDGET_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_control_budgets_tenant ON redrouter_control_budgets (tenant_id, enabled, id)";
 const CREATE_USAGE_RESERVATIONS_KEY_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_key_time ON redrouter_usage_reservations (key_id, created_at_unix_ms)";
 const CREATE_USAGE_RESERVATIONS_TENANT_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_tenant_time ON redrouter_usage_reservations (tenant_id, created_at_unix_ms DESC)";
@@ -344,6 +344,8 @@ pub struct StoredUsageExportEvent {
     pub tenant_id: String,
     pub key_id: String,
     pub key_name: String,
+    pub end_user: Option<String>,
+    pub tags: Vec<String>,
     pub provider: String,
     pub model: String,
     pub usage_kind: String,
@@ -2018,7 +2020,7 @@ impl Database {
             return Err("usage export requires SQLite storage");
         };
         let limit = i64::try_from(limit).map_err(|_| "invalid usage export cursor")?;
-        sqlx::query("SELECT event_id,created_at_unix_ms,tenant_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot FROM redrouter_usage_ledger WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC,event_id ASC LIMIT $3")
+        sqlx::query("SELECT event_id,created_at_unix_ms,tenant_id,key_id,CASE WHEN key_name = '' THEN key_id ELSE key_name END AS key_name,end_user,tags_json,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot FROM redrouter_usage_ledger WHERE created_at_unix_ms > $1 OR (created_at_unix_ms = $1 AND event_id > $2) ORDER BY created_at_unix_ms ASC,event_id ASC LIMIT $3")
             .bind(after_created_at_unix_ms)
             .bind(after_event_id)
             .bind(limit)
@@ -4118,6 +4120,48 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
             .await
             .map_err(|_| "cannot migrate usage database")?;
         }
+        for (table, column, definition) in [
+            ("redrouter_usage_ledger", "end_user", "end_user TEXT"),
+            (
+                "redrouter_usage_ledger",
+                "tags_json",
+                "tags_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+            (
+                "redrouter_usage_reservations",
+                "end_user",
+                "end_user TEXT",
+            ),
+            (
+                "redrouter_usage_reservations",
+                "tags_json",
+                "tags_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+            (
+                "redrouter_control_budgets",
+                "tags_json",
+                "tags_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+            (
+                "redrouter_control_budgets",
+                "users_json",
+                "users_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+        ] {
+            let exists: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $1"
+            ))
+            .bind(column)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|_| "cannot inspect usage database")?;
+            if exists == 0 {
+                sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN {definition}"))
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(|_| "cannot migrate usage database")?;
+            }
+        }
         let export_config_json: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pragma_table_info('redrouter_control_usage_exports') WHERE name = 'config_json'",
         )
@@ -5101,6 +5145,11 @@ fn read_sql_usage_export_event(
     if (pricing_known == 1) != pricing_snapshot.is_some() {
         return Err("invalid usage export event");
     }
+    let end_user: Option<String> = row
+        .try_get("end_user")
+        .map_err(|_| "invalid usage export event")?;
+    let tags = serde_json::from_str::<Vec<String>>(&text("tags_json")?)
+        .map_err(|_| "invalid usage export event")?;
     let usage_kind: String = text("usage_kind")?;
     let search_units: i64 = integer("search_units")?;
     if !matches!(usage_kind.as_str(), "tokens" | "rerank")
@@ -5115,6 +5164,8 @@ fn read_sql_usage_export_event(
         tenant_id: text("tenant_id")?,
         key_id: text("key_id")?,
         key_name: text("key_name")?,
+        end_user,
+        tags,
         provider: text("provider")?,
         model: text("model")?,
         usage_kind,

@@ -258,6 +258,7 @@ enum UsageAttempt {
     Native {
         control: control_plane::ControlPlane,
         identity: policy::ClientIdentity,
+        attribution: native_usage::UsageAttribution,
         provider: String,
         model: String,
         prices: Option<accounting::TokenPrices>,
@@ -266,6 +267,7 @@ enum UsageAttempt {
     NativeRerank {
         control: control_plane::ControlPlane,
         identity: policy::ClientIdentity,
+        attribution: native_usage::UsageAttribution,
         provider: String,
         model: String,
         price: Option<native_usage::RerankPrice>,
@@ -298,6 +300,7 @@ impl UsageAttempt {
             Self::Native {
                 control,
                 identity,
+                attribution,
                 provider,
                 model,
                 prices,
@@ -305,6 +308,7 @@ impl UsageAttempt {
             } => Ok(usage_stream::UsageContext::Native {
                 control,
                 identity,
+                attribution,
                 provider,
                 model,
                 prices,
@@ -4280,6 +4284,7 @@ async fn execute_fusion_panel_target(
     mut body: serde_json::Value,
     control: Option<control_plane::ControlPlane>,
     identity: Option<policy::ClientIdentity>,
+    attribution: native_usage::UsageAttribution,
     credits_mode: AntigravityCreditsMode,
 ) -> Result<FusionPanelAnswer, InternalTargetFailure> {
     let object = body
@@ -4367,7 +4372,12 @@ async fn execute_fusion_panel_target(
     let accounting_attempt = match (control, identity) {
         (Some(control), Some(identity)) => {
             let (event_id, prices) = match control
-                .begin_native_usage(&identity, &target.provider_name, &target.model)
+                .begin_native_usage(
+                    &identity,
+                    &target.provider_name,
+                    &target.model,
+                    &attribution,
+                )
                 .await
             {
                 Ok(attempt) => attempt,
@@ -4381,6 +4391,7 @@ async fn execute_fusion_panel_target(
             Some(UsageAttempt::Native {
                 control,
                 identity,
+                attribution,
                 provider: target.provider_name.clone(),
                 model: target.model.clone(),
                 prices,
@@ -4595,6 +4606,7 @@ async fn prepare_fusion(
     eligible: &[&ModelTarget],
     body: &serde_json::Value,
     native_usage_identity: Option<&policy::ClientIdentity>,
+    attribution: &native_usage::UsageAttribution,
     product_usage_accounting: bool,
 ) -> Result<FusionPreparation, FusionFailure> {
     let judge_index = route
@@ -4637,10 +4649,19 @@ async fn prepare_fusion(
         let body = body.clone();
         let control = state.control_plane.clone();
         let identity = native_usage_identity.cloned();
+        let attribution = attribution.clone();
         let credits_mode = state.antigravity_credits_mode;
         pending.push(tokio::spawn(async move {
-            execute_fusion_panel_target(target_index, target, body, control, identity, credits_mode)
-                .await
+            execute_fusion_panel_target(
+                target_index,
+                target,
+                body,
+                control,
+                identity,
+                attribution,
+                credits_mode,
+            )
+            .await
         }));
     }
     let minimum = usize::try_from(route.fusion.min_panel)
@@ -4700,6 +4721,7 @@ async fn prepare_pipeline(
     eligible: &[&ModelTarget],
     body: &serde_json::Value,
     native_usage_identity: Option<&policy::ClientIdentity>,
+    attribution: &native_usage::UsageAttribution,
     product_usage_accounting: bool,
 ) -> Result<PipelinePreparation, PipelineFailure> {
     if product_usage_accounting && eligible.len() > 1 {
@@ -4756,6 +4778,7 @@ async fn prepare_pipeline(
                 step_body.clone(),
                 state.control_plane.clone(),
                 native_usage_identity.cloned(),
+                attribution.clone(),
                 state.antigravity_credits_mode,
             )
             .await
@@ -5088,6 +5111,75 @@ async fn gemini(
     .await
 }
 
+fn usage_attribution(
+    headers: &HeaderMap,
+    body: &serde_json::Value,
+) -> Result<native_usage::UsageAttribution, ()> {
+    fn bounded(value: &str, max_bytes: usize) -> &str {
+        if value.len() <= max_bytes {
+            return value;
+        }
+        let mut end = max_bytes;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        &value[..end]
+    }
+
+    fn normalized(value: &str, max_bytes: usize, lowercase: bool) -> Result<Option<String>, ()> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        if value.chars().any(char::is_control) {
+            return Err(());
+        }
+        let value = if lowercase {
+            value.to_lowercase()
+        } else {
+            value.to_owned()
+        };
+        Ok(Some(bounded(&value, max_bytes).to_owned()))
+    }
+
+    let body_user = body.get("user").and_then(serde_json::Value::as_str);
+    let header_user = headers
+        .get("x-red-router-end-user")
+        .map(|value| value.to_str().map_err(|_| ()))
+        .transpose()?;
+    let end_user = body_user
+        .or(header_user)
+        .map(|value| normalized(value, 128, false))
+        .transpose()?
+        .flatten();
+
+    let mut tags = Vec::new();
+    let body_tags = body
+        .pointer("/metadata/tags")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str);
+    let header_tags = headers
+        .get("x-red-router-tags")
+        .map(|value| value.to_str().map_err(|_| ()))
+        .transpose()?
+        .into_iter()
+        .flat_map(|value| value.split(','));
+    for tag in body_tags.chain(header_tags) {
+        let Some(tag) = normalized(tag, 32, true)? else {
+            continue;
+        };
+        if !tags.iter().any(|existing| existing == &tag) {
+            tags.push(tag);
+            if tags.len() == 20 {
+                break;
+            }
+        }
+    }
+    Ok(native_usage::UsageAttribution { end_user, tags })
+}
+
 async fn proxy_request(
     state: ProxyState,
     request: Request,
@@ -5203,6 +5295,14 @@ async fn proxy_request(
         .identity()
         .filter(|identity| identity.usage_quota.is_some() || state.native_usage_reporting)
         .cloned();
+    let native_usage_attribution = if native_usage_identity.is_some() {
+        match usage_attribution(&original_headers, &parsed) {
+            Ok(attribution) => attribution,
+            Err(()) => return error(StatusCode::BAD_REQUEST, "Invalid usage attribution"),
+        }
+    } else {
+        native_usage::UsageAttribution::default()
+    };
     let usage_accounting = product_usage_accounting || native_usage_identity.is_some();
     let native_rerank_accounting = protocol == ProviderProtocol::CohereRerank
         && native_usage_identity.is_some()
@@ -5500,6 +5600,7 @@ async fn proxy_request(
             &eligible,
             &parsed,
             native_usage_identity.as_ref(),
+            &native_usage_attribution,
             product_usage_accounting,
         )
         .await
@@ -5517,6 +5618,7 @@ async fn proxy_request(
             &eligible,
             &parsed,
             native_usage_identity.as_ref(),
+            &native_usage_attribution,
             product_usage_accounting,
         )
         .await
@@ -5832,7 +5934,12 @@ async fn proxy_request(
             let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
             if protocol == ProviderProtocol::CohereRerank {
                 let (event_id, price) = match control
-                    .begin_native_rerank_usage(identity, provider, target_model)
+                    .begin_native_rerank_usage(
+                        identity,
+                        provider,
+                        target_model,
+                        &native_usage_attribution,
+                    )
                     .await
                 {
                     Ok(attempt) => attempt,
@@ -5852,6 +5959,7 @@ async fn proxy_request(
                 Some(UsageAttempt::NativeRerank {
                     control: control.clone(),
                     identity: identity.clone(),
+                    attribution: native_usage_attribution.clone(),
                     provider: provider.to_owned(),
                     model: target_model.to_owned(),
                     price,
@@ -5859,7 +5967,7 @@ async fn proxy_request(
                 })
             } else {
                 let (event_id, prices) = match control
-                    .begin_native_usage(identity, provider, target_model)
+                    .begin_native_usage(identity, provider, target_model, &native_usage_attribution)
                     .await
                 {
                     Ok(attempt) => attempt,
@@ -5879,6 +5987,7 @@ async fn proxy_request(
                 Some(UsageAttempt::Native {
                     control: control.clone(),
                     identity: identity.clone(),
+                    attribution: native_usage_attribution.clone(),
                     provider: provider.to_owned(),
                     model: target_model.to_owned(),
                     prices,
@@ -6834,6 +6943,7 @@ async fn proxy_request(
                     UsageAttempt::Native {
                         control,
                         identity,
+                        attribution,
                         provider,
                         model,
                         prices,
@@ -6841,6 +6951,7 @@ async fn proxy_request(
                     } => usage_stream::UsageContext::Native {
                         control,
                         identity,
+                        attribution,
                         provider,
                         model,
                         prices,
@@ -6895,6 +7006,7 @@ async fn proxy_request(
                 UsageAttempt::NativeRerank {
                     control,
                     identity,
+                    attribution,
                     provider,
                     model,
                     price,
@@ -6930,6 +7042,7 @@ async fn proxy_request(
                             &model,
                             search_units,
                             price.as_ref(),
+                            &attribution,
                         )
                         .await
                 }
@@ -7050,6 +7163,26 @@ async fn record_route_outcome(
 #[cfg(test)]
 mod address_tests {
     use super::*;
+
+    #[test]
+    fn usage_attribution_prefers_body_user_and_normalizes_tags() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-red-router-end-user",
+            HeaderValue::from_static("header-user"),
+        );
+        headers.insert(
+            "x-red-router-tags",
+            HeaderValue::from_static("Team-A, production"),
+        );
+        let body = serde_json::json!({
+            "user": "body-user",
+            "metadata": {"tags": ["TEAM-A", " analytics "]}
+        });
+        let attribution = usage_attribution(&headers, &body).unwrap();
+        assert_eq!(attribution.end_user.as_deref(), Some("body-user"));
+        assert_eq!(attribution.tags, vec!["team-a", "analytics", "production"]);
+    }
 
     #[test]
     fn context_relay_rejects_ambiguous_or_unsafe_session_headers() {

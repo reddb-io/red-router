@@ -696,6 +696,8 @@ fn usage_webhook_payload(
             "requestId": event.event_id,
             "timestamp": timestamp,
             "apiKey": {"id": event.key_id, "name": event.key_name},
+            "endUser": event.end_user,
+            "tags": event.tags,
             "provider": event.provider,
             "model": event.model,
             "usageKind": event.usage_kind,
@@ -1148,6 +1150,8 @@ fn bigquery_usage_request(events: &[&StoredUsageExportEvent]) -> Result<Vec<u8>,
                     "tenant_id": event.tenant_id,
                     "api_key_id": event.key_id,
                     "api_key_name": event.key_name,
+                    "end_user": event.end_user,
+                    "tags": event.tags,
                     "provider": event.provider,
                     "model": event.model,
                     "usage_kind": event.usage_kind,
@@ -1262,6 +1266,8 @@ mod tests {
             tenant_id: "red".to_owned(),
             key_id: "agent-key".to_owned(),
             key_name: "Agent fleet".to_owned(),
+            end_user: Some("alice".to_owned()),
+            tags: vec!["production".to_owned(), "team-a".to_owned()],
             provider: "openrouter".to_owned(),
             model: "openai/gpt-5".to_owned(),
             usage_kind: "tokens".to_owned(),
@@ -1319,6 +1325,11 @@ mod tests {
         assert_eq!(row["insertId"], "usage-one");
         assert_eq!(row["json"]["api_key_id"], "agent-key");
         assert_eq!(row["json"]["api_key_name"], "Agent fleet");
+        assert_eq!(row["json"]["end_user"], "alice");
+        assert_eq!(
+            row["json"]["tags"],
+            serde_json::json!(["production", "team-a"])
+        );
         assert_eq!(row["json"]["provider"], "openrouter");
         assert_eq!(row["json"]["model"], "openai/gpt-5");
         assert_eq!(row["json"]["usage_kind"], "tokens");
