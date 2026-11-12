@@ -53,7 +53,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run build:rust-dashboard && npx vite preview --config rust-dashboard/vite.config.mjs --host 127.0.0.1 --port ${dashboardPort}`,
+    command: "node scripts/dev/run-rust-playwright-server.mjs",
     url: webServerReadyUrl,
     reuseExistingServer: !process.env.CI,
     timeout: Number.isFinite(playwrightWebServerTimeout) ? playwrightWebServerTimeout : 900_000,
