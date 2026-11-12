@@ -416,6 +416,51 @@ describe("Rust control-plane browser client", () => {
     );
   });
 
+  it("uses the Rust browser OAuth surface for xAI without exposing tokens", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const authorization = {
+      authUrl: "https://auth.x.ai/oauth2/authorize?state=sealed",
+      state: "sealed-xai-state",
+      codeVerifier: "v".repeat(43),
+      codeChallenge: "c".repeat(43),
+      redirectUri: "http://127.0.0.1:56121/callback",
+      flowType: "authorization_code_pkce" as const,
+      callbackPath: "/callback",
+      callbackHost: "127.0.0.1",
+      fixedPort: 56121,
+    };
+    const connection = {
+      id: "xai-fixture",
+      provider: "xai-oauth" as const,
+      email: "agent@example.com",
+      displayName: "xAI OAuth",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(authorization))
+      .mockResolvedValueOnce(Response.json({ success: true, connection }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      authorizeRustProviderOAuth("xai-oauth", authorization.redirectUri)
+    ).resolves.toEqual(authorization);
+    await expect(
+      exchangeRustProviderOAuth("xai-oauth", {
+        code: "authorization-code",
+        redirectUri: authorization.redirectUri,
+        codeVerifier: authorization.codeVerifier,
+        state: authorization.state,
+      })
+    ).resolves.toEqual(connection);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/oauth/xai-oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A56121%2Fcallback",
+      "/api/oauth/xai-oauth/exchange",
+    ]);
+    expect(String(fetch.mock.calls[1]?.[1]?.body)).not.toContain("access_token");
+    expect(String(fetch.mock.calls[1]?.[1]?.body)).not.toContain("refresh_token");
+  });
+
   it("imports provider sessions through the authenticated Rust authority", async () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const importedProvider: RustProvider = {

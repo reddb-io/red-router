@@ -636,7 +636,7 @@ export async function rustProviderOAuthFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  if (!/^\/api\/oauth\/(?:codex|claude|agy)\/(?:authorize|exchange)(?:\?|$)/.test(path)) {
+  if (!/^\/api\/oauth\/(?:codex|claude|agy|xai-oauth)\/(?:authorize|exchange)(?:\?|$)/.test(path)) {
     throw new TypeError("Rust provider OAuth requests must use a supported same-origin path");
   }
   const csrf = readRustAdminCsrfCookie();
