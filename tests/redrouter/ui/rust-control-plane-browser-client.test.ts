@@ -179,6 +179,17 @@ const xaiOAuthProvider: RustProvider = {
   refreshable: true,
 };
 
+const openferenceProvider: RustProvider = {
+  ...provider,
+  id: "openference",
+  provider: "openference",
+  upstream_url: "https://api.openference.com/v1/chat/completions",
+  credential_type: "oauth",
+  oauth_provider: "openference",
+  oauth_generation: "4",
+  refreshable: true,
+};
+
 const combo: RustCombo = {
   id: "agent-route",
   tenant_id: "red",
@@ -461,6 +472,51 @@ describe("Rust control-plane browser client", () => {
     expect(String(fetch.mock.calls[1]?.[1]?.body)).not.toContain("refresh_token");
   });
 
+  it("uses the Rust browser OAuth surface for Openference without exposing tokens", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    const authorization = {
+      authUrl: "https://openference.com/app/oauth/authorize?state=sealed",
+      state: "sealed-openference-state",
+      codeVerifier: "v".repeat(43),
+      codeChallenge: "c".repeat(43),
+      redirectUri: "http://127.0.0.1:56123/callback",
+      flowType: "authorization_code_pkce" as const,
+      callbackPath: "/callback",
+      callbackHost: "127.0.0.1",
+      fixedPort: 56123,
+    };
+    const connection = {
+      id: "openference-fixture",
+      provider: "openference" as const,
+      email: "agent@example.com",
+      displayName: "Openference",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(authorization))
+      .mockResolvedValueOnce(Response.json({ success: true, connection }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      authorizeRustProviderOAuth("openference", authorization.redirectUri)
+    ).resolves.toEqual(authorization);
+    await expect(
+      exchangeRustProviderOAuth("openference", {
+        code: "authorization-code",
+        redirectUri: authorization.redirectUri,
+        codeVerifier: authorization.codeVerifier,
+        state: authorization.state,
+      })
+    ).resolves.toEqual(connection);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/oauth/openference/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A56123%2Fcallback",
+      "/api/oauth/openference/exchange",
+    ]);
+    expect(String(fetch.mock.calls[1]?.[1]?.body)).not.toContain("access_token");
+    expect(String(fetch.mock.calls[1]?.[1]?.body)).not.toContain("refresh_token");
+  });
+
   it("imports provider sessions through the authenticated Rust authority", async () => {
     document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const importedProvider: RustProvider = {
@@ -723,7 +779,9 @@ describe("Rust control-plane browser client", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        Response.json({ providers: [provider, githubCopilotProvider, xaiOAuthProvider] })
+        Response.json({
+          providers: [provider, githubCopilotProvider, xaiOAuthProvider, openferenceProvider],
+        })
       )
       .mockResolvedValueOnce(Response.json({ provider }))
       .mockResolvedValueOnce(
@@ -748,6 +806,7 @@ describe("Rust control-plane browser client", () => {
       provider,
       githubCopilotProvider,
       xaiOAuthProvider,
+      openferenceProvider,
     ]);
     await expect(
       replaceRustProvider(provider.id, {

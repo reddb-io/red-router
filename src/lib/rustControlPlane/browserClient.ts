@@ -164,9 +164,13 @@ export interface RustUsageSummary {
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
 export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
-export type RustProviderOAuthKind = "codex" | "claude" | "agy" | "github" | "xai-oauth";
+export type RustProviderOAuthKind =
+  "codex" | "claude" | "agy" | "github" | "xai-oauth" | "openference";
 export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github">;
-export type RustSessionImportOAuthKind = Exclude<RustProviderOAuthKind, "github" | "xai-oauth">;
+export type RustSessionImportOAuthKind = Exclude<
+  RustProviderOAuthKind,
+  "github" | "xai-oauth" | "openference"
+>;
 
 export interface RustProvider {
   id: string;
@@ -636,7 +640,11 @@ export async function rustProviderOAuthFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  if (!/^\/api\/oauth\/(?:codex|claude|agy|xai-oauth)\/(?:authorize|exchange)(?:\?|$)/.test(path)) {
+  if (
+    !/^\/api\/oauth\/(?:codex|claude|agy|xai-oauth|openference)\/(?:authorize|exchange)(?:\?|$)/.test(
+      path
+    )
+  ) {
     throw new TypeError("Rust provider OAuth requests must use a supported same-origin path");
   }
   const csrf = readRustAdminCsrfCookie();
@@ -930,7 +938,8 @@ function isRustProvider(value: unknown): value is RustProvider {
       provider.oauth_provider === "claude" ||
       provider.oauth_provider === "agy" ||
       provider.oauth_provider === "github" ||
-      provider.oauth_provider === "xai-oauth") &&
+      provider.oauth_provider === "xai-oauth" ||
+      provider.oauth_provider === "openference") &&
     (provider.oauth_generation === undefined || typeof provider.oauth_generation === "string") &&
     typeof provider.refreshable === "boolean" &&
     (provider.oauth_refresh_state === undefined ||
@@ -1204,7 +1213,9 @@ function isRustProviderOAuthConnection(value: unknown): value is RustProviderOAu
     typeof connection.id === "string" &&
     (connection.provider === "codex" ||
       connection.provider === "claude" ||
-      connection.provider === "agy") &&
+      connection.provider === "agy" ||
+      connection.provider === "xai-oauth" ||
+      connection.provider === "openference") &&
     (connection.email === undefined || isOptionalString(connection.email)) &&
     typeof connection.displayName === "string"
   );

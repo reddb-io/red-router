@@ -1303,16 +1303,19 @@ async fn provider_browser_oauth_server() -> (
     Arc<AtomicUsize>,
     Arc<AtomicUsize>,
     Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
     tokio::task::JoinHandle<()>,
 ) {
     let codex_requests = Arc::new(AtomicUsize::new(0));
     let claude_requests = Arc::new(AtomicUsize::new(0));
     let agy_requests = Arc::new(AtomicUsize::new(0));
     let xai_requests = Arc::new(AtomicUsize::new(0));
+    let openference_requests = Arc::new(AtomicUsize::new(0));
     let observed_codex = codex_requests.clone();
     let observed_claude = claude_requests.clone();
     let observed_agy = agy_requests.clone();
     let observed_xai = xai_requests.clone();
+    let observed_openference = openference_requests.clone();
     let expiry = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1331,6 +1334,11 @@ async fn provider_browser_oauth_server() -> (
     let xai_id_token = unverified_jwt(serde_json::json!({
         "email":"browser-xai@example.com",
         "sub":"browser-xai-user",
+        "exp":expiry
+    }));
+    let openference_id_token = unverified_jwt(serde_json::json!({
+        "email":"browser-openference@example.com",
+        "sub":"browser-openference-user",
         "exp":expiry
     }));
     let app = Router::new()
@@ -1411,6 +1419,80 @@ async fn provider_browser_oauth_server() -> (
             }),
         )
         .route(
+            "/openference-token",
+            post(move |headers: HeaderMap, body: String| {
+                let observed = observed_openference.clone();
+                let id_token = openference_id_token.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::CONTENT_TYPE].to_str().unwrap(),
+                        "application/x-www-form-urlencoded"
+                    );
+                    let fields = url::form_urlencoded::parse(body.as_bytes())
+                        .into_owned()
+                        .collect::<std::collections::HashMap<_, _>>();
+                    assert_eq!(fields["client_id"], "omniroute");
+                    if fields["grant_type"] == "refresh_token" {
+                        assert_eq!(
+                            fields["refresh_token"],
+                            "openference-browser-refresh"
+                        );
+                        Json(serde_json::json!({
+                            "access_token":"openference-rotated-access",
+                            "refresh_token":"openference-rotated-refresh",
+                            "expires_in":3600,
+                            "token_type":"Bearer"
+                        }))
+                    } else {
+                        assert_eq!(fields["grant_type"], "authorization_code");
+                        assert_eq!(fields["code"], "openference-browser-code");
+                        assert_eq!(
+                            fields["redirect_uri"],
+                            "http://127.0.0.1:56123/callback"
+                        );
+                        assert_eq!(fields["code_verifier"].len(), 43);
+                        Json(serde_json::json!({
+                            "access_token":"openference-browser-access",
+                            "refresh_token":"openference-browser-refresh",
+                            "id_token":id_token,
+                            "expires_in":3600,
+                            "token_type":"Bearer"
+                        }))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/openference-userinfo",
+            get(|headers: HeaderMap| async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    "Bearer openference-browser-access"
+                );
+                Json(serde_json::json!({
+                    "sub":"browser-openference-user",
+                    "email":"browser-openference@example.com"
+                }))
+            }),
+        )
+        .route(
+            "/openference/chat/completions",
+            post(|headers: HeaderMap| async move {
+                assert_eq!(
+                    headers[header::AUTHORIZATION].to_str().unwrap(),
+                    "Bearer openference-rotated-access"
+                );
+                Json(serde_json::json!({
+                    "id":"openference-fixture",
+                    "object":"chat.completion",
+                    "model":"Qwen3.8 27b",
+                    "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+                    "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            }),
+        )
+        .route(
             "/claude-token",
             post(
                 move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
@@ -1486,6 +1568,7 @@ async fn provider_browser_oauth_server() -> (
         claude_requests,
         agy_requests,
         xai_requests,
+        openference_requests,
         task,
     )
 }
@@ -7279,6 +7362,7 @@ async fn rust_owns_provider_browser_oauth_across_replicas() {
         claude_requests,
         agy_requests,
         xai_requests,
+        openference_requests,
         oauth_task,
     ) = provider_browser_oauth_server().await;
     let first = ControlPlane::new_with_oauth_refresh_endpoints(
@@ -7567,10 +7651,99 @@ async fn rust_owns_provider_browser_oauth_across_replicas() {
     assert!(!xai_exchange.to_string().contains("xai-browser-refresh"));
     assert_eq!(xai_requests.load(Ordering::SeqCst), 1);
 
+    let openference_authorize = client
+        .get(format!("{first_base}/api/oauth/openference/authorize"))
+        .bearer_auth(ADMIN_KEY)
+        .query(&[("redirect_uri", "http://127.0.0.1:56123/callback")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(openference_authorize.status(), StatusCode::OK);
+    let openference_authorize: serde_json::Value = openference_authorize.json().await.unwrap();
+    assert_eq!(openference_authorize["flowType"], "authorization_code_pkce");
+    assert_eq!(openference_authorize["fixedPort"], 56123);
+    assert_eq!(openference_authorize["callbackHost"], "127.0.0.1");
+    let openference_url = Url::parse(openference_authorize["authUrl"].as_str().unwrap()).unwrap();
+    assert_eq!(openference_url.host_str(), Some("openference.com"));
+    let openference_query: std::collections::HashMap<_, _> =
+        openference_url.query_pairs().into_owned().collect();
+    assert_eq!(openference_query["client_id"], "omniroute");
+    assert_eq!(openference_query["code_challenge_method"], "S256");
+    assert!(!openference_query.contains_key("prompt"));
+    assert!(openference_query["scope"]
+        .split_whitespace()
+        .any(|scope| scope == "model:invoke"));
+
+    let openference_exchange = client
+        .post(format!("{second_base}/api/oauth/openference/exchange"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "code":"openference-browser-code",
+            "redirectUri":"http://127.0.0.1:56123/callback",
+            "codeVerifier":openference_authorize["codeVerifier"],
+            "state":openference_authorize["state"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(openference_exchange.status(), StatusCode::OK);
+    let openference_exchange: serde_json::Value = openference_exchange.json().await.unwrap();
+    assert_eq!(openference_exchange["success"], true);
+    assert_eq!(
+        openference_exchange["connection"]["provider"],
+        "openference"
+    );
+    assert_eq!(
+        openference_exchange["connection"]["email"],
+        "browser-openference@example.com"
+    );
+    let openference_provider_id = openference_exchange["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(openference_provider_id.starts_with("openference-"));
+    assert!(!openference_exchange
+        .to_string()
+        .contains("openference-browser-refresh"));
+    assert_eq!(openference_requests.load(Ordering::SeqCst), 1);
+
+    let refreshed = client
+        .post(format!(
+            "{second_base}/api/admin/providers/{openference_provider_id}/oauth/refresh"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value = refreshed.json().await.unwrap();
+    assert_eq!(refreshed["refresh"]["ok"], true);
+    assert_eq!(refreshed["refresh"]["generation"], "1");
+    assert_eq!(openference_requests.load(Ordering::SeqCst), 2);
+
+    let combo = client
+        .put(format!(
+            "{second_base}/api/admin/combos/openference-fixture"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({
+            "protocol":"openai",
+            "strategy":"priority",
+            "fallback":false,
+            "targets":[{"provider_id":openference_provider_id,"model":"Qwen3.8 27b"}],
+            "enabled":true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(combo.status(), StatusCode::OK);
+    let inference = chat_model(&client, &second_base, CLIENT_KEY, "openference-fixture").await;
+    assert_eq!(inference.status(), StatusCode::OK);
+
     let providers = database.providers().await.unwrap();
-    assert_eq!(providers.len(), 4);
+    assert_eq!(providers.len(), 5);
     let oauth = database.provider_oauth().await.unwrap();
-    assert_eq!(oauth.len(), 4);
+    assert_eq!(oauth.len(), 5);
     assert!(oauth
         .iter()
         .all(|record| record.refresh_token_ciphertext.starts_with("rr:v1:")));

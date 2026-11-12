@@ -14,6 +14,7 @@ const providerNames: Record<RustBrowserOAuthKind, string> = {
   claude: "Claude Code",
   agy: "Antigravity",
   "xai-oauth": "xAI API OAuth",
+  openference: "Openference",
 };
 
 function requestedRedirectUri(provider: RustBrowserOAuthKind): string {
@@ -22,6 +23,7 @@ function requestedRedirectUri(provider: RustBrowserOAuthKind): string {
     return `http://127.0.0.1:${window.location.port || "20128"}/callback`;
   }
   if (provider === "xai-oauth") return "http://127.0.0.1:56121/callback";
+  if (provider === "openference") return "http://127.0.0.1:56123/callback";
   return `${window.location.origin}/callback`;
 }
 

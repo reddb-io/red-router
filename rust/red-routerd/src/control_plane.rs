@@ -76,6 +76,12 @@ const XAI_OAUTH_AUTHORIZE_URL: &str = "https://auth.x.ai/oauth2/authorize";
 const XAI_OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:56121/callback";
 const XAI_OAUTH_SCOPES: &str = "openid profile email offline_access grok-cli:access api:access";
 const XAI_PROVIDER_URL: &str = "https://api.x.ai/v1/chat/completions";
+const OPENFERENCE_OAUTH_TOKEN_URL: &str = "https://openference.com/oauth/token";
+const OPENFERENCE_OAUTH_AUTHORIZE_URL: &str = "https://openference.com/app/oauth/authorize";
+const OPENFERENCE_OAUTH_USERINFO_URL: &str = "https://openference.com/oauth/userinfo";
+const OPENFERENCE_OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:56123/callback";
+const OPENFERENCE_OAUTH_SCOPES: &str = "openid profile email model:invoke offline_access";
+const OPENFERENCE_PROVIDER_URL: &str = "https://api.openference.com/v1/chat/completions";
 const CODEX_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CLAUDE_OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const AGY_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -117,6 +123,7 @@ const XAI_OAUTH_CLIENT_ID_MASKED: &[u8] = &[
     13, 92, 15, 89, 66, 91, 76, 70, 72, 29, 71, 70, 3, 65, 93, 84, 72, 23, 28, 87, 92, 88, 15, 95,
     91, 22, 71, 87, 20, 66, 67, 86, 13, 81, 81, 21,
 ];
+const OPENFERENCE_OAUTH_CLIENT_ID_MASKED: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0];
 const AUTH_ZIP_BODY_LIMIT_BYTES: usize = 11 * 1024 * 1024;
 const AUTH_ZIP_MAX_ENTRIES: usize = 1_024;
 const AUTH_ZIP_MAX_JSON_FILES: usize = 50;
@@ -179,6 +186,10 @@ struct OAuthRefreshConfig {
     xai_endpoint: reqwest::Url,
     xai_client_id: String,
     xai_provider_endpoint: reqwest::Url,
+    openference_endpoint: reqwest::Url,
+    openference_client_id: String,
+    openference_provider_endpoint: reqwest::Url,
+    openference_userinfo_endpoint: reqwest::Url,
     agy_client_id: Option<String>,
     agy_client_secret: Option<Zeroizing<String>>,
     agy_redirect_uri: Option<String>,
@@ -1449,6 +1460,10 @@ impl OAuthRefreshConfig {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(embedded_xai_oauth_client_id);
+        let openference_client_id = std::env::var("OPENFERENCE_OAUTH_CLIENT_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(embedded_openference_oauth_client_id);
         let agy_client_id = std::env::var("ANTIGRAVITY_OAUTH_CLIENT_ID")
             .ok()
             .filter(|value| !value.trim().is_empty());
@@ -1462,6 +1477,7 @@ impl OAuthRefreshConfig {
         validate_oauth_client_id(&codex_client_id)?;
         validate_oauth_client_id(&claude_client_id)?;
         validate_oauth_client_id(&xai_client_id)?;
+        validate_oauth_client_id(&openference_client_id)?;
         if let Some(client_id) = agy_client_id.as_deref() {
             validate_oauth_client_id(client_id)?;
         }
@@ -1490,6 +1506,13 @@ impl OAuthRefreshConfig {
             xai_client_id,
             xai_provider_endpoint: reqwest::Url::parse(XAI_PROVIDER_URL)
                 .map_err(|_| "invalid xAI provider URL")?,
+            openference_endpoint: reqwest::Url::parse(OPENFERENCE_OAUTH_TOKEN_URL)
+                .map_err(|_| "invalid Openference OAuth token URL")?,
+            openference_client_id,
+            openference_provider_endpoint: reqwest::Url::parse(OPENFERENCE_PROVIDER_URL)
+                .map_err(|_| "invalid Openference provider URL")?,
+            openference_userinfo_endpoint: reqwest::Url::parse(OPENFERENCE_OAUTH_USERINFO_URL)
+                .map_err(|_| "invalid Openference userinfo URL")?,
             agy_client_id,
             agy_client_secret,
             agy_redirect_uri,
@@ -1572,9 +1595,21 @@ impl OAuthRefreshConfig {
         xai_endpoint.set_query(None);
         xai_endpoint.set_fragment(None);
         let mut xai_provider_endpoint = codex_endpoint.clone();
-        xai_provider_endpoint.set_path("/xai-chat");
+        xai_provider_endpoint.set_path("/xai/chat/completions");
         xai_provider_endpoint.set_query(None);
         xai_provider_endpoint.set_fragment(None);
+        let mut openference_endpoint = codex_endpoint.clone();
+        openference_endpoint.set_path("/openference-token");
+        openference_endpoint.set_query(None);
+        openference_endpoint.set_fragment(None);
+        let mut openference_provider_endpoint = codex_endpoint.clone();
+        openference_provider_endpoint.set_path("/openference/chat/completions");
+        openference_provider_endpoint.set_query(None);
+        openference_provider_endpoint.set_fragment(None);
+        let mut openference_userinfo_endpoint = codex_endpoint.clone();
+        openference_userinfo_endpoint.set_path("/openference-userinfo");
+        openference_userinfo_endpoint.set_query(None);
+        openference_userinfo_endpoint.set_fragment(None);
         Self {
             codex_provider_endpoint,
             codex_endpoint: codex_endpoint.clone(),
@@ -1592,6 +1627,10 @@ impl OAuthRefreshConfig {
             xai_endpoint,
             xai_client_id: "test-xai-client".to_owned(),
             xai_provider_endpoint,
+            openference_endpoint,
+            openference_client_id: "omniroute".to_owned(),
+            openference_provider_endpoint,
+            openference_userinfo_endpoint,
             agy_client_id: Some("test-antigravity-client".to_owned()),
             agy_client_secret: Some(Zeroizing::new("test-antigravity-secret".to_owned())),
             agy_redirect_uri: None,
@@ -1603,7 +1642,15 @@ impl OAuthRefreshConfig {
 }
 
 fn embedded_xai_oauth_client_id() -> String {
-    XAI_OAUTH_CLIENT_ID_MASKED
+    decode_public_credential(XAI_OAUTH_CLIENT_ID_MASKED)
+}
+
+fn embedded_openference_oauth_client_id() -> String {
+    decode_public_credential(OPENFERENCE_OAUTH_CLIENT_ID_MASKED)
+}
+
+fn decode_public_credential(masked: &[u8]) -> String {
+    masked
         .iter()
         .enumerate()
         .map(|(index, byte)| {
@@ -2895,6 +2942,12 @@ impl ControlPlane {
                 None,
                 false,
             ),
+            "openference" => (
+                &self.0.oauth_refresh.openference_endpoint,
+                self.0.oauth_refresh.openference_client_id.as_str(),
+                None,
+                false,
+            ),
             _ => {
                 return Err(OAuthExchangeFailure::Transient {
                     category: "unsupported_provider",
@@ -3850,6 +3903,14 @@ impl ControlPlane {
                 }
                 XAI_OAUTH_REDIRECT_URI
             }
+            "openference" => {
+                if requested_redirect_uri
+                    .is_some_and(|value| value.trim() != OPENFERENCE_OAUTH_REDIRECT_URI)
+                {
+                    return Err("invalid Openference OAuth redirect URI");
+                }
+                OPENFERENCE_OAUTH_REDIRECT_URI
+            }
             _ => return Err("unsupported browser OAuth provider"),
         };
         if requested_redirect_uri.is_some_and(|value| {
@@ -3900,6 +3961,10 @@ impl ControlPlane {
                 XAI_OAUTH_AUTHORIZE_URL,
                 self.0.oauth_refresh.xai_client_id.as_str(),
             ),
+            "openference" => (
+                OPENFERENCE_OAUTH_AUTHORIZE_URL,
+                self.0.oauth_refresh.openference_client_id.as_str(),
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
         let mut auth_url = reqwest::Url::parse(authorize_url)
@@ -3915,7 +3980,7 @@ impl ControlPlane {
                 query
                     .append_pair("code_challenge", &code_challenge)
                     .append_pair("code_challenge_method", "S256");
-                if provider != "xai-oauth" {
+                if !matches!(provider, "xai-oauth" | "openference") {
                     query.append_pair("prompt", "login");
                 }
             }
@@ -3935,12 +4000,14 @@ impl ControlPlane {
                     .append_pair("scope", AGY_OAUTH_SCOPES)
                     .append_pair("access_type", "offline")
                     .append_pair("prompt", "consent");
-            } else {
+            } else if provider == "xai-oauth" {
                 query
                     .append_pair("scope", XAI_OAUTH_SCOPES)
                     .append_pair("nonce", &oauth_nonce)
                     .append_pair("plan", "generic")
                     .append_pair("referrer", "cli-proxy-api");
+            } else {
+                query.append_pair("scope", OPENFERENCE_OAUTH_SCOPES);
             }
         }
         let mut view = serde_json::json!({
@@ -3951,12 +4018,14 @@ impl ControlPlane {
             "redirectUri":redirect_uri,
             "flowType":if provider == "agy" { "authorization_code" } else { "authorization_code_pkce" },
             "callbackPath":if provider == "codex" { "/auth/callback" } else { "/callback" },
-            "callbackHost":if provider == "xai-oauth" { "127.0.0.1" } else { "localhost" }
+            "callbackHost":if matches!(provider, "xai-oauth" | "openference") { "127.0.0.1" } else { "localhost" }
         });
         if provider == "codex" {
             view["fixedPort"] = serde_json::json!(1455);
         } else if provider == "xai-oauth" {
             view["fixedPort"] = serde_json::json!(56121);
+        } else if provider == "openference" {
+            view["fixedPort"] = serde_json::json!(56123);
         }
         Ok(view)
     }
@@ -3990,9 +4059,13 @@ impl ControlPlane {
                 &self.0.oauth_refresh.xai_endpoint,
                 self.0.oauth_refresh.xai_client_id.as_str(),
             ),
+            "openference" => (
+                &self.0.oauth_refresh.openference_endpoint,
+                self.0.oauth_refresh.openference_client_id.as_str(),
+            ),
             _ => return Err("unsupported browser OAuth provider"),
         };
-        let request = if matches!(provider, "codex" | "agy" | "xai-oauth") {
+        let request = if matches!(provider, "codex" | "agy" | "xai-oauth" | "openference") {
             let form = {
                 let mut serializer = url::form_urlencoded::Serializer::new(String::new());
                 serializer
@@ -4000,7 +4073,7 @@ impl ControlPlane {
                     .append_pair("client_id", client_id)
                     .append_pair("code", code)
                     .append_pair("redirect_uri", redirect_uri);
-                if matches!(provider, "codex" | "xai-oauth") {
+                if matches!(provider, "codex" | "xai-oauth" | "openference") {
                     serializer.append_pair("code_verifier", code_verifier);
                 } else if let Some(secret) = self.0.oauth_refresh.agy_client_secret.as_deref() {
                     serializer.append_pair("client_secret", secret);
@@ -4047,6 +4120,25 @@ impl ControlPlane {
             return Err("provider OAuth exchange rejected");
         }
         serde_json::from_slice(&body).map_err(|_| "provider OAuth response is invalid")
+    }
+
+    async fn openference_userinfo(&self, access_token: &str) -> Option<serde_json::Value> {
+        let response = self
+            .0
+            .oauth_refresh_client
+            .get(self.0.oauth_refresh.openference_userinfo_endpoint.clone())
+            .bearer_auth(access_token)
+            .header(header::ACCEPT, "application/json")
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let body = read_bounded_response(response, OAUTH_REFRESH_MAX_BODY_BYTES)
+            .await
+            .ok()?;
+        serde_json::from_slice(&body).ok()
     }
 
     async fn finish_provider_oauth_as(
@@ -4299,6 +4391,114 @@ impl ControlPlane {
                     Option::<&serde_json::Value>::None,
                     Some(&serde_json::json!({
                         "provider":"xai-oauth",
+                        "created":created,
+                        "browser_oauth":true,
+                    })),
+                )
+                .await;
+                Ok(ProviderAuthImportView {
+                    connection,
+                    created,
+                })
+            }
+            "openference" => {
+                let claims = token_data
+                    .get("id_token")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(decode_unverified_jwt_payload);
+                let userinfo = self.openference_userinfo(&access_token).await;
+                let email = claims
+                    .as_ref()
+                    .and_then(|claims| {
+                        json_non_empty_string(claims.get("email"))
+                            .or_else(|| json_non_empty_string(claims.get("preferred_username")))
+                    })
+                    .or_else(|| {
+                        userinfo.as_ref().and_then(|value| {
+                            json_non_empty_string(value.get("email"))
+                                .or_else(|| json_non_empty_string(value.get("preferred_username")))
+                        })
+                    })
+                    .filter(|value| {
+                        value.len() <= 320
+                            && value.trim() == *value
+                            && !value.chars().any(char::is_control)
+                    })
+                    .map(str::to_owned);
+                let identity = claims
+                    .as_ref()
+                    .and_then(|claims| json_non_empty_string(claims.get("sub")))
+                    .or_else(|| {
+                        userinfo
+                            .as_ref()
+                            .and_then(|value| json_non_empty_string(value.get("sub")))
+                    })
+                    .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
+                    .map(str::to_owned);
+                let provider_id = match input.connection_id.as_deref() {
+                    Some(value) => value.to_owned(),
+                    None => identity.as_deref().map_or_else(
+                        || random_token(12).map(|token| format!("openference-{token}")),
+                        |identity| Ok(provider_import_id("openference", tenant_id, identity)),
+                    )?,
+                };
+                validate_id(&provider_id)?;
+                let existing = self
+                    .0
+                    .database
+                    .providers()
+                    .await?
+                    .into_iter()
+                    .find(|provider| provider.id == provider_id);
+                if existing
+                    .as_ref()
+                    .is_some_and(|provider| provider.provider != "openference")
+                {
+                    return Err("Openference OAuth connection conflicts with another provider");
+                }
+                let created = existing.is_none();
+                let connection = self
+                    .configure_provider_as(
+                        &provider_id,
+                        ProviderInput {
+                            tenant_id: Some(tenant_id.to_owned()),
+                            provider: "openference".to_owned(),
+                            upstream_url: self
+                                .0
+                                .oauth_refresh
+                                .openference_provider_endpoint
+                                .to_string(),
+                            api_key: access_token,
+                            enabled: true,
+                            rate_limit_scope: "model".to_owned(),
+                            auth_scheme: "bearer".to_owned(),
+                            label: Some(
+                                email
+                                    .clone()
+                                    .unwrap_or_else(|| "Openference OAuth".to_owned()),
+                            ),
+                            account_email: email,
+                            expires_at_unix: Some(expires_at),
+                            credential_type: "oauth".to_owned(),
+                            oauth_provider: Some("openference".to_owned()),
+                            refresh_token: Some(refresh_token),
+                        },
+                        None,
+                        actor,
+                        enforced_tenant,
+                    )
+                    .await?;
+                self.record_audit_event(
+                    AuditContext {
+                        action: "provider.credentials.imported",
+                        actor,
+                        tenant_id,
+                        target: &provider_id,
+                        resource_type: "provider_credentials",
+                    },
+                    Option::<&serde_json::Value>::None,
+                    Some(&serde_json::json!({
+                        "provider":"openference",
                         "created":created,
                         "browser_oauth":true,
                     })),
@@ -5002,7 +5202,7 @@ impl ControlPlane {
                     .ok_or("OAuth provider is required")?;
                 if !matches!(
                     oauth_provider,
-                    "codex" | "claude" | "agy" | "github" | "xai-oauth"
+                    "codex" | "claude" | "agy" | "github" | "xai-oauth" | "openference"
                 ) {
                     return Err("unsupported OAuth provider");
                 }
@@ -8155,7 +8355,7 @@ impl ControlPlane {
             .map(|record| {
                 if !matches!(
                     record.oauth_provider.as_str(),
-                    "codex" | "claude" | "agy" | "github" | "xai-oauth"
+                    "codex" | "claude" | "agy" | "github" | "xai-oauth" | "openference"
                 ) || record.generation < 0
                     || record.refresh_token_ciphertext.is_empty()
                 {
@@ -10521,6 +10721,7 @@ fn oauth_rotation_group(provider: &str) -> Result<&'static str, &'static str> {
         "agy" => Ok("google-antigravity-oauth"),
         "github" => Ok("github-copilot-oauth"),
         "xai-oauth" => Ok("xai-oauth"),
+        "openference" => Ok("openference-oauth"),
         _ => Err("unsupported OAuth provider"),
     }
 }
@@ -11040,6 +11241,9 @@ fn oauth_terminal_error(provider: &str, status: u16, code: &str) -> bool {
                     code,
                     "invalid_grant" | "invalid_client" | "unauthorized_client"
                 )
+        }
+        "openference" => {
+            status == 401 || matches!(code, "invalid_grant" | "token_expired" | "invalid_token")
         }
         _ => false,
     }

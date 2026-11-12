@@ -94,6 +94,7 @@ const EMPTY_DRAFT: Draft = {
 const OAUTH_UPSTREAM_DEFAULTS: Partial<Record<RustProviderOAuthKind, string>> = {
   github: "https://api.githubcopilot.com/chat/completions",
   "xai-oauth": "https://api.x.ai/v1/chat/completions",
+  openference: "https://api.openference.com/v1/chat/completions",
 };
 
 const inputClass =
@@ -762,6 +763,9 @@ export default function RustProvidersPageClient() {
           <Button variant="secondary" onClick={() => setOauthDialog({ provider: "xai-oauth" })}>
             Connect xAI OAuth
           </Button>
+          <Button variant="secondary" onClick={() => setOauthDialog({ provider: "openference" })}>
+            Connect Openference
+          </Button>
           <Button variant="secondary" onClick={() => setSessionImportOpen(true)}>
             Import existing CLI sessions
           </Button>
@@ -897,6 +901,7 @@ export default function RustProvidersPageClient() {
                 <option value="agy">Antigravity</option>
                 <option value="github">GitHub Copilot (imported token)</option>
                 <option value="xai-oauth">xAI API OAuth (imported token)</option>
+                <option value="openference">Openference OAuth</option>
               </select>
             </label>
           )}
