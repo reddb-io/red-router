@@ -227,7 +227,7 @@ async fn reservation_collision_rolls_back_the_entire_adoption() {
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
             .await
             .unwrap();
-    sqlx::raw_sql("INSERT INTO redrouter_usage_reservations VALUES ('hold-a','different-key','red','openai','gpt',1,1,1700000000000,'dispatched');").execute(&mut db).await.unwrap();
+    sqlx::raw_sql("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state) VALUES ('hold-a','different-key','red','openai','gpt',1,1,1700000000000,'dispatched');").execute(&mut db).await.unwrap();
     db.close().await.unwrap();
     assert!(legacy_quota::adopt(&destination, "key-a", 50, 10)
         .await
