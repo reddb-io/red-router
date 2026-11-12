@@ -553,4 +553,3 @@ try {
   await upstream?.close();
   rmSync(temp, { recursive: true, force: true });
 }
-

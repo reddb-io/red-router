@@ -475,4 +475,3 @@ jobs:
       - run: npm run build:release
       - run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
       - run: npm run test:e2e
-
