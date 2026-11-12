@@ -7,6 +7,16 @@ use std::{
 use tempfile::TempDir;
 use url::Url;
 
+// Windows CI starts several child proxies in parallel and may spend more than
+// twenty seconds loading the embedded storage build even though the process is
+// healthy. Keep the ordinary bound tight while allowing the slower runner to
+// prove readiness instead of reporting an empty-log startup failure.
+const PROXY_STARTUP_TIMEOUT: Duration = if cfg!(windows) {
+    Duration::from_secs(60)
+} else {
+    Duration::from_secs(30)
+};
+
 struct Process(Child);
 impl Drop for Process {
     fn drop(&mut self) {
@@ -85,7 +95,7 @@ async fn proxy_roundtrip(backend: Backend, database_url: &str, remote: bool) {
         }
         let mut process = Process(command.spawn().unwrap());
         let mut ready = false;
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + PROXY_STARTUP_TIMEOUT;
         while Instant::now() < deadline {
             if process.0.try_wait().unwrap().is_some() {
                 break;
@@ -173,7 +183,7 @@ async fn proxy_defaults_to_sqlite_and_keeps_configuration_after_restart() {
                 .spawn()
                 .unwrap(),
         );
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + PROXY_STARTUP_TIMEOUT;
         loop {
             assert!(
                 process.0.try_wait().unwrap().is_none(),
@@ -311,7 +321,7 @@ async fn proxy_loads_model_routes_from_environment() {
         .build()
         .unwrap();
     let base = format!("http://{proxy_addr}");
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + PROXY_STARTUP_TIMEOUT;
     let mut ready = false;
     while Instant::now() < deadline {
         if process.0.try_wait().unwrap().is_some() {
