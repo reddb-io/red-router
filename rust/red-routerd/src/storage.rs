@@ -5133,8 +5133,12 @@ fn read_sql_audit_sink_cursor(
 fn read_sql_usage_export_event(
     row: &sqlx::any::AnyRow,
 ) -> Result<StoredUsageExportEvent, &'static str> {
-    let text = |name| row.try_get(name).map_err(|_| "invalid usage export event");
-    let integer = |name| row.try_get(name).map_err(|_| "invalid usage export event");
+    let text = |name| -> Result<String, &'static str> {
+        row.try_get(name).map_err(|_| "invalid usage export event")
+    };
+    let integer = |name| -> Result<i64, &'static str> {
+        row.try_get(name).map_err(|_| "invalid usage export event")
+    };
     let pricing_known = integer("pricing_known")?;
     if !matches!(pricing_known, 0 | 1) {
         return Err("invalid usage export event");
