@@ -38,6 +38,18 @@ const emptyUsage: RustUsageSummary = {
   pending_reserved_microusd: 0,
 };
 
+async function readOverviewSnapshot(signal?: AbortSignal): Promise<Snapshot> {
+  const [runtime, providers, health, combos, keys, usage] = await Promise.all([
+    readRustRuntimeStatus(signal),
+    listRustProviders(),
+    listRustProviderHealth(),
+    listRustCombos(),
+    listRustClientKeys(),
+    readRustUsageSummary(),
+  ]);
+  return { runtime, providers, health, combos, keys, usage };
+}
+
 function number(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
@@ -68,15 +80,8 @@ export default function Overview() {
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [runtime, providers, health, combos, keys, usage] = await Promise.all([
-        readRustRuntimeStatus(signal),
-        listRustProviders(),
-        listRustProviderHealth(),
-        listRustCombos(),
-        listRustClientKeys(),
-        readRustUsageSummary(),
-      ]);
-      if (!signal?.aborted) setSnapshot({ runtime, providers, health, combos, keys, usage });
+      const next = await readOverviewSnapshot(signal);
+      if (!signal?.aborted) setSnapshot(next);
     } catch (cause) {
       if (!signal?.aborted)
         setError(cause instanceof Error ? cause.message : "Unable to load the Rust control plane.");
@@ -93,9 +98,21 @@ export default function Overview() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    void readOverviewSnapshot(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setSnapshot(next);
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted)
+          setError(
+            cause instanceof Error ? cause.message : "Unable to load the Rust control plane."
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
-  }, [load]);
+  }, []);
 
   const summary = useMemo(() => {
     const providers = snapshot?.providers ?? [];
