@@ -3,6 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────
 #
 #  Profiles:
+#    rust  → Rust proxy/control plane + static SPA, no Node.js runtime
 #    base  → minimal image, no CLI tools
 #    web   → runner-web (+Chromium/Playwright) for web-cookie providers
 #    cli   → bundled CLIs installed inside the container (portable)
@@ -12,6 +13,7 @@
 #    bifrost → Bifrost Go sidecar on port 8080 (Tier-1 LLM router)
 #
 #  Usage:
+#    docker compose --profile rust up -d --build redrouter-rust
 #    docker compose --profile base up -d
 #    docker compose --profile web up -d   # gemini-web / claude-web / claude-turnstile
 #    docker compose --profile cli up -d
@@ -72,6 +74,34 @@ x-common: &common
     start_period: 15s
 
 services:
+  # ── Profile: rust (production proxy + static SPA) ─────────────────
+  # This is the Next.js-free serving topology. The image contains only
+  # red-routerd, the compiled SPA and runtime CA/curl packages. Configure
+  # RED_ROUTER_ADMIN_KEY and STORAGE_ENCRYPTION_KEY in .env before starting it.
+  redrouter-rust:
+    container_name: redrouter
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+    image: redrouter:rust
+    restart: unless-stopped
+    stop_grace_period: 40s
+    env_file: .env
+    environment:
+      - RED_ROUTER_LISTEN=0.0.0.0:${DASHBOARD_PORT:-25050}
+      - RED_ROUTER_ALLOW_REMOTE_LISTEN=1
+      - RED_ROUTER_DB_BACKEND=sqlite
+      - RED_ROUTER_DATABASE_URL=sqlite:///app/data/red-router.sqlite
+      - RED_ROUTER_SPA_DIR=/app/dashboard
+      - RED_ROUTER_ADMIN_KEY=${RED_ROUTER_ADMIN_KEY:-}
+      - STORAGE_ENCRYPTION_KEY=${STORAGE_ENCRYPTION_KEY:-}
+    ports:
+      - "${APP_BIND_HOST:-127.0.0.1}:${DASHBOARD_PORT:-25050}:${DASHBOARD_PORT:-25050}"
+    volumes:
+      - ./data:/app/data
+    profiles:
+      - rust
+
   # ── Redis (Rate Limiter Backend) ──────────────────────────────────
   redis:
     image: docker.io/library/redis:8.6.5-alpine

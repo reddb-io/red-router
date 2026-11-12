@@ -64,6 +64,9 @@ docker run -d \
 ## Docker Compose
 
 ```bash
+# Rust proxy/control plane + static SPA (no Node.js runtime)
+docker compose --profile rust up -d --build redrouter-rust
+
 # Base profile (no CLI tools)
 docker compose --profile base up -d
 
@@ -84,13 +87,14 @@ docker compose --profile cli --profile cliproxyapi up -d
 
 RedRouter ships Compose profiles for the main deployment shapes. Pick the one that matches your environment.
 
-| Profile          | Service          | When to use                                                                                                                        | Command                                      |
-| ---------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `base` (default) | `omniroute-base` | Headless server / minimal runtime, no provider CLIs bundled                                                                        | `docker compose --profile base up -d`        |
-| `cli`            | `omniroute-cli`  | Agentic workflows that call `red-router providers/setup/doctor` and bundled CLIs (Codex, Claude Code, Droid, OpenClaw)              | `docker compose --profile cli up -d`         |
-| `host`           | `omniroute-host` | Linux hosts that want `network_mode`-like access to host CLIs by mounting `~/.local/bin`, `~/.codex`, `~/.claude`, etc. read-only  | `docker compose --profile host up -d`        |
-| `cliproxyapi`    | `cliproxyapi`    | Run the [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) sidecar on port `8317` for upstream CLI proxying               | `docker compose --profile cliproxyapi up -d` |
-| `web`            | `omniroute-web`  | Web-session providers that need a browser: `gemini-web`, `claude-web`, `claude-turnstile` (builds `runner-web`, Chromium included) | `docker compose --profile web up -d`         |
+| Profile          | Service          | When to use                                                                                                                        | Command                                                      |
+| ---------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `rust`           | `redrouter-rust` | Rust proxy/control plane plus static SPA; SQLite by default and no Node.js runtime                                                 | `docker compose --profile rust up -d --build redrouter-rust` |
+| `base` (default) | `omniroute-base` | Headless server / minimal runtime, no provider CLIs bundled                                                                        | `docker compose --profile base up -d`                        |
+| `cli`            | `omniroute-cli`  | Agentic workflows that call `red-router providers/setup/doctor` and bundled CLIs (Codex, Claude Code, Droid, OpenClaw)             | `docker compose --profile cli up -d`                         |
+| `host`           | `omniroute-host` | Linux hosts that want `network_mode`-like access to host CLIs by mounting `~/.local/bin`, `~/.codex`, `~/.claude`, etc. read-only  | `docker compose --profile host up -d`                        |
+| `cliproxyapi`    | `cliproxyapi`    | Run the [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) sidecar on port `8317` for upstream CLI proxying               | `docker compose --profile cliproxyapi up -d`                 |
+| `web`            | `omniroute-web`  | Web-session providers that need a browser: `gemini-web`, `claude-web`, `claude-turnstile` (builds `runner-web`, Chromium included) | `docker compose --profile web up -d`                         |
 
 > Multiple profiles can be combined: `docker compose --profile cli --profile cliproxyapi up -d`.
 
