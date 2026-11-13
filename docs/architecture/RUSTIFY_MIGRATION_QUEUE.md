@@ -44,8 +44,8 @@ change by itself completes the legacy model/alias migration.
    for ordinary provider IDs; it rejects unsupported fields and conflicts
    transactionally. Full Rust CI passed in run 43468887364; product checks
    passed in 43468893389. Exact custom node IDs now resolve through matching
-   imported definitions and preserve tenant ownership; matching exact-provider
-   compatibility overrides block a lossy import (CI pending). Other formats,
+   imported definitions and preserve tenant ownership; matching provider and
+   legacy OpenCode sibling compatibility overrides block a lossy import (CI pending). Other formats,
    compatibility settings, provenance and alias imports remain open. Alias
    import must include both the dedicated namespace and settings-based aliases.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend

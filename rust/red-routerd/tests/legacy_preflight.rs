@@ -291,6 +291,27 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
         1,
         "unrelated overrides and legacy tombstones must not block this import"
     );
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','opencode-zen',?)")
+        .bind(r#"[{"id":"sibling-model","source":"manual"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelCompatOverrides','opencode',?)")
+        .bind(r#"[{"id":"sibling-model","targetFormat":"claude"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model compatibility settings require migration",
+        "legacy no-auth sibling overrides must not be dropped"
+    );
 }
 
 #[tokio::test]

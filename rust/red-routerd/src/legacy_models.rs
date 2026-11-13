@@ -166,7 +166,11 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                     return Err("legacy model routing or provenance requires migration");
                 }
                 let id = object.get("id").and_then(|v| v.as_str()).ok_or("invalid legacy model")?;
-                if overrides.contains(&(legacy_provider.clone(), id.to_owned())) { return Err("legacy model compatibility settings require migration"); }
+                if overrides.contains(&(legacy_provider.clone(), id.to_owned()))
+                    || (matches!(legacy_provider.as_str(), "opencode-zen" | "opencode-go")
+                        && overrides.contains(&("opencode".to_owned(), id.to_owned()))) {
+                    return Err("legacy model compatibility settings require migration");
+                }
                 let name = match object.get("name") { None | Some(serde_json::Value::Null) => id, Some(value) => value.as_str().ok_or("invalid legacy model name")? };
                 let name = if name.is_empty() { id } else { name };
                 let number = |field: &str| -> Result<Option<u64>, &'static str> {
