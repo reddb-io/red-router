@@ -7,6 +7,7 @@ pub(super) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_pr
 const SELECT: &str =
     "SELECT provider_id,protocol,revision FROM redrouter_control_provider_protocols";
 const UPSERT: &str = "INSERT INTO redrouter_control_provider_protocols (record_id,provider_id,protocol,revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET protocol=$3";
+const DELETE_REVISION: &str = "DELETE FROM redrouter_control_provider_protocols WHERE record_id=$1";
 const DELETE: &str = "DELETE FROM redrouter_control_provider_protocols WHERE provider_id=$1";
 
 impl Database {
@@ -69,6 +70,30 @@ impl Database {
         provider: &StoredProvider,
     ) -> Result<(), &'static str> {
         let record_id = format!("{}:{}", provider.id, provider.updated_at);
+        // URL detection is the legacy default. Do not grow this table on each
+        // OAuth refresh. Deleting this exact revision also supports explicit reset.
+        if provider.protocol == "auto" {
+            match self {
+                Self::Sql(pool) => {
+                    sqlx::query(DELETE_REVISION)
+                        .bind(&record_id)
+                        .execute(pool)
+                        .await
+                        .map_err(|_| "cannot clear provider protocol")?;
+                }
+                Self::Remote(_) => {
+                    self.remote_query(DELETE_REVISION, &[reddb_client::Value::Text(record_id)])
+                        .await?;
+                }
+                #[cfg(feature = "reddb-embedded")]
+                Self::Embedded { db, .. } => {
+                    db.query_with(DELETE_REVISION, vec![reddb_client::Value::Text(record_id)])
+                        .await
+                        .map_err(|_| "cannot clear provider protocol")?;
+                }
+            }
+            return Ok(());
+        }
         let params = || {
             vec![
                 reddb_client::Value::Text(record_id.clone()),
