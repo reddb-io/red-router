@@ -2077,6 +2077,28 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     .unwrap();
     let (follower_base, follower_task) = gateway(follower).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (fixture_url, fixture_task) = provider("catalog-fixture-secret", "catalog-ok").await;
+    let fixture_key = "catalog-fixture-client-key-123456789";
+    let blocked_key = "catalog-blocked-client-key-123456789";
+    assert_eq!(client.put(format!("{base}/api/admin/providers/catalog-account")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"fixture-provider","upstream_url":fixture_url,"api_key":"catalog-fixture-secret"}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/catalog-client")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Catalog client","api_key":fixture_key,"allowed_models":["fixture-provider/fixture-model"],"scopes":["inference:chat"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/catalog-blocked")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Blocked catalog client","api_key":blocked_key,"blocked_models":["fixture-model"],"scopes":["inference:chat"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let before: serde_json::Value = client
+        .get(format!("{base}/v1/models"))
+        .bearer_auth(fixture_key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(before["data"].as_array().unwrap().is_empty());
 
     assert_eq!(
         client
@@ -2099,6 +2121,54 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     assert_eq!(refreshed["snapshot"]["changed"], true);
     assert_eq!(refreshed["snapshot"]["source"], "persisted");
     assert_eq!(refreshed["snapshot"]["manifest"]["providers"], 1);
+    let discovered: serde_json::Value = client
+        .get(format!("{base}/v1/models"))
+        .bearer_auth(fixture_key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        discovered["data"][0]["id"],
+        "fixture-provider/fixture-model"
+    );
+    assert_eq!(discovered["data"][0]["context_length"], 4242);
+    let denied: serde_json::Value = client
+        .get(format!("{base}/v1/models"))
+        .bearer_auth(blocked_key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(denied["data"].as_array().unwrap().is_empty());
+    assert_eq!(
+        chat_model(
+            &client,
+            &base,
+            blocked_key,
+            "fixture-provider/fixture-model"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        chat_model(
+            &client,
+            &base,
+            fixture_key,
+            "fixture-provider/fixture-model"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "catalog-ok"
+    );
 
     let provider = client
         .get(format!("{base}/api/admin/model-catalog/fixture-provider"))
@@ -2113,18 +2183,22 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     let persisted = database.model_catalog_snapshot().await.unwrap().unwrap();
     assert!(!persisted.snapshot_json.contains("must-not-be-imported"));
     assert!(!persisted.snapshot_json.contains("MUST_NOT_BE_IMPORTED"));
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if client
-                .get(format!(
-                    "{follower_base}/api/admin/model-catalog/fixture-provider"
-                ))
-                .bearer_auth(ADMIN_KEY)
+            let response = client
+                .get(format!("{follower_base}/v1/models"))
+                .bearer_auth(fixture_key)
                 .send()
                 .await
-                .unwrap()
-                .status()
-                == StatusCode::OK
+                .unwrap();
+            if response.status() == StatusCode::OK
+                && response.json::<serde_json::Value>().await.unwrap()["data"]
+                    .as_array()
+                    .is_some_and(|models| {
+                        models
+                            .iter()
+                            .any(|model| model["id"] == "fixture-provider/fixture-model")
+                    })
             {
                 break;
             }
@@ -2180,6 +2254,7 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     gateway_task.abort();
     let _ = gateway_task.await;
     follower_task.abort();
+    fixture_task.abort();
     let _ = follower_task.await;
     follower_database.close().await.unwrap();
     drop(follower_database);
@@ -3070,8 +3145,10 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
             serde_json::from_str(&response.text().await.unwrap()).unwrap();
         assert_eq!(body["object"], "list");
         let entries = body["data"].as_array().unwrap();
-        assert_eq!(entries.len(), 1, "unexpected model list: {body}");
-        let model = &entries[0];
+        let model = entries
+            .iter()
+            .find(|model| model["id"] == "visible-combo")
+            .unwrap();
         assert_eq!(model["id"], "visible-combo");
         assert_eq!(model["object"], "model");
         assert_eq!(model["owned_by"], "combo");
@@ -3080,6 +3157,19 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         assert!(model["context_length"].as_u64().is_some());
         assert!(model["max_input_tokens"].as_u64().is_some());
         assert!(model["capabilities"]["tool_calling"].is_boolean());
+        let direct = entries
+            .iter()
+            .find(|model| model["id"] == "openai/gpt-4o")
+            .unwrap();
+        assert_eq!(direct["owned_by"], "openai");
+        assert_eq!(direct["context_length"], 128_000);
+        assert!(!entries.iter().any(|model| model["id"] == "provider-hidden"));
+        assert!(!entries
+            .iter()
+            .any(|model| model["id"] == "openai/text-embedding-3-small"));
+        assert!(!entries
+            .iter()
+            .any(|model| model["id"] == "openai/chatgpt-image-latest"));
         let mut versioned_entries = entries.clone();
         for entry in &mut versioned_entries {
             entry.as_object_mut().unwrap().remove("created");
@@ -3202,7 +3292,12 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         catalog["version"],
         catalog_version.as_ref().unwrap().as_str()
     );
-    assert_eq!(catalog["groups"], serde_json::json!([]));
+    assert_eq!(catalog["groups"][0]["provider"]["id"], "openai");
+    assert!(catalog["groups"][0]["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|model| model["id"] == "openai/gpt-4o"));
     assert_eq!(catalog["combos"][0]["id"], "visible-combo");
     assert_eq!(catalog["compatibility"]["complete"], false);
 
@@ -3282,6 +3377,9 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         "openai/gpt-4o"
     );
     assert_eq!(served.text().await.unwrap(), "visible");
+    let direct = chat_model(&client, &base, RUST_CLIENT_KEY, "openai/gpt-4o").await;
+    assert_eq!(direct.status(), StatusCode::OK);
+    assert_eq!(direct.text().await.unwrap(), "visible");
 
     let denied = client
         .post(format!("{base}/v1/chat/completions"))

@@ -354,6 +354,42 @@ impl ModelCatalog {
         }))
     }
 
+    /// Descriptive model inventory for an already configured provider. A
+    /// catalog entry does not create an account or grant inference access.
+    pub(crate) fn models_for_provider(
+        &self,
+        local_provider: &str,
+    ) -> Result<BTreeMap<String, ModelMetadata>, &'static str> {
+        if !valid_identifier(local_provider) {
+            return Ok(BTreeMap::new());
+        }
+        let aliases = upstream_provider_aliases(local_provider);
+        let candidates = if aliases.is_empty() {
+            std::slice::from_ref(&local_provider)
+        } else {
+            aliases
+        };
+        let mut result = BTreeMap::new();
+        let mut ambiguous = std::collections::HashSet::new();
+        for upstream in candidates {
+            let Some(provider) = self.providers.get(*upstream) else {
+                continue;
+            };
+            for (id, model) in &provider.parsed()?.models {
+                if ambiguous.contains(id) {
+                    continue;
+                }
+                if result.get(id).is_some_and(|previous| previous != model) {
+                    result.remove(id);
+                    ambiguous.insert(id.clone());
+                } else {
+                    result.insert(id.clone(), model.clone());
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Exact native model lookup. Provider aliases identify only the same
     /// commercial deployment; canonical model IDs never authorize dispatch.
     pub fn model(
@@ -847,6 +883,15 @@ mod tests {
             .windows(2)
             .all(|models| models[0].id < models[1].id));
         assert!(catalog.provider("OpenAI").unwrap().is_none());
+        let inventory = catalog.models_for_provider("openai").unwrap();
+        assert_eq!(
+            inventory.get("gpt-4o"),
+            catalog.model("openai", "gpt-4o").unwrap().as_ref()
+        );
+        assert!(catalog
+            .models_for_provider("not-a-provider")
+            .unwrap()
+            .is_empty());
         let summaries = catalog.provider_summaries().unwrap();
         assert_eq!(summaries.len(), catalog.manifest().providers);
         assert_eq!(summaries[0].id, "302ai");
@@ -859,6 +904,11 @@ mod tests {
     fn antigravity_uses_the_models_dev_google_namespace() {
         assert_eq!(upstream_provider_aliases("agy"), &["google"]);
         assert_eq!(upstream_provider_aliases("antigravity"), &["google"]);
+        let catalog = bundled_catalog().unwrap();
+        assert_eq!(
+            catalog.models_for_provider("antigravity").unwrap().len(),
+            catalog.provider("google").unwrap().unwrap().models.len()
+        );
     }
 
     #[test]

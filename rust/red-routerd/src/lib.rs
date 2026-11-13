@@ -609,7 +609,7 @@ struct ListedModel {
     id: String,
     object: &'static str,
     created: u64,
-    owned_by: &'static str,
+    owned_by: String,
     r#type: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     context_length: Option<u64>,
@@ -2891,10 +2891,11 @@ fn listed_models(
             object: "model",
             created,
             owned_by: if route.public_model_alias.is_some() {
-                "provider"
+                "alias"
             } else {
                 "combo"
-            },
+            }
+            .to_owned(),
             r#type: route_model_type(route.protocol),
             context_length: context_lengths.into_iter().min(),
             max_input_tokens: max_input_tokens.into_iter().min(),
@@ -2928,11 +2929,15 @@ fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u6
         }
     }
     let context_length = metadata.limit.as_ref().and_then(|limit| limit.context);
+    let owner = id
+        .split_once('/')
+        .map_or("unknown", |(provider, _)| provider)
+        .to_owned();
     ListedModel {
         id,
         object: "model",
         created,
-        owned_by: "provider",
+        owned_by: owner,
         r#type: "chat",
         context_length,
         max_input_tokens: metadata
@@ -3362,12 +3367,26 @@ async fn catalog_discovery(
             "Model catalog unavailable",
         ));
     };
+    let mut groups: BTreeMap<&str, Vec<&ListedModel>> = BTreeMap::new();
+    let mut combos = Vec::new();
+    let mut aliases = Vec::new();
+    for model in &models {
+        match model.owned_by.as_str() {
+            "combo" => combos.push(model),
+            "alias" => aliases.push(model),
+            provider => groups.entry(provider).or_default().push(model),
+        }
+    }
+    let groups: Vec<_> = groups
+        .into_iter()
+        .map(|(provider, models)| serde_json::json!({"provider":{"id":provider},"models":models}))
+        .collect();
     discovery_response(
         serde_json::json!({
             "version":version,
-            "groups":[],
-            "combos":models,
-            "aliases":[],
+            "groups":groups,
+            "combos":combos,
+            "aliases":aliases,
             "recommended":{},
             "compatibility":{"baseline":"v0.33.0","complete":false}
         }),

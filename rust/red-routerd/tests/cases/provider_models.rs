@@ -79,6 +79,16 @@ async fn custom_provider_models_drive_scoped_discovery_and_metering_after_restar
         let configured=client.put(format!("{base}/api/admin/client-keys/{id}")).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"label":id,"api_key":key,"scopes":["inference:chat"],"allowed_endpoints":["chat"],"allowed_models":models,"allowed_provider_ids":["custom-provider"],"max_spend_per_month_usd":1,"reservation_tokens":10,"reservation_spend_usd":0.001})).send().await.unwrap();
         assert_eq!(configured.status(), StatusCode::OK);
     }
+    assert_eq!(client.post(format!("{base}/api/admin/model-aliases")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"friendly-private","provider":"private-api","model":"custom-model"}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let discovery: serde_json::Value = client.get(format!("{base}/v1/catalog")).bearer_auth(key)
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(discovery["groups"][0]["provider"]["id"], "private-api");
+    assert_eq!(discovery["groups"][0]["models"][0]["id"], "private-api/custom-model");
+    assert_eq!(discovery["combos"][0]["id"], "custom-combo");
+    assert_eq!(discovery["aliases"][0]["id"], "friendly-private");
+    assert_eq!(discovery["aliases"][0]["owned_by"], "alias");
     let read_models = |base: String| {
         let client = client.clone();
         async move {

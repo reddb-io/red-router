@@ -4172,8 +4172,8 @@ impl ControlPlane {
         }
     }
 
-    /// Only operator-configured models with an eligible chat account are
-    /// advertised. The public catalog supplies metadata, never entitlement.
+    /// List descriptive catalog and operator models only for eligible chat
+    /// accounts. Catalog membership never creates an inference grant.
     pub(crate) async fn direct_discovery_models(
         &self,
         policy: &ClientPolicy,
@@ -4201,34 +4201,60 @@ impl ControlPlane {
             {
                 continue;
             }
+            let protocols: Vec<_> = accounts
+                .iter()
+                .filter(|account| policy.provider_allowed(Some(&account.record.id)))
+                .filter_map(|account| {
+                    ProviderProtocol::from_configuration(
+                        &account.record.upstream_url,
+                        &account.record.protocol,
+                    )
+                    .ok()
+                })
+                .filter(|protocol| {
+                    matches!(
+                        protocol,
+                        ProviderProtocol::OpenAi
+                            | ProviderProtocol::Anthropic
+                            | ProviderProtocol::Antigravity
+                    )
+                })
+                .collect();
+            if protocols.is_empty() {
+                continue;
+            }
+            let mut candidates = catalog.models_for_provider(provider)?;
             for configured in overrides.configured_models(tenant, provider) {
-                let public = format!("{provider}/{}", configured.id);
-                if !model_aliases::valid_model_name(&configured.id)
-                    || !policy.model_alias_target_allowed(&public, &configured.id, Some(provider))
+                let metadata = overrides
+                    .model(catalog, tenant, provider, &configured.id)?
+                    .ok_or("configured model metadata unavailable")?;
+                candidates.insert(configured.id.clone(), metadata);
+            }
+            for (id, metadata) in candidates {
+                let public = format!("{provider}/{id}");
+                if !model_aliases::valid_model_name(&id)
+                    || !policy.model_alias_target_allowed(&public, &id, Some(provider))
+                    || metadata
+                        .r#type
+                        .as_deref()
+                        .is_some_and(|kind| kind != "chat")
+                    || metadata.status.as_deref() == Some("retired")
+                    || metadata.modalities.as_ref().is_some_and(|modalities| {
+                        !modalities.output.is_empty()
+                            && !modalities.output.iter().any(|value| value == "text")
+                    })
                 {
                     continue;
                 }
-                let available = accounts.iter().any(|account| {
-                    if !policy.provider_allowed(Some(&account.record.id)) {
-                        return false;
-                    }
-                    match ProviderProtocol::from_configuration(
-                        &account.record.upstream_url,
-                        &account.record.protocol,
-                    ) {
-                        Ok(ProviderProtocol::OpenAi | ProviderProtocol::Anthropic) => true,
-                        Ok(ProviderProtocol::Antigravity) => {
-                            crate::valid_gemini_model(&configured.id)
-                        }
-                        _ => false,
-                    }
+                let available = protocols.iter().any(|protocol| {
+                    *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(&id)
                 });
                 if !available {
                     continue;
                 }
-                let metadata = overrides
-                    .model(catalog, tenant, provider, &configured.id)?
-                    .ok_or("configured model metadata unavailable")?;
+                if models.len() >= 10_000 {
+                    return Err("provider model inventory exceeds its limit");
+                }
                 models.push((public, metadata));
             }
         }
