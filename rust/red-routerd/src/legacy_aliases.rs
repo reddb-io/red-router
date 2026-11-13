@@ -93,7 +93,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             let mut imported = 0;
             let mut already_present = 0;
             for (alias,value) in aliases {
-                let (provider, model) = value.as_str().and_then(|v| v.split_once('/')).ok_or("legacy alias destination requires migration")?;
+                let (legacy_provider, model) = value.as_str().and_then(|v| v.split_once('/')).ok_or("legacy alias destination requires migration")?;
+                let provider = crate::model_permissions::legacy_provider_id(legacy_provider).unwrap_or(legacy_provider);
                 if !crate::product_provider::supports_model(provider, model) { return Err("legacy alias destination requires migration"); }
                 let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider: provider.into(), alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
                 model_aliases::validate(&record)?;

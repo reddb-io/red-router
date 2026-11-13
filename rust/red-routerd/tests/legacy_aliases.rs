@@ -19,8 +19,8 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     .await
     .unwrap();
     sqlx::query("CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key))").execute(&mut source_db).await.unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('modelAliases','openrouter-alias',?),('settings','modelAliases',?)")
-        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#""openrouter/provider/model""#).bind(r#"{"fast":"openai/new-model"}"#)
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('modelAliases','openrouter-alias',?),('modelAliases','deepseek-alias',?),('settings','modelAliases',?)")
+        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#""openrouter/provider/model""#).bind(r#""ds/deepseek-chat""#).bind(r#"{"fast":"openai/new-model"}"#)
         .execute(&mut source_db).await.unwrap();
     source_db.close().await.unwrap();
     let source_before = tokio::fs::read(&source).await.unwrap();
@@ -33,12 +33,18 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     let report = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((report.imported, report.already_present), (3, 0));
+    assert_eq!((report.imported, report.already_present), (4, 0));
     let repeat = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((repeat.imported, repeat.already_present), (0, 3));
+    assert_eq!((repeat.imported, repeat.already_present), (0, 4));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let aliases = db.model_aliases().await.unwrap();
-    assert_eq!(aliases.len(), 3);
+    assert_eq!(aliases.len(), 4);
+    let deepseek = aliases
+        .iter()
+        .find(|a| a.alias == "deepseek-alias")
+        .unwrap();
+    assert_eq!(deepseek.provider, "deepseek");
+    assert_eq!(deepseek.model, "deepseek-chat");
     let openrouter = aliases
         .iter()
         .find(|a| a.alias == "openrouter-alias")
@@ -69,7 +75,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(
         db.model_aliases().await.unwrap().len(),
-        3,
+        4,
         "a later unsupported alias must roll back previous inserts"
     );
     db.close().await.unwrap();
@@ -116,7 +122,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         "managed aliases require migration"
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
-    assert_eq!(db.model_aliases().await.unwrap().len(), 3);
+    assert_eq!(db.model_aliases().await.unwrap().len(), 4);
     db.close().await.unwrap();
 
     let mut source_db =

@@ -132,6 +132,12 @@ static ALIASES: LazyLock<HashMap<String, [String; 2]>> = LazyLock::new(|| {
         .aliases
 });
 
+/// Resolve a provider spelling from the pinned legacy registry to its
+/// canonical provider ID. Callers must still verify the transport is supported.
+pub(crate) fn legacy_provider_id(provider: &str) -> Option<&str> {
+    ALIASES.get(provider).map(|aliases| aliases[0].as_str())
+}
+
 fn add_candidate(candidates: &mut Vec<String>, model: &str) {
     let model = model.trim();
     if model.is_empty() {

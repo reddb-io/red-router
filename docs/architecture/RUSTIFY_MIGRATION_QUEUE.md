@@ -52,7 +52,8 @@ change by itself completes the legacy model/alias migration.
    closes SQLite connections before verification or rollback on Windows (Rust
    CI run 43483203079 and product checks 43483203248 passed). The alias
    importer handles exact aliases for recognized built-in OpenAI-compatible
-   chat transports including OpenRouter, applying Settings precedence. The
+   chat transports including OpenRouter and their pinned legacy provider
+   prefixes (for example `ds`), applying Settings precedence. The
    full cutover runs the importer and restores the prior database on unsupported
    alias behavior. Managed and provider-scoped aliases, wildcards, prefix
    stripping, multi-tenant mapping and unsupported target protocols still need
