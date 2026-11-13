@@ -545,7 +545,7 @@ compiling routes. Corrected native/browser suites are running; no alias acceptan
 claim is made yet. The local preview remains on the validated custom-metadata
 slice pending those results.
 
-## Reusable legacy provider definitions (validation pending)
+## Reusable legacy provider definitions
 
 PV-17/18 now have a strict offline importer for the historical `provider_nodes`
 table. Supported OpenAI-compatible and Anthropic-compatible definitions retain
@@ -562,10 +562,11 @@ definition and pins its protocol revision. The credential is re-encrypted and th
 account remains disabled until operator verification. Ambiguous and cross-tenant
 definitions fail the whole transaction. Rustify reports that the legacy
 provider-node dependency unit directly unblocks 207 units and 1,824 downstream;
-that is ordering evidence, not a parity claim. Presets/media variants and full
-cutover acceptance remain open; native and migration tests are pending CI.
+that is ordering evidence, not a parity claim. The corrected implementation
+passed the complete Rust gate in run 43447240189 and product checks in run
+43450371081. Presets/media variants and full cutover acceptance remain open.
 
-## Public-alias model quotas (validation pending)
+## Public-alias model quotas
 
 Native SQLite admission now checks a client key's configured model windows for
 both the actual upstream model and the public model name requested by the client.
@@ -578,6 +579,7 @@ actual-model usage and public-name usage without double counting the normal case
 The schema migration adds defaulted `quota_model` columns and indexes, so existing
 reservations and ledger rows retain their prior actual-model semantics. A focused
 test covers two different upstream models sharing one public alias, denial while
-the first hold is pending, settlement, persisted attribution and denial from the
-completed ledger. This slice is not accepted until the full Rust CI passes;
-legacy custom-model/alias import and parameter-policy parity remain open.
+the first hold is pending, settlement, persisted attribution, operator
+reconciliation and denial from the completed ledger. The complete Rust gate
+passed in run 43447240189 and product checks passed in run 43450371081. Legacy
+custom-model/alias import and parameter-policy parity remain open.
