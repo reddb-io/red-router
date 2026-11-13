@@ -140,8 +140,8 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   if (!provider || provider.length > 64 || !/^[a-z0-9-]+$/.test(provider)) {
     throw new Error("Provider type must use lowercase letters, numbers or dashes");
   }
-  if (!label || label.length > 128) {
-    throw new Error("Connection label must contain between 1 and 128 characters");
+  if (!label || label.length > 200) {
+    throw new Error("Connection label must contain between 1 and 200 characters");
   }
   if (accountEmail.length > 320) throw new Error("Provider account email is too long");
   if ((!editing && !apiKey) || new TextEncoder().encode(apiKey).length > 8192) {
@@ -801,7 +801,7 @@ export default function RustProvidersPageClient() {
               className={inputClass}
               value={draft.label}
               placeholder={draft.id.trim() || "OpenRouter production"}
-              maxLength={128}
+              maxLength={200}
               onChange={(event) => set("label", event.target.value)}
             />
           </label>

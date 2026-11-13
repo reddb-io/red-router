@@ -192,7 +192,7 @@ async fn adopt_oauth(
         }
         let label = text("display_name")?.filter(|value| !value.trim().is_empty()).or(text("name")?.filter(|value| !value.trim().is_empty())).unwrap_or(id).trim();
         let email = text("email")?.filter(|value| !value.trim().is_empty()).or(parsed_email.as_deref()).unwrap_or("").trim();
-        if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
+        if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
         let access_cipher = crate::control_plane::encrypt(access.as_str(), id, storage_key)?;
         let refresh_cipher = crate::control_plane::encrypt(refresh.as_str(), &format!("{id}:oauth-refresh"), storage_key)?;
         let session_cipher = crate::control_plane::encrypt(session.as_str(), &format!("{id}:oauth-session"), storage_key)?;
@@ -412,7 +412,7 @@ pub async fn import(
         let label = label.trim();
         let email = text("email")?.unwrap_or_default();
         let email = email.trim();
-        if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
+        if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
         for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let existing: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut *target).await.map_err(|_| "destination provider schema unavailable")?;

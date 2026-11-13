@@ -12206,9 +12206,10 @@ fn validate_provider(value: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn validate_provider_label(value: &str) -> Result<(), &'static str> {
-    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
-        return Err("provider connection label must be 1-128 characters");
+pub(crate) fn validate_provider_label(value: &str) -> Result<(), &'static str> {
+    // Match the legacy Zod/HTML limit (UTF-16 units), not UTF-8 bytes.
+    if value.is_empty() || value.encode_utf16().count() > 200 || value.chars().any(char::is_control) {
+        return Err("provider connection label must be 1-200 characters");
     }
     Ok(())
 }
@@ -15470,6 +15471,17 @@ pub async fn delete_client_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_labels_preserve_legacy_unicode_length_limits() {
+        for label in ["a".repeat(200), "é".repeat(200), "🦀".repeat(100)] {
+            assert!(validate_provider_label(&label).is_ok());
+            assert!(validate_provider_label(&(label + "a")).is_err());
+        }
+        for label in ["", "account\nname", "account\u{0000}name"] {
+            assert!(validate_provider_label(label).is_err());
+        }
+    }
 
     #[tokio::test]
     async fn in_memory_control_plane_keeps_signature_polling() {

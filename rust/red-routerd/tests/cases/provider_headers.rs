@@ -27,7 +27,7 @@ async fn provider_custom_headers_persist_dispatch_and_never_expose_values() {
         axum::serve(listener, app).await.unwrap();
     });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let config = serde_json::json!({"provider":"openai-compatible", "upstream_url":upstream, "api_key":"provider-secret", "label":"Fixture"});
+    let config = serde_json::json!({"provider":"openai-compatible", "upstream_url":upstream, "api_key":"provider-secret", "label":"é".repeat(200)});
     assert_eq!(
         client
             .put(format!("{base}/api/admin/providers/custom"))
