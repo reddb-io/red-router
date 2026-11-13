@@ -4273,8 +4273,12 @@ impl ControlPlane {
             .and_then(|limit| limit.context);
         let mut initialized = futures_util::stream::iter(accounts.into_iter().enumerate())
             .map(|(index, account)| async move {
-                let live = self.direct_account_live(&account).await.ok()?.clone();
-                let protocol = match (request_protocol, live.protocol) {
+                let configured = ProviderProtocol::from_configuration(
+                    &account.record.upstream_url,
+                    &account.record.protocol,
+                )
+                .ok()?;
+                let protocol = match (request_protocol, configured) {
                     (ProviderProtocol::OpenAi, ProviderProtocol::Anthropic) => {
                         ProviderProtocol::OpenAiToAnthropic
                     }
@@ -4293,6 +4297,7 @@ impl ControlPlane {
                 {
                     return None;
                 }
+                let live = self.direct_account_live(&account).await.ok()?.clone();
                 Some((index, account, live, protocol))
             })
             .buffer_unordered(16)
