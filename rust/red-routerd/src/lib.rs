@@ -11,6 +11,7 @@ pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
 mod kafka_export;
+pub mod legacy_aliases;
 pub mod legacy_archive;
 pub mod legacy_cutover;
 pub mod legacy_keys;

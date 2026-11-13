@@ -48,9 +48,14 @@ change by itself completes the legacy model/alias migration.
    legacy OpenCode sibling compatibility overrides block a lossy import. Rust
    CI run 43477782245 and product checks 43475643050 passed. The offline
    cutover now invokes this importer after node definitions and restores the
-   destination if it encounters unsupported model settings (CI pending). Other formats,
-   compatibility settings, provenance and alias imports remain open. Alias
-   import must include both the dedicated namespace and settings-based aliases.
+   destination if it encounters unsupported model settings. The cutover now
+   closes SQLite connections before verification or rollback on Windows (Rust
+   CI run 43483203079 and product checks 43483203248 passed). A separate offline importer now handles ordinary exact
+   OpenAI aliases from both the dedicated namespace and settings, with settings
+   taking precedence; it rejects managed aliases, wildcard aliases and other
+   target providers rather than importing them with changed behavior (CI pending).
+   Other providers, managed provenance, wildcards, other model formats and
+   compatibility settings remain open; aliases are not yet in the full cutover.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.
 4. Continue down the table in vertical slices: runtime behavior, persistence,

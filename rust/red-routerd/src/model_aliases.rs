@@ -23,7 +23,7 @@ fn valid_model_name(value: &str) -> bool {
         && value.trim() == value
         && !value.chars().any(char::is_control)
 }
-fn validate(record: &StoredModelAlias) -> Result<(), &'static str> {
+pub(crate) fn validate(record: &StoredModelAlias) -> Result<(), &'static str> {
     validate_id(&record.tenant_id)?;
     validate_provider(&record.provider)?;
     if !valid_model_name(&record.alias)

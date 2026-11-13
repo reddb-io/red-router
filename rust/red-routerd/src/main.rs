@@ -196,6 +196,22 @@ async fn run(
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
+    if command.as_deref() == Some("import-legacy-aliases") {
+        if args.next().as_deref() != Some("--offline-confirmed") || args.next().is_some() {
+            return Err("usage: red-routerd import-legacy-aliases --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH and RED_ROUTER_MIGRATION_DEST_PATH; stop both servers first)".into());
+        }
+        let source = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
+            .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
+        let report = red_routerd::legacy_aliases::import(
+            std::path::Path::new(&source),
+            std::path::Path::new(&destination),
+        )
+        .await?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     if command.as_deref() == Some("import-legacy-models") {
         if args.next().as_deref() != Some("--offline-confirmed") || args.next().is_some() {
             return Err("usage: red-routerd import-legacy-models --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH and RED_ROUTER_MIGRATION_DEST_PATH; stop both servers first)".into());
@@ -461,7 +477,7 @@ async fn run(
         return Ok(());
     }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|migrate-legacy|import-legacy-pricing|import-legacy-keys|import-legacy-models|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|migrate-legacy|import-legacy-pricing|import-legacy-keys|import-legacy-models|import-legacy-aliases|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())
