@@ -14,7 +14,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
         let capture = capture.clone();
         async move {
             capture.lock().unwrap().push((headers, uri.to_string()));
-            Json(serde_json::json!({"data":[{"id":"model-b","context_length":32768,"inputTokenLimit":30000,"top_provider":{"max_completion_tokens":4096},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true,"unrelated_secret":"must-not-return"},{"id":"model-a"}]}))
+            Json(serde_json::json!({"data":[{"id":"model-b","context_length":32768,"inputTokenLimit":30000,"top_provider":{"max_completion_tokens":4096},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true,"unrelated_secret":"must-not-return"},{"id":"model-a","modelType":"image"}]}))
         }
     });
     let app = Router::new()
@@ -86,6 +86,13 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(listed["data"][0]["capabilities"]["vision"], true);
     assert_eq!(listed["data"][0]["capabilities"]["tool_calling"], true);
     assert_eq!(listed["data"][0]["capabilities"]["reasoning"], true);
+    let broad_key = "discovery-broad-client-key-123456789";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/discovery-broad")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Discovery broad","api_key":broad_key,"scopes":["inference:chat"],"allowed_models":["openai-compatible/model-a","openai-compatible/model-b"],"allowed_provider_ids":["discovery-fixture"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(broad_key).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed["data"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["data"][0]["id"], "openai-compatible/model-b");
     let response = chat_model(&client, &base, catalog_key, "openai-compatible/model-b").await;
     assert_eq!(response.status(), StatusCode::OK);
     let response: serde_json::Value = response.json().await.unwrap();

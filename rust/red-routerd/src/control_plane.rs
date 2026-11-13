@@ -4425,14 +4425,24 @@ impl ControlPlane {
                             limit.output = discovered.max_output_tokens;
                         }
                     }
-                    if metadata.modalities.is_none()
-                        && (discovered.input_modalities.is_some()
-                            || discovered.output_modalities.is_some())
+                    if discovered.input_modalities.is_some()
+                        || discovered.output_modalities.is_some()
                     {
-                        metadata.modalities = Some(crate::catalog::CatalogModalities {
-                            input: discovered.input_modalities.clone().unwrap_or_default(),
-                            output: discovered.output_modalities.clone().unwrap_or_default(),
-                        });
+                        let modalities =
+                            metadata
+                                .modalities
+                                .get_or_insert(crate::catalog::CatalogModalities {
+                                    input: Vec::new(),
+                                    output: Vec::new(),
+                                });
+                        if modalities.input.is_empty() {
+                            modalities.input =
+                                discovered.input_modalities.clone().unwrap_or_default();
+                        }
+                        if modalities.output.is_empty() {
+                            modalities.output =
+                                discovered.output_modalities.clone().unwrap_or_default();
+                        }
                     }
                 }
                 if metadata
