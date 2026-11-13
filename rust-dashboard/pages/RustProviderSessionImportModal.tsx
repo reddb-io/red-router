@@ -209,7 +209,7 @@ export default function RustProviderSessionImportModal({ onClose, onImported }: 
             <input
               className="rounded-lg border border-black/10 bg-surface px-3 py-2 text-sm text-text dark:border-white/10"
               value={name}
-              maxLength={128}
+              maxLength={200}
               disabled={busy || entries.length > 0}
               onChange={(event) => setName(event.target.value)}
             />

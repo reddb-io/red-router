@@ -301,8 +301,9 @@ validated sensitive header maps through direct requests, combo attempts, interna
 summary/fusion calls and diagnostics; SQLite is not queried per inference request.
 The canonical legacy auth/framing/forwarding denylist is preserved. New tests cover
 persistence, diagnostic/dispatch use, combo use, secret redaction, clear/reload and
-invalid input. CI must confirm this commit; legacy custom-node import, OAuth custom
-headers and per-model overrides remain open. Also corrected the global catalog E2E
+invalid input. The header integration passed in CI runs 43394672400 and 43396546986; the latter
+completed the main storage/proxy test step. Full-suite follow-up is still running.
+Legacy custom-node import, OAuth custom headers and per-model overrides remain open. Also corrected the global catalog E2E
 fixture to establish its admin session rather than timing out on the login screen.
 
 
@@ -312,4 +313,13 @@ were invisible to another control-plane instance sharing that pool. The watcher 
 owns a separate query-only physical connection, retains pending changes until both
 snapshots acknowledge them, and leaves the writer slot available. A focused regression
 checks repeated writes/deletion through the same pool and the observer's read-only
-boundary. CI still must confirm the fix; OAuth lease assertions remain unchanged.
+boundary. The focused observer regression and header convergence passed in CI. In-memory
+SQLite retains signature polling because a separately opened memory database would
+not observe the original state. OAuth lease assertions remain unchanged.
+
+2026-11-13 — PV-01: connection labels now retain the legacy 200 UTF-16-unit limit
+in native CRUD, SPA editing/session import and API/OAuth data migration. The earlier
+128-byte restriction rejected valid existing names, especially Unicode. Regression
+fixtures now import full-length names without truncating them; no credential,
+activation or unsupported-setting checks were relaxed. Validation of this slice is
+tracked separately from the broader provider configuration gap.
