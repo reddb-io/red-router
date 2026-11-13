@@ -166,6 +166,10 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
 fn failure(code: &'static str) -> Response {
     let (status, message) = match code {
         "provider_not_found" => (StatusCode::NOT_FOUND, "Provider unavailable"),
+        "provider_changed" => (
+            StatusCode::CONFLICT,
+            "Connection or discovery settings changed; retry discovery",
+        ),
         "invalid_models_path" => (
             StatusCode::BAD_REQUEST,
             "Use a models path on this provider's origin, beginning with /",
@@ -296,9 +300,23 @@ impl ControlPlane {
         tenant: Option<&str>,
     ) -> Result<Vec<DiscoveredModel>, &'static str> {
         // Collect one local configuration snapshot, then release management writes before network I/O.
-        let (provider, auth, headers, credential, target) = {
+        let (provider, auth, headers, credential, target, ticket) = {
             let _mutation = self.0.mutation.lock().await;
             let provider = self.discovery_provider(id, tenant).await?;
+            let ticket = if provider.enabled && self.0.database.is_sqlite().await {
+                let ticket = self
+                    .0
+                    .database
+                    .begin_synced_model_probe(&provider.id, &provider.tenant_id)
+                    .await?
+                    .ok_or("provider_changed")?;
+                if ticket.binding.provider_revision != provider.updated_at {
+                    return Err("provider_changed");
+                }
+                Some(ticket)
+            } else {
+                None
+            };
             let config = self.discovery_view(&provider).await?;
             let path = config.effective_models_path.ok_or("models_path_required")?;
             let target = models_url(&provider.upstream_url, &path)?;
@@ -319,7 +337,12 @@ impl ControlPlane {
                 self.0.encryption_key.as_str(),
             )
             .await?;
-            (provider, auth, headers, credential, target)
+            if let Some(ticket) = &ticket {
+                if !self.0.database.synced_model_probe_current(ticket).await? {
+                    return Err("provider_changed");
+                }
+            }
+            (provider, auth, headers, credential, target, ticket)
         };
         // Reuse DNS pinning, private-address policy, auth resolution and redirect prohibition.
         let live = ProxyState::live_provider(
@@ -359,6 +382,7 @@ impl ControlPlane {
         let mut seen = HashSet::new();
         let mut all_models = BTreeMap::new();
         let mut total_bytes = 0usize;
+        let mut complete = false;
         for _ in 0..20 {
             let mut request = template.try_clone().ok_or("upstream_unavailable")?;
             *request.url_mut() = page_url;
@@ -398,7 +422,8 @@ impl ControlPlane {
                 return Err("too_many_models");
             }
             let Some((parameter, token)) = page.next else {
-                return Ok(all_models.into_values().collect());
+                complete = true;
+                break;
             };
             if !seen.insert((parameter, token.clone())) {
                 return Err("pagination_loop");
@@ -414,7 +439,25 @@ impl ControlPlane {
             page_url.set_query(None);
             page_url.query_pairs_mut().extend_pairs(query);
         }
-        Err("too_many_pages")
+        if !complete {
+            return Err("too_many_pages");
+        }
+        let models: Vec<_> = all_models.into_values().collect();
+        if let Some(ticket) = &ticket {
+            let json = serde_json::to_string(&models).map_err(|_| "invalid_models_response")?;
+            if json.len() > MAX_BODY {
+                return Err("response_too_large");
+            }
+            if !self
+                .0
+                .database
+                .publish_synced_models(ticket, &json, unix_time_ms()?)
+                .await?
+            {
+                return Err("provider_changed");
+            }
+        }
+        Ok(models)
     }
 }
 

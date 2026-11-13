@@ -62,6 +62,12 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     let models: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(models["models"][0]["id"], "model-a");
     assert_eq!(models["models"][1]["max_output_tokens"], 4096);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+    let snapshot = db.synced_models("discovery-fixture", "red", now, 60_000).await.unwrap().unwrap();
+    assert!(!snapshot.models_json.contains("private-provider-key"));
+    assert!(!snapshot.models_json.contains("must-not-return"));
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&snapshot.models_json).unwrap()[0]["id"], "model-a");
+    assert!(db.synced_models("discovery-fixture", "other", now, 60_000).await.unwrap().is_none());
     {
         let requests = seen.lock().unwrap();
         assert_eq!(requests.len(), 1);
@@ -75,6 +81,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert!(db.provider_discovery("discovery-fixture").await.unwrap().is_none());
     assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":"/custom/models?version=2"})).send().await.unwrap().status(), StatusCode::OK);
     assert_eq!(db.provider_discovery("discovery-fixture").await.unwrap().unwrap().models_path, "/custom/models?version=2");
+    assert!(db.synced_models("discovery-fixture", "red", now, 60_000).await.unwrap().is_none());
     // A fresh connection/control plane reads the durable configuration without a hot-path cache.
     let db2 = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
     let control2 = ControlPlane::new(db2, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
@@ -84,6 +91,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(view["models_path"], "/custom/models?version=2");
     assert_eq!(client.post(&endpoint2).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::OK);
     assert_eq!(seen.lock().unwrap().last().unwrap().1, "/custom/models?version=2");
+    assert!(db.synced_models("discovery-fixture", "red", now + 5_000, 60_000).await.unwrap().is_some());
     for path in ["/pages/models?kind=token", "/pages/models?kind=cursor"] {
         assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":path})).send().await.unwrap().status(), StatusCode::OK);
         let response = client.post(&endpoint2).bearer_auth(ADMIN_KEY).send().await.unwrap();

@@ -42,6 +42,8 @@ async fn synced_inventory_is_tenant_scoped_generation_bound_and_survives_restart
         .unwrap()
         .unwrap();
     assert!(newer.generation > old.generation);
+    assert!(!first.synced_model_probe_current(&old).await.unwrap());
+    assert!(second.synced_model_probe_current(&newer).await.unwrap());
     assert!(!first
         .publish_synced_models(&old, r#"[{"id":"old"}]"#, 1_000)
         .await

@@ -55,6 +55,39 @@ fn binding(row: &sqlx::any::AnyRow) -> Result<SyncedModelBinding, &'static str> 
 }
 
 impl Database {
+    /// Confirm that a probe still describes the current account and is the
+    /// newest probe before using its captured credentials for network I/O.
+    pub async fn synced_model_probe_current(
+        &self,
+        ticket: &SyncedModelTicket,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("synced model inventory requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("synced model inventory requires SQLite")?;
+        let mut transaction = pool
+            .begin()
+            .await
+            .map_err(|_| "cannot read discovery binding")?;
+        let row = sqlx::query(BINDING)
+            .bind(&ticket.provider_id)
+            .bind(&ticket.tenant_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| "cannot read discovery binding")?;
+        let current = row.as_ref().map(binding).transpose()?;
+        let matches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_synced_models WHERE provider_id=$1 AND generation=$2 AND probe_token=$3")
+            .bind(&ticket.provider_id).bind(ticket.generation).bind(&ticket.probe_token)
+            .fetch_one(&mut *transaction).await.map_err(|_| "cannot read discovery generation")?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| "cannot close discovery snapshot")?;
+        Ok(current.as_ref() == Some(&ticket.binding) && matches == 1)
+    }
+
     /// Start a probe with a monotonically increasing, durable generation.
     pub async fn begin_synced_model_probe(
         &self,
