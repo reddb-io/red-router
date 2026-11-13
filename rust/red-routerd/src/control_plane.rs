@@ -4223,13 +4223,13 @@ impl ControlPlane {
                         _ => false,
                     }
                 });
-                if available {
-                    if let Some(metadata) =
-                        overrides.model(catalog, tenant, provider, &configured.id)?
-                    {
-                        models.push((public, metadata));
-                    }
+                if !available {
+                    continue;
                 }
+                let metadata = overrides
+                    .model(catalog, tenant, provider, &configured.id)?
+                    .ok_or("configured model metadata unavailable")?;
+                models.push((public, metadata));
             }
         }
         models.sort_unstable_by(|left, right| left.0.cmp(&right.0));
