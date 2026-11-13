@@ -151,7 +151,28 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
         .iter()
         .map(|entry| entry["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, vec!["allowed", "team"]);
+    assert!(ids.contains(&"allowed"));
+    assert!(ids.contains(&"team"));
+    assert!(ids.contains(&"openai/gpt-4o"));
+    assert!(ids.iter().all(|id| *id == "allowed"
+        || *id == "team"
+        || (id.starts_with("openai/gpt-") && !id.starts_with("openai/gpt-secret"))));
+    for (model, status) in [("openai/gpt-4o", 200), ("openai/gpt-secret-mini", 403)] {
+        let response = client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("secret-credential-123456")
+            .header("content-type", "application/json")
+            .body(serde_json::json!({"model":model,"messages":[]}).to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), status);
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "blocked direct models must never reach the provider"
+    );
 
     // The dashboard submits normal arrays; the persisted matcher is retained by
     // the backend so editing a label cannot reinterpret existing glob rules.
