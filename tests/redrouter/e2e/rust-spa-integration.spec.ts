@@ -70,3 +70,53 @@ test("the SPA persists organization and named client-key metadata through Rust",
   await page.reload();
   await expect(page.getByText("RedDB database client", { exact: true })).toBeVisible();
 });
+
+test("provider definitions bind accounts and preserve approved shared updates after reload", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  await page.getByLabel("Administrator key").fill(ADMIN_KEY);
+  await page.getByRole("button", { name: "Sign in locally" }).click();
+  await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.getByRole("link", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "Add provider definition", exact: true }).click();
+  await page.getByLabel("Definition ID", { exact: true }).fill("gateway-definition-e2e");
+  await page.getByLabel("Definition name", { exact: true }).fill("E2E gateway");
+  await page.getByLabel("Provider prefix", { exact: true }).fill("gateway-e2e");
+  await page.getByLabel("Base URL", { exact: true }).fill("http://127.0.0.1:1/v1");
+  await page.getByLabel("Inference path", { exact: true }).fill("/infer");
+  await page.getByLabel("Model discovery path", { exact: true }).fill("/catalog");
+  await page.getByRole("button", { name: "Save provider definition", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Edit definition", exact: true })).toBeVisible();
+  await page.getByLabel(/^Provider definition/).selectOption("gateway-definition-e2e");
+  await page.getByLabel("Connection ID", { exact: true }).fill("gateway-account-e2e");
+  await page
+    .getByLabel("API key or provider credential", { exact: false })
+    .fill("e2e-provider-fixture-secret");
+  await page.getByRole("button", { name: "Add connection", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Replace", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove definition", exact: true })).toBeDisabled();
+  await page.reload();
+  await page.getByRole("button", { name: "Replace", exact: true }).click();
+  await expect(page.getByLabel(/^Provider definition/)).toHaveValue("gateway-definition-e2e");
+  await expect(page.getByLabel("Upstream URL", { exact: true })).toHaveValue(
+    "http://127.0.0.1:1/v1/infer"
+  );
+  await expect(page.getByLabel("Upstream URL", { exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Edit definition", exact: true }).click();
+  await page.getByLabel("Inference path", { exact: true }).fill("/next");
+  await page.getByRole("button", { name: "Save provider definition", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Confirm applying endpoint changes to linked accounts"
+  );
+  await page.getByLabel(/Apply endpoint, protocol or prefix changes/).check();
+  await page.getByRole("button", { name: "Save provider definition", exact: true }).click();
+  await expect(page.getByLabel("Definition ID", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "Replace", exact: true }).click();
+  await expect(page.getByLabel("Upstream URL", { exact: true })).toHaveValue(
+    "http://127.0.0.1:1/v1/next"
+  );
+  await expect(page.getByLabel("API key or provider credential", { exact: false })).toHaveValue("");
+});

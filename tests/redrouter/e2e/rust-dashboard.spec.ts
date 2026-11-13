@@ -164,6 +164,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
         password_login: false,
       },
       "/api/admin/providers": { providers: [] },
+      "/api/admin/provider-nodes": { nodes: [] },
       "/api/admin/combos": { combos: [] },
       "/api/admin/client-keys": { client_keys: [] },
       "/api/admin/budgets": { budgets: [] },
@@ -272,6 +273,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
   await expect(page.getByRole("cell", { name: "tenant.update", exact: true })).toBeVisible();
   for (const path of [
     "/api/admin/providers",
+    "/api/admin/provider-nodes",
     "/api/admin/provider-health",
     "/api/admin/provider-quotas",
     "/api/admin/runtime-settings",
