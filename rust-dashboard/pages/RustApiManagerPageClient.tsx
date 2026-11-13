@@ -18,6 +18,7 @@ import {
 } from "../api/browserClient";
 
 type Draft = {
+  legacyModelMatching: boolean;
   label: string;
   enabled: boolean;
   modelIdFormat: "prefixed" | "flat";
@@ -62,6 +63,7 @@ const EMPTY_TOKEN_LIMIT_DRAFT: TokenLimitDraft = {
 };
 
 const EMPTY_DRAFT: Draft = {
+  legacyModelMatching: false,
   label: "",
   enabled: true,
   modelIdFormat: "prefixed",
@@ -194,6 +196,7 @@ function localExpiry(value: number | null): string {
 function keyDraft(key: RustClientKey): Draft {
   const number = (value: number | null) => (value === null ? "" : String(value));
   return {
+    legacyModelMatching: key.model_matching === "legacy-v1",
     label: key.label,
     enabled: key.enabled,
     modelIdFormat: key.model_id_format,
@@ -376,6 +379,13 @@ function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draf
           An empty restricted list blocks direct model access. Blocked models take precedence for
           direct requests. Explicit combo grants authorize the targets of those combos.
         </span>
+        {draft.legacyModelMatching && (
+          <span>
+            Imported model rules preserve provider aliases and segment wildcards such as
+            openai/gpt-*. A standalone * only matches unprefixed models; provider/* includes nested
+            model names. These rules remain in effect when you save.
+          </span>
+        )}
       </label>
       <label className={labelClass}>
         Combo access

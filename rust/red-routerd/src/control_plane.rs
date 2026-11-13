@@ -913,6 +913,7 @@ impl ClientKeyIssueInput {
 
 #[derive(Debug, Serialize)]
 pub struct ClientKeyView {
+    pub model_matching: &'static str,
     pub id: String,
     pub label: String,
     pub tenant_id: String,
@@ -6964,7 +6965,6 @@ impl ControlPlane {
     ) -> Result<ClientKeyView, &'static str> {
         validate_id(id)?;
         validate_label(&input.label)?;
-        validate_client_lists(&input)?;
         validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let existing = self
@@ -6975,6 +6975,15 @@ impl ControlPlane {
             .into_iter()
             .find(|row| row.id == id);
         let before = existing.as_ref().map(client_view).transpose()?;
+        let model_matching = existing
+            .as_ref()
+            .map(|key| {
+                crate::model_permissions::decode(&key.allowed_models_json)
+                    .map(|(_, matching)| matching)
+            })
+            .transpose()?
+            .unwrap_or_default();
+        validate_client_lists(&input, model_matching)?;
         let tenant_id = input
             .tenant_id
             .as_deref()
@@ -7110,7 +7119,10 @@ impl ControlPlane {
             expiry_unix,
             scopes_json: json_list(&input.scopes)?,
             allowed_endpoints_json: json_list(&input.allowed_endpoints)?,
-            allowed_models_json: json_list(&input.allowed_models)?,
+            allowed_models_json: crate::model_permissions::encode(
+                input.allowed_models.clone(),
+                model_matching,
+            )?,
             allowed_combos_json: match &input.allowed_combos {
                 Some(value) => serde_json::to_string(value).map_err(|_| "invalid combo grants")?,
                 None => existing
@@ -10625,12 +10637,15 @@ fn view(
 }
 
 fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> {
+    let (allowed_models, model_matching) =
+        crate::model_permissions::decode(&record.allowed_models_json)?;
     let expires_at_unix = match record.expiry_unix {
         0 => None,
         value if value > 0 => Some(value as u64),
         _ => return Err("invalid client key expiry"),
     };
     Ok(ClientKeyView {
+        model_matching: model_matching.name(),
         id: record.id.clone(),
         label: record.label.clone(),
         tenant_id: record.tenant_id.clone(),
@@ -10638,7 +10653,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         model_id_format: validate_model_id_format(&record.model_id_format)?.to_owned(),
         model_access_mode: effective_model_access_mode(
             &record.model_access_mode,
-            !parse_list(&record.allowed_models_json)?.is_empty(),
+            !allowed_models.is_empty(),
         )?
         .to_owned(),
         enabled: record.enabled,
@@ -10646,7 +10661,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         access_schedule: decode_access_schedule(&record.access_schedule_json)?,
         scopes: parse_list(&record.scopes_json)?,
         allowed_endpoints: parse_list(&record.allowed_endpoints_json)?,
-        allowed_models: parse_list(&record.allowed_models_json)?,
+        allowed_models,
         allowed_combos: decode_combo_grants(&record.allowed_combos_json)?,
         blocked_models: parse_list(&record.blocked_models_json)?,
         allowed_provider_ids: parse_list(&record.allowed_provider_ids_json)?,
@@ -11542,14 +11557,16 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
     let decoded = hex::decode(&record.key_hash).map_err(|_| "invalid client key hash")?;
     let key_hash: [u8; 32] = decoded.try_into().map_err(|_| "invalid client key hash")?;
     let view = client_view(record)?;
+    let (_, model_matching) = crate::model_permissions::decode(&record.allowed_models_json)?;
     validate_scope_list(&view.scopes)?;
     validate_endpoint_list(&view.allowed_endpoints)?;
-    validate_patterns(&view.allowed_models)?;
-    validate_patterns(&view.blocked_models)?;
+    model_matching.validate(&view.allowed_models)?;
+    model_matching.validate(&view.blocked_models)?;
     for id in &view.allowed_provider_ids {
         validate_id(id)?;
     }
     Ok(StoredPolicy {
+        model_matching,
         id: record.id.clone(),
         name: record.label.clone(),
         tenant_id: record.tenant_id.clone(),
@@ -11582,14 +11599,17 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
     })
 }
 
-fn validate_client_lists(input: &ClientKeyInput) -> Result<(), &'static str> {
+fn validate_client_lists(
+    input: &ClientKeyInput,
+    matching: crate::model_permissions::ModelMatching,
+) -> Result<(), &'static str> {
     if let Some(Some(grants)) = &input.allowed_combos {
         crate::policy::validate_combo_grants(grants)?;
     }
     validate_scope_list(&input.scopes)?;
     validate_endpoint_list(&input.allowed_endpoints)?;
-    validate_patterns(&input.allowed_models)?;
-    validate_patterns(&input.blocked_models)?;
+    matching.validate(&input.allowed_models)?;
+    matching.validate(&input.blocked_models)?;
     if input.allowed_provider_ids.len() > 128 {
         return Err("too many allowed provider identifiers");
     }
@@ -11738,23 +11758,6 @@ fn validate_endpoint_list(values: &[String]) -> Result<(), &'static str> {
             .any(|value| !matches!(value.as_str(), "chat" | "embeddings" | "rerank"))
     {
         return Err("invalid client key endpoint grants");
-    }
-    Ok(())
-}
-
-fn validate_patterns(values: &[String]) -> Result<(), &'static str> {
-    if values.len() > 128 {
-        return Err("too many client key model patterns");
-    }
-    for pattern in values {
-        if pattern.is_empty()
-            || pattern.len() > 256
-            || (pattern != "*"
-                && pattern.contains('*')
-                && !(pattern.ends_with("/*") && !pattern[..pattern.len() - 1].contains('*')))
-        {
-            return Err("invalid client key model pattern");
-        }
     }
     Ok(())
 }

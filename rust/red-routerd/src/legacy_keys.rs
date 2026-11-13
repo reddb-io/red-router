@@ -153,6 +153,15 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
         let settings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='settings' AND ((key IN ('disabledModels','modelVisibilityAllowlist','modelVisibilityDenylist') AND COALESCE(trim(value),'') NOT IN ('[]','null')) OR (key IN ('hidePaidModels','excludeTosAvoid','hideAutoCombos') AND COALESCE(trim(value),'') NOT IN ('false','null')) OR (key='freeAccessPolicy' AND COALESCE(trim(value),'') NOT IN ('\"off\"','null')) OR (key='proxyEnabled' AND COALESCE(trim(value),'') <> 'true'))) OR (namespace='api_key_tags')")
             .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy settings")?;
         if settings != 0 { return Err("legacy model policy or key tags require migration; no keys imported"); }
+        let prefer_claude: Option<String> = sqlx::query_scalar("SELECT value FROM key_value WHERE namespace='settings' AND key='preferClaudeCodeForUnprefixedClaudeModels'")
+            .fetch_optional(&mut *snapshot).await.map_err(|_| "cannot inspect legacy Claude routing setting")?;
+        let prefer_claude_code = match prefer_claude.as_deref() {
+            Some("true") => true,
+            Some("false") => false,
+            None | Some("null") => std::env::var("OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS")
+                .is_ok_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")),
+            _ => return Err("invalid legacy Claude routing setting; no keys imported"),
+        };
         for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_combo_access", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
                 .fetch_one(&mut *target).await.map_err(|_| "destination key schema unavailable")?;
@@ -191,23 +200,31 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if number("compression_enabled")? != Some(1) || number("allow_auto_combos")? != Some(1) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
-            for field in ["allowed_models", "blocked_models", "allowed_connections", "ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
+            for field in ["allowed_connections", "ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             let raw_combos = get("allowed_combos")?;
+            let allowed_models = import_model_patterns(get("allowed_models")?.as_deref())?;
+            let blocked_models = import_model_patterns(get("blocked_models")?.as_deref())?;
+            let has_model_patterns = !allowed_models.is_empty() || !blocked_models.is_empty();
+            let matching = if has_model_patterns {
+                crate::model_permissions::ModelMatching::Legacy { prefer_claude_code }
+            } else { crate::model_permissions::ModelMatching::Native };
+            let allowed_models = crate::model_permissions::encode(allowed_models, matching)?;
+            let blocked_models = serde_json::to_string(&blocked_models).map_err(|_| "invalid legacy model patterns")?;
             if raw_combos.as_ref().is_some_and(|value| value.len() > 65_536) { return Err("legacy combo policy is too large"); }
             let combos: Option<Vec<String>> = match raw_combos.as_deref() {
                 None => None,
                 Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy combo grants")?,
             };
-            // Nonempty legacy model policies are still rejected above. With no such
-            // restrictions, an absent combo list permits all combos, even when direct
-            // model access is restricted + []. Preserve that independent grant.
-            let combos = combos.unwrap_or_else(|| vec!["combo/*".to_owned()]);
-            crate::policy::validate_combo_grants(&combos)?;
+            // Without model patterns, null grants are equivalent to explicit all.
+            // With patterns, legacy null applies the per-target/allow-listed-combo
+            // policy. Do not turn it into a grant that bypasses those restrictions.
+            let combos = if has_model_patterns { combos } else { Some(combos.unwrap_or_else(|| vec!["combo/*".to_owned()])) };
+            if let Some(combos) = &combos { crate::policy::validate_combo_grants(combos)?; }
             let combos = serde_json::to_string(&combos).map_err(|_| "invalid legacy combo grants")?;
             let model_access_mode = get("model_access_mode")?.ok_or("invalid legacy model access mode")?;
             let schedule = import_schedule(get("access_schedule")?.as_deref())?;
@@ -234,8 +251,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if get("key_hash")?.is_some_and(|existing| !existing.is_empty() && existing != hash) || !hashes.insert(hash.clone()) {
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
-            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]','[]','[]','[]',0,0,0,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,'[]',0,0,0,1)")
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
@@ -273,6 +290,22 @@ fn valid_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+fn import_model_patterns(raw: Option<&str>) -> Result<Vec<String>, &'static str> {
+    if raw.is_some_and(|value| value.len() > 65_536) {
+        return Err("legacy model policy is too large");
+    }
+    let patterns: Option<Vec<String>> = match raw.filter(|value| !value.trim().is_empty()) {
+        Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy model patterns")?,
+        None => None,
+    };
+    let patterns = patterns.unwrap_or_default();
+    crate::model_permissions::ModelMatching::Legacy {
+        prefer_claude_code: false,
+    }
+    .validate(&patterns)?;
+    Ok(patterns)
 }
 
 fn import_schedule(raw: Option<&str>) -> Result<String, &'static str> {

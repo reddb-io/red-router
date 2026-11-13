@@ -20,6 +20,7 @@ export interface RustClientAccessSchedule {
 }
 
 export interface RustClientKey {
+  model_matching?: "native" | "legacy-v1";
   id: string;
   label: string;
   tenant_id: string;
@@ -48,7 +49,7 @@ export interface RustClientKey {
 
 export type RustClientKeyInput = Omit<
   RustClientKey,
-  "id" | "tenant_id" | "created_by" | "revision" | "expires_at_unix"
+  "id" | "tenant_id" | "created_by" | "revision" | "expires_at_unix" | "model_matching"
 > & {
   tenant_id?: string;
   expires_at_unix?: number | null;
@@ -863,6 +864,9 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     typeof key.created_by === "string" &&
     (key.model_id_format === "prefixed" || key.model_id_format === "flat") &&
     (key.model_access_mode === "all" || key.model_access_mode === "restricted") &&
+    (key.model_matching === undefined ||
+      key.model_matching === "native" ||
+      key.model_matching === "legacy-v1") &&
     (key.allowed_combos === null || isStringArray(key.allowed_combos)) &&
     typeof key.enabled === "boolean" &&
     isOptionalNumber(key.expires_at_unix) &&

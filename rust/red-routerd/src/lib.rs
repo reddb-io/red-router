@@ -17,6 +17,7 @@ pub mod legacy_keys;
 pub mod legacy_preflight;
 pub mod legacy_providers;
 pub mod legacy_quota;
+mod model_permissions;
 mod native_usage;
 mod oidc;
 mod policy;
@@ -2609,9 +2610,14 @@ fn listed_models(
             .targets
             .iter()
             .filter(|target| {
-                policy.combo_target_allowed(
+                policy.combo_provider_target_allowed(
                     id,
                     target.product_model.as_deref().unwrap_or(&target.model),
+                    if target.product_model.is_none() {
+                        target.provider_name.as_deref()
+                    } else {
+                        None
+                    },
                 ) && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect::<Vec<_>>();
@@ -5556,9 +5562,14 @@ async fn proxy_request(
                 (if state.product_combo.is_some() {
                     policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
                 } else {
-                    policy.combo_target_allowed(
+                    policy.combo_provider_target_allowed(
                         &model,
                         target.product_model.as_deref().unwrap_or(&target.model),
+                        if target.product_model.is_none() {
+                            target.provider_name.as_deref()
+                        } else {
+                            None
+                        },
                     )
                 }) && policy.provider_allowed(target.provider_id.as_deref())
             })

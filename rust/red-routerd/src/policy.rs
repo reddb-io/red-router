@@ -17,6 +17,7 @@ pub(crate) struct ClientPolicies {
 }
 
 pub(crate) struct ClientPolicy {
+    model_matching: crate::model_permissions::ModelMatching,
     credential: ClientCredential,
     identity: Option<ClientIdentity>,
     enabled: bool,
@@ -51,6 +52,7 @@ enum ClientCredential {
 }
 
 pub(crate) struct StoredPolicy {
+    pub model_matching: crate::model_permissions::ModelMatching,
     pub id: String,
     pub name: String,
     pub tenant_id: String,
@@ -208,6 +210,7 @@ impl ClientPolicies {
     pub(crate) fn single(key: &str) -> Self {
         Self {
             entries: vec![ClientPolicy {
+                model_matching: Default::default(),
                 credential: ClientCredential::Plain(Arc::from(key)),
                 identity: None,
                 enabled: true,
@@ -252,6 +255,7 @@ impl ClientPolicies {
                     requests: Mutex::new((VecDeque::new(), VecDeque::new())),
                 });
                 Ok(ClientPolicy {
+                    model_matching: policy.model_matching,
                     credential: ClientCredential::Sha256(policy.key_hash),
                     identity: Some(ClientIdentity {
                         id: Arc::from(policy.id),
@@ -417,6 +421,7 @@ impl ClientPolicies {
                 requests: Mutex::new((VecDeque::new(), VecDeque::new())),
             });
             entries.push(ClientPolicy {
+                model_matching: Default::default(),
                 credential: ClientCredential::Plain(Arc::from(key)),
                 identity: None,
                 enabled,
@@ -556,6 +561,7 @@ impl ClientPolicy {
 
     pub(crate) fn combo_allowed(&self, combo: &str) -> bool {
         match &self.allowed_combos {
+            None if self.model_matching.legacy() => true,
             None => self.route_allowed(combo) && self.route_allowed(combo_name(combo)),
             Some(grants) => grants
                 .iter()
@@ -564,6 +570,33 @@ impl ClientPolicy {
     }
 
     pub(crate) fn combo_target_allowed(&self, combo: &str, model: &str) -> bool {
+        if self.model_matching.legacy() {
+            if !self.combo_allowed(combo) {
+                return false;
+            }
+            if (self.allowed_models.as_ref().is_none_or(Vec::is_empty)
+                && self.blocked_models.is_empty())
+                || (self.allowed_combos.is_some() && !combo_name(combo).starts_with("auto/"))
+            {
+                return true;
+            }
+            if self.model_blocked(model) {
+                return false;
+            }
+            // The old combo gate uses exact/literal prefix matching on the requested
+            // combo, not the more permissive model glob/alias matcher.
+            if self.allowed_models.as_ref().is_some_and(|patterns| {
+                patterns.iter().any(|pattern| {
+                    pattern == combo
+                        || pattern.strip_suffix('*').is_some_and(|prefix| {
+                            pattern.ends_with("/*") && combo.starts_with(prefix)
+                        })
+                })
+            }) {
+                return true;
+            }
+            return self.target_allowed(model);
+        }
         self.combo_allowed(combo)
             && if self.allowed_combos.is_some()
                 && (!combo_name(combo).starts_with("auto/")
@@ -580,17 +613,28 @@ impl ClientPolicy {
 
     pub(crate) fn target_allowed(&self, model: &str) -> bool {
         !self.model_blocked(model)
-            && self.allowed_models.as_ref().is_none_or(|patterns| {
-                patterns
-                    .iter()
-                    .any(|pattern| matches_pattern(pattern, model))
-            })
+            && self
+                .allowed_models
+                .as_ref()
+                .is_none_or(|patterns| self.model_matching.matches(patterns, model))
     }
 
     pub(crate) fn model_blocked(&self, model: &str) -> bool {
-        self.blocked_models
-            .iter()
-            .any(|p| matches_pattern(p, model))
+        self.model_matching.matches(&self.blocked_models, model)
+    }
+
+    pub(crate) fn combo_provider_target_allowed(
+        &self,
+        combo: &str,
+        model: &str,
+        provider: Option<&str>,
+    ) -> bool {
+        if self.model_matching.legacy() {
+            if let Some(provider) = provider {
+                return self.combo_target_allowed(combo, &format!("{provider}/{model}"));
+            }
+        }
+        self.combo_target_allowed(combo, model)
     }
 
     pub(crate) fn provider_allowed(&self, provider_id: Option<&str>) -> bool {
@@ -672,6 +716,34 @@ fn matches_pattern(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_model_rules_preserve_alias_deny_precedence_and_combo_target_semantics() {
+        let mut policies = ClientPolicies::single("fixture");
+        let policy = &mut policies.entries[0];
+        policy.model_matching = crate::model_permissions::ModelMatching::Legacy {
+            prefer_claude_code: false,
+        };
+        policy.allowed_models = Some(vec!["cx/gpt-*".into(), "team".into()]);
+        policy.blocked_models = vec!["codex/gpt-secret*".into()];
+        assert!(policy.target_allowed("codex/gpt-5"));
+        assert!(!policy.target_allowed("cx/gpt-secret-mini[1m]"));
+        assert!(!policy.target_allowed("openai/gpt-5"));
+        assert!(policy.combo_provider_target_allowed("unrestricted-name", "gpt-5", Some("codex")));
+        assert!(!policy.combo_provider_target_allowed("unrestricted-name", "other", Some("codex")));
+        assert!(policy.combo_provider_target_allowed("team", "other", Some("codex")));
+        assert!(!policy.combo_provider_target_allowed("team", "gpt-secret", Some("codex")));
+        policy.allowed_combos = Some(vec!["team".into(), "auto/dynamic".into()]);
+        assert!(policy.combo_provider_target_allowed("team", "gpt-secret", Some("codex")));
+        assert!(!policy.combo_provider_target_allowed("auto/dynamic", "gpt-secret", Some("codex")));
+        assert!(!policy.combo_provider_target_allowed("other", "gpt-5", Some("codex")));
+        policy.allowed_combos = None;
+        policy.allowed_models = Some(vec!["*".into()]);
+        policy.blocked_models.clear();
+        assert!(policy.target_allowed("unprefixed"));
+        assert!(!policy.target_allowed("openai/gpt-4"));
+        assert!(!policy.combo_provider_target_allowed("team", "gpt-4", Some("openai")));
+    }
 
     #[test]
     fn supported_patterns_have_explicit_prefix_boundaries() {

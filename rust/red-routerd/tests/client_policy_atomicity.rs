@@ -181,6 +181,47 @@ async fn independent_sqlite_instances_never_publish_mixed_policy_revisions() {
 }
 
 #[tokio::test]
+async fn sqlite_reader_snapshot_does_not_block_policy_commit() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("reader-snapshot.sqlite");
+    let db = Database::connect(Backend::Sqlite, &database_url(&path))
+        .await
+        .unwrap();
+    seed_tenant(&db).await;
+    db.upsert_client_key(&policy(1)).await.unwrap();
+    let mut reader = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&path))
+        .await
+        .unwrap();
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(&mut reader)
+        .await
+        .unwrap();
+    assert_eq!(mode, "wal");
+    let mut snapshot = reader.begin().await.unwrap();
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM redrouter_control_client_keys")
+        .fetch_one(&mut *snapshot)
+        .await
+        .unwrap();
+    assert_eq!(revision, 1);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        db.upsert_client_key(&policy(2)),
+    )
+    .await
+    .expect("reader must not stall writer")
+    .unwrap();
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM redrouter_control_client_keys")
+        .fetch_one(&mut *snapshot)
+        .await
+        .unwrap();
+    assert_eq!(revision, 1, "reader keeps its consistent snapshot");
+    assert_eq!(db.client_keys().await.unwrap(), vec![policy(2)]);
+    snapshot.commit().await.unwrap();
+    reader.close().await.unwrap();
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn sqlite_snapshot_keeps_defaults_for_keys_created_before_sidecars() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("old-schema.sqlite");

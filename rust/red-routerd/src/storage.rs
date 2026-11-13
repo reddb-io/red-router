@@ -657,6 +657,33 @@ pub enum Database {
     },
 }
 
+async fn begin_client_key_update(
+    pool: &AnyPool,
+) -> Result<sqlx::Transaction<'static, sqlx::Any>, &'static str> {
+    let sqlite = pool.connect_options().database_url.scheme() == "sqlite";
+    let statement = if sqlite { "BEGIN IMMEDIATE" } else { "BEGIN" };
+    for attempt in 0..3 {
+        match pool.begin_with(statement).await {
+            Ok(transaction) => return Ok(transaction),
+            Err(error) => {
+                let busy = sqlite
+                    && error
+                        .as_database_error()
+                        .and_then(|error| error.code())
+                        .and_then(|code| code.parse::<u32>().ok())
+                        .is_some_and(|code| matches!(code & 0xff, 5 | 6));
+                if !busy || attempt == 2 {
+                    return Err("cannot begin client key update");
+                }
+                // No write has happened yet. Retry only lock contention, never a
+                // constraint/IO error or an ambiguous commit; retain a bounded wait.
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt + 1))).await;
+            }
+        }
+    }
+    unreachable!("bounded transaction acquisition")
+}
+
 impl Database {
     pub fn supports_audit_sink_leases(&self) -> bool {
         matches!(self, Self::Sql(_))
@@ -908,6 +935,12 @@ impl Database {
                         Box::pin(async move {
                             if backend == Backend::Sqlite {
                                 sqlx::query("PRAGMA busy_timeout = 5000")
+                                    .execute(&mut *connection)
+                                    .await?;
+                                // File-backed SQLite readers must not hold up policy
+                                // commits from another proxy. Keep SQLite's durability
+                                // defaults; WAL changes concurrency, not fsync policy.
+                                sqlx::query("PRAGMA journal_mode = WAL")
                                     .execute(&mut *connection)
                                     .await?;
                             }
@@ -2506,10 +2539,7 @@ impl Database {
         let enabled = if key.enabled { 1_i64 } else { 0_i64 };
         match self {
             Self::Sql(pool) => {
-                let mut transaction = pool
-                    .begin()
-                    .await
-                    .map_err(|_| "cannot begin client key update")?;
+                let mut transaction = begin_client_key_update(pool).await?;
 
                 sqlx::query(UPSERT_CLIENT_KEY_COMBO_ACCESS)
                     .bind(&key.id)

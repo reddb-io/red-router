@@ -6,6 +6,180 @@ use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
 use url::Url;
 
+#[tokio::test]
+async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard_edits() {
+    use axum::{routing::post, Json, Router};
+    use red_routerd::{control_plane::ControlPlane, router, ProxyState};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let (_dir, source, dest, url) = fixture().await;
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql(r#"
+        UPDATE api_keys SET allowed_models='["openai/gpt-*","team"]',
+          blocked_models='["openai/gpt-secret*"]', allowed_combos=NULL WHERE id='first';
+        INSERT INTO key_value VALUES ('settings','preferClaudeCodeForUnprefixedClaudeModels','true');
+    "#).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let original = tokio::fs::read(&source).await.unwrap();
+    legacy_keys::import(&source, &dest).await.unwrap();
+    assert_eq!(original, tokio::fs::read(&source).await.unwrap());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let mut key = db
+        .client_keys()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|key| key.id == "first")
+        .unwrap();
+    assert!(!key.enabled);
+    assert_eq!(key.allowed_combos_json, "null");
+    let grants: serde_json::Value = serde_json::from_str(&key.allowed_models_json).unwrap();
+    assert_eq!(grants["schema"], "redrouter-model-permissions-v1");
+    assert_eq!(grants["prefer_claude_code"], true);
+    // Isolate authorization after activation; the importer itself never bypasses
+    // the quota-adoption gate, covered separately by legacy_quota tests.
+    key.enabled = true;
+    db.upsert_client_key(&key).await.unwrap();
+    db.close().await.unwrap();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let upstream_calls = calls.clone();
+    let upstream = Router::new().route("/v1/chat/completions", post(move || {
+        let calls = upstream_calls.clone();
+        async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({"id":"fixture","object":"chat.completion","model":"fixture",
+                "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = listener.local_addr().unwrap();
+    let upstream_task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(
+        database.clone(),
+        "legacy-schedule-admin-key-00000001",
+        "0123456789abcdef0123456789abcdef",
+        true,
+    )
+    .await
+    .unwrap();
+    let state = ProxyState::new(
+        "http://127.0.0.1:1/v1/chat/completions",
+        "fallback-client-00000001",
+        "placeholder",
+        true,
+    )
+    .await
+    .unwrap()
+    .with_control_plane(control);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let response = client.put(format!("{base}/api/admin/providers/models"))
+        .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type", "application/json")
+        .body(serde_json::json!({"provider":"openai","upstream_url":format!("http://{upstream_address}/v1/chat/completions"),"api_key":"fixture-provider-key"}).to_string())
+        .send().await.unwrap();
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "{}",
+        response.text().await.unwrap()
+    );
+    for (combo, model) in [
+        ("allowed", "gpt-4o"),
+        ("denied", "gpt-secret-mini"),
+        ("team", "other"),
+        ("unlisted", "other"),
+    ] {
+        let response = client.put(format!("{base}/api/admin/combos/{combo}"))
+            .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type", "application/json")
+            .body(serde_json::json!({"protocol":"openai","strategy":"priority","fallback":true,"targets":[{"provider_id":"models","model":model}]}).to_string())
+            .send().await.unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "{}",
+            response.text().await.unwrap()
+        );
+    }
+    for (combo, expected) in [
+        ("allowed", 200),
+        ("denied", 403),
+        ("team", 200),
+        ("unlisted", 403),
+    ] {
+        let response = client.post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("secret-credential-123456").header("content-type","application/json")
+            .body(serde_json::json!({"model":combo,"messages":[{"role":"user","content":"hello"}],"stream":false}).to_string())
+            .send().await.unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            expected,
+            "{combo}: {}",
+            response.text().await.unwrap()
+        );
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "denied models must never reach the provider"
+    );
+    let response = client
+        .get(format!("{base}/v1/models"))
+        .bearer_auth("secret-credential-123456")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let catalog: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    let ids: Vec<_> = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["allowed", "team"]);
+
+    // The dashboard submits normal arrays; the persisted matcher is retained by
+    // the backend so editing a label cannot reinterpret existing glob rules.
+    let response = client.put(format!("{base}/api/admin/client-keys/first"))
+        .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type","application/json")
+        .body(serde_json::json!({"label":"Renamed","enabled":false,"expires_at_unix":1893456000_u64,
+            "model_access_mode":"restricted","allowed_models":["openai/gpt-*","team"],"blocked_models":["openai/gpt-secret*"],"allowed_combos":null}).to_string())
+        .send().await.unwrap();
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "{}",
+        response.text().await.unwrap()
+    );
+    task.abort();
+    let _ = task.await;
+    upstream_task.abort();
+    let _ = upstream_task.await;
+    database.close().await.unwrap();
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let saved = db
+        .client_keys()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|key| key.id == "first")
+        .unwrap();
+    assert_eq!(saved.label, "Renamed");
+    assert_eq!(saved.allowed_models_json, key.allowed_models_json);
+    assert_eq!(saved.blocked_models_json, key.blocked_models_json);
+    assert_eq!(saved.allowed_combos_json, "null");
+    db.close().await.unwrap();
+}
+
 pub async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, String) {
     let dir = TempDir::new().unwrap();
     let source = dir.path().join("legacy.sqlite");
@@ -124,7 +298,7 @@ async fn any_unsupported_policy_rolls_back_all_keys_and_unknown_schema_fails_clo
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::query("UPDATE api_keys SET allowed_models='[\"openai/gpt\"]' WHERE id='second'")
+    sqlx::query("UPDATE api_keys SET allowed_models='[42]' WHERE id='second'")
         .execute(&mut input)
         .await
         .unwrap();

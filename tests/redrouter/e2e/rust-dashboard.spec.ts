@@ -700,6 +700,7 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   let key = {
     id: "restricted",
+    model_matching: "legacy-v1",
     label: "Restricted key",
     tenant_id: "red",
     created_by: "admin",
@@ -778,6 +779,7 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Model access", { exact: true })).toHaveValue("restricted");
   await expect(page.getByLabel("Combo access", { exact: true })).toHaveValue("models");
+  await expect(page.getByText(/Imported model rules preserve provider aliases/)).toBeVisible();
   await page.getByLabel("Combo access", { exact: true }).selectOption("restricted");
   await page.getByLabel("Allowed combos", { exact: true }).fill("team-agents\ncombo/analysis");
   await page.getByLabel("Label", { exact: true }).fill("Renamed key");
@@ -817,4 +819,16 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   await page.getByRole("button", { name: "Save policy", exact: true }).click();
   await expect.poll(() => writes.length).toBe(4);
   expect(writes[3]).toMatchObject({ allowed_combos: null });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Model access", { exact: true }).selectOption("restricted");
+  await page.getByLabel(/^Allowed models/).fill("cx/gpt-*\ncc/*");
+  await page.getByLabel(/^Blocked models/).fill("codex/gpt-secret*");
+  await page.getByRole("button", { name: "Save policy", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(5);
+  expect(writes[4]).toMatchObject({
+    allowed_models: ["cx/gpt-*", "cc/*"],
+    blocked_models: ["codex/gpt-secret*"],
+    allowed_combos: null,
+  });
+  expect(writes[4]).not.toHaveProperty("model_matching");
 });
