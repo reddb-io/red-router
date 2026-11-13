@@ -53,9 +53,20 @@ random fallback and inference remains closed until a key is created. On an empty
 provider; `RED_ROUTER_PROVIDER_AUTH_SCHEME`, `RED_ROUTER_PROVIDER_LABEL`,
 `RED_ROUTER_PROVIDER_ACCOUNT_EMAIL` and `RED_ROUTER_PROVIDER_EXPIRES_AT_UNIX` can
 describe that bootstrap connection. Subsequent provider changes do not require
-those environment secrets.
+those environment secrets. `RED_ROUTER_PROVIDER_PROTOCOL` optionally selects the
+bootstrap connection protocol; it has no effect on an already saved provider.
 
 - `GET /api/admin/providers` lists redacted provider metadata.
+- API connections accept optional `protocol`: `auto` (URL detection), `openai`,
+  `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic` or `gemini`.
+  An explicit format permits a custom inference path; Gemini uses a model-collection
+  base URL. HTTPS, credential-free URLs, DNS/address checks and no redirects still
+  apply. Queries/fragments are not supported. OAuth connections own their protocol.
+  Omitting the field preserves existing configuration; `auto` explicitly resets it.
+  Changing it requires the credential again and returns 409 if an enabled combo
+  would become incompatible. The saved format applies to direct/combo requests,
+  connection diagnostics and model discovery after restarts. Model discovery has
+  its own configurable path; a custom inference path does not imply `/models`.
 - `PUT /api/admin/providers/{id}` accepts `provider`, `upstream_url`, `api_key`
   and optional `tenant_id`, `enabled` and `rate_limit_scope` (`auto`, `connection`
   or `model`). It also accepts an operator-facing `label`, optional `account_email`,

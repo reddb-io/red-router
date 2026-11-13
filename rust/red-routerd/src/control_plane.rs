@@ -142,6 +142,7 @@ UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_c
 UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_provider_auth
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
+UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'provider-breaker-override', provider_id, revision, 0 FROM redrouter_provider_breaker_overrides
@@ -466,6 +467,7 @@ impl Drop for ContextRelayGenerationGuard {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderInput {
+    pub protocol: Option<String>,
     pub tenant_id: Option<String>,
     pub provider: String,
     pub upstream_url: String,
@@ -488,6 +490,7 @@ pub struct ProviderInput {
 
 #[derive(Debug, Serialize)]
 pub struct ProviderView {
+    pub protocol: String,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -4798,6 +4801,7 @@ impl ControlPlane {
                     .configure_provider_as(
                         &provider_id,
                         ProviderInput {
+                            protocol: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
                             upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
@@ -4898,6 +4902,7 @@ impl ControlPlane {
                     .configure_provider_as(
                         &provider_id,
                         ProviderInput {
+                            protocol: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
                             upstream_url: self
@@ -5001,6 +5006,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
                     upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
@@ -5116,6 +5122,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
                     upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
@@ -5233,6 +5240,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
                     upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
@@ -5583,6 +5591,16 @@ impl ControlPlane {
                             .as_ref()
                             .is_some_and(|provider| session.revision == provider.updated_at)
                 });
+        let protocol = input.protocol.take().unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .map(|provider| provider.protocol.clone())
+                .unwrap_or_else(|| "auto".to_owned())
+        });
+        ProviderProtocol::from_configuration(&input.upstream_url, &protocol)?;
+        if input.credential_type == "oauth" && protocol != "auto" {
+            return Err("OAuth connections own their upstream protocol");
+        }
         let replacing_access_token = !input.api_key.is_empty();
         let api_key = if replacing_access_token {
             if input.api_key.len() > 8192 {
@@ -5612,6 +5630,7 @@ impl ControlPlane {
                 .unwrap_or("auto");
             if existing.provider != input.provider
                 || existing.upstream_url != input.upstream_url
+                || existing.protocol != protocol
                 || existing_auth_scheme != auth_scheme.as_str()
                 || (input.credential_type == "oauth") != existing_oauth.is_some()
             {
@@ -5740,6 +5759,7 @@ impl ControlPlane {
             self.0.allow_private,
             auth_scheme,
             expires_at_unix,
+            &protocol,
         )
         .await?;
         let tenant_id = input
@@ -5770,10 +5790,15 @@ impl ControlPlane {
         {
             return Err("provider tenant is unavailable");
         }
+        if input.enabled {
+            self.ensure_provider_protocol_compatible(id, tenant_id, live.protocol)
+                .await?;
+        }
         let revision = revision()?;
         let ciphertext =
             encrypt_async(api_key.as_str(), id, self.0.encryption_key.as_str()).await?;
         let stored = StoredProvider {
+            protocol,
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             provider: input.provider,
@@ -5967,6 +5992,7 @@ impl ControlPlane {
             self.0.allow_private,
             ProviderAuthScheme::parse(&auth.auth_scheme)?,
             auth.expires_at_unix,
+            &provider.protocol,
         )
         .await?;
         let mut live = live;
@@ -6423,6 +6449,35 @@ impl ControlPlane {
         self.disable_as(id, "bootstrap-admin", None).await
     }
 
+    async fn ensure_provider_protocol_compatible(
+        &self,
+        id: &str,
+        tenant_id: &str,
+        protocol: ProviderProtocol,
+    ) -> Result<(), &'static str> {
+        let records = self.0.database.combos().await?;
+        for combo in records
+            .iter()
+            .filter(|combo| combo.enabled && combo.tenant_id == tenant_id)
+        {
+            if ProviderProtocol::parse(&combo.protocol)?.accepts_provider(protocol) {
+                continue;
+            }
+            let view = combo_view(combo)?;
+            let targets = resolve_nested_combo_targets(
+                &combo.id,
+                &combo.tenant_id,
+                &combo.protocol,
+                &view.targets,
+                &records,
+            )?;
+            if targets.iter().any(|target| target.provider_id == id) {
+                return Err("provider protocol is incompatible with an enabled combo");
+            }
+        }
+        Ok(())
+    }
+
     async fn ensure_provider_not_in_enabled_combo(
         &self,
         id: &str,
@@ -6727,7 +6782,11 @@ impl ControlPlane {
                             && provider.enabled
                     })
                     .and_then(|provider| {
-                        ProviderProtocol::from_upstream(&provider.upstream_url).ok()
+                        ProviderProtocol::from_configuration(
+                            &provider.upstream_url,
+                            &provider.protocol,
+                        )
+                        .ok()
                     })
                     .is_some_and(|provider| protocol.accepts_provider(provider))
             }) {
@@ -8569,6 +8628,7 @@ impl ControlPlane {
             signature_text(&mut digest, &record.tenant_id);
             signature_text(&mut digest, &record.provider);
             signature_text(&mut digest, &record.upstream_url);
+            signature_text(&mut digest, &record.protocol);
             signature_text(&mut digest, &record.credential_ciphertext);
             signature_bool(&mut digest, record.enabled);
             signature_i64(&mut digest, record.updated_at);
@@ -8758,6 +8818,7 @@ impl ControlPlane {
                     self.0.allow_private,
                     auth_scheme,
                     provider_auth.expires_at_unix,
+                    &record.protocol,
                 )
                 .await?;
                 let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
@@ -8886,6 +8947,7 @@ impl ControlPlane {
                         self.0.allow_private,
                         auth_scheme,
                         provider_auth.expires_at_unix,
+                        &provider.protocol,
                     )
                     .await?;
                     runtime.custom_headers = self.request_headers(provider).await?;
@@ -10706,6 +10768,7 @@ fn view(
         _ => return Err("provider credential expiry is invalid"),
     };
     Ok(ProviderView {
+        protocol: record.protocol.clone(),
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -11316,6 +11379,7 @@ fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
         "id": record.id,
         "tenant_id": record.tenant_id,
         "provider": record.provider,
+        "protocol": record.protocol,
         "enabled": record.enabled,
         "revision": record.updated_at.to_string(),
         "has_credential": true
@@ -14378,6 +14442,10 @@ pub async fn put_provider(
         .await
     {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
+        Err("provider protocol is incompatible with an enabled combo") => api_error(
+            StatusCode::CONFLICT,
+            "Provider protocol is incompatible with an enabled combo",
+        ),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Provider storage or runtime unavailable",
@@ -15734,6 +15802,7 @@ mod tests {
     #[test]
     fn combo_metadata_uses_models_dev_without_overriding_operator_values() {
         let providers = vec![StoredProvider {
+            protocol: "auto".to_owned(),
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),

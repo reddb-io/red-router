@@ -5,6 +5,8 @@
 #[path = "provider_discovery_storage.rs"]
 mod provider_discovery_storage;
 pub use provider_discovery_storage::StoredProviderDiscovery;
+#[path = "provider_protocol_storage.rs"]
+mod provider_protocol_storage;
 
 use sqlx::{any::AnyPoolOptions, AnyPool, Row};
 use std::sync::Once;
@@ -240,6 +242,7 @@ const DELETE_PROVIDER_THOUGHT_SIGNATURES: &str =
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
+    pub protocol: String,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -758,6 +761,7 @@ impl Database {
                         CREATE_PROVIDER_SESSIONS,
                         CREATE_PROVIDER_HEADERS,
                         provider_discovery_storage::CREATE,
+                        provider_protocol_storage::CREATE,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
@@ -886,6 +890,8 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_HEADERS).await?;
                 db.remote_schema_query(provider_discovery_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_protocol_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
                 db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
@@ -1010,6 +1016,7 @@ impl Database {
                     CREATE_PROVIDER_SESSIONS,
                     CREATE_PROVIDER_HEADERS,
                     provider_discovery_storage::CREATE,
+                    provider_protocol_storage::CREATE,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,
@@ -1139,7 +1146,11 @@ impl Database {
                 .collect::<Result<Vec<_>, _>>()?,
         };
         let ownership = self.provider_ownership().await?;
+        let mut protocols = self.provider_protocols().await?;
         for provider in &mut providers {
+            provider.protocol = protocols
+                .remove(&(provider.id.clone(), provider.updated_at))
+                .unwrap_or_else(|| "auto".to_owned());
             if let Some(owner) = ownership
                 .iter()
                 .find(|owner| owner.provider_id == provider.id)
@@ -1163,6 +1174,7 @@ impl Database {
 
     pub async fn upsert_provider(&self, provider: &StoredProvider) -> Result<(), &'static str> {
         let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
+        self.upsert_provider_protocol(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
             Self::Sql(pool) => {
@@ -1198,11 +1210,12 @@ impl Database {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or("provider configuration not found")?;
-        self.upsert_provider_ownership(&StoredProvider {
+        let provider = StoredProvider {
             updated_at,
             ..provider
-        })
-        .await?;
+        };
+        self.upsert_provider_protocol(&provider).await?;
+        self.upsert_provider_ownership(&provider).await?;
         match self {
             Self::Sql(pool) => {
                 sqlx::query(DISABLE_PROVIDER)
@@ -1243,6 +1256,7 @@ impl Database {
     /// provider row before ownership keeps a retry-safe orphan if the second
     /// statement fails on a backend without multi-statement transactions.
     pub async fn delete_provider(&self, id: &str) -> Result<(), &'static str> {
+        self.delete_provider_protocols(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
             Self::Sql(pool) => {
@@ -4970,6 +4984,7 @@ fn read_reddb_row(result: &reddb_client::QueryResult) -> Result<Option<String>, 
 
 fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static str> {
     Ok(StoredProvider {
+        protocol: "auto".to_owned(),
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
         provider: row
@@ -5007,6 +5022,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         _ => Err("invalid provider record"),
     };
     Ok(StoredProvider {
+        protocol: "auto".to_owned(),
         id: text("id")?,
         tenant_id: "red".to_owned(),
         provider: text("provider")?,

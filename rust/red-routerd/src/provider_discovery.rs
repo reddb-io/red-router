@@ -264,9 +264,15 @@ impl ControlPlane {
     ) -> Result<DiscoveryView, &'static str> {
         let entry = self.0.database.provider_discovery(&provider.id).await?;
         let models_path = entry.as_ref().map(|value| value.models_path.clone());
-        let effective_models_path = models_path
-            .clone()
-            .or_else(|| default_path(&provider.upstream_url));
+        let effective_models_path = models_path.clone().or_else(|| {
+            if provider.protocol == "gemini" {
+                reqwest::Url::parse(&provider.upstream_url)
+                    .ok()
+                    .map(|url| url.path().to_owned())
+            } else {
+                default_path(&provider.upstream_url)
+            }
+        });
         if let Some(path) = &effective_models_path {
             models_url(&provider.upstream_url, path)?;
         }
@@ -315,6 +321,7 @@ impl ControlPlane {
             self.0.allow_private,
             ProviderAuthScheme::parse(&auth.auth_scheme)?,
             auth.expires_at_unix,
+            &provider.protocol,
         )
         .await?;
         let mut request = live
@@ -531,6 +538,7 @@ mod tests {
         .unwrap();
         database
             .upsert_provider(&StoredProvider {
+                protocol: "auto".to_owned(),
                 id: "account".into(),
                 tenant_id: "red".into(),
                 provider: "openai-compatible".into(),

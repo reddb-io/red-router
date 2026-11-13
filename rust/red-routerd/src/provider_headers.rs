@@ -27,6 +27,11 @@ fn identity(provider: &StoredProvider) -> String {
     ] {
         signature_text(&mut digest, value);
     }
+    // Preserve the identity of existing auto-detected connections during upgrade.
+    if provider.protocol != "auto" {
+        signature_text(&mut digest, "protocol");
+        signature_text(&mut digest, &provider.protocol);
+    }
     hex::encode(digest.finalize())
 }
 

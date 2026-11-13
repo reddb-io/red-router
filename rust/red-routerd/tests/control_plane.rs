@@ -11725,3 +11725,5 @@ async fn restricted_empty_model_access_survives_updates_and_restart() {
 include!("cases/provider_headers.rs");
 
 include!("cases/provider_discovery.rs");
+
+include!("cases/provider_protocol.rs");

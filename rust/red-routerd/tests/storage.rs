@@ -162,6 +162,7 @@ async fn exercise(backend: Backend, url: &str) {
         .await
         .unwrap();
     let first = StoredProvider {
+        protocol: "auto".to_owned(),
         id: "first".into(),
         tenant_id: "red".into(),
         provider: "openai".into(),
@@ -171,6 +172,7 @@ async fn exercise(backend: Backend, url: &str) {
         updated_at: 1,
     };
     let mut second = StoredProvider {
+        protocol: "openai-responses".to_owned(),
         id: "second".into(),
         tenant_id: "red".into(),
         provider: "openrouter".into(),
@@ -192,6 +194,31 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(db.active_provider().await.unwrap(), Some(second.clone()));
     db.disable_provider("second", 4).await.unwrap();
     assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
+    assert_eq!(
+        db.providers()
+            .await
+            .unwrap()
+            .iter()
+            .find(|row| row.id == "second")
+            .unwrap()
+            .protocol,
+        "openai-responses"
+    );
+    // Explicitly clearing a protocol, including a same-revision replacement, must persist.
+    second.enabled = false;
+    second.updated_at = 4;
+    second.protocol = "auto".into();
+    db.upsert_provider(&second).await.unwrap();
+    assert_eq!(
+        db.providers()
+            .await
+            .unwrap()
+            .iter()
+            .find(|row| row.id == "second")
+            .unwrap()
+            .protocol,
+        "auto"
+    );
     db.delete_provider("second").await.unwrap();
     assert_eq!(db.providers().await.unwrap(), vec![first.clone()]);
     let provider_session = StoredProviderSession {

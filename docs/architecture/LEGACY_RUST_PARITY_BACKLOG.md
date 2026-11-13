@@ -356,3 +356,21 @@ binding and zeroization are unchanged. Cancellation keeps the worker permit with
 its running job so abandoned requests cannot exceed the cryptographic memory bound.
 A current-thread runtime regression checks that another request progresses during
 encryption. CI must verify the changed asynchronous call paths and concurrency.
+
+
+2026-11-13 — discovery/credential-worker validation: full Rust run **43404019368**
+passed, including Linux data plane, Windows storage, embedded storage, FastLLM
+concurrent-agent fixture and performance gates. Product checks **43402198768** and
+225 UI tests **43402203339** passed. This validates that slice, not full parity or
+real-provider interoperability; intermittent failures require ongoing observation.
+
+PV-18 now also has a persisted explicit native API protocol, enabling custom
+inference paths in the SPA and backend. Legacy clients retain URL detection;
+metadata edits preserve saved configuration. Revision-bound transport metadata is
+loaded with provider snapshots, not per inference request. Changes require renewed
+credentials and reject incompatibility with enabled direct or nested combos before
+writing. Header identity includes an explicit protocol, while old `auto` bindings
+remain compatible. Tests added for URL security, custom dispatch/diagnostics,
+combo protection, credential preservation, fresh-process reload, disable/purge and
+SPA editing; CI for this addition is pending. Reusable node definitions, inheritance,
+legacy node import and custom model/alias management are still unported.

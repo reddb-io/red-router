@@ -31,6 +31,7 @@ import {
   type RustBrowserOAuthKind,
   type RustProviderHealth,
   type RustProviderInput,
+  type RustProviderProtocol,
   type RustProviderOAuthKind,
   type RustProviderQuota,
   type RustProviderQuotaRefreshCategory,
@@ -38,6 +39,7 @@ import {
 } from "../api/browserClient";
 
 type Draft = {
+  protocol: RustProviderProtocol;
   id: string;
   provider: string;
   upstreamUrl: string;
@@ -78,6 +80,7 @@ const EMPTY_QUOTA_DRAFT: QuotaDraft = {
 };
 
 const EMPTY_DRAFT: Draft = {
+  protocol: "auto",
   id: "",
   provider: "openai-compatible",
   upstreamUrl: "",
@@ -105,6 +108,7 @@ const labelClass = "flex flex-col gap-1 text-xs font-medium text-text-muted";
 
 function providerDraft(provider: RustProvider): Draft {
   return {
+    protocol: provider.protocol ?? "auto",
     id: provider.id,
     provider: provider.provider,
     upstreamUrl: provider.upstream_url,
@@ -188,6 +192,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
     }
   }
   return {
+    protocol: draft.credentialType === "oauth" ? "auto" : draft.protocol,
     provider,
     upstream_url: upstreamUrl,
     api_key: apiKey,
@@ -384,6 +389,10 @@ export default function RustProvidersPageClient() {
     setError(null);
     try {
       const input = providerInput(draft, editingId !== null);
+      const existing = providers.find((provider) => provider.id === editingId);
+      if (existing && !input.api_key && input.protocol !== (existing.protocol ?? "auto")) {
+        throw new Error("Re-enter the provider credential when changing its API protocol");
+      }
       await replaceRustProvider(draft.id.trim(), input);
       reset();
       await reload();
@@ -839,6 +848,28 @@ export default function RustProvidersPageClient() {
               )}
             </div>
           </div>
+          {draft.credentialType === "static" && (
+            <label className={labelClass}>
+              API protocol
+              <select
+                className={inputClass}
+                value={draft.protocol}
+                onChange={(event) => set("protocol", event.target.value as RustProviderProtocol)}
+              >
+                <option value="auto">Detect from URL</option>
+                <option value="openai">OpenAI Chat Completions</option>
+                <option value="openai-responses">OpenAI Responses</option>
+                <option value="anthropic">Anthropic Messages</option>
+                <option value="gemini">Gemini models endpoint</option>
+                <option value="openai-embeddings">OpenAI Embeddings</option>
+                <option value="cohere-rerank">Cohere Rerank</option>
+              </select>
+              <span className="font-normal">
+                Choose explicitly for custom endpoint paths. Changing the protocol requires
+                re-entering the credential.
+              </span>
+            </label>
+          )}
           <label className={labelClass}>
             Rate-limit scope
             <select

@@ -1308,6 +1308,27 @@ impl ProxyState {
         protocol: ProviderProtocol,
         auth_scheme: ProviderAuthScheme,
     ) -> Result<Self, &'static str> {
+        Self::new_for_protocol_with_path(
+            upstream,
+            client_key,
+            provider_key,
+            allow_private,
+            protocol,
+            auth_scheme,
+            false,
+        )
+        .await
+    }
+
+    async fn new_for_protocol_with_path(
+        upstream: &str,
+        client_key: &str,
+        provider_key: &str,
+        allow_private: bool,
+        protocol: ProviderProtocol,
+        auth_scheme: ProviderAuthScheme,
+        custom_path: bool,
+    ) -> Result<Self, &'static str> {
         let upstream = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
         let loopback = match upstream.host() {
             Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
@@ -1319,17 +1340,20 @@ impl ProxyState {
             || upstream.password().is_some()
             || upstream.query().is_some()
             || upstream.fragment().is_some()
-            || !upstream.path().ends_with(match protocol {
-                ProviderProtocol::OpenAi => "/chat/completions",
-                ProviderProtocol::OpenAiResponses => "/responses",
-                ProviderProtocol::OpenAiEmbeddings => "/embeddings",
-                ProviderProtocol::CohereRerank => "/rerank",
-                ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => "/messages",
-                ProviderProtocol::OpenAiToAntigravity | ProviderProtocol::Antigravity => {
-                    "/v1internal:streamGenerateContent"
-                }
-                ProviderProtocol::Gemini => "/models",
-            })
+            || (!custom_path
+                && !upstream.path().ends_with(match protocol {
+                    ProviderProtocol::OpenAi => "/chat/completions",
+                    ProviderProtocol::OpenAiResponses => "/responses",
+                    ProviderProtocol::OpenAiEmbeddings => "/embeddings",
+                    ProviderProtocol::CohereRerank => "/rerank",
+                    ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
+                        "/messages"
+                    }
+                    ProviderProtocol::OpenAiToAntigravity | ProviderProtocol::Antigravity => {
+                        "/v1internal:streamGenerateContent"
+                    }
+                    ProviderProtocol::Gemini => "/models",
+                }))
         {
             return Err("upstream must be a credential-free HTTPS protocol endpoint (HTTP is allowed for literal loopback only)");
         }
@@ -1407,15 +1431,17 @@ impl ProxyState {
         allow_private: bool,
         auth_scheme: ProviderAuthScheme,
         credential_expires_at_unix: i64,
+        configured_protocol: &str,
     ) -> Result<LiveProvider, &'static str> {
-        let protocol = ProviderProtocol::from_upstream(upstream)?;
-        let state = Self::new_for_protocol(
+        let protocol = ProviderProtocol::from_configuration(upstream, configured_protocol)?;
+        let state = Self::new_for_protocol_with_path(
             upstream,
             "rust-control-plane-validation-key",
             provider_key,
             allow_private,
             protocol,
             auth_scheme,
+            configured_protocol != "auto",
         )
         .await?;
         Ok(LiveProvider {
@@ -1939,6 +1965,25 @@ impl ProxyState {
 }
 
 impl ProviderProtocol {
+    pub(crate) fn from_configuration(
+        upstream: &str,
+        configured: &str,
+    ) -> Result<Self, &'static str> {
+        if configured == "auto" {
+            return Self::from_upstream(upstream);
+        }
+        let protocol = Self::parse(configured)?;
+        match protocol {
+            Self::OpenAi
+            | Self::OpenAiResponses
+            | Self::OpenAiEmbeddings
+            | Self::CohereRerank
+            | Self::Anthropic
+            | Self::Gemini => Ok(protocol),
+            _ => Err("explicit provider protocol must be a native API format"),
+        }
+    }
+
     pub(crate) fn parse(value: &str) -> Result<Self, &'static str> {
         match value {
             "openai" => Ok(Self::OpenAi),

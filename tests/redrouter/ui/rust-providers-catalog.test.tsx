@@ -419,4 +419,75 @@ describe("Rust provider models.dev catalog", () => {
     );
     expect(api.listRustProviders).toHaveBeenCalledTimes(2);
   });
+  it("preserves a custom protocol and requires credentials before changing it", async () => {
+    const provider = {
+      id: "custom-path",
+      tenant_id: "red",
+      provider: "openai-compatible",
+      protocol: "openai",
+      upstream_url: "https://api.example.com/custom/infer",
+      enabled: true,
+      revision: "1",
+      has_credential: true,
+      rate_limit_scope: "auto",
+      auth_scheme: "auto",
+      label: "Custom account",
+      credential_type: "static",
+      credential_expired: false,
+      refreshable: false,
+      reauth_required: false,
+    };
+    api.listRustProviders.mockResolvedValue([provider]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [],
+      snapshot: { source: "persisted", revision: "1" },
+    });
+    api.replaceRustProvider.mockResolvedValue(provider);
+    const container = await mount();
+    const click = async (text: string) => {
+      const button = [...container.querySelectorAll("button")].find(
+        (entry) => entry.textContent === text
+      );
+      expect(button).toBeDefined();
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    await click("Replace");
+    let select = [...container.querySelectorAll("select")].find((entry) =>
+      entry.querySelector('option[value="openai-responses"]')
+    )!;
+    expect(select.value).toBe("openai");
+    await click("Replace connection");
+    expect(api.replaceRustProvider).toHaveBeenLastCalledWith(
+      "custom-path",
+      expect.objectContaining({ protocol: "openai", api_key: "" })
+    );
+    api.replaceRustProvider.mockClear();
+    await click("Replace");
+    select = [...container.querySelectorAll("select")].find((entry) =>
+      entry.querySelector('option[value="openai-responses"]')
+    )!;
+    await act(async () => {
+      select.value = "anthropic";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click("Replace connection");
+    expect(api.replaceRustProvider).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Re-enter the provider credential");
+    const credential = container.querySelector('input[type="password"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        credential,
+        "replacement-secret"
+      );
+      credential.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Replace connection");
+    expect(api.replaceRustProvider).toHaveBeenCalledWith(
+      "custom-path",
+      expect.objectContaining({ protocol: "anthropic", api_key: "replacement-secret" })
+    );
+  });
 });

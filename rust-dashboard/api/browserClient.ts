@@ -213,7 +213,19 @@ export type RustSessionImportOAuthKind = Exclude<
   "github" | "xai-oauth" | "openference"
 >;
 
+export const providerApiProtocols = [
+  "auto",
+  "openai",
+  "openai-responses",
+  "openai-embeddings",
+  "cohere-rerank",
+  "anthropic",
+  "gemini",
+] as const;
+export type RustProviderProtocol = (typeof providerApiProtocols)[number];
+
 export interface RustProvider {
+  protocol?: RustProviderProtocol;
   id: string;
   tenant_id: string;
   provider: string;
@@ -237,6 +249,7 @@ export interface RustProvider {
 }
 
 export interface RustProviderInput {
+  protocol?: RustProviderProtocol;
   tenant_id?: string;
   provider: string;
   upstream_url: string;
@@ -1021,6 +1034,8 @@ function isRustProvider(value: unknown): value is RustProvider {
     !("credential" in provider) &&
     !("credential_ciphertext" in provider) &&
     typeof provider.id === "string" &&
+    (provider.protocol === undefined ||
+      providerApiProtocols.includes(provider.protocol as RustProviderProtocol)) &&
     typeof provider.tenant_id === "string" &&
     typeof provider.provider === "string" &&
     typeof provider.upstream_url === "string" &&
