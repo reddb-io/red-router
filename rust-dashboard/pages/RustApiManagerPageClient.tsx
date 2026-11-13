@@ -24,6 +24,7 @@ type Draft = {
   modelAccessMode: "all" | "restricted";
   expiresAt: string;
   scheduleEnabled: boolean;
+  scheduleConfigured: boolean;
   scheduleFrom: string;
   scheduleUntil: string;
   scheduleDays: string;
@@ -65,6 +66,7 @@ const EMPTY_DRAFT: Draft = {
   modelAccessMode: "all",
   expiresAt: "",
   scheduleEnabled: false,
+  scheduleConfigured: false,
   scheduleFrom: "08:00",
   scheduleUntil: "18:00",
   scheduleDays: "1,2,3,4,5",
@@ -141,15 +143,16 @@ function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
     model_access_mode: draft.modelAccessMode,
     enabled: draft.enabled,
     expires_at_unix: expiresAtUnix(draft.expiresAt),
-    access_schedule: draft.scheduleEnabled
-      ? {
-          enabled: true,
-          from: draft.scheduleFrom,
-          until: draft.scheduleUntil,
-          days: scheduleDays,
-          tz: scheduleTz,
-        }
-      : null,
+    access_schedule:
+      draft.scheduleEnabled || draft.scheduleConfigured
+        ? {
+            enabled: draft.scheduleEnabled,
+            from: draft.scheduleFrom,
+            until: draft.scheduleUntil,
+            days: scheduleDays,
+            tz: scheduleTz,
+          }
+        : null,
     scopes: list(draft.scopes),
     allowed_endpoints: list(draft.allowedEndpoints),
     allowed_models: draft.modelAccessMode === "restricted" ? list(draft.allowedModels) : [],
@@ -187,6 +190,7 @@ function keyDraft(key: RustClientKey): Draft {
     modelAccessMode: key.allowed_models.length ? "restricted" : key.model_access_mode,
     expiresAt: localExpiry(key.expires_at_unix),
     scheduleEnabled: key.access_schedule?.enabled ?? false,
+    scheduleConfigured: key.access_schedule !== null,
     scheduleFrom: key.access_schedule?.from ?? "08:00",
     scheduleUntil: key.access_schedule?.until ?? "18:00",
     scheduleDays: key.access_schedule?.days.join(",") ?? "1,2,3,4,5",

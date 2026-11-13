@@ -706,7 +706,13 @@ test("editing a restricted empty key preserves denial until explicitly changed",
     model_access_mode: "restricted",
     enabled: true,
     expires_at_unix: null,
-    access_schedule: null,
+    access_schedule: {
+      enabled: false,
+      from: "22:00",
+      until: "06:00",
+      days: [],
+      tz: "America/Sao_Paulo",
+    },
     scopes: [],
     allowed_endpoints: [],
     allowed_models: [],
@@ -776,6 +782,13 @@ test("editing a restricted empty key preserves denial until explicitly changed",
     model_access_mode: "restricted",
     allowed_models: [],
     label: "Renamed key",
+    access_schedule: {
+      enabled: false,
+      from: "22:00",
+      until: "06:00",
+      days: [],
+      tz: "America/Sao_Paulo",
+    },
   });
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Model access", { exact: true }).selectOption("all");
