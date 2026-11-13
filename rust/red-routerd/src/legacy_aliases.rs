@@ -20,6 +20,28 @@ pub struct AliasImport {
     pub already_present: u64,
 }
 
+/// The legacy resolver accepts a string, a single-element string array, or
+/// an object with provider/model fields. Reject extra information rather than
+/// silently discarding it during cutover.
+fn alias_destination(value: &serde_json::Value) -> Option<(&str, &str)> {
+    let qualified = match value {
+        serde_json::Value::String(value) => Some(value.as_str()),
+        serde_json::Value::Array(values) if values.len() == 1 => values[0].as_str(),
+        serde_json::Value::Object(object)
+            if object.len() == 2
+                && object.contains_key("provider")
+                && object.contains_key("model") =>
+        {
+            return Some((
+                object.get("provider")?.as_str()?,
+                object.get("model")?.as_str()?,
+            ));
+        }
+        _ => None,
+    }?;
+    qualified.split_once('/')
+}
+
 /// A legacy alias may address a custom node by its public prefix or node ID.
 /// Require the original definition and its already imported equivalent to
 /// agree before mapping the alias to the Rust provider namespace.
@@ -205,7 +227,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             drop(rows);
             if let Some(settings) = settings.filter(|settings| !settings.is_null()) {
                 let settings = settings.as_object().ok_or("invalid settings aliases")?;
-                for (key,value) in settings { aliases.insert(key.clone(), value.clone()); }
+                for (key,value) in settings {
+                    if !value.is_string() { return Err("legacy alias destination requires migration"); }
+                    aliases.insert(key.clone(), value.clone());
+                }
             }
             if aliases.len() > 10_000 { return Err("too many legacy aliases"); }
             if !managed.is_empty() { return Err("managed aliases require migration"); }
@@ -219,7 +244,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             let mut already_present = 0;
             let mut custom_providers: HashMap<String, String> = HashMap::new();
             for (alias,value) in aliases {
-                let (legacy_provider, model) = value.as_str().and_then(|v| v.split_once('/')).ok_or("legacy alias destination requires migration")?;
+                let (legacy_provider, model) = alias_destination(&value).ok_or("legacy alias destination requires migration")?;
                 let provider = crate::model_permissions::legacy_provider_id(legacy_provider).unwrap_or(legacy_provider);
                 let provider = if crate::product_provider::supports_model(provider, model) {
                     provider.to_owned()
@@ -265,4 +290,26 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
         return Err("cannot close migration database");
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::alias_destination;
+
+    #[test]
+    fn structured_aliases_refuse_additional_data() {
+        let single = serde_json::json!(["openrouter/vendor/model"]);
+        assert_eq!(
+            alias_destination(&single),
+            Some(("openrouter", "vendor/model"))
+        );
+        let object = serde_json::json!({"provider":"openai","model":"gpt-4o"});
+        assert_eq!(alias_destination(&object), Some(("openai", "gpt-4o")));
+        assert!(alias_destination(&serde_json::json!(["openai/one", "openai/two"])).is_none());
+        assert!(alias_destination(
+            &serde_json::json!({"provider":"openai","model":"one","future":true})
+        )
+        .is_none());
+        assert!(alias_destination(&serde_json::json!([])).is_none());
+    }
 }

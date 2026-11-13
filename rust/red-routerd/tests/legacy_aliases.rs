@@ -19,8 +19,8 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     .await
     .unwrap();
     sqlx::query("CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key))").execute(&mut source_db).await.unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('modelAliases','openrouter-alias',?),('modelAliases','deepseek-alias',?),('settings','modelAliases',?)")
-        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#""openrouter/provider/model""#).bind(r#""ds/deepseek-chat""#).bind(r#"{"fast":"openai/new-model"}"#)
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('modelAliases','openrouter-alias',?),('modelAliases','deepseek-alias',?),('modelAliases','array-alias',?),('modelAliases','object-alias',?),('settings','modelAliases',?)")
+        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#""openrouter/provider/model""#).bind(r#""ds/deepseek-chat""#).bind(r#"["openai/array-model"]"#).bind(r#"{"provider":"openai","model":"object-model"}"#).bind(r#"{"fast":"openai/new-model"}"#)
         .execute(&mut source_db).await.unwrap();
     source_db.close().await.unwrap();
     let source_before = tokio::fs::read(&source).await.unwrap();
@@ -33,12 +33,28 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     let report = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((report.imported, report.already_present), (4, 0));
+    assert_eq!((report.imported, report.already_present), (6, 0));
     let repeat = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((repeat.imported, repeat.already_present), (0, 4));
+    assert_eq!((repeat.imported, repeat.already_present), (0, 6));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let aliases = db.model_aliases().await.unwrap();
-    assert_eq!(aliases.len(), 4);
+    assert_eq!(aliases.len(), 6);
+    assert_eq!(
+        aliases
+            .iter()
+            .find(|a| a.alias == "array-alias")
+            .unwrap()
+            .model,
+        "array-model"
+    );
+    assert_eq!(
+        aliases
+            .iter()
+            .find(|a| a.alias == "object-alias")
+            .unwrap()
+            .model,
+        "object-model"
+    );
     let deepseek = aliases
         .iter()
         .find(|a| a.alias == "deepseek-alias")
@@ -75,7 +91,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(
         db.model_aliases().await.unwrap().len(),
-        4,
+        6,
         "a later unsupported alias must roll back previous inserts"
     );
     db.close().await.unwrap();
@@ -85,6 +101,27 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
             .await
             .unwrap();
     sqlx::query("DELETE FROM key_value WHERE namespace='modelAliases' AND key='z-unsupported'")
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='settings' AND key='modelAliases'")
+        .bind(r#"{"fast":{"provider":"openai","model":"unsupported-settings-shape"}}"#)
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
+    assert_eq!(
+        legacy_aliases::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy alias destination requires migration"
+    );
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='settings' AND key='modelAliases'")
+        .bind(r#"{"fast":"openai/new-model"}"#)
         .execute(&mut source_db)
         .await
         .unwrap();
@@ -122,7 +159,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         "managed aliases require migration"
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
-    assert_eq!(db.model_aliases().await.unwrap().len(), 4);
+    assert_eq!(db.model_aliases().await.unwrap().len(), 6);
     db.close().await.unwrap();
 
     let mut source_db =
