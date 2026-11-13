@@ -2369,6 +2369,7 @@ export interface ProviderDiscoveryConfig {
   models_path: string | null;
   effective_models_path: string | null;
   revision: string | null;
+  legacy_inventory_available?: boolean;
 }
 export interface DiscoveredProviderModel {
   id: string;
@@ -2389,11 +2390,30 @@ export async function providerDiscoveryConfig(
   if (
     ![config.models_path, config.effective_models_path, config.revision].every(
       (entry) => entry === null || typeof entry === "string"
-    )
+    ) ||
+    (config.legacy_inventory_available !== undefined &&
+      typeof config.legacy_inventory_available !== "boolean")
   ) {
     throw new Error("Invalid discovery configuration");
   }
   return config;
+}
+export async function adoptLegacyProviderModels(id: string): Promise<number> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/discovery/adopt-legacy`,
+    jsonRequest("POST", {})
+  );
+  if (!value || typeof value !== "object") throw new Error("Invalid restored model list");
+  const result = value as { provider_id?: unknown; adopted_models?: unknown; age_known?: unknown };
+  if (
+    result.provider_id !== id ||
+    typeof result.adopted_models !== "number" ||
+    !Number.isInteger(result.adopted_models) ||
+    result.adopted_models < 0 ||
+    result.adopted_models > 10_000 ||
+    result.age_known !== false
+  ) throw new Error("Invalid restored model list");
+  return result.adopted_models;
 }
 export async function discoverProviderModels(id: string): Promise<DiscoveredProviderModel[]> {
   const value = await rustAdminJson(

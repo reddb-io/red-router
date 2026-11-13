@@ -3,6 +3,7 @@ import { Button, Card } from "./components";
 import {
   providerDiscoveryConfig,
   discoverProviderModels,
+  adoptLegacyProviderModels,
   type ProviderDiscoveryConfig,
   type DiscoveredProviderModel,
 } from "./api/browserClient";
@@ -84,6 +85,20 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
       setBusy(false);
     }
   }
+  async function restore() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const count = await adoptLegacyProviderModels(id);
+      setConfig((current) => current && { ...current, legacy_inventory_available: false });
+      setMessage(`Restored ${count} models. Their age is unknown; discover models to refresh availability.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not restore models");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Card
       title="Discover connection models"
@@ -127,6 +142,11 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
         >
           Discover models
         </Button>
+        {config?.legacy_inventory_available && (
+          <Button variant="secondary" disabled={busy} onClick={() => void restore()}>
+            Restore migrated models
+          </Button>
+        )}
         {!config && error && (
           <Button variant="secondary" onClick={() => setReload((value) => value + 1)}>
             Retry discovery settings

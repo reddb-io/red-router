@@ -18,6 +18,21 @@ struct DiscoveryView {
     models_path: Option<String>,
     effective_models_path: Option<String>,
     revision: Option<String>,
+    legacy_inventory_available: bool,
+}
+
+#[derive(Deserialize)]
+struct LegacyAccount<'a> {
+    #[serde(borrow)]
+    id: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    tenant_id: Option<std::borrow::Cow<'a, str>>,
+    #[serde(borrow)]
+    provider: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    auth_type: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    api_key: Option<std::borrow::Cow<'a, str>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -368,6 +383,122 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
     })
 }
 
+/// Convert only legacy fields whose runtime behavior is represented by the
+/// native inventory. Keep unsupported original records staged for later work.
+fn parse_legacy_inventory(raw: &str) -> Result<Vec<DiscoveredModel>, &'static str> {
+    if raw.len() > MAX_BODY {
+        return Err("legacy_inventory_unsupported");
+    }
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(raw).map_err(|_| "legacy_inventory_unsupported")?;
+    if rows.len() > MAX_MODELS {
+        return Err("legacy_inventory_unsupported");
+    }
+    let mut ids = HashSet::new();
+    for row in &rows {
+        let object = row.as_object().ok_or("legacy_inventory_unsupported")?;
+        if object.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "id" | "name"
+                    | "source"
+                    | "nativeModelId"
+                    | "apiFormat"
+                    | "inputTokenLimit"
+                    | "contextWindow"
+                    | "outputTokenLimit"
+                    | "supportsThinking"
+                    | "supportsTools"
+                    | "supportsVision"
+                    | "supportedInputTypes"
+                    | "modelType"
+                    | "supportedEndpoints"
+            )
+        }) {
+            return Err("legacy_inventory_unsupported");
+        }
+        let id = object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| model_aliases::valid_model_name(id))
+            .ok_or("legacy_inventory_unsupported")?;
+        if !ids.insert(id.to_owned()) {
+            return Err("legacy_inventory_unsupported");
+        }
+        if object
+            .get("nativeModelId")
+            .is_some_and(|value| !value.is_null() && value.as_str() != Some(id))
+            || object
+                .get("source")
+                .is_some_and(|value| !value.is_null() && value.as_str() != Some("imported"))
+            || object
+                .get("apiFormat")
+                .is_some_and(|value| !value.is_null() && value.as_str() != Some("chat-completions"))
+        {
+            return Err("legacy_inventory_unsupported");
+        }
+        if object.get("name").is_some_and(|value| {
+            !value.is_null()
+                && value
+                    .as_str()
+                    .is_none_or(|name| name.len() > 512 || name.chars().any(char::is_control))
+        }) {
+            return Err("legacy_inventory_unsupported");
+        }
+        for name in ["inputTokenLimit", "contextWindow", "outputTokenLimit"] {
+            if object.get(name).is_some_and(|value| {
+                !value.is_null()
+                    && value
+                        .as_u64()
+                        .is_none_or(|value| !(1..=1_000_000_000).contains(&value))
+            }) {
+                return Err("legacy_inventory_unsupported");
+            }
+        }
+        for name in ["supportsThinking", "supportsTools", "supportsVision"] {
+            if object
+                .get(name)
+                .is_some_and(|value| !value.is_null() && value.as_bool().is_none())
+            {
+                return Err("legacy_inventory_unsupported");
+            }
+        }
+        if object.get("modelType").is_some_and(|value| {
+            !value.is_null()
+                && value.as_str().is_none_or(|kind| {
+                    !matches!(kind, "chat" | "embedding" | "image" | "rerank" | "decision")
+                })
+        }) {
+            return Err("legacy_inventory_unsupported");
+        }
+        for (name, parser) in [
+            (
+                "supportedEndpoints",
+                endpoints as fn(Option<&serde_json::Value>) -> Option<Vec<String>>,
+            ),
+            ("supportedInputTypes", modalities),
+        ] {
+            if let Some(value) = object.get(name).filter(|value| !value.is_null()) {
+                if !value.as_array().is_some_and(|items| items.is_empty())
+                    && parser(Some(value)).is_none()
+                {
+                    return Err("legacy_inventory_unsupported");
+                }
+            }
+        }
+    }
+    let body = serde_json::to_vec(&serde_json::json!({"data":rows}))
+        .map_err(|_| "legacy_inventory_unsupported")?;
+    let models = parse_models(&body, ProviderProtocol::OpenAi)
+        .map_err(|_| "legacy_inventory_unsupported")?
+        .models;
+    let json = serde_json::to_string(&models).map_err(|_| "legacy_inventory_unsupported")?;
+    if json.len() > MAX_BODY || parse_inventory(&json).is_err() {
+        return Err("legacy_inventory_unsupported");
+    }
+    Ok(models)
+}
+
 fn failure(code: &'static str) -> Response {
     let (status, message) = match code {
         "provider_not_found" => (StatusCode::NOT_FOUND, "Provider unavailable"),
@@ -391,6 +522,10 @@ fn failure(code: &'static str) -> Response {
             StatusCode::BAD_REQUEST,
             "The provider credential has expired",
         ),
+        "legacy_unavailable" => (StatusCode::NOT_FOUND, "No staged inventory is available for this connection"),
+        "legacy_inventory_unsupported" => (StatusCode::CONFLICT, "This staged inventory contains settings that still require migration"),
+        "legacy_config_changed" => (StatusCode::CONFLICT, "The connection no longer matches the migrated account; refresh models from the provider"),
+        "legacy_inventory_conflict" => (StatusCode::CONFLICT, "A discovery has already started or the staged inventory changed"),
         "upstream_authentication" => (
             StatusCode::BAD_GATEWAY,
             "The provider rejected the configured credential",
@@ -492,11 +627,170 @@ impl ControlPlane {
         if let Some(path) = &effective_models_path {
             models_url(&provider.upstream_url, path)?;
         }
+        let mut legacy_inventory_available = false;
+        if provider.enabled && self.0.database.is_sqlite().await {
+            let pool = self.0.database.sql_pool().ok_or("legacy_unavailable")?;
+            let tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration','redrouter_legacy_synced_model_records')")
+                .fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
+            if tables == 3 {
+                let suffix = format!(":{}", provider.id);
+                let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_provider_records r JOIN redrouter_legacy_provider_migration g ON g.provider_id=r.provider_id JOIN redrouter_legacy_synced_model_records m ON 1=1 WHERE r.provider_id=$1 AND substr(m.legacy_key,-length($2))=$2 AND m.value IS NOT NULL AND NOT EXISTS (SELECT 1 FROM redrouter_synced_models s WHERE s.provider_id=$1)")
+                    .bind(&provider.id).bind(&suffix).fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
+                legacy_inventory_available = count > 0;
+            }
+        }
         Ok(DiscoveryView {
             models_path,
             effective_models_path,
             revision: entry.map(|value| value.revision.to_string()),
+            legacy_inventory_available,
         })
+    }
+
+    async fn adopt_legacy_models(
+        &self,
+        id: &str,
+        tenant: Option<&str>,
+        actor: &str,
+    ) -> Result<usize, &'static str> {
+        if !self.0.database.is_sqlite().await {
+            return Err("legacy_unavailable");
+        }
+        let provider = self.discovery_provider(id, tenant).await?;
+        if !provider.enabled {
+            return Err("legacy_config_changed");
+        }
+        let binding = self
+            .0
+            .database
+            .current_synced_binding(id, &provider.tenant_id)
+            .await?
+            .ok_or("legacy_config_changed")?;
+        if binding.provider_revision != provider.updated_at
+            || binding.discovery_revision != 0
+            || binding.headers_revision != 0
+        {
+            return Err("legacy_config_changed");
+        }
+        let pool = self.0.database.sql_pool().ok_or("legacy_unavailable")?;
+        let tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration','redrouter_legacy_synced_model_records')")
+            .fetch_one(pool).await.map_err(|_| "legacy_unavailable")?;
+        if tables != 3 {
+            return Err("legacy_unavailable");
+        }
+        let ciphertext: String = sqlx::query_scalar("SELECT r.encrypted_record FROM redrouter_legacy_provider_records r JOIN redrouter_legacy_provider_migration m ON m.provider_id=r.provider_id WHERE r.provider_id=$1")
+            .bind(id).fetch_optional(pool).await.map_err(|_| "legacy_unavailable")?.ok_or("legacy_unavailable")?;
+        let plaintext = decrypt_async(
+            &ciphertext,
+            &format!("legacy-provider-stage:{id}"),
+            self.0.encryption_key.as_str(),
+        )
+        .await?;
+        let record: LegacyAccount<'_> =
+            serde_json::from_str(&plaintext).map_err(|_| "legacy_unavailable")?;
+        if record.id != id
+            || record.tenant_id.as_deref() != Some(provider.tenant_id.as_str())
+            || record.auth_type != "apikey"
+        {
+            return Err("legacy_config_changed");
+        }
+        let original_provider = record.provider.to_string();
+        if original_provider.is_empty() {
+            return Err("legacy_unavailable");
+        }
+        if let Some(node_id) = provider.node_id.as_deref() {
+            let node = self
+                .provider_node(node_id, &provider.tenant_id)
+                .await
+                .map_err(|_| "legacy_config_changed")?;
+            if (node_id != original_provider
+                && crate::legacy_providers::legacy_node_type(node_id) != original_provider)
+                || node.revision != 1
+                || node.prefix != provider.provider
+                || node.upstream_url != provider.upstream_url
+            {
+                return Err("legacy_config_changed");
+            }
+        } else {
+            let canonical = crate::model_permissions::legacy_provider_id(&original_provider)
+                .unwrap_or(&original_provider);
+            if canonical != provider.provider
+                || crate::product_provider::chat_url(canonical)
+                    != Some(provider.upstream_url.as_str())
+            {
+                return Err("legacy_config_changed");
+            }
+        }
+        let original_secret = Zeroizing::new(
+            record
+                .api_key
+                .filter(|value| !value.is_empty())
+                .ok_or("legacy_config_changed")?
+                .into_owned(),
+        );
+        let original = super::credential_crypto::decrypt_legacy_product_async(
+            &original_secret,
+            self.0.encryption_key.as_str(),
+        )
+        .await
+        .map_err(|_| "legacy_config_changed")?;
+        let current = decrypt_async(
+            &provider.credential_ciphertext,
+            id,
+            self.0.encryption_key.as_str(),
+        )
+        .await?;
+        if !bool::from(original.as_bytes().ct_eq(current.as_bytes())) {
+            return Err("legacy_config_changed");
+        }
+        let staged_key = format!("{original_provider}:{id}");
+        let raw: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT value FROM redrouter_legacy_synced_model_records WHERE legacy_key=$1",
+        )
+        .bind(&staged_key)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| "legacy_unavailable")?
+        .flatten();
+        let raw = raw.ok_or("legacy_unavailable")?;
+        let models = parse_legacy_inventory(&raw)?;
+        let json = serde_json::to_string(&models).map_err(|_| "legacy_inventory_unsupported")?;
+        let _mutation = self.0.mutation.lock().await;
+        let adopted = self
+            .0
+            .database
+            .adopt_legacy_inventory(crate::storage::LegacyInventoryAdoption {
+                provider_id: id,
+                tenant_id: &provider.tenant_id,
+                provider_name: &provider.provider,
+                binding: &binding,
+                staged_key: &staged_key,
+                staged_value: &raw,
+                staged_provider_ciphertext: &ciphertext,
+                models_json: &json,
+                observed_at_unix_ms: unix_time_ms()?,
+            })
+            .await?;
+        if !adopted {
+            return Err("legacy_inventory_conflict");
+        }
+        if let Err(error) = self.refresh_synced_model_pools().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        self.record_audit_event(
+            AuditContext {
+                action: "provider.discovery.adopt_legacy",
+                actor,
+                target: id,
+                tenant_id: &provider.tenant_id,
+                resource_type: "provider",
+            },
+            Option::<&serde_json::Value>::None,
+            Some(&serde_json::json!({"models":models.len(),"age_known":false})),
+        )
+        .await;
+        Ok(models.len())
     }
 
     async fn discover_models(
@@ -831,9 +1125,198 @@ pub async fn discover(
     }
 }
 
+pub async fn adopt_legacy(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return failure("unavailable");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Ok(_permit) = PROBES.try_acquire() else {
+        return failure("busy");
+    };
+    match tokio::time::timeout(
+        Duration::from_secs(120),
+        control.adopt_legacy_models(&id, scope.tenant_id.as_deref(), &scope.actor),
+    )
+    .await
+    {
+        Ok(Ok(count)) => (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(serde_json::json!({"provider_id":id,"adopted_models":count,"age_known":false})),
+        )
+            .into_response(),
+        Ok(Err(error)) => failure(error),
+        Err(_) => failure("timeout"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_inventory_rejects_untranslated_or_ambiguous_data() {
+        let models = parse_legacy_inventory(
+            r#"[{"id":"model-a","name":"Model A","contextWindow":32000,"supportsTools":true}]"#,
+        )
+        .unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].context_length, Some(32000));
+        assert_eq!(models[0].supports_tools, Some(true));
+        for raw in [
+            r#"[{"id":"a"},{"id":"a"}]"#,
+            r#"[{"id":"a","nativeModelId":"other"}]"#,
+            r#"[{"id":"a","targetFormat":"responses"}]"#,
+            r#"[{"id":"a","supportsTools":"true"}]"#,
+            r#"[{"id":"a","contextWindow":0}]"#,
+        ] {
+            assert_eq!(
+                parse_legacy_inventory(raw).unwrap_err(),
+                "legacy_inventory_unsupported"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_inventory_adoption_is_scoped_and_never_overwrites_a_probe() {
+        let database = Arc::new(
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap(),
+        );
+        let key = "fixture-storage-key-1234567890";
+        let control = ControlPlane::new(
+            database.clone(),
+            "fixture-admin-key-1234567890-abcdef",
+            key,
+            true,
+        )
+        .await
+        .unwrap();
+        let node = crate::storage::StoredProviderNode {
+            id: "legacy-node".into(),
+            tenant_id: "red".into(),
+            name: "Legacy".into(),
+            prefix: "custom".into(),
+            protocol: "openai".into(),
+            base_url: "http://127.0.0.1:12345".into(),
+            chat_path: "/v1/chat/completions".into(),
+            upstream_url: "http://127.0.0.1:12345/v1/chat/completions".into(),
+            models_path: None,
+            revision: 1,
+            header_config: None,
+        };
+        database.upsert_provider_node(&node, None).await.unwrap();
+        let provider = StoredProvider {
+            node_id: Some(node.id.clone()),
+            protocol: "openai".into(),
+            priority: 0,
+            default_model: None,
+            id: "account".into(),
+            tenant_id: "red".into(),
+            provider: "custom".into(),
+            upstream_url: node.upstream_url.clone(),
+            credential_ciphertext: super::super::encrypt("provider-secret", "account", key)
+                .unwrap(),
+            enabled: true,
+            updated_at: 1,
+        };
+        database.upsert_provider(&provider).await.unwrap();
+        let pool = database.sql_pool().unwrap();
+        for statement in [
+            "CREATE TABLE redrouter_legacy_provider_records(provider_id TEXT PRIMARY KEY, encrypted_record TEXT NOT NULL)",
+            "CREATE TABLE redrouter_legacy_provider_migration(provider_id TEXT PRIMARY KEY, source_enabled BIGINT NOT NULL)",
+            "CREATE TABLE redrouter_legacy_synced_model_records(legacy_key TEXT PRIMARY KEY, value TEXT)",
+            "INSERT INTO redrouter_legacy_provider_migration VALUES ('account',1)",
+            "INSERT INTO redrouter_control_model_activation_defaults VALUES ('red','custom',1)",
+        ] { sqlx::query(statement).execute(pool).await.unwrap(); }
+        let staged = r#"{"id":"account","tenant_id":"red","provider":"legacy-node","auth_type":"apikey","api_key":"provider-secret"}"#;
+        let ciphertext =
+            super::super::encrypt(staged, "legacy-provider-stage:account", key).unwrap();
+        sqlx::query("INSERT INTO redrouter_legacy_provider_records VALUES ('account',$1)")
+            .bind(&ciphertext)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO redrouter_legacy_synced_model_records VALUES ('legacy-node:account',$1)",
+        )
+        .bind(r#"[{"id":"model-a","contextWindow":32000}]"#)
+        .execute(pool)
+        .await
+        .unwrap();
+        control.sync_provider_snapshot().await.unwrap();
+        assert_eq!(
+            control
+                .adopt_legacy_models("account", Some("other"), "test")
+                .await
+                .unwrap_err(),
+            "provider_not_found"
+        );
+        assert!(
+            control
+                .discovery_view(&provider)
+                .await
+                .unwrap()
+                .legacy_inventory_available
+        );
+        assert_eq!(
+            control
+                .adopt_legacy_models("account", Some("red"), "test")
+                .await
+                .unwrap(),
+            1
+        );
+        let saved = database
+            .synced_models("account", "red", unix_time_ms().unwrap(), 60_000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(saved.models_json.contains("model-a"));
+        assert!(!saved.models_json.contains("provider-secret"));
+        assert!(
+            !control
+                .discovery_view(&provider)
+                .await
+                .unwrap()
+                .legacy_inventory_available
+        );
+        assert_eq!(
+            control
+                .adopt_legacy_models("account", Some("red"), "test")
+                .await
+                .unwrap_err(),
+            "legacy_inventory_conflict"
+        );
+        database.delete_synced_models("account").await.unwrap();
+        let ticket = database
+            .begin_synced_model_probe("account", "red")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            control
+                .adopt_legacy_models("account", Some("red"), "test")
+                .await
+                .unwrap_err(),
+            "legacy_inventory_conflict"
+        );
+        assert!(database
+            .publish_synced_models(&ticket, r#"[{"id":"new-model"}]"#, unix_time_ms().unwrap())
+            .await
+            .unwrap());
+        let saved = database
+            .synced_models("account", "red", unix_time_ms().unwrap(), 60_000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(saved.models_json.contains("new-model"));
+    }
     #[tokio::test]
     async fn inventory_refresh_reuses_clients_without_waiting_for_credential_workers() {
         let database = Arc::new(

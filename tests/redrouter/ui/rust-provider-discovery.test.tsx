@@ -10,6 +10,7 @@ import ProviderDiscovery from "../../../rust-dashboard/ProviderDiscovery";
 const api = vi.hoisted(() => ({
   providerDiscoveryConfig: vi.fn(),
   discoverProviderModels: vi.fn(),
+  adoptLegacyProviderModels: vi.fn(),
 }));
 vi.mock("../../../rust-dashboard/api/browserClient", () => api);
 const roots: ReturnType<typeof createRoot>[] = [];
@@ -44,6 +45,20 @@ async function input(element: HTMLInputElement, value: string) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+it("restores migrated models for the selected account and explains their unknown age", async () => {
+  api.providerDiscoveryConfig.mockResolvedValue({
+    models_path: null,
+    effective_models_path: "/v1/models",
+    revision: null,
+    legacy_inventory_available: true,
+  });
+  api.adoptLegacyProviderModels.mockResolvedValue(3);
+  const { container } = await render();
+  await click(container, "Restore migrated models");
+  expect(api.adoptLegacyProviderModels).toHaveBeenCalledWith("account-a");
+  expect(container.textContent).toContain("Restored 3 models. Their age is unknown");
+  expect(container.textContent).not.toContain("Restore migrated models");
+});
 it("saves the override, resets to default and uses persisted settings for discovery", async () => {
   api.providerDiscoveryConfig
     .mockResolvedValueOnce({

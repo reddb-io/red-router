@@ -51,6 +51,24 @@ pub(crate) async fn decrypt_async(
     .map_err(|_| "credential worker failed")?
 }
 
+pub(crate) async fn decrypt_legacy_product_async(
+    stored: &str,
+    secret: &str,
+) -> Result<Zeroizing<String>, &'static str> {
+    let permit = WORKERS
+        .acquire()
+        .await
+        .map_err(|_| "credential worker unavailable")?;
+    let stored = Zeroizing::new(stored.to_owned());
+    let secret = Zeroizing::new(secret.to_owned());
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        crate::product::decrypt(&stored, Some(&secret))
+    })
+    .await
+    .map_err(|_| "credential worker failed")?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

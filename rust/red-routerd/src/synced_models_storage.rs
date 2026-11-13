@@ -38,6 +38,18 @@ pub struct SyncedModelSnapshot {
     pub binding: SyncedModelBinding,
 }
 
+pub(crate) struct LegacyInventoryAdoption<'a> {
+    pub provider_id: &'a str,
+    pub tenant_id: &'a str,
+    pub provider_name: &'a str,
+    pub binding: &'a SyncedModelBinding,
+    pub staged_key: &'a str,
+    pub staged_value: &'a str,
+    pub staged_provider_ciphertext: &'a str,
+    pub models_json: &'a str,
+    pub observed_at_unix_ms: i64,
+}
+
 pub(crate) struct SyncedModelMarker {
     pub kind: String,
     pub provider_id: String,
@@ -63,6 +75,86 @@ fn binding(row: &sqlx::any::AnyRow) -> Result<SyncedModelBinding, &'static str> 
 }
 
 impl Database {
+    pub(crate) async fn current_synced_binding(
+        &self,
+        provider_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<SyncedModelBinding>, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("synced model inventory requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("synced model inventory requires SQLite")?;
+        sqlx::query(BINDING)
+            .bind(provider_id)
+            .bind(tenant_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| "cannot read discovery binding")?
+            .as_ref()
+            .map(binding)
+            .transpose()
+    }
+
+    /// Adopt only when no native discovery has started or published. The
+    /// binding and staged source are checked again in the same write transaction.
+    pub(crate) async fn adopt_legacy_inventory(
+        &self,
+        input: LegacyInventoryAdoption<'_>,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("synced model inventory requires SQLite");
+        }
+        if input.models_json.len() > MAX_SNAPSHOT_BYTES || input.observed_at_unix_ms < 0 {
+            return Err("invalid synced model inventory");
+        }
+        let value: serde_json::Value = serde_json::from_str(input.models_json)
+            .map_err(|_| "invalid synced model inventory")?;
+        if value
+            .as_array()
+            .is_none_or(|models| models.len() > MAX_MODELS)
+        {
+            return Err("invalid synced model inventory");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("synced model inventory requires SQLite")?;
+        let mut tx = begin_client_key_update(pool).await?;
+        let current = sqlx::query(BINDING)
+            .bind(input.provider_id)
+            .bind(input.tenant_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| "cannot read discovery binding")?;
+        if current.as_ref().map(binding).transpose()?.as_ref() != Some(input.binding) {
+            tx.rollback()
+                .await
+                .map_err(|_| "cannot close discovery transaction")?;
+            return Ok(false);
+        }
+        let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_synced_model_records m JOIN redrouter_legacy_provider_records p ON p.provider_id=$1 JOIN redrouter_legacy_provider_migration g ON g.provider_id=p.provider_id JOIN redrouter_control_providers cp ON cp.id=p.provider_id JOIN redrouter_control_model_activation_defaults a ON 1=1 WHERE m.legacy_key=$2 AND m.value=$3 AND p.encrypted_record=$4 AND a.tenant_id=$5 AND a.provider=$6 AND cp.provider=$6")
+            .bind(input.provider_id).bind(input.staged_key).bind(input.staged_value).bind(input.staged_provider_ciphertext)
+            .bind(input.tenant_id).bind(input.provider_name)
+            .fetch_one(&mut *tx).await.map_err(|_| "cannot verify staged legacy inventory")?;
+        if staged != 1 {
+            tx.rollback()
+                .await
+                .map_err(|_| "cannot close discovery transaction")?;
+            return Ok(false);
+        }
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random).map_err(|_| "cannot initialize discovery generation")?;
+        let result = sqlx::query("INSERT INTO redrouter_synced_models (provider_id,generation,probe_token,published_generation,tenant_id,provider_revision,discovery_revision,headers_revision,node_revision,models_json,observed_at_unix_ms) VALUES ($1,1,$2,1,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(provider_id) DO NOTHING")
+            .bind(input.provider_id).bind(hex::encode(random)).bind(input.tenant_id)
+            .bind(input.binding.provider_revision).bind(input.binding.discovery_revision).bind(input.binding.headers_revision).bind(input.binding.node_revision)
+            .bind(input.models_json).bind(input.observed_at_unix_ms).execute(&mut *tx).await.map_err(|_| "cannot adopt legacy inventory")?;
+        let inserted = result.rows_affected() == 1;
+        tx.commit()
+            .await
+            .map_err(|_| "cannot commit legacy inventory adoption")?;
+        Ok(inserted)
+    }
     pub(crate) async fn synced_model_markers(
         &self,
     ) -> Result<Vec<SyncedModelMarker>, &'static str> {

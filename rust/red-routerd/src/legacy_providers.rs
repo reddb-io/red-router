@@ -13,7 +13,7 @@ fn valid_uuid(value: &str) -> bool {
         })
 }
 
-fn legacy_node_type(id: &str) -> &str {
+pub(crate) fn legacy_node_type(id: &str) -> &str {
     let Some((prefix, suffix)) = id.rsplit_once('-') else {
         return id;
     };

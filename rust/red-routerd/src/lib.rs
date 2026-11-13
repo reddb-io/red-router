@@ -2278,6 +2278,10 @@ pub fn router(state: ProxyState) -> Router {
                 .post(control_plane::provider_discovery::discover),
         )
         .route(
+            "/api/admin/providers/{id}/discovery/adopt-legacy",
+            post(control_plane::provider_discovery::adopt_legacy),
+        )
+        .route(
             "/api/admin/providers/{id}/headers",
             get(control_plane::provider_headers::get_headers)
                 .put(control_plane::provider_headers::put_headers),

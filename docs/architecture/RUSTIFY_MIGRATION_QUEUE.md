@@ -68,9 +68,13 @@ visibility controls remain list-only. These migration and admission changes awai
 CI. Import refuses to silently change activation defaults on an already configured
 native provider. Other modalities and unsupported compatibility fields still
 require migration.
-Those records are not active: adoption must verify the migrated account and its
-tenant, preserve its metadata and visibility rules, and avoid replacing a newer
-discovery. Adoption and further failure/restart validation remain open.
+An operator can restore a staged per-account inventory for a matching migrated
+API-key connection. The restore checks the tenant, account, credential, provider
+and configuration, requires imported activation defaults and refuses to replace
+a discovery that has started. Only metadata with a supported native equivalent
+is accepted; the original remains staged. The source age is unknown, so the UI
+asks the operator to refresh it. OAuth, unsupported metadata and broader
+failure/restart validation remain open. CI validation of restore is pending.
 
 ## Current execution order
 

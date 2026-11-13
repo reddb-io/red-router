@@ -21,6 +21,7 @@ mod provider_node_binding_storage;
 #[path = "synced_models_storage.rs"]
 mod synced_models_storage;
 pub use provider_discovery_storage::StoredProviderDiscovery;
+pub(crate) use synced_models_storage::LegacyInventoryAdoption;
 pub use synced_models_storage::{SyncedModelBinding, SyncedModelSnapshot, SyncedModelTicket};
 #[path = "provider_priority_storage.rs"]
 mod provider_priority_storage;
