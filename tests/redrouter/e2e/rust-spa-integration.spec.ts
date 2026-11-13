@@ -188,11 +188,15 @@ test("custom model metadata is created, edited and removed through the productio
   await page.getByLabel("Context window", { exact: true }).fill("4096");
   await page.getByLabel(/^Input price/).fill("1.5");
   await page.getByLabel(/^Output price/).fill("2.5");
+  await page.getByLabel(/^Hide from client model lists/).check();
   await page.getByRole("button", { name: "Save custom model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Custom model saved.");
   await page.reload();
   await expect(page.getByText("Browser custom model", { exact: true })).toBeVisible();
+  await expect(page.getByText("Hidden", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Edit model", exact: true }).click();
+  await expect(page.getByLabel(/^Hide from client model lists/)).toBeChecked();
+  await page.getByLabel(/^Hide from client model lists/).uncheck();
   await expect(page.getByLabel(/^Input price/)).toHaveValue("1.5");
   await expect(page.getByLabel("Context window", { exact: true })).toHaveValue("4096");
   await page.getByLabel(/^Input price/).fill("0");
@@ -200,6 +204,7 @@ test("custom model metadata is created, edited and removed through the productio
   await expect(page.getByRole("status")).toContainText("Custom model saved.");
   await page.reload();
   await expect(page.getByText("0 / 2.5 USD / 1M", { exact: true })).toBeVisible();
+  await expect(page.getByText("Hidden", { exact: true })).toHaveCount(0);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Remove model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Custom model removed.");

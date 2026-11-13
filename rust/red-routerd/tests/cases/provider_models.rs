@@ -1,4 +1,55 @@
 #[tokio::test]
+async fn hidden_provider_models_remain_routable_and_visibility_survives_edits_and_restart() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("hidden-model.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(db, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let (upstream, _, provider_task) = usage_provider("hidden-model-secret").await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(client.put(format!("{base}/api/admin/providers/hidden-provider")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":"hidden-model-secret"}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let key = "hidden-model-client-key-1234567890";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/hidden-client")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Visibility","api_key":key,"scopes":["inference:chat"],"allowed_models":["private-api/hidden-model"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let endpoint = format!("{base}/api/admin/provider-models");
+    let mut input = serde_json::json!({"provider":"private-api","metadata":{"id":"hidden-model","name":"Hidden model"},"hidden":true});
+    let created = client.post(&endpoint).bearer_auth(ADMIN_KEY).json(&input).send().await.unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let created: serde_json::Value = created.json().await.unwrap();
+    assert_eq!(created["model"]["hidden"], true);
+    let id = created["model"]["id"].as_str().unwrap();
+    let detail = format!("{endpoint}/{id}");
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(key).send().await.unwrap().json().await.unwrap();
+    assert!(listed["data"].as_array().unwrap().is_empty());
+    assert_eq!(chat_model(&client, &base, key, "private-api/hidden-model").await.status(), StatusCode::OK);
+    input.as_object_mut().unwrap().remove("hidden");
+    input["revision"] = created["model"]["revision"].clone();
+    input["metadata"]["name"] = "Updated name".into();
+    let updated: serde_json::Value = client.put(&detail).bearer_auth(ADMIN_KEY).json(&input).send().await.unwrap().json().await.unwrap();
+    assert_eq!(updated["model"]["hidden"], true);
+    let restarted = ControlPlane::new(Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()), ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
+    let (replica, replica_task) = gateway(restarted).await;
+    let listed: serde_json::Value = client.get(format!("{replica}/v1/models")).bearer_auth(key).send().await.unwrap().json().await.unwrap();
+    assert!(listed["data"].as_array().unwrap().is_empty());
+    input["revision"] = updated["model"]["revision"].clone();
+    input["hidden"] = false.into();
+    let shown = client.put(&detail).bearer_auth(ADMIN_KEY).json(&input).send().await.unwrap();
+    assert_eq!(shown.status(), StatusCode::OK);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let listed: serde_json::Value = client.get(format!("{replica}/v1/models")).bearer_auth(key).send().await.unwrap().json().await.unwrap();
+            if listed["data"].as_array().unwrap().iter().any(|model| model["id"] == "private-api/hidden-model") { break; }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    }).await.expect("model visibility did not reach the other proxy");
+    replica_task.abort(); gateway_task.abort(); provider_task.abort();
+}
+
+#[tokio::test]
 async fn custom_provider_models_drive_scoped_discovery_and_metering_after_restart() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("custom-models.sqlite")).unwrap();

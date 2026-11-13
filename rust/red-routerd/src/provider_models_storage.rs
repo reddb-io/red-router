@@ -8,6 +8,10 @@ const UPDATE: &str = "UPDATE redrouter_control_provider_models SET namespace=$2,
 const DELETE: &str =
     "DELETE FROM redrouter_control_provider_models WHERE id=$1 AND tenant_id=$2 AND revision=$3";
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// Tenant-owned model metadata overrides. Credentials and grants are separate.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,6 +20,8 @@ pub struct StoredProviderModel {
     pub tenant_id: String,
     pub provider: String,
     pub metadata: crate::catalog::ModelMetadata,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
     pub revision: i64,
 }
 
@@ -193,6 +199,7 @@ mod tests {
             provider: "private-api".to_owned(),
             metadata: serde_json::from_value(serde_json::json!({"id":"model","cost":{"input":1}}))
                 .unwrap(),
+            hidden: false,
             revision: 1,
         };
         first.upsert_provider_model(&original, None).await.unwrap();

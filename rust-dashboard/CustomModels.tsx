@@ -31,6 +31,7 @@ type Draft = {
   id: string;
   name: string;
   type: string;
+  hidden: boolean;
   limits: Record<(typeof limits)[number][0], string>;
   prices: Record<(typeof prices)[number][0], string>;
   capabilities: Partial<Record<Capability, string>>;
@@ -43,6 +44,7 @@ const empty = (): Draft => ({
   id: "",
   name: "",
   type: "",
+  hidden: false,
   limits: { context: "", input: "", output: "" },
   prices: {
     input: "",
@@ -92,6 +94,7 @@ function editable(model: ProviderModel): Draft {
     id: metadata.id,
     name: metadata.name ?? "",
     type: metadata.type ?? "",
+    hidden: model.hidden ?? false,
     limits: Object.fromEntries(
       limits.map(([key]) => [key, metadata.limit?.[key] == null ? "" : String(metadata.limit[key])])
     ) as Draft["limits"],
@@ -184,6 +187,7 @@ export default function CustomModels({
           provider: draft.provider.trim(),
           tenant_id: draft.tenant.trim() || undefined,
           metadata,
+          hidden: draft.hidden,
           revision: editing?.revision,
         },
         editing?.id
@@ -398,6 +402,20 @@ export default function CustomModels({
               />
             </label>
           </div>
+          <label className="mt-4 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.hidden}
+              disabled={busy}
+              onChange={(event) => change("hidden", event.target.checked)}
+            />
+            <span>
+              Hide from client model lists
+              <span className="block text-text-muted">
+                Clients with permission can still request this model directly.
+              </span>
+            </span>
+          </label>
           <div className="mt-4 flex gap-2">
             <Button loading={busy} onClick={() => void save()}>
               Save custom model
@@ -493,6 +511,7 @@ export default function CustomModels({
                   <tr key={model.id}>
                     <td className="p-2">
                       <strong>{model.effective.name || model.metadata.id}</strong>
+                      {model.hidden && <span className="ml-2 text-xs text-text-muted">Hidden</span>}
                       <div className="font-mono text-xs">{model.metadata.id}</div>
                     </td>
                     <td className="p-2">{model.provider}</td>

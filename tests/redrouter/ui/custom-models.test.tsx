@@ -143,3 +143,22 @@ it("keeps conflicting edits visible and reloads the current revision without dro
     "model-1"
   );
 });
+
+it("preserves and edits client catalog visibility", async () => {
+  const hidden = { ...model, hidden: true };
+  api.listProviderModels.mockResolvedValue(page([hidden]));
+  api.saveProviderModel.mockResolvedValue({ ...hidden, hidden: false, revision: "2" });
+  await mount();
+  expect(container.textContent).toContain("Hidden");
+  await click("Edit model");
+  const visibility = input("Hide from client model lists") as HTMLInputElement;
+  expect(visibility.checked).toBe(true);
+  await act(async () => {
+    visibility.click();
+  });
+  await click("Save custom model");
+  expect(api.saveProviderModel).toHaveBeenCalledWith(
+    expect.objectContaining({ hidden: false, revision: "1" }),
+    "model-1"
+  );
+});

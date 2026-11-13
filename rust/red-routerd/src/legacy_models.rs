@@ -158,7 +158,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             for item in models {
                 if seen.len() >= 10_000 { return Err("too many legacy models"); }
                 let object = item.as_object().ok_or("invalid legacy model")?;
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking")) {
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "isHidden")) {
                     return Err("legacy model settings require migration");
                 }
                 if object.get("source").is_some_and(|v| v.as_str() != Some("manual"))
@@ -180,12 +180,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 let input = number("inputTokenLimit")?;
                 let output = number("outputTokenLimit")?;
                 let reasoning = match object.get("supportsThinking") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
+                let hidden = match object.get("isHidden") { None | Some(serde_json::Value::Null) => false, Some(value) => value.as_bool().ok_or("invalid legacy model visibility")? };
                 let mut metadata: ModelMetadata = serde_json::from_value(serde_json::json!({"id":id,"name":name,"reasoning":reasoning})).map_err(|_| "invalid legacy model")?;
                 if input.is_some() || output.is_some() { metadata.limit = Some(crate::catalog::CatalogLimit { context: None, input, output }); }
                 provider_models::validate_metadata(&metadata)?;
                 let identity = provider_models::record_id(&tenant, &provider, id);
                 if !seen.insert(identity.clone()) { return Err("duplicate legacy model"); }
-                let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, revision: 1 };
+                let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden, revision: 1 };
                 let namespace = serde_json::to_string(&(&record.tenant_id, &record.provider, &record.metadata.id)).map_err(|_| "invalid model identity")?;
                 let document = serde_json::to_string(&record).map_err(|_| "invalid legacy model")?;
                 let inserted = sqlx::query("INSERT INTO redrouter_control_provider_models (id,tenant_id,namespace,config_json,revision) VALUES (?,?,?,?,1) ON CONFLICT DO NOTHING").bind(&identity).bind(&tenant).bind(&namespace).bind(&document).execute(&mut *target).await.map_err(|_| "cannot import model")?.rows_affected();

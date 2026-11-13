@@ -9,6 +9,7 @@ type ProviderModels = HashMap<String, HashMap<String, ModelMetadata>>;
 #[derive(Default)]
 pub(crate) struct ModelOverrides {
     tenants: HashMap<String, ProviderModels>,
+    hidden: HashMap<String, HashMap<String, HashSet<String>>>,
 }
 const MAX_MODELS: usize = 10_000;
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
@@ -203,6 +204,15 @@ impl ModelOverrides {
             if bytes > MAX_SNAPSHOT_BYTES {
                 return Err("Provider model snapshot exceeds its limit");
             }
+            if record.hidden {
+                snapshot
+                    .hidden
+                    .entry(record.tenant_id.clone())
+                    .or_default()
+                    .entry(record.provider.clone())
+                    .or_default()
+                    .insert(record.metadata.id.clone());
+            }
             snapshot
                 .tenants
                 .entry(record.tenant_id)
@@ -212,6 +222,13 @@ impl ModelOverrides {
                 .insert(record.metadata.id.clone(), record.metadata);
         }
         Ok(snapshot)
+    }
+
+    pub(crate) fn is_hidden(&self, tenant: &str, provider: &str, model: &str) -> bool {
+        self.hidden
+            .get(tenant)
+            .and_then(|providers| providers.get(provider))
+            .is_some_and(|models| models.contains(model))
     }
 
     pub(crate) fn model(
@@ -246,6 +263,7 @@ pub struct ModelInput {
     tenant_id: Option<String>,
     provider: String,
     metadata: ModelMetadata,
+    hidden: Option<bool>,
     revision: Option<String>,
 }
 #[derive(Default, Deserialize)]
@@ -268,7 +286,7 @@ fn view(
     );
     Ok(
         serde_json::json!({"id":model.id,"tenant_id":model.tenant_id,"provider":model.provider,
-        "metadata":model.metadata,"effective":effective,"revision":model.revision.to_string()}),
+        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"revision":model.revision.to_string()}),
     )
 }
 
@@ -382,6 +400,9 @@ impl ControlPlane {
             tenant_id: tenant.to_owned(),
             provider: input.provider,
             metadata: input.metadata,
+            hidden: input
+                .hidden
+                .unwrap_or_else(|| existing.is_some_and(|model| model.hidden)),
             revision: revision()?,
         };
         let catalog = self.model_catalog().await;

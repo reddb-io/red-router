@@ -4388,6 +4388,7 @@ impl ControlPlane {
             for id in candidates {
                 let public = format!("{provider}/{id}");
                 if !model_aliases::valid_model_name(id)
+                    || overrides.is_hidden(tenant, provider, id)
                     || !policy.model_alias_target_allowed(&public, id, Some(provider))
                     || !eligible.iter().any(|(_, protocol)| {
                         *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(id)
