@@ -120,13 +120,14 @@ export default function CustomModels({
   const [editing, setEditing] = useState<ProviderModel | null>(null);
   const [editor, setEditor] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [finishedRequest, setFinishedRequest] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [revision, setRevision] = useState(0);
+  const requestKey = JSON.stringify([filter, revision]);
+  const loading = finishedRequest !== requestKey;
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
     listProviderModels(filter, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) {
@@ -139,10 +140,10 @@ export default function CustomModels({
           setError(cause instanceof Error ? cause.message : "Could not load custom models");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) setFinishedRequest(requestKey);
       });
     return () => controller.abort();
-  }, [filter, revision]);
+  }, [filter, revision, requestKey]);
   const change = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
   const save = async () => {
