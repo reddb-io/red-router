@@ -30,6 +30,15 @@ const protocols = [
   ["cohere-rerank", "Cohere Rerank"],
 ] as const;
 
+function sanitizeVibeProxyBaseUrl(baseUrl: string) {
+  const base = baseUrl
+    .trim()
+    .replace(/\/$/, "")
+    .replace(/\/chat\/completions$/i, "")
+    .replace(/\/completions$/i, "");
+  return base.endsWith("/v1") && !base.endsWith("://v1") ? base : `${base}/v1`;
+}
+
 export default function ProviderNodes({
   accounts,
   onNodes,
@@ -44,6 +53,7 @@ export default function ProviderNodes({
   const [editing, setEditing] = useState(false);
   const [id, setId] = useState("");
   const [draft, setDraft] = useState<ProviderNodeInput>(empty);
+  const [preset, setPreset] = useState<"" | "vibeproxy-openai">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
@@ -79,7 +89,10 @@ export default function ProviderNodes({
         ...draft,
         name: draft.name.trim(),
         prefix: draft.prefix.trim(),
-        base_url: draft.base_url.trim(),
+        base_url:
+          preset === "vibeproxy-openai"
+            ? sanitizeVibeProxyBaseUrl(draft.base_url)
+            : draft.base_url.trim(),
         models_path: draft.models_path?.trim() || null,
       });
       setEditor(false);
@@ -121,6 +134,7 @@ export default function ProviderNodes({
             setEditing(false);
             setId("");
             setDraft({ ...empty });
+            setPreset("");
             setError("");
           }}
         >
@@ -149,6 +163,32 @@ export default function ProviderNodes({
             void save();
           }}
         >
+          <label className="text-xs text-text-muted md:col-span-2">
+            Setup preset
+            <select
+              className={field}
+              value={preset}
+              disabled={editing || busy}
+              onChange={(event) => {
+                const value = event.target.value as "" | "vibeproxy-openai";
+                setPreset(value);
+                if (value === "vibeproxy-openai") {
+                  setId("vibeproxy");
+                  setDraft({
+                    ...empty,
+                    name: "VibeProxy",
+                    prefix: "vibeproxy",
+                    protocol: "openai",
+                    chat_path: "/chat/completions",
+                    models_path: "/models",
+                  });
+                }
+              }}
+            >
+              <option value="">Custom definition</option>
+              <option value="vibeproxy-openai">VibeProxy (OpenAI compatible)</option>
+            </select>
+          </label>
           <label className="text-xs text-text-muted">
             Definition ID
             <input
@@ -289,6 +329,7 @@ export default function ProviderNodes({
                 onClick={() => {
                   setEditor(true);
                   setEditing(true);
+                  setPreset("");
                   setId(node.id);
                   setDraft({
                     tenant_id: node.tenant_id,

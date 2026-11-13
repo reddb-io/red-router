@@ -634,4 +634,51 @@ describe("Rust provider models.dev catalog", () => {
       })
     );
   });
+
+  it("applies the VibeProxy preset and normalizes its OpenAI endpoint", async () => {
+    api.listRustProviders.mockResolvedValue([]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [],
+      snapshot: { source: "persisted", revision: "1" },
+    });
+    api.saveProviderNode.mockResolvedValue({});
+    const container = await mount();
+    const add = [...container.querySelectorAll("button")].find(
+      (entry) => entry.textContent === "Add provider definition"
+    )!;
+    await act(async () => {
+      add.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const preset = [...container.querySelectorAll("select")].find((entry) =>
+      entry.querySelector('option[value="vibeproxy-openai"]')
+    )!;
+    await act(async () => {
+      preset.value = "vibeproxy-openai";
+      preset.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const form = container.querySelector("form")!;
+    const baseUrl = form.querySelector('input[type="url"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        baseUrl,
+        "http://localhost:8317/v1/chat/completions"
+      );
+      baseUrl.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(api.saveProviderNode).toHaveBeenCalledWith(
+      "vibeproxy",
+      expect.objectContaining({
+        name: "VibeProxy",
+        prefix: "vibeproxy",
+        protocol: "openai",
+        base_url: "http://localhost:8317/v1",
+        chat_path: "/chat/completions",
+        models_path: "/models",
+      })
+    );
+  });
 });
