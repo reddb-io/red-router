@@ -1,0 +1,962 @@
+{
+  "baseline": "525a71de4ac25968d0a25e52eeb1b09cc21c6e92",
+  "sourcePath": "open-sse/executors/index.ts",
+  "aliasCount": 142,
+  "executorGroups": 81,
+  "note": "Registry presence is not proof of availability. Check retirement/feature flags and supported provider integrations before implementing. No executor is marked complete by this static audit.",
+  "groups": [
+    {
+      "aliases": [
+        "adapta-web",
+        "adp-web"
+      ],
+      "modules": [
+        "open-sse/executors/adapta-web.ts"
+      ],
+      "sourceLine": 120,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "adobe-firefly",
+        "firefly"
+      ],
+      "modules": [
+        "open-sse/executors/adobe-firefly.ts"
+      ],
+      "sourceLine": 126,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "antigravity",
+        "agy"
+      ],
+      "modules": [
+        "open-sse/executors/antigravity.ts"
+      ],
+      "sourceLine": 32,
+      "complexity": "L",
+      "status": "Partial: native Antigravity translation/session/quota/refresh exists. Compare fallback, output cap and stream contracts."
+    },
+    {
+      "aliases": [
+        "auggie"
+      ],
+      "modules": [
+        "open-sse/executors/auggie.ts"
+      ],
+      "sourceLine": 190,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "azure-ai"
+      ],
+      "modules": [
+        "open-sse/executors/azure-ai.ts"
+      ],
+      "sourceLine": 68,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "azure-openai"
+      ],
+      "modules": [
+        "open-sse/executors/azure-openai.ts"
+      ],
+      "sourceLine": 67,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "bedrock"
+      ],
+      "modules": [
+        "open-sse/executors/bedrock.ts"
+      ],
+      "sourceLine": 43,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "blackbox-web",
+        "bb-web"
+      ],
+      "modules": [
+        "open-sse/executors/blackbox-web.ts"
+      ],
+      "sourceLine": 100,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "chatgpt-web-codex",
+        "cgpt-codex"
+      ],
+      "modules": [
+        "open-sse/executors/chatgpt-web-codex.ts"
+      ],
+      "sourceLine": 55,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "chatgpt-web"
+      ],
+      "modules": [
+        "open-sse/executors/chatgpt-web.ts"
+      ],
+      "sourceLine": 58,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "cheaperinference",
+        "cinf"
+      ],
+      "modules": [
+        "open-sse/executors/cheaperinference.ts"
+      ],
+      "sourceLine": 161,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "claude-web",
+        "cw-web"
+      ],
+      "modules": [
+        "open-sse/executors/claude-web.ts"
+      ],
+      "sourceLine": 96,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "cliproxyapi",
+        "cpa"
+      ],
+      "modules": [
+        "open-sse/executors/cliproxyapi.ts"
+      ],
+      "sourceLine": 87,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "cloudflare-ai",
+        "cf"
+      ],
+      "modules": [
+        "open-sse/executors/cloudflare-ai.ts"
+      ],
+      "sourceLine": 78,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "cloudflare-playground",
+        "cfp"
+      ],
+      "modules": [
+        "open-sse/executors/cloudflare-playground.ts"
+      ],
+      "sourceLine": 182,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "clova-studio"
+      ],
+      "modules": [
+        "open-sse/executors/clova-studio.ts"
+      ],
+      "sourceLine": 194,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "codebuddy-cn",
+        "cbcn"
+      ],
+      "modules": [
+        "open-sse/executors/codebuddy-cn.ts"
+      ],
+      "sourceLine": 173,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "codebuddy-intl",
+        "cbai"
+      ],
+      "modules": [
+        "open-sse/executors/codebuddy-intl.ts"
+      ],
+      "sourceLine": 175,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "codex-app-server"
+      ],
+      "modules": [
+        "open-sse/executors/codex-app-server.ts",
+        "open-sse/executors/codex.ts"
+      ],
+      "sourceLine": 45,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "codex"
+      ],
+      "modules": [
+        "open-sse/executors/codex.ts"
+      ],
+      "sourceLine": 44,
+      "complexity": "L",
+      "status": "Partial: Responses transport and Codex session/refresh exist. App-server is a separate registration below."
+    },
+    {
+      "aliases": [
+        "command-code",
+        "cmd"
+      ],
+      "modules": [
+        "open-sse/executors/commandCode.ts"
+      ],
+      "sourceLine": 69,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "conol-web",
+        "cnl"
+      ],
+      "modules": [
+        "open-sse/executors/conol-web.ts"
+      ],
+      "sourceLine": 195,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "copilot-m365-web"
+      ],
+      "modules": [
+        "open-sse/executors/copilot-m365-web.ts"
+      ],
+      "sourceLine": 123,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "copilot-web",
+        "copilot"
+      ],
+      "modules": [
+        "open-sse/executors/copilot-web.ts"
+      ],
+      "sourceLine": 122,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "cursor",
+        "cu",
+        "cursor-api",
+        "cua"
+      ],
+      "modules": [
+        "open-sse/executors/cursor.ts"
+      ],
+      "sourceLine": 59,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "dario",
+        "dr"
+      ],
+      "modules": [
+        "open-sse/executors/dario.ts"
+      ],
+      "sourceLine": 89,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "deepseek-web",
+        "ds-web"
+      ],
+      "modules": [
+        "open-sse/executors/deepseek-web-with-auto-refresh.ts"
+      ],
+      "sourceLine": 112,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "devin-cli-agentic"
+      ],
+      "modules": [
+        "open-sse/executors/devin-cli-agentic.ts"
+      ],
+      "sourceLine": 109,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "devin-cli",
+        "devin"
+      ],
+      "modules": [
+        "open-sse/executors/devin-cli.ts"
+      ],
+      "sourceLine": 106,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "devin-desktop"
+      ],
+      "modules": [
+        "open-sse/executors/devin-desktop.ts"
+      ],
+      "sourceLine": 104,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "doubao-web",
+        "db"
+      ],
+      "modules": [
+        "open-sse/executors/doubao-web.ts"
+      ],
+      "sourceLine": 165,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "duckduckgo-web",
+        "ddgw"
+      ],
+      "modules": [
+        "open-sse/executors/duckduckgo-web.ts"
+      ],
+      "sourceLine": 130,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "freebuff",
+        "fb"
+      ],
+      "modules": [
+        "open-sse/executors/freebuff.ts"
+      ],
+      "sourceLine": 80,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "gemini-web",
+        "gweb"
+      ],
+      "modules": [
+        "open-sse/executors/gemini-web.ts"
+      ],
+      "sourceLine": 98,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "ghe-copilot"
+      ],
+      "modules": [
+        "open-sse/executors/ghe-copilot.ts"
+      ],
+      "sourceLine": 35,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "github"
+      ],
+      "modules": [
+        "open-sse/executors/github.ts"
+      ],
+      "sourceLine": 34,
+      "complexity": "L",
+      "status": "Partial: Copilot refresh and request headers exist. Verify model discovery, account restrictions and fallback."
+    },
+    {
+      "aliases": [
+        "gitlab",
+        "gitlab-duo"
+      ],
+      "modules": [
+        "open-sse/executors/gitlab.ts"
+      ],
+      "sourceLine": 71,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "glm",
+        "glm-cn",
+        "glmt"
+      ],
+      "modules": [
+        "open-sse/executors/glm.ts"
+      ],
+      "sourceLine": 61,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "grok-cli",
+        "gc"
+      ],
+      "modules": [
+        "open-sse/executors/grok-cli.ts"
+      ],
+      "sourceLine": 171,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "grok-web"
+      ],
+      "modules": [
+        "open-sse/executors/grok-web.ts"
+      ],
+      "sourceLine": 95,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "huggingchat",
+        "hc"
+      ],
+      "modules": [
+        "open-sse/executors/huggingchat.ts"
+      ],
+      "sourceLine": 136,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "hyperagent",
+        "ha"
+      ],
+      "modules": [
+        "open-sse/executors/hyperagent.ts"
+      ],
+      "sourceLine": 187,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "iflow"
+      ],
+      "modules": [
+        "open-sse/executors/iflow.ts"
+      ],
+      "sourceLine": 177,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "inner-ai",
+        "in-ai"
+      ],
+      "modules": [
+        "open-sse/executors/inner-ai.ts"
+      ],
+      "sourceLine": 134,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "kimchi"
+      ],
+      "modules": [
+        "open-sse/executors/kimchi.ts"
+      ],
+      "sourceLine": 178,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "kimi-web"
+      ],
+      "modules": [
+        "open-sse/executors/kimi-web.ts"
+      ],
+      "sourceLine": 155,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "kimi-coding-apikey",
+        "kimi-coding"
+      ],
+      "modules": [
+        "open-sse/executors/kimi.ts"
+      ],
+      "sourceLine": 156,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "kiro",
+        "amazon-q"
+      ],
+      "modules": [
+        "open-sse/executors/kiro.ts"
+      ],
+      "sourceLine": 41,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "lmarena",
+        "lma"
+      ],
+      "modules": [
+        "open-sse/executors/lmarena.ts"
+      ],
+      "sourceLine": 169,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "maxai"
+      ],
+      "modules": [
+        "open-sse/executors/maxai.ts"
+      ],
+      "sourceLine": 53,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "mimo-free",
+        "mmf"
+      ],
+      "modules": [
+        "open-sse/executors/mimo-free.ts"
+      ],
+      "sourceLine": 179,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "moonshot",
+        "kimi"
+      ],
+      "modules": [
+        "open-sse/executors/moonshot.ts"
+      ],
+      "sourceLine": 159,
+      "complexity": "L",
+      "status": "Partial: fixed compatible API endpoint exists. Native executor normalization is not certified."
+    },
+    {
+      "aliases": [
+        "muse-spark-web",
+        "ms-web"
+      ],
+      "modules": [
+        "open-sse/executors/muse-spark-web.ts"
+      ],
+      "sourceLine": 102,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "9router",
+        "nr"
+      ],
+      "modules": [
+        "open-sse/executors/ninerouter.ts"
+      ],
+      "sourceLine": 91,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "nlpcloud"
+      ],
+      "modules": [
+        "open-sse/executors/nlpcloud.ts"
+      ],
+      "sourceLine": 73,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "notion-web",
+        "nw"
+      ],
+      "modules": [
+        "open-sse/executors/notion-web.ts"
+      ],
+      "sourceLine": 149,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "ollama-local"
+      ],
+      "modules": [
+        "open-sse/executors/ollama-local.ts"
+      ],
+      "sourceLine": 31,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "oneminai",
+        "1min"
+      ],
+      "modules": [
+        "open-sse/executors/oneminai.ts"
+      ],
+      "sourceLine": 74,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "opencode-zen",
+        "opencode-go",
+        "opencode"
+      ],
+      "modules": [
+        "open-sse/executors/opencode.ts"
+      ],
+      "sourceLine": 82,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "perplexity-web",
+        "pplx-web"
+      ],
+      "modules": [
+        "open-sse/executors/perplexity-web.ts"
+      ],
+      "sourceLine": 93,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "poe-web"
+      ],
+      "modules": [
+        "open-sse/executors/poe-web.ts"
+      ],
+      "sourceLine": 143,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "pollinations",
+        "pol"
+      ],
+      "modules": [
+        "open-sse/executors/pollinations.ts"
+      ],
+      "sourceLine": 76,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "promptql",
+        "pql"
+      ],
+      "modules": [
+        "open-sse/executors/promptql.ts"
+      ],
+      "sourceLine": 151,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "qoder-cn",
+        "qdcn"
+      ],
+      "modules": [
+        "open-sse/executors/qoder-cn.ts"
+      ],
+      "sourceLine": 37,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "qoder"
+      ],
+      "modules": [
+        "open-sse/executors/qoder.ts"
+      ],
+      "sourceLine": 36,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "t3-web",
+        "t3chat"
+      ],
+      "modules": [
+        "open-sse/executors/t3-chat-web.ts"
+      ],
+      "sourceLine": 132,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "tencent-aistudio-web",
+        "tasw"
+      ],
+      "modules": [
+        "open-sse/executors/tencent-aistudio-web.ts"
+      ],
+      "sourceLine": 139,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "tinycms-web",
+        "tcw"
+      ],
+      "modules": [
+        "open-sse/executors/tinycms.ts"
+      ],
+      "sourceLine": 185,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "trae"
+      ],
+      "modules": [
+        "open-sse/executors/trae.ts"
+      ],
+      "sourceLine": 60,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "uc"
+      ],
+      "modules": [
+        "open-sse/executors/uc.ts"
+      ],
+      "sourceLine": 54,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "v0-vercel-web",
+        "v0"
+      ],
+      "modules": [
+        "open-sse/executors/v0-vercel-web.ts"
+      ],
+      "sourceLine": 153,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "venice-web",
+        "ven"
+      ],
+      "modules": [
+        "open-sse/executors/venice-web.ts"
+      ],
+      "sourceLine": 147,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "veoaifree-web",
+        "veo-free"
+      ],
+      "modules": [
+        "open-sse/executors/veoaifree-web.ts"
+      ],
+      "sourceLine": 128,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "vertex",
+        "vertex-partner"
+      ],
+      "modules": [
+        "open-sse/executors/vertex.ts"
+      ],
+      "sourceLine": 85,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "windsurf",
+        "ws"
+      ],
+      "modules": [
+        "open-sse/executors/windsurf.ts"
+      ],
+      "sourceLine": 39,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "xai",
+        "xai-oauth",
+        "xao"
+      ],
+      "modules": [
+        "open-sse/executors/xai.ts"
+      ],
+      "sourceLine": 191,
+      "complexity": "L",
+      "status": "Partial: fixed API endpoint and xai-oauth refresh exist. Verify CLI tool/reasoning and error contracts."
+    },
+    {
+      "aliases": [
+        "yuanbao-web",
+        "ybw"
+      ],
+      "modules": [
+        "open-sse/executors/yuanbao-web.ts"
+      ],
+      "sourceLine": 138,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "zai-web",
+        "zw"
+      ],
+      "modules": [
+        "open-sse/executors/zai-web.ts"
+      ],
+      "sourceLine": 167,
+      "complexity": "XL",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "zcode",
+        "zc"
+      ],
+      "modules": [
+        "open-sse/executors/zcode.ts"
+      ],
+      "sourceLine": 107,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "zed-hosted"
+      ],
+      "modules": [
+        "open-sse/executors/zed-hosted.ts"
+      ],
+      "sourceLine": 105,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    },
+    {
+      "aliases": [
+        "zenmux-free",
+        "zmf"
+      ],
+      "modules": [
+        "open-sse/executors/zenmux-free.ts"
+      ],
+      "sourceLine": 181,
+      "complexity": "L",
+      "status": "Unmapped: locate or implement the provider-specific transport, identity, stream, errors and migration; generic URL support is insufficient."
+    }
+  ]
+}

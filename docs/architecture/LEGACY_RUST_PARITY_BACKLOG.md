@@ -27,7 +27,7 @@ L = new durable domain/protocol; XL = cross-cutting pipeline/runtime subsystem.
 Priority is independent: P0 blocks a safe replacement of core operations; P1 restores
 important product capability; P2 restores additional subsystems. All remain in scope.
 
-Provider configuration now has a [32-item field-level expansion](LEGACY_PROVIDER_PARITY_FIELDS.md), covering node definitions, accounts, transport settings, model overrides and migration gaps.
+Provider configuration now has a [32-item field-level expansion](LEGACY_PROVIDER_PARITY_FIELDS.md), covering node definitions, accounts, transport settings, model overrides and migration gaps. The [executor audit](LEGACY_EXECUTOR_PARITY.md) separately enumerates 142 legacy aliases across 81 source-module groups; none is accepted as complete by name or catalog presence.
 
 ## Core replacement: first execution wave
 
