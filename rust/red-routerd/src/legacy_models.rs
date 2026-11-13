@@ -112,8 +112,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             let entries: Vec<serde_json::Value> = serde_json::from_str(&value).map_err(|_| "invalid legacy model compatibility")?;
             for entry in entries {
                 if overrides.len() >= 10_000 { return Err("too many legacy model compatibility entries"); }
-                let id = entry.get("id").and_then(|value| value.as_str()).filter(|value| !value.is_empty() && value.len() <= 256).ok_or("invalid legacy model compatibility")?;
-                overrides.insert((provider.clone(), id.to_owned()));
+                let object = entry.as_object().ok_or("invalid legacy model compatibility")?;
+                let id = object.get("id").and_then(|value| value.as_str()).filter(|value| !value.is_empty() && value.len() <= 256).ok_or("invalid legacy model compatibility")?;
+                // The legacy reader explicitly ignores retired isDeleted
+                // tombstones; an ID-only entry has no runtime effect either.
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "isDeleted")) {
+                    overrides.insert((provider.clone(), id.to_owned()));
+                }
             }
         }
         drop(compat);

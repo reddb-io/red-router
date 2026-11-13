@@ -278,7 +278,7 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     sqlx::query(
         "UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='openai'",
     )
-    .bind(r#"[{"id":"different-model","isHidden":true}]"#)
+    .bind(r#"[{"id":"different-model","isHidden":true},{"id":"new-model","isDeleted":true}]"#)
     .execute(&mut input)
     .await
     .unwrap();
@@ -289,7 +289,7 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
             .unwrap()
             .imported,
         1,
-        "unrelated model overrides must not block this import"
+        "unrelated overrides and legacy tombstones must not block this import"
     );
 }
 
