@@ -3601,6 +3601,10 @@ impl ControlPlane {
         }
         let result =
             tokio::time::timeout(MODEL_CATALOG_AUTO_TIMEOUT, self.refresh_model_catalog()).await;
+        if result.is_err() {
+            self.0.catalog.write().await.last_error =
+                Some("models.dev refresh timed out".to_owned());
+        }
         let success = matches!(&result, Ok(Ok(_)));
         let delay = if success {
             MODEL_CATALOG_AUTO_DAY_MS

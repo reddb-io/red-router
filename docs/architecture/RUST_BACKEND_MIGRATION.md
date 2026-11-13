@@ -316,7 +316,10 @@ favor of the bundled catalog and is reported in the admin snapshot status. Each 
 the small revision column every five seconds; it downloads and validates the full row only after a
 generation change, rechecks the revision after validation to prevent stale publication, and then
 performs the same local `Arc` swap. Invalid generations are remembered and are not reparsed on every
-poll.
+poll. SQLite instances also schedule automatic refreshes after a 15-minute startup delay. A
+shared SQLite lease admits one refresh per day across instances; failures keep the last good
+snapshot and retry after five minutes. Manual refresh remains available. Other backends do not
+yet share the automatic schedule.
 
 Available input/output cost and context-window metadata is frozen into the durable combo record
 when a combo is saved. Operator-supplied values retain precedence. The catalog does not create
@@ -327,9 +330,11 @@ provider index and manifest; `GET /api/admin/model-catalog/{provider}` materiali
 metadata for only that exact models.dev provider, including models, capabilities, modalities,
 limits, prices, dates and status. This keeps the dashboard catalog on the Rust backend without
 eagerly retaining all provider model maps in proxy memory.
-The client-facing `GET /v1/models` and `GET /api/v1/models` endpoints expose only configured
-routes that the authenticated key can actually use. Models.dev enriches those rows but never
-grants access. The response includes RedRouter's stable 16-hex catalog-version header, computed
+The client-facing `GET /v1/models` and `GET /api/v1/models` endpoints expose configured routes
+and chat-model candidates for eligible configured provider accounts, filtered by the authenticated
+key's organization, endpoint, model and connection restrictions. The models.dev inventory is
+descriptive: it neither grants access nor guarantees that an individual account is entitled to
+each listed upstream model. The response includes RedRouter's stable 16-hex catalog-version header, computed
 without the volatile `created` timestamp, so RedCode can invalidate its cache when the key's
 visible routes or metadata change without refreshing on every catalog read.
 The same authenticated projection now backs `/v1/catalog` and `/v1/capabilities` (plus their
