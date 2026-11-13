@@ -9021,7 +9021,11 @@ impl ControlPlane {
         let mut live = HashMap::<String, LiveProvider>::new();
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
-            let view = combo_view(record)?;
+            let view = if aliases.public_name(&record.id).is_some() {
+                model_aliases::route_view(record)?
+            } else {
+                combo_view(record)?
+            };
             let concrete_targets = if aliases.public_name(&record.id).is_some() {
                 view.targets.clone()
             } else {

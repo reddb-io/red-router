@@ -101,6 +101,26 @@ impl AliasSnapshot {
         }).collect()
     }
 }
+/// Alias targets are compiled from validated provider records, not operator combo
+/// payloads. Empty pools and more than eight accounts have their own dispatch path.
+pub(super) fn route_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
+    Ok(ComboView {
+        id: record.id.clone(),
+        tenant_id: record.tenant_id.clone(),
+        protocol: record.protocol.clone(),
+        strategy: record.strategy.clone(),
+        fallback: record.fallback,
+        targets: serde_json::from_str(&record.targets_json)
+            .map_err(|_| "Invalid compiled model alias targets")?,
+        auto: None,
+        context_relay: None,
+        fusion: None,
+        pipeline: None,
+        enabled: record.enabled,
+        revision: record.revision.to_string(),
+        last_known_good: None,
+    })
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AliasInput {
