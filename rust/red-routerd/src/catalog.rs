@@ -356,10 +356,10 @@ impl ModelCatalog {
 
     /// Descriptive model inventory for an already configured provider. A
     /// catalog entry does not create an account or grant inference access.
-    pub(crate) fn models_for_provider(
-        &self,
+    pub(crate) fn models_for_provider<'a>(
+        &'a self,
         local_provider: &str,
-    ) -> Result<BTreeMap<String, ModelMetadata>, &'static str> {
+    ) -> Result<BTreeMap<&'a str, &'a ModelMetadata>, &'static str> {
         if !valid_identifier(local_provider) {
             return Ok(BTreeMap::new());
         }
@@ -376,14 +376,17 @@ impl ModelCatalog {
                 continue;
             };
             for (id, model) in &provider.parsed()?.models {
-                if ambiguous.contains(id) {
+                if ambiguous.contains(id.as_str()) {
                     continue;
                 }
-                if result.get(id).is_some_and(|previous| previous != model) {
-                    result.remove(id);
-                    ambiguous.insert(id.clone());
+                if result
+                    .get(id.as_str())
+                    .is_some_and(|previous| *previous != model)
+                {
+                    result.remove(id.as_str());
+                    ambiguous.insert(id.as_str());
                 } else {
-                    result.insert(id.clone(), model.clone());
+                    result.insert(id.as_str(), model);
                 }
             }
         }
@@ -885,7 +888,7 @@ mod tests {
         assert!(catalog.provider("OpenAI").unwrap().is_none());
         let inventory = catalog.models_for_provider("openai").unwrap();
         assert_eq!(
-            inventory.get("gpt-4o"),
+            inventory.get("gpt-4o").copied(),
             catalog.model("openai", "gpt-4o").unwrap().as_ref()
         );
         assert!(catalog

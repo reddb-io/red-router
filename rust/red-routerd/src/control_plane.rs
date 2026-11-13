@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, Row};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     io::{Cursor, Read},
     path::Path as FilePath,
     sync::{Arc, Mutex as StdMutex},
@@ -4290,33 +4290,34 @@ impl ControlPlane {
             if protocols.is_empty() {
                 continue;
             }
-            let mut candidates = catalog.models_for_provider(provider)?;
+            let catalog_models = catalog.models_for_provider(provider)?;
+            let mut candidates: BTreeSet<&str> = catalog_models.keys().copied().collect();
             for configured in overrides.configured_models(tenant, provider) {
-                let metadata = overrides
-                    .model(catalog, tenant, provider, &configured.id)?
-                    .ok_or("configured model metadata unavailable")?;
-                candidates.insert(configured.id.clone(), metadata);
+                candidates.insert(&configured.id);
             }
-            for (id, metadata) in candidates {
+            for id in candidates {
                 let public = format!("{provider}/{id}");
-                if !model_aliases::valid_model_name(&id)
-                    || !policy.model_alias_target_allowed(&public, &id, Some(provider))
-                    || metadata
-                        .r#type
-                        .as_deref()
-                        .is_some_and(|kind| kind != "chat")
+                if !model_aliases::valid_model_name(id)
+                    || !policy.model_alias_target_allowed(&public, id, Some(provider))
+                    || !protocols.iter().any(|protocol| {
+                        *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(id)
+                    })
+                {
+                    continue;
+                }
+                let metadata = overrides
+                    .model(catalog, tenant, provider, id)?
+                    .ok_or("configured model metadata unavailable")?;
+                if metadata
+                    .r#type
+                    .as_deref()
+                    .is_some_and(|kind| kind != "chat")
                     || metadata.status.as_deref() == Some("retired")
                     || metadata.modalities.as_ref().is_some_and(|modalities| {
                         !modalities.output.is_empty()
                             && !modalities.output.iter().any(|value| value == "text")
                     })
                 {
-                    continue;
-                }
-                let available = protocols.iter().any(|protocol| {
-                    *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(&id)
-                });
-                if !available {
                     continue;
                 }
                 if models.len() >= 10_000 {
