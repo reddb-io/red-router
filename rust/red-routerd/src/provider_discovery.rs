@@ -505,7 +505,7 @@ impl ControlPlane {
         tenant: Option<&str>,
     ) -> Result<Vec<DiscoveredModel>, &'static str> {
         // Collect one local configuration snapshot, then release management writes before network I/O.
-        let (provider, auth, headers, credential, target, ticket) = {
+        let (provider, auth, headers, target, ticket) = {
             let _mutation = self.0.mutation.lock().await;
             let provider = self.discovery_provider(id, tenant).await?;
             let ticket = if provider.enabled && self.0.database.is_sqlite().await {
@@ -536,19 +536,54 @@ impl ControlPlane {
                 return Err("credential_expired");
             }
             let headers = self.request_headers(&provider).await?;
-            let credential = decrypt_async(
-                &provider.credential_ciphertext,
-                &provider.id,
-                self.0.encryption_key.as_str(),
-            )
-            .await?;
-            if let Some(ticket) = &ticket {
-                if !self.0.database.synced_model_probe_current(ticket).await? {
-                    return Err("provider_changed");
-                }
-            }
-            (provider, auth, headers, credential, target, ticket)
+            (provider, auth, headers, target, ticket)
         };
+        // Scrypt can wait behind other credential operations. Do not hold the
+        // management lock while waiting; revalidate the captured generation
+        // before using the decrypted credential for network I/O.
+        let credential = decrypt_async(
+            &provider.credential_ciphertext,
+            &provider.id,
+            self.0.encryption_key.as_str(),
+        )
+        .await?;
+        if let Some(ticket) = &ticket {
+            if !self.0.database.synced_model_probe_current(ticket).await? {
+                return Err("provider_changed");
+            }
+        } else {
+            // Non-SQLite and disabled-account probes do not have a durable
+            // ticket; recheck their configuration after the credential wait.
+            let _mutation = self.0.mutation.lock().await;
+            let current = self
+                .discovery_provider(id, tenant)
+                .await
+                .map_err(|_| "provider_changed")?;
+            if current != provider {
+                return Err("provider_changed");
+            }
+            let current_path = self
+                .discovery_view(&current)
+                .await?
+                .effective_models_path
+                .ok_or("provider_changed")?;
+            let current_auth = self
+                .auth_settings()
+                .await?
+                .remove(&(current.id.clone(), current.updated_at))
+                .unwrap_or_else(|| default_provider_auth(&current));
+            if models_url(&current.upstream_url, &current_path)? != target
+                || current_auth != auth
+                || self.request_headers(&current).await? != headers
+            {
+                return Err("provider_changed");
+            }
+        }
+        if auth.expires_at_unix > 0
+            && auth.expires_at_unix <= i64::try_from(unix_time_seconds()?).unwrap_or(i64::MAX)
+        {
+            return Err("credential_expired");
+        }
         // Reuse DNS pinning, private-address policy, auth resolution and redirect prohibition.
         let live = ProxyState::live_provider(
             &provider.upstream_url,
@@ -563,6 +598,7 @@ impl ControlPlane {
         let mut request = live
             .client
             .get(target)
+            .timeout(Duration::from_secs(15))
             .header(header::ACCEPT, "application/json");
         request = match live.auth_scheme {
             ProviderAuthScheme::Bearer => {
@@ -591,11 +627,13 @@ impl ControlPlane {
         for _ in 0..20 {
             let mut request = template.try_clone().ok_or("upstream_unavailable")?;
             *request.url_mut() = page_url;
-            let response = live
-                .client
-                .execute(request)
-                .await
-                .map_err(|_| "upstream_unavailable")?;
+            let response = live.client.execute(request).await.map_err(|error| {
+                if error.is_timeout() {
+                    "timeout"
+                } else {
+                    "upstream_unavailable"
+                }
+            })?;
             match response.status().as_u16() {
                 200..=299 => (),
                 300..=399 => return Err("upstream_redirect"),
@@ -612,7 +650,13 @@ impl ControlPlane {
             let mut stream = response.bytes_stream();
             let mut body = Vec::new();
             while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|_| "upstream_unavailable")?;
+                let chunk = chunk.map_err(|error| {
+                    if error.is_timeout() {
+                        "timeout"
+                    } else {
+                        "upstream_unavailable"
+                    }
+                })?;
                 total_bytes = total_bytes.saturating_add(chunk.len());
                 if total_bytes > MAX_BODY {
                     return Err("response_too_large");
@@ -772,7 +816,7 @@ pub async fn discover(
         return failure("busy");
     };
     match tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(120),
         control.discover_models(&id, scope.tenant_id.as_deref()),
     )
     .await
@@ -790,6 +834,60 @@ pub async fn discover(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn waiting_for_credential_work_does_not_block_edits_or_use_stale_config() {
+        let database = Arc::new(
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap(),
+        );
+        let key = "fixture-storage-key-1234567890";
+        let control = ControlPlane::new(
+            database.clone(),
+            "fixture-admin-key-1234567890-abcdef",
+            key,
+            false,
+        )
+        .await
+        .unwrap();
+        let mut provider = StoredProvider {
+            node_id: None,
+            protocol: "auto".into(),
+            priority: 0,
+            default_model: None,
+            id: "account".into(),
+            tenant_id: "red".into(),
+            provider: "openai-compatible".into(),
+            upstream_url: "https://example.test/v1/chat/completions".into(),
+            credential_ciphertext: super::super::encrypt("fixture-secret", "account", key).unwrap(),
+            enabled: true,
+            updated_at: 1,
+        };
+        database.upsert_provider(&provider).await.unwrap();
+        let workers = super::super::credential_crypto::reserve_workers_for_test().await;
+        let task_control = control.clone();
+        let task =
+            tokio::spawn(async move { task_control.discover_models("account", Some("red")).await });
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                if !database.synced_model_markers().await.unwrap().is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("discovery did not start");
+        let mutation = tokio::time::timeout(Duration::from_secs(5), control.0.mutation.lock())
+            .await
+            .expect("credential work held the management lock");
+        provider.updated_at = 2;
+        database.upsert_provider(&provider).await.unwrap();
+        drop(mutation);
+        drop(workers);
+        assert_eq!(task.await.unwrap().unwrap_err(), "provider_changed");
+    }
+
     #[tokio::test]
     async fn discovery_preserves_tenant_ownership_and_oauth_boundaries() {
         let database = Arc::new(

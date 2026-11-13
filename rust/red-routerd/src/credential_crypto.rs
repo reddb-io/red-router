@@ -6,6 +6,11 @@ use zeroize::Zeroizing;
 // cancelling its awaiting HTTP request cannot admit more concurrent allocations.
 static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
+#[cfg(test)]
+pub(super) async fn reserve_workers_for_test() -> tokio::sync::SemaphorePermit<'static> {
+    WORKERS.acquire_many(2).await.unwrap()
+}
+
 pub(crate) async fn encrypt_async(
     value: &str,
     id: &str,
