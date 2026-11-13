@@ -44,7 +44,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
         let inner: Result<AliasImport, &'static str> = async {
             let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'").fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination")?;
             if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
-            let mut rows = sqlx::query("SELECT namespace,key,value FROM key_value WHERE namespace IN ('modelAliases','managedModelAliasNames','providerAliases') OR (namespace='settings' AND key IN ('modelAliases','wildcardAliases')) ORDER BY namespace,key").fetch(&mut *snapshot);
+            let mut rows = sqlx::query("SELECT namespace,key,value FROM key_value WHERE namespace IN ('modelAliases','managedModelAliasNames','providerAliases') OR (namespace='settings' AND key IN ('modelAliases','wildcardAliases','stripModelPrefix')) ORDER BY namespace,key").fetch(&mut *snapshot);
             let mut row_count = 0_usize;
             let mut aliases = BTreeMap::new();
             let mut settings = None;
@@ -52,7 +52,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             let mut bytes = 0_usize;
             while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy aliases")? {
                 row_count += 1;
-                if row_count > 10003 { return Err("too many legacy aliases"); }
+                if row_count > 10004 { return Err("too many legacy aliases"); }
                 let namespace: String = row.try_get("namespace").map_err(|_| "invalid legacy alias")?;
                 let key: String = row.try_get("key").map_err(|_| "invalid legacy alias")?;
                 let raw: String = row.try_get("value").map_err(|_| "invalid legacy alias")?;
@@ -63,6 +63,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                     ("modelAliases", _) => { if aliases.insert(key, value).is_some() { return Err("duplicate legacy alias"); } }
                     ("settings", "modelAliases") => { if settings.replace(value).is_some() { return Err("duplicate settings aliases"); } }
                     ("settings", "wildcardAliases") => if value.as_array().is_none_or(|items| !items.is_empty()) && !value.is_null() { return Err("legacy wildcard aliases require migration"); },
+                    ("settings", "stripModelPrefix") => if value != serde_json::Value::Bool(false) && !value.is_null() { return Err("legacy prefix stripping requires migration"); },
                     ("providerAliases", _) => {
                         if value.as_object().is_none_or(|aliases| !aliases.is_empty()) {
                             return Err("provider-scoped aliases require migration");

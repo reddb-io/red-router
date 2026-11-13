@@ -133,4 +133,23 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
             .unwrap_err(),
         "provider-scoped aliases require migration"
     );
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM key_value WHERE namespace='providerAliases'")
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('settings','stripModelPrefix','true')")
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
+    assert_eq!(
+        legacy_aliases::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy prefix stripping requires migration"
+    );
 }
