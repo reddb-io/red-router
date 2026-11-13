@@ -54,6 +54,7 @@ pub(crate) struct StoredPolicy {
     pub name: String,
     pub tenant_id: String,
     pub model_id_format: String,
+    pub model_access_restricted: bool,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -231,11 +232,12 @@ impl ClientPolicies {
                     .map(|schedule| schedule.compile())
                     .transpose()?
                     .flatten();
-                let allowed_models = if policy.allowed_models.is_empty() {
-                    None
-                } else {
-                    Some(policy.allowed_models)
-                };
+                let allowed_models =
+                    if policy.allowed_models.is_empty() && !policy.model_access_restricted {
+                        None
+                    } else {
+                        Some(policy.allowed_models)
+                    };
                 let concurrency = policy
                     .max_concurrent_requests
                     .map(|limit| Arc::new(Semaphore::new(limit)));

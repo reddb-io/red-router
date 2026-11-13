@@ -147,10 +147,15 @@ HTTP authentication regressions plus invalid-schedule rollback cases; CI evidenc
 must be checked for the feature commit before accepting this slice.
 
 Field review found another migration dependency: legacy model permissions expand
-provider aliases and distinguish `restricted + []` from allow-all, whereas native
-empty `allowed_models` means allow-all. Legacy `*` glob behavior also differs from
-the native universal wildcard. Keep these fields blocked in the importer until
-their behavior has been translated and tested; copying their JSON would be unsafe.
+provider aliases and distinguish `restricted + []` from allow-all. The latter now
+has an explicit mode in native storage, issue/update/list APIs, runtime policies
+and SPA editing. Missing mode on an existing-key update preserves its restriction;
+nonempty lists always restrict access even if a caller marks them `all`. Restricted
+empty keys can now be imported (still disabled pending quota reconciliation). Tests
+cover database reload, denied inference/catalog, metadata edits, blocked-model
+precedence and transactional import rollback. CI must verify the delivery commit.
+Legacy alias expansion and `*` glob behavior still differ from native matching, so
+nonempty legacy allow/deny lists remain blocked in the importer. CORE-05/09 stay open.
 
 CORE-02: restore model-catalog filtering, sorting, bounded pagination and detailed
 metadata through the existing authenticated Rust catalog API. This closes an

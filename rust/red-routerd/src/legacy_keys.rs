@@ -153,7 +153,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
         let settings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='settings' AND ((key IN ('disabledModels','modelVisibilityAllowlist','modelVisibilityDenylist') AND COALESCE(trim(value),'') NOT IN ('[]','null')) OR (key IN ('hidePaidModels','excludeTosAvoid','hideAutoCombos') AND COALESCE(trim(value),'') NOT IN ('false','null')) OR (key='freeAccessPolicy' AND COALESCE(trim(value),'') NOT IN ('\"off\"','null')) OR (key='proxyEnabled' AND COALESCE(trim(value),'') <> 'true'))) OR (namespace='api_key_tags')")
             .fetch_one(&mut *snapshot).await.map_err(|_| "cannot inspect legacy settings")?;
         if settings != 0 { return Err("legacy model policy or key tags require migration; no keys imported"); }
-        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
+        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
                 .fetch_one(&mut *target).await.map_err(|_| "destination key schema unavailable")?;
             if count != 0 { return Err("destination key tables must be empty; no keys imported"); }
@@ -194,13 +194,14 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             for field in ["allowed_models", "blocked_models", "allowed_connections", "ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
-            if !matches!(get("model_access_mode")?.as_deref(), Some("all")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
+            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             let combos = get("allowed_combos")?;
             if combos.as_deref().is_some_and(|raw| serde_json::from_str::<Vec<String>>(raw).ok().as_deref() != Some(&["combo/*".to_owned()][..])) {
                 return Err("legacy combo policy is unsupported; no keys imported");
             }
+            let model_access_mode = get("model_access_mode")?.ok_or("invalid legacy model access mode")?;
             let schedule = import_schedule(get("access_schedule")?.as_deref())?;
             if get("proxy_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy key policy is unsupported; no keys imported"); }
             if get("__attributes")?.is_some_and(|value| serde_json::from_str::<serde_json::Value>(&value).ok() != Some(serde_json::json!({}))) {
@@ -230,6 +231,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
+            sqlx::query("INSERT INTO redrouter_control_client_key_model_access (key_id,model_access_mode,revision) VALUES (?,?,1)").bind(&id).bind(model_access_mode).execute(&mut *target).await.map_err(|_| "cannot write key model access mode")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,?,1)").bind(&id).bind(schedule).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_ownership (key_id,tenant_id,created_by,revision) VALUES (?,?,'legacy-migration',1)").bind(&id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write key ownership")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_quotas (key_id,max_tokens_per_minute,max_tokens_per_day,max_monthly_microusd,reservation_tokens,reservation_microusd,revision) VALUES (?,0,0,0,0,0,1)").bind(&id).execute(&mut *target).await.map_err(|_| "cannot write key quota")?;

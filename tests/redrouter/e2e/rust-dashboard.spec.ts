@@ -295,6 +295,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
             tenant_id: "red",
             created_by: "admin",
             model_id_format: "prefixed",
+            model_access_mode: "all",
             enabled: true,
             expires_at_unix: null,
             access_schedule: null,
@@ -689,4 +690,96 @@ test("static dashboard reads staged historical costs from the Rust API", async (
   await page.getByRole("button", { name: "Next page" }).click();
   await expect(page.getByRole("button", { name: "First page" })).toBeVisible();
   expect(queries.some((query) => new URLSearchParams(query).get("cursor") === "12")).toBe(true);
+});
+
+test("editing a restricted empty key preserves denial until explicitly changed", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  let key = {
+    id: "restricted",
+    label: "Restricted key",
+    tenant_id: "red",
+    created_by: "admin",
+    model_id_format: "prefixed",
+    model_access_mode: "restricted",
+    enabled: true,
+    expires_at_unix: null,
+    access_schedule: null,
+    scopes: [],
+    allowed_endpoints: [],
+    allowed_models: [],
+    blocked_models: [],
+    allowed_provider_ids: [],
+    max_concurrent_requests: null,
+    max_requests_per_minute: null,
+    max_requests_per_day: null,
+    max_tokens_per_minute: null,
+    max_tokens_per_day: null,
+    max_spend_per_month_usd: null,
+    reservation_tokens: null,
+    reservation_spend_usd: null,
+    revision: "1",
+  };
+  const writes: Record<string, unknown>[] = [];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/auth/config")
+      await route.fulfill({
+        json: {
+          backend: "rust",
+          control_plane_enabled: true,
+          oidc_browser_login: false,
+          password_login: true,
+        },
+      });
+    else if (path === "/api/admin/client-keys")
+      await route.fulfill({ json: { client_keys: [key] } });
+    else if (path === "/api/admin/client-keys/restricted" && request.method() === "PUT") {
+      expect(request.headers()["x-red-router-csrf"]).toBe("fixture-csrf");
+      const body = request.postDataJSON();
+      writes.push(body);
+      key = { ...key, ...body };
+      await route.fulfill({ json: { client_key: key } });
+    } else if (path === "/api/admin/usage")
+      await route.fulfill({
+        json: {
+          usage: Object.fromEntries(
+            [
+              "request_count",
+              "priced_request_count",
+              "tokens_input",
+              "tokens_output",
+              "tokens_cache_read",
+              "tokens_cache_creation",
+              "tokens_reasoning",
+              "amount_microusd",
+              "pending_request_count",
+              "pending_reserved_tokens",
+              "pending_reserved_microusd",
+            ].map((name) => [name, 0])
+          ),
+        },
+      });
+    else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/api-manager`);
+  await expect(page.getByText(/no models allowed/)).toBeVisible();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByLabel("Model access", { exact: true })).toHaveValue("restricted");
+  await page.getByLabel("Label", { exact: true }).fill("Renamed key");
+  await page.getByRole("button", { name: "Save policy", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({
+    model_access_mode: "restricted",
+    allowed_models: [],
+    label: "Renamed key",
+  });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Model access", { exact: true }).selectOption("all");
+  await page.getByRole("button", { name: "Save policy", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toMatchObject({ model_access_mode: "all", allowed_models: [] });
 });

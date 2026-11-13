@@ -219,6 +219,7 @@ async fn exercise(backend: Backend, url: &str) {
         max_rpm: 600,
         max_rpd: 50_000,
         model_id_format: "flat".into(),
+        model_access_mode: "restricted".to_owned(),
         access_schedule_json:
             r#"{"enabled":true,"from":"08:00","until":"18:00","days":[1,2,3,4,5],"tz":"America/Sao_Paulo"}"#
                 .into(),
@@ -783,6 +784,7 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "flat".into(),
+        model_access_mode: "restricted".to_owned(),
         access_schedule_json: String::new(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),
@@ -837,6 +839,7 @@ async fn sqlite_client_schedule_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "prefixed".into(),
+        model_access_mode: "restricted".to_owned(),
         access_schedule_json:
             r#"{"enabled":true,"from":"08:00","until":"18:00","days":[1],"tz":"UTC"}"#.into(),
         tenant_id: "red".into(),
@@ -892,6 +895,7 @@ async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "prefixed".into(),
+        model_access_mode: "restricted".to_owned(),
         access_schedule_json: String::new(),
         tenant_id: "red".into(),
         created_by: "test-admin".into(),

@@ -44,12 +44,15 @@ const CREATE_OAUTH_REFRESH_LEASES: &str = "CREATE TABLE IF NOT EXISTS redrouter_
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_SCHEDULES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_schedules (key_id TEXT PRIMARY KEY, schedule_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const CREATE_CLIENT_KEY_MODEL_ACCESS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_model_access (key_id TEXT PRIMARY KEY, model_access_mode TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
 const LIST_CLIENT_KEY_PREFERENCES: &str = "SELECT key_id, model_id_format, revision FROM redrouter_control_client_key_preferences ORDER BY key_id ASC";
 const LIST_CLIENT_KEY_SCHEDULES: &str = "SELECT key_id, schedule_json, revision FROM redrouter_control_client_key_schedules ORDER BY key_id ASC";
+const LIST_CLIENT_KEY_MODEL_ACCESS: &str = "SELECT key_id, model_access_mode, revision FROM redrouter_control_client_key_model_access ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
 const UPSERT_CLIENT_KEY_PREFERENCE: &str = "INSERT INTO redrouter_control_client_key_preferences (key_id, model_id_format, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET model_id_format = $2, revision = $3";
 const UPSERT_CLIENT_KEY_SCHEDULE: &str = "INSERT INTO redrouter_control_client_key_schedules (key_id, schedule_json, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET schedule_json = $2, revision = $3";
+const UPSERT_CLIENT_KEY_MODEL_ACCESS: &str = "INSERT INTO redrouter_control_client_key_model_access (key_id, model_access_mode, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET model_access_mode = $2, revision = $3";
 const CREATE_TENANTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const SEED_DEFAULT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ('red','red','Red',1,0) ON CONFLICT (id) DO NOTHING";
 const LIST_TENANTS: &str = "SELECT id, slug, name, enabled, revision FROM redrouter_control_tenants ORDER BY revision DESC, id ASC";
@@ -254,6 +257,7 @@ pub struct StoredClientKey {
     pub max_rpd: i64,
     pub model_id_format: String,
     pub access_schedule_json: String,
+    pub model_access_mode: String,
     pub tenant_id: String,
     pub created_by: String,
     pub max_tokens_per_minute: i64,
@@ -275,6 +279,13 @@ struct StoredClientKeyPreference {
 struct StoredClientKeySchedule {
     key_id: String,
     schedule_json: String,
+    revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredClientKeyModelAccess {
+    key_id: String,
+    model_access_mode: String,
     revision: i64,
 }
 
@@ -654,6 +665,7 @@ impl Database {
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_CLIENT_KEY_SCHEDULES,
+                        CREATE_CLIENT_KEY_MODEL_ACCESS,
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_AUDIT_EVENTS,
@@ -778,6 +790,8 @@ impl Database {
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_SCHEDULES).await?;
+                db.remote_schema_query(CREATE_CLIENT_KEY_MODEL_ACCESS)
+                    .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_AUDIT_EVENTS).await?;
@@ -860,6 +874,7 @@ impl Database {
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_CLIENT_KEY_SCHEDULES,
+                    CREATE_CLIENT_KEY_MODEL_ACCESS,
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_AUDIT_EVENTS,
@@ -2338,6 +2353,17 @@ impl Database {
             }
             key.access_schedule_json = schedule.schedule_json;
         }
+        for access in self.client_key_model_access().await? {
+            let Some(key) = keys.iter_mut().find(|key| key.id == access.key_id) else {
+                // Sidecars are committed first. An orphan from a failed key
+                // insert is inert and can be ignored.
+                continue;
+            };
+            if key.revision != access.revision {
+                return Err("client key model access mode revision mismatch");
+            }
+            key.model_access_mode = access.model_access_mode;
+        }
         for ownership in self.client_key_ownerships().await? {
             let Some(key) = keys.iter_mut().find(|key| key.id == ownership.key_id) else {
                 // Ownership is committed before a key. An orphan is safe to
@@ -2369,6 +2395,10 @@ impl Database {
     }
 
     pub async fn upsert_client_key(&self, key: &StoredClientKey) -> Result<(), &'static str> {
+        if !matches!(key.model_access_mode.as_str(), "all" | "restricted") {
+            return Err("invalid client key model access mode");
+        }
+        self.upsert_client_key_model_access(key).await?;
         self.upsert_client_key_preference(key).await?;
         self.upsert_client_key_schedule(key).await?;
         self.upsert_client_key_ownership(key).await?;
@@ -2534,6 +2564,70 @@ impl Database {
                 db.query_with(UPSERT_CLIENT_KEY_SCHEDULE, client_key_schedule_params(key))
                     .await
                     .map_err(|_| "cannot write client key access schedule")?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn client_key_model_access(
+        &self,
+    ) -> Result<Vec<StoredClientKeyModelAccess>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEY_MODEL_ACCESS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read client key model access modes")?
+                .iter()
+                .map(read_sql_client_key_model_access)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_CLIENT_KEY_MODEL_ACCESS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_model_access)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_CLIENT_KEY_MODEL_ACCESS)
+                .await
+                .map_err(|_| "cannot read client key model access modes")?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_model_access)
+                .collect(),
+        }
+    }
+
+    async fn upsert_client_key_model_access(
+        &self,
+        key: &StoredClientKey,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_CLIENT_KEY_MODEL_ACCESS)
+                    .bind(&key.id)
+                    .bind(&key.model_access_mode)
+                    .bind(key.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write client key model access mode")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_CLIENT_KEY_MODEL_ACCESS,
+                    &client_key_model_access_params(key),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_CLIENT_KEY_MODEL_ACCESS,
+                    client_key_model_access_params(key),
+                )
+                .await
+                .map_err(|_| "cannot write client key model access mode")?;
             }
         }
         Ok(())
@@ -4849,6 +4943,7 @@ fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'sta
         max_rpd: integer("max_rpd")?,
         model_id_format: "prefixed".to_owned(),
         access_schedule_json: String::new(),
+        model_access_mode: "all".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
         max_tokens_per_minute: 0,
@@ -4891,6 +4986,7 @@ fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'s
         max_rpd: integer("max_rpd")?,
         model_id_format: "prefixed".to_owned(),
         access_schedule_json: String::new(),
+        model_access_mode: "all".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
         max_tokens_per_minute: 0,
@@ -5013,6 +5109,54 @@ fn client_key_schedule_params(key: &StoredClientKey) -> Vec<reddb_client::Value>
     vec![
         reddb_client::Value::Text(key.id.clone()),
         reddb_client::Value::Text(key.access_schedule_json.clone()),
+        reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_client_key_model_access(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredClientKeyModelAccess, &'static str> {
+    Ok(StoredClientKeyModelAccess {
+        key_id: row
+            .try_get("key_id")
+            .map_err(|_| "invalid client key model access mode")?,
+        model_access_mode: row
+            .try_get("model_access_mode")
+            .map_err(|_| "invalid client key model access mode")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid client key model access mode")?,
+    })
+}
+
+fn read_reddb_client_key_model_access(
+    row: &reddb_client::Row,
+) -> Result<StoredClientKeyModelAccess, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid client key model access mode"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid client key model access mode"),
+    }?;
+    Ok(StoredClientKeyModelAccess {
+        key_id: text("key_id")?,
+        model_access_mode: text("model_access_mode")?,
+        revision,
+    })
+}
+
+fn client_key_model_access_params(key: &StoredClientKey) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(key.id.clone()),
+        reddb_client::Value::Text(key.model_access_mode.clone()),
         reddb_client::Value::Int(key.revision),
     ]
 }

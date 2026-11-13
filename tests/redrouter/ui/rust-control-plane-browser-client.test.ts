@@ -65,6 +65,7 @@ const clientKey: RustClientKey = {
   tenant_id: "red",
   created_by: "oidc:owner@example.com",
   model_id_format: "prefixed",
+  model_access_mode: "restricted",
   enabled: true,
   expires_at_unix: null,
   access_schedule: {
@@ -610,6 +611,21 @@ describe("Rust control-plane browser client", () => {
     await expect(
       rustProviderSessionFetch("https://attacker.example/api/providers/codex-auth/import")
     ).rejects.toThrow("same-origin");
+  });
+
+  it("preserves restricted empty model lists and rejects unknown access modes", async () => {
+    const restricted = { ...clientKey, allowed_models: [], model_access_mode: "restricted" };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ client_keys: [restricted] }))
+        .mockResolvedValueOnce(
+          Response.json({ client_keys: [{ ...restricted, model_access_mode: "typo" }] })
+        )
+    );
+    await expect(listRustClientKeys()).resolves.toEqual([restricted]);
+    await expect(listRustClientKeys()).rejects.toThrow("Invalid client-key");
   });
 
   it("uses the Rust key authority for list, issue, replacement and revocation", async () => {

@@ -267,3 +267,39 @@ async fn malformed_schedule_rolls_back_preceding_keys_instead_of_dropping_the_re
         db.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn restricted_empty_models_are_imported_without_granting_access() {
+    for mode in ["restricted", "invalid-mode"] {
+        let (_dir, source, dest, url) = fixture().await;
+        let mut input =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE api_keys SET model_access_mode=? WHERE id='second'")
+            .bind(mode)
+            .execute(&mut input)
+            .await
+            .unwrap();
+        input.close().await.unwrap();
+        let before = tokio::fs::read(&source).await.unwrap();
+        let result = legacy_keys::import(&source, &dest).await;
+        assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let keys = db.client_keys().await.unwrap();
+        if mode == "restricted" {
+            assert_eq!(result.unwrap().imported, 2);
+            let key = keys.iter().find(|key| key.id == "second").unwrap();
+            assert_eq!(key.model_access_mode, "restricted");
+            assert_eq!(key.allowed_models_json, "[]");
+            assert!(!key.enabled);
+        } else {
+            assert!(result.is_err());
+            assert!(
+                keys.is_empty(),
+                "invalid second key must roll back the first key too"
+            );
+        }
+        db.close().await.unwrap();
+    }
+}

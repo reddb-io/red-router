@@ -704,6 +704,7 @@ pub struct ClientKeyInput {
     pub api_key: Option<String>,
     pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
+    pub model_access_mode: Option<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -734,6 +735,7 @@ pub struct ClientKeyIssueInput {
     pub label: String,
     pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
+    pub model_access_mode: Option<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -883,6 +885,7 @@ impl ClientKeyIssueInput {
             api_key: Some(api_key),
             tenant_id: self.tenant_id,
             model_id_format: self.model_id_format,
+            model_access_mode: self.model_access_mode,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
             access_schedule: self.access_schedule,
@@ -910,6 +913,7 @@ pub struct ClientKeyView {
     pub tenant_id: String,
     pub created_by: String,
     pub model_id_format: String,
+    pub model_access_mode: String,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub access_schedule: Option<AccessScheduleConfig>,
@@ -7101,6 +7105,15 @@ impl ControlPlane {
             scopes_json: json_list(&input.scopes)?,
             allowed_endpoints_json: json_list(&input.allowed_endpoints)?,
             allowed_models_json: json_list(&input.allowed_models)?,
+            model_access_mode: effective_model_access_mode(
+                input
+                    .model_access_mode
+                    .as_deref()
+                    .or_else(|| before.as_ref().map(|row| row.model_access_mode.as_str()))
+                    .unwrap_or("all"),
+                !input.allowed_models.is_empty(),
+            )?
+            .to_owned(),
             blocked_models_json: json_list(&input.blocked_models)?,
             allowed_provider_ids_json: json_list(&input.allowed_provider_ids)?,
             max_concurrent: optional_limit(input.max_concurrent_requests, 65_535)?,
@@ -10611,6 +10624,11 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         tenant_id: record.tenant_id.clone(),
         created_by: record.created_by.clone(),
         model_id_format: validate_model_id_format(&record.model_id_format)?.to_owned(),
+        model_access_mode: effective_model_access_mode(
+            &record.model_access_mode,
+            !parse_list(&record.allowed_models_json)?.is_empty(),
+        )?
+        .to_owned(),
         enabled: record.enabled,
         expires_at_unix,
         access_schedule: decode_access_schedule(&record.access_schedule_json)?,
@@ -11523,6 +11541,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         name: record.label.clone(),
         tenant_id: record.tenant_id.clone(),
         model_id_format: view.model_id_format,
+        model_access_restricted: view.model_access_mode == "restricted",
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,
@@ -11576,6 +11595,16 @@ fn validate_client_lists(input: &ClientKeyInput) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+// Legacy lists always restrict access, including stale records marked "all".
+// An explicitly restricted empty list denies every model.
+fn effective_model_access_mode(value: &str, has_models: bool) -> Result<&str, &'static str> {
+    match value {
+        "all" | "restricted" if has_models => Ok("restricted"),
+        "all" | "restricted" => Ok(value),
+        _ => Err("client key model access mode must be all or restricted"),
+    }
 }
 
 fn validate_model_id_format(value: &str) -> Result<&str, &'static str> {

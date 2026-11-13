@@ -21,6 +21,7 @@ type Draft = {
   label: string;
   enabled: boolean;
   modelIdFormat: "prefixed" | "flat";
+  modelAccessMode: "all" | "restricted";
   expiresAt: string;
   scheduleEnabled: boolean;
   scheduleFrom: string;
@@ -61,6 +62,7 @@ const EMPTY_DRAFT: Draft = {
   label: "",
   enabled: true,
   modelIdFormat: "prefixed",
+  modelAccessMode: "all",
   expiresAt: "",
   scheduleEnabled: false,
   scheduleFrom: "08:00",
@@ -136,6 +138,7 @@ function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
     label,
     ...(tenantId ? { tenant_id: tenantId } : {}),
     model_id_format: draft.modelIdFormat,
+    model_access_mode: draft.modelAccessMode,
     enabled: draft.enabled,
     expires_at_unix: expiresAtUnix(draft.expiresAt),
     access_schedule: draft.scheduleEnabled
@@ -149,7 +152,7 @@ function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
       : null,
     scopes: list(draft.scopes),
     allowed_endpoints: list(draft.allowedEndpoints),
-    allowed_models: list(draft.allowedModels),
+    allowed_models: draft.modelAccessMode === "restricted" ? list(draft.allowedModels) : [],
     blocked_models: list(draft.blockedModels),
     allowed_provider_ids: list(draft.allowedProviderIds),
     max_concurrent_requests: optionalInteger(draft.maxConcurrent),
@@ -181,6 +184,7 @@ function keyDraft(key: RustClientKey): Draft {
     label: key.label,
     enabled: key.enabled,
     modelIdFormat: key.model_id_format,
+    modelAccessMode: key.allowed_models.length ? "restricted" : key.model_access_mode,
     expiresAt: localExpiry(key.expires_at_unix),
     scheduleEnabled: key.access_schedule?.enabled ?? false,
     scheduleFrom: key.access_schedule?.from ?? "08:00",
@@ -327,13 +331,30 @@ function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draf
         />
       </label>
       <label className={labelClass}>
+        Model access
+        <select
+          aria-label="Model access"
+          className={inputClass}
+          value={draft.modelAccessMode}
+          onChange={(e) => set("modelAccessMode", e.target.value as Draft["modelAccessMode"])}
+        >
+          <option value="all">All models</option>
+          <option value="restricted">Only allowed models</option>
+        </select>
+      </label>
+      <label className={labelClass}>
         Allowed models
         <textarea
           className={inputClass}
           rows={3}
+          disabled={draft.modelAccessMode === "all"}
           value={draft.allowedModels}
           onChange={(e) => set("allowedModels", e.target.value)}
         />
+        <span>
+          In restricted mode, an empty list blocks every model. Blocked models always take
+          precedence.
+        </span>
       </label>
       <label className={labelClass}>
         Blocked models
@@ -591,13 +612,10 @@ export default function RustApiManagerPageClient() {
         <div>
           <div className="mb-1 flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-text">API keys</h1>
-            <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-semibold text-orange-600 dark:text-orange-400">
-              API keys
-            </span>
           </div>
           <p className="max-w-3xl text-sm text-text-muted">
-            Secrets are returned once and stored only as hashes. Policies, tenant ownership, quotas
-            and accounting are committed by red-routerd.
+            Create named keys for your applications and control their model access, schedules and
+            usage limits. Copy each secret when it is created; it cannot be revealed again.
           </p>
         </div>
         <button
@@ -716,7 +734,9 @@ export default function RustApiManagerPageClient() {
                   ·{" "}
                   {key.allowed_models.length
                     ? `${key.allowed_models.length} model grants`
-                    : "all models"}{" "}
+                    : key.model_access_mode === "restricted"
+                      ? "no models allowed"
+                      : "all models"}{" "}
                   ·{" "}
                   {key.access_schedule?.enabled
                     ? `${key.access_schedule.from}-${key.access_schedule.until} ${key.access_schedule.tz}`

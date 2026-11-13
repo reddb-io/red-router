@@ -11389,3 +11389,132 @@ async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
     fallback_task.abort();
     database.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn restricted_empty_model_access_survives_updates_and_restart() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("model-access.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (upstream, provider_task) = provider("model-access-secret", "allowed").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (path, body) in [
+        (
+            "providers/access-provider",
+            serde_json::json!({"provider":"openai","upstream_url":upstream,"api_key":"model-access-secret"}),
+        ),
+        (
+            "combos/access-combo",
+            serde_json::json!({"protocol":"openai","strategy":"priority","fallback":true,"targets":[{"provider_id":"access-provider","model":"gpt-4o"}]}),
+        ),
+        (
+            "client-keys/access-client",
+            serde_json::json!({"label":"Restricted","api_key":RUST_CLIENT_KEY,"model_access_mode":"restricted","allowed_models":[]}),
+        ),
+    ] {
+        let response = client
+            .put(format!("{base}/api/admin/{path}"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{}",
+            response.text().await.unwrap()
+        );
+    }
+    // Old callers that omit the mode cannot widen an existing restricted key.
+    let response = client
+        .put(format!("{base}/api/admin/client-keys/access-client"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"label":"Renamed"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(body["client_key"]["model_access_mode"], "restricted");
+    gateway_task.abort();
+    let _ = gateway_task.await;
+    database.close().await.unwrap();
+
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    assert_eq!(
+        database.client_keys().await.unwrap()[0].model_access_mode,
+        "restricted"
+    );
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "access-combo")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = client
+        .get(format!("{base}/v1/models"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(body["data"], serde_json::json!([]));
+
+    for (mode, allowed, blocked, expected_mode, expected_status) in [
+        (
+            "restricted",
+            vec!["gpt-4o"],
+            vec![],
+            "restricted",
+            StatusCode::OK,
+        ),
+        (
+            "all",
+            vec!["other-model"],
+            vec![],
+            "restricted",
+            StatusCode::FORBIDDEN,
+        ),
+        ("all", vec![], vec!["gpt-4o"], "all", StatusCode::FORBIDDEN),
+        ("all", vec![], vec![], "all", StatusCode::OK),
+    ] {
+        let response = client.put(format!("{base}/api/admin/client-keys/access-client")).bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(serde_json::json!({"label":"Policy","model_access_mode":mode,"allowed_models":allowed,"blocked_models":blocked}).to_string())
+            .send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(body["client_key"]["model_access_mode"], expected_mode);
+        assert_eq!(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "access-combo")
+                .await
+                .status(),
+            expected_status
+        );
+    }
+    let response = client
+        .put(format!("{base}/api/admin/client-keys/access-client"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"label":"Bad policy","model_access_mode":"typo"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(database.client_keys().await.unwrap()[0].label, "Policy");
+    gateway_task.abort();
+    provider_task.abort();
+}

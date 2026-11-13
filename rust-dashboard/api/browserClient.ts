@@ -25,6 +25,7 @@ export interface RustClientKey {
   tenant_id: string;
   created_by: string;
   model_id_format: "prefixed" | "flat";
+  model_access_mode: "all" | "restricted";
   enabled: boolean;
   expires_at_unix: number | null;
   access_schedule: RustClientAccessSchedule | null;
@@ -860,6 +861,7 @@ function isRustClientKey(value: unknown): value is RustClientKey {
     typeof key.tenant_id === "string" &&
     typeof key.created_by === "string" &&
     (key.model_id_format === "prefixed" || key.model_id_format === "flat") &&
+    (key.model_access_mode === "all" || key.model_access_mode === "restricted") &&
     typeof key.enabled === "boolean" &&
     isOptionalNumber(key.expires_at_unix) &&
     isRustClientAccessSchedule(key.access_schedule) &&
