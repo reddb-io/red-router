@@ -76,7 +76,7 @@ struct ModelsPage {
     next: Option<(&'static str, String)>,
 }
 
-fn parse_models(body: &[u8]) -> Result<ModelsPage, &'static str> {
+fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &'static str> {
     let value: serde_json::Value =
         serde_json::from_slice(body).map_err(|_| "invalid_models_response")?;
     let rows = value
@@ -95,6 +95,11 @@ fn parse_models(body: &[u8]) -> Result<ModelsPage, &'static str> {
             .or_else(|| row.get("model").and_then(serde_json::Value::as_str))
             .or_else(|| row.get("name").and_then(serde_json::Value::as_str))
             .ok_or("invalid_models_response")?;
+        let id = if protocol == ProviderProtocol::Gemini {
+            id.strip_prefix("models/").unwrap_or(id)
+        } else {
+            id
+        };
         if id.is_empty() || id.len() > 256 || id.trim() != id || id.chars().any(char::is_control) {
             return Err("invalid_models_response");
         }
@@ -368,7 +373,7 @@ impl ControlPlane {
                 }
                 body.extend_from_slice(&chunk);
             }
-            let page = parse_models(&body)?;
+            let page = parse_models(&body, live.protocol)?;
             for model in page.models {
                 all_models.entry(model.id.clone()).or_insert(model);
             }
@@ -592,18 +597,44 @@ mod tests {
             assert!(models_url(upstream, path).is_err());
         }
         assert_eq!(default_path("https://example.com/custom/infer"), None);
-        let models = parse_models(br#"{"data":[{"id":"b","context_length":123,"secret":"ignored"},{"id":"a"},{"id":"a"}]}"#).unwrap();
+        let models = parse_models(br#"{"data":[{"id":"b","context_length":123,"secret":"ignored"},{"id":"a"},{"id":"a"}]}"#, ProviderProtocol::OpenAi).unwrap();
+        assert_eq!(
+            parse_models(
+                br#"{"models":[{"name":"models/gemini"}]}"#,
+                ProviderProtocol::Gemini
+            )
+            .unwrap()
+            .models[0]
+                .id,
+            "gemini"
+        );
+        assert!(parse_models(
+            br#"{"models":[{"name":"models/"}]}"#,
+            ProviderProtocol::Gemini
+        )
+        .is_err());
         assert_eq!(models.models.len(), 2);
         assert_eq!(models.models[0].id, "a");
         assert!(!serde_json::to_string(&models.models)
             .unwrap()
             .contains("secret"));
-        assert!(parse_models(br#"{"error":{"message":"secret"}}"#).is_err());
-        assert!(parse_models(br#"{"data":[{"id":"bad\nmodel"}]}"#).is_err());
+        assert!(parse_models(
+            br#"{"error":{"message":"secret"}}"#,
+            ProviderProtocol::OpenAi
+        )
+        .is_err());
+        assert!(parse_models(
+            br#"{"data":[{"id":"bad\nmodel"}]}"#,
+            ProviderProtocol::OpenAi
+        )
+        .is_err());
         assert_eq!(
-            parse_models(br#"{"models":[{"name":"models/gemini","inputTokenLimit":123}]}"#)
-                .unwrap()
-                .models[0]
+            parse_models(
+                br#"{"models":[{"name":"models/gemini","inputTokenLimit":123}]}"#,
+                ProviderProtocol::Gemini
+            )
+            .unwrap()
+            .models[0]
                 .context_length,
             Some(123)
         );
