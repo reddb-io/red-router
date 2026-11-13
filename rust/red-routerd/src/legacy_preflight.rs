@@ -67,6 +67,8 @@ pub struct PricingImport {
 pub struct SyncedModelStage {
     pub staged: u64,
     pub already_present: u64,
+    pub visibility_staged: u64,
+    pub visibility_already_present: u64,
 }
 
 /// Preserve the original connection-keyed model inventories without activating
@@ -108,8 +110,10 @@ pub async fn stage_synced_models(
             let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'")
                 .fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination schema")?;
             if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
-            sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_synced_model_records (legacy_key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_synced_model_records (legacy_key TEXT PRIMARY KEY, value TEXT)")
                 .execute(&mut *target).await.map_err(|_| "cannot initialize synced model staging")?;
+            sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_model_visibility_records (namespace TEXT NOT NULL, legacy_key TEXT NOT NULL, value TEXT, PRIMARY KEY(namespace,legacy_key))")
+                .execute(&mut *target).await.map_err(|_| "cannot initialize legacy model visibility staging")?;
             let mut rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='syncedAvailableModels' ORDER BY key")
                 .fetch(&mut *snapshot);
             let mut staged = 0_u64;
@@ -118,24 +122,51 @@ pub async fn stage_synced_models(
             while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy synced models")? {
                 if staged + already_present >= 10_000 { return Err("too many legacy synced model inventories"); }
                 let key: String = row.try_get("key").map_err(|_| "invalid legacy synced model inventory")?;
-                let value: String = row.try_get("value").map_err(|_| "invalid legacy synced model inventory")?;
-                if key.is_empty() || key.len() > 512 || key.chars().any(char::is_control) || value.len() > 16 * 1024 * 1024 {
+                let value: Option<String> = row.try_get("value").map_err(|_| "invalid legacy synced model inventory")?;
+                let value_size = value.as_ref().map_or(0, String::len);
+                if key.is_empty() || key.len() > 512 || key.chars().any(char::is_control) || value_size > 16 * 1024 * 1024 {
                     return Err("invalid legacy synced model inventory");
                 }
-                total_bytes = total_bytes.checked_add(value.len()).ok_or("legacy synced models are too large")?;
+                total_bytes = total_bytes.checked_add(value_size).ok_or("legacy synced models are too large")?;
                 if total_bytes > 64 * 1024 * 1024 { return Err("legacy synced models are too large"); }
                 let inserted = sqlx::query("INSERT INTO redrouter_legacy_synced_model_records (legacy_key,value) VALUES (?,?) ON CONFLICT(legacy_key) DO NOTHING")
                     .bind(&key).bind(&value).execute(&mut *target).await.map_err(|_| "cannot stage legacy synced models")?.rows_affected();
                 if inserted == 1 {
                     staged += 1;
                 } else {
-                    let existing: String = sqlx::query_scalar("SELECT value FROM redrouter_legacy_synced_model_records WHERE legacy_key=?")
+                    let existing: Option<String> = sqlx::query_scalar("SELECT value FROM redrouter_legacy_synced_model_records WHERE legacy_key=?")
                         .bind(&key).fetch_one(&mut *target).await.map_err(|_| "cannot verify staged synced models")?;
                     if existing != value { return Err("destination contains conflicting synced models; no rows staged"); }
                     already_present += 1;
                 }
             }
-            Ok(SyncedModelStage { staged, already_present })
+            drop(rows);
+            // Hidden decisions live separately from synced model lists. Keep
+            // both namespaces intact so future adoption can honor precedence.
+            let mut visibility = sqlx::query("SELECT namespace,key,value FROM key_value WHERE namespace IN ('customModels','modelCompatOverrides') ORDER BY namespace,key")
+                .fetch(&mut *snapshot);
+            let mut visibility_staged = 0_u64;
+            let mut visibility_already_present = 0_u64;
+            while let Some(row) = visibility.try_next().await.map_err(|_| "cannot read legacy model visibility")? {
+                if visibility_staged + visibility_already_present >= 10_000 { return Err("too many legacy model visibility records"); }
+                let namespace: String = row.try_get("namespace").map_err(|_| "invalid legacy model visibility")?;
+                let key: String = row.try_get("key").map_err(|_| "invalid legacy model visibility")?;
+                let value: Option<String> = row.try_get("value").map_err(|_| "invalid legacy model visibility")?;
+                let value_size = value.as_ref().map_or(0, String::len);
+                if key.is_empty() || key.len() > 512 || key.chars().any(char::is_control) || value_size > 16 * 1024 * 1024 { return Err("invalid legacy model visibility"); }
+                total_bytes = total_bytes.checked_add(value_size).ok_or("legacy model metadata is too large")?;
+                if total_bytes > 64 * 1024 * 1024 { return Err("legacy model metadata is too large"); }
+                let inserted = sqlx::query("INSERT INTO redrouter_legacy_model_visibility_records (namespace,legacy_key,value) VALUES (?,?,?) ON CONFLICT(namespace,legacy_key) DO NOTHING")
+                    .bind(&namespace).bind(&key).bind(&value).execute(&mut *target).await.map_err(|_| "cannot stage legacy model visibility")?.rows_affected();
+                if inserted == 1 { visibility_staged += 1; }
+                else {
+                    let existing: Option<String> = sqlx::query_scalar("SELECT value FROM redrouter_legacy_model_visibility_records WHERE namespace=? AND legacy_key=?")
+                        .bind(&namespace).bind(&key).fetch_one(&mut *target).await.map_err(|_| "cannot verify staged model visibility")?;
+                    if existing != value { return Err("destination contains conflicting model visibility; no rows staged"); }
+                    visibility_already_present += 1;
+                }
+            }
+            Ok(SyncedModelStage { staged, already_present, visibility_staged, visibility_already_present })
         }.await;
         match result {
             Ok(report) => {

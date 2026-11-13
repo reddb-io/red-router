@@ -124,7 +124,7 @@ async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() 
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT); INSERT INTO key_value VALUES('syncedAvailableModels','provider:z','[{\"id\":\"old\",\"future\":true}]');").execute(&mut legacy).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT); INSERT INTO key_value VALUES('syncedAvailableModels','provider:z','[{\"id\":\"old\",\"future\":true}]'),('syncedAvailableModels','provider:null',NULL),('modelCompatOverrides','provider','[{\"id\":\"old\",\"isHidden\":true}]'),('customModels','provider-null',NULL);").execute(&mut legacy).await.unwrap();
     legacy.close().await.unwrap();
     SqliteConnection::connect_with(
         &SqliteConnectOptions::new()
@@ -140,11 +140,19 @@ async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() 
     let first = legacy_preflight::stage_synced_models(&source, &destination)
         .await
         .unwrap();
-    assert_eq!((first.staged, first.already_present), (1, 0));
+    assert_eq!((first.staged, first.already_present), (2, 0));
+    assert_eq!(
+        (first.visibility_staged, first.visibility_already_present),
+        (2, 0)
+    );
     let repeat = legacy_preflight::stage_synced_models(&source, &destination)
         .await
         .unwrap();
-    assert_eq!((repeat.staged, repeat.already_present), (0, 1));
+    assert_eq!((repeat.staged, repeat.already_present), (0, 2));
+    assert_eq!(
+        (repeat.visibility_staged, repeat.visibility_already_present),
+        (0, 2)
+    );
     assert_eq!(tokio::fs::read(&source).await.unwrap(), original);
     let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
@@ -159,7 +167,7 @@ async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() 
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
             .await
             .unwrap();
-    let rows: Vec<(String, String)> = sqlx::query_as(
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT legacy_key,value FROM redrouter_legacy_synced_model_records ORDER BY legacy_key",
     )
     .fetch_all(&mut result)
@@ -167,11 +175,17 @@ async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() 
     .unwrap();
     assert_eq!(
         rows,
-        vec![(
-            "provider:z".to_owned(),
-            "[{\"id\":\"old\",\"future\":true}]".to_owned()
-        )]
+        vec![
+            ("provider:null".to_owned(), None),
+            (
+                "provider:z".to_owned(),
+                Some("[{\"id\":\"old\",\"future\":true}]".to_owned())
+            )
+        ]
     );
+    let visibility: String = sqlx::query_scalar("SELECT value FROM redrouter_legacy_model_visibility_records WHERE namespace='modelCompatOverrides' AND legacy_key='provider'")
+        .fetch_one(&mut result).await.unwrap();
+    assert_eq!(visibility, "[{\"id\":\"old\",\"isHidden\":true}]");
     result.close().await.unwrap();
 }
 

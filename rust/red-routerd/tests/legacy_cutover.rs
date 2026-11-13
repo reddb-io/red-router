@@ -94,6 +94,7 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     assert_eq!(report.model_aliases.imported, 1);
     assert_eq!(report.synced_models.staged, 1);
     assert_eq!(report.synced_models.already_present, 0);
+    assert_eq!(report.synced_models.visibility_staged, 1);
     assert!(report.activation_required);
     assert!(report.follow_up.iter().any(|item| item.contains("aliases")));
     assert!(report
