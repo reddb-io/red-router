@@ -12208,7 +12208,8 @@ fn validate_provider(value: &str) -> Result<(), &'static str> {
 
 pub(crate) fn validate_provider_label(value: &str) -> Result<(), &'static str> {
     // Match the legacy Zod/HTML limit (UTF-16 units), not UTF-8 bytes.
-    if value.is_empty() || value.encode_utf16().count() > 200 || value.chars().any(char::is_control) {
+    if value.is_empty() || value.encode_utf16().count() > 200 || value.chars().any(char::is_control)
+    {
         return Err("provider connection label must be 1-200 characters");
     }
     Ok(())
