@@ -6805,7 +6805,22 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .await
             .unwrap()
             .status(),
-        503
+        200
+    );
+    // Removing the combo does not make the proxy unready while permitted
+    // provider/model routes remain available.
+    assert_eq!(
+        chat_model(
+            &client,
+            &restarted_base,
+            RUST_CLIENT_KEY,
+            "openai-compatible/upstream-model"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "combo-second"
     );
     assert_eq!(
         chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo")
