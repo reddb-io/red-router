@@ -77,7 +77,7 @@ Missing surface is based on the registered production router, not a claim that n
 | UI-22 | P2 / XL | Conductor / orchestration | Missing surface | Workflow DAG/task state, recovery after restart, concurrency, logs and permissions. |
 | UI-23 | P2 / L | Agent bridge | Missing surface | Configured bridges, connection lifecycle, protocol mapping, access controls and diagnosis. |
 | UI-24 | P2 / XL | Plugins | Missing surface | Manifest/installation/lifecycle/permissions with extension boundaries; do not execute arbitrary frontend plugins with backend privileges. |
-| UI-25 | P1 / M | Pricing overrides | Partial; custom model editor in Models | Tenant-scoped input/output/cache/reasoning/audio token prices now persist and feed native metering. CI pending for backend/browser. Dedicated pricing navigation, sync/source provenance, all legacy pricing rules and conflict-safe import remain open; catalog list prices alone are insufficient. |
+| UI-25 | P1 / M | Pricing overrides | Partial; custom model editor in Models | Tenant-scoped input/output/cache/reasoning/audio token prices now persist and feed native metering. SPA/browser checks passed; full backend acceptance remains pending. Dedicated pricing navigation, sync/source provenance, all legacy pricing rules and conflict-safe import remain open; catalog list prices alone are insufficient. |
 | UI-26 | P1 / M | Provider quota view | Partial; `/dashboard/quota` → Resilience | Restore account/model windows, auto-refresh settings and quota sharing semantics beyond shared monetary budgets. |
 | UI-27 | P1 / L | Request/proxy/console logs | Partial only for usage aggregate | Bounded searchable records, request detail, redaction, retention and live tail. No infinite memory buffers. |
 | UI-28 | P1 / L | Timeline / conversations / activity | Missing UI; activity currently aggregate usage | Reconstruct correlated requests/messages with permission-aware payload retention and deletion. |
@@ -489,3 +489,11 @@ acceptance remain pending. The local preview serves backend `97590b547` (same
 application Rust code) and SPA `e802f95ac`; `/healthz` and the HTML model deep link
 respond 200, while anonymous model administration returns 401. No live upstream
 provider was exercised.
+
+The corrected application passed real-browser CI at `e802f95ac`:
+[run 43421951368](https://github.com/reddb-io/red-router/actions/runs/43421951368).
+This includes custom model create/reload/edit/zero-price/delete against the Rust
+server. Product checks ([43421637750](https://github.com/reddb-io/red-router/actions/runs/43421637750))
+and UI ([43421642960](https://github.com/reddb-io/red-router/actions/runs/43421642960))
+also passed. Full Rust acceptance is still pending the unit-fixture correction
+and subsequent integration/benchmark stages; browser success does not close that gate.
