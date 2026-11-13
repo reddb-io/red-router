@@ -2,6 +2,8 @@
 pub use crate::policy::AccessScheduleConfig;
 #[path = "credential_crypto.rs"]
 mod credential_crypto;
+#[path = "model_aliases.rs"]
+pub mod model_aliases;
 #[path = "provider_discovery.rs"]
 pub mod provider_discovery;
 #[path = "provider_models.rs"]
@@ -149,6 +151,8 @@ UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_con
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
 UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
+UNION ALL SELECT 'model-alias', id, revision, 0 FROM redrouter_control_model_aliases
+UNION ALL SELECT 'model-alias-state', id, 1, 0 FROM redrouter_model_alias_state
 UNION ALL SELECT 'provider-node-binding', record_id, revision, 0 FROM redrouter_control_provider_node_bindings
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
@@ -183,6 +187,7 @@ struct Inner {
     oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
     provider_models: RwLock<Option<Arc<provider_models::ModelOverrides>>>,
+    model_aliases: RwLock<Option<Arc<model_aliases::AliasSnapshot>>>,
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
     catalog_source: reqwest::Url,
@@ -2104,6 +2109,7 @@ impl ControlPlane {
             _ => None,
         };
         let provider_models = provider_models::ModelOverrides::load(&database).await?;
+        let model_aliases = model_aliases::AliasSnapshot::load(&database).await?;
         let bundled_catalog = crate::catalog::bundled_catalog()?;
         let stored_catalog = database.model_catalog_snapshot().await?;
         let (catalog, source, catalog_revision, rejected_revision, catalog_error) =
@@ -2175,6 +2181,7 @@ impl ControlPlane {
         };
         let plane = Self(Arc::new(Inner {
             provider_models: RwLock::new(Some(Arc::new(provider_models))),
+            model_aliases: RwLock::new(Some(Arc::new(model_aliases))),
             database,
             current: RwLock::new(None),
             clients: RwLock::new(ClientSnapshot::Unavailable),
@@ -2341,6 +2348,11 @@ impl ControlPlane {
         };
         if *self.0.provider_snapshot_signature.read().await == latest {
             return Ok(());
+        }
+        if let Err(error) = self.refresh_model_aliases().await {
+            *self.0.current.write().await = None;
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
         }
         if let Err(error) = self.refresh_provider_models().await {
             *self.0.current.write().await = None;
@@ -6796,6 +6808,9 @@ impl ControlPlane {
         enforced_tenant: Option<&str>,
     ) -> Result<ComboView, &'static str> {
         validate_id(id)?;
+        if id.starts_with("model-alias-") {
+            return Err("Reserved model alias route identifier");
+        }
         validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let providers = self.0.database.providers().await?;
@@ -6809,6 +6824,17 @@ impl ControlPlane {
             .unwrap_or("red")
             .to_owned();
         validate_id(&tenant_id)?;
+        if self
+            .0
+            .database
+            .model_aliases()
+            .await?
+            .iter()
+            .any(|alias| alias.tenant_id == tenant_id && alias.alias == id)
+        {
+            return Err("A model alias already exists with this name");
+        }
+
         if existing
             .as_ref()
             .is_some_and(|combo| combo.tenant_id != tenant_id)
@@ -8720,6 +8746,14 @@ impl ControlPlane {
             signature_i64(&mut digest, record.generation);
             signature_i64(&mut digest, record.revision);
         }
+        signature_i64(
+            &mut digest,
+            i64::from(self.0.database.alias_routing_configured().await?),
+        );
+        for alias in self.0.database.model_aliases().await? {
+            signature_text(&mut digest, &alias.id);
+            signature_i64(&mut digest, alias.revision);
+        }
         for model in self.0.database.provider_models().await? {
             signature_text(&mut digest, &model.id);
             signature_i64(&mut digest, model.revision);
@@ -8955,12 +8989,22 @@ impl ControlPlane {
     }
 
     async fn refresh_routes(&self) -> Result<(), &'static str> {
-        let records = self.0.database.combos().await?;
-        if records.is_empty() {
+        let mut records = self.0.database.combos().await?;
+        let providers = self.0.database.providers().await?;
+        let aliases = self.model_aliases_snapshot().await?;
+        for alias in &aliases.records {
+            if records.iter().any(|combo| {
+                combo.id == alias.id
+                    || (combo.tenant_id == alias.tenant_id && combo.id == alias.alias)
+            }) {
+                return Err("Model alias conflicts with a combo");
+            }
+        }
+        records.extend(aliases.virtual_combos(&providers)?);
+        if records.is_empty() && !aliases.configured {
             *self.0.routes.write().await = RouteSnapshot::Legacy;
             return Ok(());
         }
-        let providers = self.0.database.providers().await?;
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
@@ -8978,13 +9022,17 @@ impl ControlPlane {
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
             let view = combo_view(record)?;
-            let concrete_targets = resolve_nested_combo_targets(
-                &record.id,
-                &record.tenant_id,
-                &record.protocol,
-                &view.targets,
-                &records,
-            )?;
+            let concrete_targets = if aliases.public_name(&record.id).is_some() {
+                view.targets.clone()
+            } else {
+                resolve_nested_combo_targets(
+                    &record.id,
+                    &record.tenant_id,
+                    &record.protocol,
+                    &view.targets,
+                    &records,
+                )?
+            };
             let auto_weights =
                 view.auto
                     .as_ref()
@@ -9054,6 +9102,9 @@ impl ControlPlane {
                     .get(&provider.id)
                     .is_none_or(|provider| !protocol.accepts_provider(provider.protocol))
                 {
+                    if aliases.public_name(&record.id).is_some() {
+                        continue;
+                    }
                     return Err("combo provider protocol changed");
                 }
                 let quota = self.quota_state(&provider.id).await;
@@ -9086,6 +9137,9 @@ impl ControlPlane {
                 ));
             }
             if targets.is_empty() {
+                if aliases.public_name(&record.id).is_some() {
+                    continue;
+                }
                 return Err("combo has no enabled provider targets");
             }
             let strategy = match record.strategy.as_str() {
@@ -9127,6 +9181,7 @@ impl ControlPlane {
             routes.insert(
                 record.id.clone(),
                 Arc::new(ModelRoute {
+                    public_model_alias: aliases.public_name(&record.id).map(Arc::from),
                     tenant_id: Arc::from(record.tenant_id.clone()),
                     targets,
                     protocol,

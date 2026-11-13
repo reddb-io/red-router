@@ -5,6 +5,9 @@
 #[path = "provider_models_storage.rs"]
 mod provider_models_storage;
 pub use provider_models_storage::StoredProviderModel;
+#[path = "model_aliases_storage.rs"]
+mod model_aliases_storage;
+pub use model_aliases_storage::StoredModelAlias;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
@@ -773,6 +776,8 @@ impl Database {
                         provider_protocol_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
+                        model_aliases_storage::CREATE,
+                        model_aliases_storage::STATE,
                         provider_node_binding_storage::CREATE,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
@@ -903,6 +908,9 @@ impl Database {
                 db.remote_schema_query(provider_discovery_storage::CREATE)
                     .await?;
                 db.remote_schema_query(provider_protocol_storage::CREATE)
+                    .await?;
+                db.remote_schema_query(model_aliases_storage::STATE).await?;
+                db.remote_schema_query(model_aliases_storage::CREATE)
                     .await?;
                 db.remote_schema_query(provider_models_storage::CREATE)
                     .await?;
@@ -1037,6 +1045,8 @@ impl Database {
                     provider_protocol_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
+                    model_aliases_storage::CREATE,
+                    model_aliases_storage::STATE,
                     provider_node_binding_storage::CREATE,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
@@ -1082,6 +1092,10 @@ impl Database {
                         .map_err(|_| "cannot initialize database")?;
                 }
                 sqlx::query(provider_models_storage::INDEX)
+                    .execute(&pool)
+                    .await
+                    .map_err(|_| "cannot initialize provider model namespace")?;
+                sqlx::query(model_aliases_storage::INDEX)
                     .execute(&pool)
                     .await
                     .map_err(|_| "cannot initialize provider model namespace")?;

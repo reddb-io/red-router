@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-88 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+90 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -497,3 +497,32 @@ server. Product checks ([43421637750](https://github.com/reddb-io/red-router/act
 and UI ([43421642960](https://github.com/reddb-io/red-router/actions/runs/43421642960))
 also passed. Full Rust acceptance is still pending the unit-fixture correction
 and subsequent integration/benchmark stages; browser success does not close that gate.
+
+## Organization-owned model aliases (validation pending)
+
+PV-26 now has a native implementation for named provider/model routes: CRUD,
+revision-checked SQLite writes, an organization namespace, an editor in Models,
+and cached routing through enabled provider accounts. The same public name may
+belong to separate organizations without sharing destinations. Explicit target
+model blocks and provider restrictions win over alias grants; curated combo
+permissions do not grant direct aliases. The request uses the upstream model,
+while JSON and SSE replies retain the client's public name. Accounting continues
+to record the actual provider/model and request-time prices.
+
+Alias pools use a direct priority list rather than the eight-entry combo strategy
+deck. There is no new agent concurrency limit. A bounded compiled snapshot rejects
+more than 100,000 account/model associations instead of allocating indefinitely.
+Account order is currently stable by connection ID; legacy priority/group/rate
+settings are still separate gaps. Do not claim historical selection equivalence.
+
+Configuring aliases selects explicit routing. Removing the last alias retains
+that durable routing mode, including after restart and replica refresh, so an
+unknown model cannot fall through to a default provider. The schema adds alias
+records plus a routing-state marker; back up SQLite before downgrade.
+
+Tests cover duplicate names across organizations, target deny rules, curated-combo
+isolation, shared token quota admission, restart/replica refresh, stale edits and
+deletes, JSON/SSE public names, fragmented stream events and nine-account fallback.
+They are not accepted until CI passes. Legacy model/provider alias imports,
+managed alias provenance and sync pruning, alias-to-combo resolution, and historic
+account-selection precedence remain open.

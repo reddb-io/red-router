@@ -611,6 +611,29 @@ impl ClientPolicy {
             }
     }
 
+    /// Explicit aliases grant only their mapped destination. Curated combo grants
+    /// must not grant arbitrary direct models, and target deny rules always win.
+    pub(crate) fn model_alias_target_allowed(
+        &self,
+        alias: &str,
+        model: &str,
+        provider: Option<&str>,
+    ) -> bool {
+        let qualified = provider.map(|provider| format!("{provider}/{model}"));
+        self.route_allowed(alias)
+            && !self.model_blocked(model)
+            && qualified
+                .as_ref()
+                .is_none_or(|name| !self.model_blocked(name))
+            && self.allowed_models.as_ref().is_none_or(|patterns| {
+                self.model_matching.matches(patterns, alias)
+                    || self.model_matching.matches(patterns, model)
+                    || qualified
+                        .as_ref()
+                        .is_some_and(|name| self.model_matching.matches(patterns, name))
+            })
+    }
+
     pub(crate) fn target_allowed(&self, model: &str) -> bool {
         !self.model_blocked(model)
             && self

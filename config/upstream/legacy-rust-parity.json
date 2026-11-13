@@ -12,7 +12,7 @@
     "partialSpaRoutes": 35,
     "externalLinks": 2,
     "oldApiRouteFiles": 803,
-    "rustRegisteredPaths": 88,
+    "rustRegisteredPaths": 90,
     "samePathCandidates": 28
   },
   "pages": [
@@ -9286,6 +9286,21 @@
       "path": "/api/admin/combos",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "path": "/api/admin/model-aliases",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/api/admin/model-aliases/{id}",
+      "methods": [
+        "GET",
+        "PUT",
+        "DELETE"
       ]
     },
     {

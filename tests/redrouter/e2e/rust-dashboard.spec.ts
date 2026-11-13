@@ -130,6 +130,10 @@ test("playground sends a multi-turn conversation using the supplied client key",
 test("static dashboard uses Rust session and API routes", async ({ page, context }) => {
   const calls: Array<{ path: string; csrf: string | undefined }> = [];
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -432,6 +436,10 @@ test("static dashboard manages OIDC through Rust without exposing or clearing th
   let saved: Record<string, unknown> | undefined;
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -515,6 +523,10 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   let refreshes = 0;
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -604,6 +616,10 @@ test("catalog pagination, filtering, unknown prices and provider failure recover
     cost: { input: index },
   }));
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -666,6 +682,10 @@ test("static dashboard reads staged historical costs from the Rust API", async (
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   const queries: string[] = [];
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -736,6 +756,10 @@ test("global catalog search paginates on the server and keeps provider identity"
   }));
   let failNext = true;
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;
@@ -858,6 +882,10 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   };
   const writes: Record<string, unknown>[] = [];
   await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname === "/api/admin/model-aliases") {
+      await route.fulfill({ json: { aliases: [], total: 0, offset: 0, limit: 50 } });
+      return;
+    }
     if (new URL(route.request().url()).pathname === "/api/admin/provider-models") {
       await route.fulfill({ json: { models: [], total: 0, offset: 0, limit: 50 } });
       return;

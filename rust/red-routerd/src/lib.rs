@@ -17,6 +17,7 @@ pub mod legacy_keys;
 pub mod legacy_preflight;
 pub mod legacy_providers;
 pub mod legacy_quota;
+mod model_alias_response;
 mod model_permissions;
 mod native_usage;
 mod oidc;
@@ -455,6 +456,7 @@ impl TargetQuota {
 }
 
 pub(crate) struct ModelRoute {
+    public_model_alias: Option<Arc<str>>,
     tenant_id: Arc<str>,
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
@@ -600,6 +602,24 @@ struct ListedModel {
 }
 
 impl ModelRoute {
+    fn target_allowed(
+        &self,
+        policy: &policy::ClientPolicy,
+        public_model: &str,
+        target: &ModelTarget,
+    ) -> bool {
+        let model = target.product_model.as_deref().unwrap_or(&target.model);
+        let provider = if target.product_model.is_none() {
+            target.provider_name.as_deref()
+        } else {
+            None
+        };
+        if self.public_model_alias.is_some() {
+            policy.model_alias_target_allowed(public_model, model, provider)
+        } else {
+            policy.combo_provider_target_allowed(public_model, model, provider)
+        }
+    }
     fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
         match self.strategy {
             RouteStrategy::Priority
@@ -1942,6 +1962,7 @@ impl ProxyState {
                 .insert(
                     alias.to_string(),
                     Arc::new(ModelRoute {
+                        public_model_alias: None,
                         tenant_id: Arc::from("red"),
                         targets,
                         protocol,
@@ -2356,6 +2377,16 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/admin/combos", get(control_plane::list_combos))
         .route(
+            "/api/admin/model-aliases",
+            get(control_plane::model_aliases::list).post(control_plane::model_aliases::create),
+        )
+        .route(
+            "/api/admin/model-aliases/{id}",
+            get(control_plane::model_aliases::get_one)
+                .put(control_plane::model_aliases::put)
+                .delete(control_plane::model_aliases::remove),
+        )
+        .route(
             "/api/admin/provider-models",
             get(control_plane::provider_models::list).post(control_plane::provider_models::create),
         )
@@ -2703,8 +2734,9 @@ fn listed_models(
 
     for id in route_ids {
         let route = &routes[id];
+        let id = route.public_model_alias.as_deref().unwrap_or(id);
         if !policy.tenant_allowed(&route.tenant_id)
-            || !policy.combo_allowed(id)
+            || (route.public_model_alias.is_none() && !policy.combo_allowed(id))
             || !policy.endpoint_allowed(route_category(route.protocol))
         {
             continue;
@@ -2713,15 +2745,8 @@ fn listed_models(
             .targets
             .iter()
             .filter(|target| {
-                policy.combo_provider_target_allowed(
-                    id,
-                    target.product_model.as_deref().unwrap_or(&target.model),
-                    if target.product_model.is_none() {
-                        target.provider_name.as_deref()
-                    } else {
-                        None
-                    },
-                ) && policy.provider_allowed(target.provider_id.as_deref())
+                route.target_allowed(policy, id, target)
+                    && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
@@ -2823,10 +2848,14 @@ fn listed_models(
             }
         }
         models.push(ListedModel {
-            id: id.clone(),
+            id: id.to_owned(),
             object: "model",
             created,
-            owned_by: "combo",
+            owned_by: if route.public_model_alias.is_some() {
+                "provider"
+            } else {
+                "combo"
+            },
             r#type: route_model_type(route.protocol),
             context_length: context_lengths.into_iter().min(),
             max_input_tokens: max_input_tokens.into_iter().min(),
@@ -5593,12 +5622,42 @@ async fn proxy_request(
     // affinity, relay, quota and accounting use it. Keep the original for policy checks.
     let requested_model = model.clone();
     let has_route = |name: &str| {
-        control_routes
-            .as_ref()
-            .is_some_and(|routes| routes.contains_key(name))
-            || state.routes.contains_key(name)
+        control_routes.as_ref().is_some_and(|routes| {
+            routes
+                .get(name)
+                .is_some_and(|route| policy.tenant_allowed(&route.tenant_id))
+        }) || state
+            .routes
+            .get(name)
+            .is_some_and(|route| policy.tenant_allowed(&route.tenant_id))
     };
-    let model = if !has_route(&model) {
+    let alias_route =
+        if !has_route(&model) && state.product_combo.is_none() && !state.product_client_keys {
+            match &state.control_plane {
+                Some(control) => match control.model_aliases_snapshot().await {
+                    Ok(aliases) => aliases
+                        .resolve(
+                            policy
+                                .identity()
+                                .map_or("red", |identity| identity.tenant_id.as_ref()),
+                            &model,
+                        )
+                        .map(str::to_owned),
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Model alias routing unavailable",
+                        )
+                    }
+                },
+                None => None,
+            }
+        } else {
+            None
+        };
+    let model = if let Some(alias) = alias_route {
+        alias
+    } else if !has_route(&model) {
         model
             .strip_prefix("combo/")
             .filter(|name| has_route(name))
@@ -5612,8 +5671,18 @@ async fn proxy_request(
         .and_then(|routes| routes.get(&model))
         .or_else(|| state.routes.get(&model))
         .filter(|route| policy.tenant_allowed(&route.tenant_id));
+    if route.is_some_and(|route| {
+        route
+            .public_model_alias
+            .as_deref()
+            .is_some_and(|name| name != requested_model)
+    }) {
+        return error(StatusCode::NOT_FOUND, "Unknown model alias");
+    }
     if state.product_combo.is_none()
-        && !if route.is_some() {
+        && !if route.is_some_and(|route| route.public_model_alias.is_some()) {
+            policy.route_allowed(&requested_model)
+        } else if route.is_some() {
             policy.combo_allowed(&requested_model)
         } else {
             policy.route_allowed(&model)
@@ -5688,15 +5757,7 @@ async fn proxy_request(
                 (if state.product_combo.is_some() {
                     policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
                 } else {
-                    policy.combo_provider_target_allowed(
-                        &model,
-                        target.product_model.as_deref().unwrap_or(&target.model),
-                        if target.product_model.is_none() {
-                            target.provider_name.as_deref()
-                        } else {
-                            None
-                        },
-                    )
+                    route.target_allowed(policy, &requested_model, target)
                 }) && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect()
@@ -5846,8 +5907,11 @@ async fn proxy_request(
     let cache_affinity_key = route
         .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
         .and_then(|_| prompt_cache_affinity_key(&parsed));
-    let mut attempt_order =
-        route.map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
+    // Alias pools are direct priority lists, not the fixed-size combo strategy deck.
+    let direct_alias = route.is_some_and(|route| route.public_model_alias.is_some());
+    let mut attempt_order = route
+        .filter(|route| route.public_model_alias.is_none())
+        .map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
     if let Some(preparation) = fusion_preparation {
         attempt_order = Some(preparation.attempt_order);
     }
@@ -5952,7 +6016,11 @@ async fn proxy_request(
                 continue;
             }
         }
-        let target = attempt_order.map(|order| eligible[order[offset]]);
+        let target = if direct_alias {
+            eligible.get(offset).copied()
+        } else {
+            attempt_order.map(|order| eligible[order[offset]])
+        };
         if let Some(combo) = &state.product_combo {
             let Some(target) = target else { break };
             let Some(connection) = &target.product_connection else {
@@ -6932,6 +7000,7 @@ async fn proxy_request(
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
+    let response_alias = route.and_then(|route| route.public_model_alias.as_deref());
     if final_antigravity_translated && response.status().is_success() {
         let signature_context = final_signature_context;
         let Some(response) = response.into_streaming() else {
@@ -7002,7 +7071,7 @@ async fn proxy_request(
                 .headers_mut()
                 .insert("x-accel-buffering", HeaderValue::from_static("no"));
             attach_served_model(&mut result, final_served_model.as_ref());
-            return result;
+            return model_alias_response::rewrite(result, response_alias).await;
         }
         let read = async {
             let mut bytes = Vec::new();
@@ -7044,7 +7113,7 @@ async fn proxy_request(
         }
         let mut result = (StatusCode::OK, Json(value)).into_response();
         attach_served_model(&mut result, final_served_model.as_ref());
-        return result;
+        return model_alias_response::rewrite(result, response_alias).await;
     }
     if final_translated && response.status().is_success() {
         let Some(response) = response.into_streaming() else {
@@ -7085,7 +7154,7 @@ async fn proxy_request(
             )
                 .into_response();
             attach_served_model(&mut result, final_served_model.as_ref());
-            return result;
+            return model_alias_response::rewrite(result, response_alias).await;
         }
         let read = async {
             let mut bytes = Vec::new();
@@ -7104,7 +7173,7 @@ async fn proxy_request(
             Ok(Ok(value)) => {
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
-                result
+                model_alias_response::rewrite(result, response_alias).await
             }
             _ => error(StatusCode::BAD_GATEWAY, "Invalid Anthropic response"),
         };
@@ -7197,7 +7266,7 @@ async fn proxy_request(
                     .headers_mut()
                     .insert("x-accel-buffering", HeaderValue::from_static("no"));
                 attach_served_model(&mut result, final_served_model.as_ref());
-                return result;
+                return model_alias_response::rewrite(result, response_alias).await;
             }
             let read = async {
                 let mut bytes = Vec::new();
@@ -7315,7 +7384,7 @@ async fn proxy_request(
                     .insert(header::CONTENT_TYPE, content_type);
             }
             attach_served_model(&mut result, final_served_model.as_ref());
-            return result;
+            return model_alias_response::rewrite(result, response_alias).await;
         }
     }
     let status = response.status();
@@ -7342,7 +7411,7 @@ async fn proxy_request(
     *result.status_mut() = status;
     *result.headers_mut() = headers;
     attach_served_model(&mut result, final_served_model.as_ref());
-    result
+    model_alias_response::rewrite(result, response_alias).await
 }
 
 async fn record_route_outcome(

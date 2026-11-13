@@ -20,7 +20,7 @@ The prioritized behavioral backlog is [LEGACY_RUST_PARITY_BACKLOG.md](LEGACY_RUS
   "partialSpaRoutes": 35,
   "externalLinks": 2,
   "oldApiRouteFiles": 803,
-  "rustRegisteredPaths": 88,
+  "rustRegisteredPaths": 90,
   "samePathCandidates": 28
 }
 ```

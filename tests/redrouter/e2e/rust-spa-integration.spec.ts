@@ -206,3 +206,32 @@ test("custom model metadata is created, edited and removed through the productio
   await page.reload();
   await expect(page.getByText("Browser custom model", { exact: true })).toHaveCount(0);
 });
+
+test("model aliases persist target changes and removal through the SPA", async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.getByLabel("Administrator key").fill(ADMIN_KEY);
+  await page.getByRole("button", { name: "Sign in locally" }).click();
+  await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.getByRole("link", { name: "Models", exact: true }).click();
+  await page.getByRole("button", { name: "Add model alias", exact: true }).click();
+  await page.getByLabel("Client model name", { exact: true }).fill("browser-friendly");
+  await page.getByLabel("Alias provider", { exact: true }).fill("private-api");
+  await page.getByLabel("Upstream model ID", { exact: true }).fill("upstream-one");
+  await page.getByRole("button", { name: "Save model alias", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Model alias saved.");
+  await page.reload();
+  await expect(page.getByText("browser-friendly", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit alias", exact: true }).click();
+  await expect(page.getByLabel("Upstream model ID", { exact: true })).toHaveValue("upstream-one");
+  await page.getByLabel("Upstream model ID", { exact: true }).fill("upstream-two");
+  await page.getByRole("button", { name: "Save model alias", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Model alias saved.");
+  await page.reload();
+  await expect(page.getByText("upstream-two", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Remove alias", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Model alias removed.");
+  await page.reload();
+  await expect(page.getByText("browser-friendly", { exact: true })).toHaveCount(0);
+});
