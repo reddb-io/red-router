@@ -33,7 +33,7 @@ const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciph
 // Read the provider and its matching priority in one database snapshot. This
 // avoids loading historical priority revisions into memory and prevents an
 // update between separate reads from temporarily changing the account order.
-const LIST_PROVIDERS_SQL: &str = "SELECT v.id,v.provider,v.upstream_url,v.credential_ciphertext,v.enabled,v.revision,COALESCE(p.priority,0) AS priority FROM redrouter_control_providers v LEFT JOIN redrouter_control_provider_priorities p ON p.record_id = v.id || ':' || CAST(v.revision AS TEXT) ORDER BY v.revision DESC,v.id ASC";
+const LIST_PROVIDERS_SQL: &str = "SELECT v.id,v.provider,v.upstream_url,v.credential_ciphertext,v.enabled,v.revision,COALESCE(p.account_rank,0) AS account_rank FROM redrouter_control_providers v LEFT JOIN redrouter_control_provider_priorities p ON p.record_id = v.id || ':' || CAST(v.revision AS TEXT) ORDER BY v.revision DESC,v.id ASC";
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
@@ -5088,7 +5088,7 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
         node_id: None,
         protocol: "auto".to_owned(),
         priority: row
-            .try_get("priority")
+            .try_get("account_rank")
             .map_err(|_| "invalid provider priority")?,
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),

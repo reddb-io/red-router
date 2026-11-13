@@ -374,7 +374,7 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
             .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":key,"priority":priority}))
             .send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.json::<serde_json::Value>().await.unwrap()["priority"], priority);
+        assert_eq!(response.json::<serde_json::Value>().await.unwrap()["provider"]["priority"], priority);
     }
     let alias = client.post(format!("{base}/api/admin/model-aliases"))
         .bearer_auth(ADMIN_KEY)
@@ -397,7 +397,7 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
         .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"label":"renamed"}))
         .send().await.unwrap();
     assert_eq!(update.status(), StatusCode::OK);
-    assert_eq!(update.json::<serde_json::Value>().await.unwrap()["priority"], 1);
+    assert_eq!(update.json::<serde_json::Value>().await.unwrap()["provider"]["priority"], 1);
     let invalid = client.put(format!("{base}/api/admin/providers/z-account"))
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"priority":9007199254740992_i64}))

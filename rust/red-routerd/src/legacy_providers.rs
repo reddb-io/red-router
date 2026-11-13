@@ -272,7 +272,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         if priority != 0 {
-            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,priority,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
+            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
@@ -545,7 +545,7 @@ pub async fn import(
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         if priority != 0 {
-            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,priority,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
+            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership (provider_id,tenant_id,revision) VALUES (?,?,1)")
             .bind(id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write provider ownership")?;

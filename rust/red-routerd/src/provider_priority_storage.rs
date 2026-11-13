@@ -2,10 +2,10 @@
 use super::*;
 use std::collections::HashMap;
 
-pub(super) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_priorities (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, priority BIGINT NOT NULL, revision BIGINT NOT NULL)";
+pub(super) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_priorities (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, account_rank BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const SELECT: &str =
-    "SELECT provider_id,priority,revision FROM redrouter_control_provider_priorities";
-const UPSERT: &str = "INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,priority,revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET priority=$3";
+    "SELECT provider_id,account_rank,revision FROM redrouter_control_provider_priorities";
+const UPSERT: &str = "INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET account_rank=$3";
 const DELETE_REVISION: &str =
     "DELETE FROM redrouter_control_provider_priorities WHERE record_id=$1";
 const DELETE: &str = "DELETE FROM redrouter_control_provider_priorities WHERE provider_id=$1";
@@ -29,7 +29,7 @@ impl Database {
                             .try_get("revision")
                             .map_err(|_| "invalid provider priority")?;
                         let priority: i64 = row
-                            .try_get("priority")
+                            .try_get("account_rank")
                             .map_err(|_| "invalid provider priority")?;
                         Ok(((id, revision), priority))
                     })
@@ -62,7 +62,7 @@ impl Database {
                 };
                 let priority = match row
                     .iter()
-                    .find(|(column, _)| column.eq_ignore_ascii_case("priority"))
+                    .find(|(column, _)| column.eq_ignore_ascii_case("account_rank"))
                 {
                     Some((_, reddb_client::ValueOut::Integer(value))) => *value,
                     _ => return Err("invalid provider priority"),
