@@ -5793,6 +5793,9 @@ impl ControlPlane {
         if input.enabled {
             self.ensure_provider_protocol_compatible(id, tenant_id, live.protocol)
                 .await?;
+        } else {
+            self.ensure_provider_not_in_enabled_combo(id, tenant_id)
+                .await?;
         }
         let revision = revision()?;
         let ciphertext =
@@ -14442,6 +14445,10 @@ pub async fn put_provider(
         .await
     {
         Ok(provider) => Json(serde_json::json!({"provider":provider})).into_response(),
+        Err("provider is referenced by an enabled combo") => api_error(
+            StatusCode::CONFLICT,
+            "Provider is referenced by an enabled combo",
+        ),
         Err("provider protocol is incompatible with an enabled combo") => api_error(
             StatusCode::CONFLICT,
             "Provider protocol is incompatible with an enabled combo",

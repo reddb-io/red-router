@@ -64,6 +64,10 @@ async fn explicit_provider_protocol_survives_restart_and_protects_existing_combo
     input["api_key"] = "custom-provider-secret".into();
     assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&input).send().await.unwrap().status(), StatusCode::CONFLICT);
     assert_eq!(db.providers().await.unwrap()[0].protocol, "openai");
+    // PUT must not bypass the same enabled-combo protection as DELETE.
+    input["enabled"] = false.into();
+    assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&input).send().await.unwrap().status(), StatusCode::CONFLICT);
+    assert!(db.providers().await.unwrap()[0].enabled);
     // A second process reconstructs the same custom transport and compiled headers.
     let db2 = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
     let control2 = ControlPlane::new(db2, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
