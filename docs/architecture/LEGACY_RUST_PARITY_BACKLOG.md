@@ -556,8 +556,11 @@ conflicting row rolls back the complete destination transaction. Icon branding,
 node reset clocks, presets, media protocols and Claude Code compatibility remain
 explicit blockers rather than being silently discarded.
 
-This slice does not yet adopt or bind the matching `provider_connections` rows,
-so it does not complete PV-17/18 or the cutover. Rustify reports that the legacy
+The API-key importer now resolves the same concrete-id/sole-derived-type rules as
+the legacy connection API, binds the imported account to the tenant-owned
+definition and pins its protocol revision. The credential is re-encrypted and the
+account remains disabled until operator verification. Ambiguous and cross-tenant
+definitions fail the whole transaction. Rustify reports that the legacy
 provider-node dependency unit directly unblocks 207 units and 1,824 downstream;
-that is ordering evidence, not a parity claim. Native and migration tests are
-pending repository CI.
+that is ordering evidence, not a parity claim. Presets/media variants and full
+cutover acceptance remain open; native and migration tests are pending CI.

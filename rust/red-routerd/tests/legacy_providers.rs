@@ -118,6 +118,10 @@ async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers
         .execute(&mut input)
         .await
         .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id) VALUES ('gateway-account',?,'apikey','Gateway Account',1,?,'red')")
+        .bind(id).bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
@@ -162,6 +166,30 @@ async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers
     assert_eq!(
         decrypt_rust_ciphertext(&headers.ciphertext, &aad),
         r#"{"x-team":"red"}"#
+    );
+    db.close().await.unwrap();
+    let account = legacy_providers::import(&source, &dest, "gateway-account", STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!((account.imported, account.enabled), (1, false));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let account = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|provider| provider.id == "gateway-account")
+        .unwrap();
+    assert_eq!(account.node_id.as_deref(), Some(id));
+    assert_eq!(account.provider, "internal-gateway");
+    assert_eq!(account.protocol, "openai-responses");
+    assert_eq!(
+        account.upstream_url,
+        "https://gateway.example/v1/responses?api-version=2026-11-01"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&account.credential_ciphertext, "gateway-account"),
+        SECRET
     );
     db.close().await.unwrap();
     assert!(legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)

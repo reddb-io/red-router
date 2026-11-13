@@ -1360,7 +1360,6 @@ impl ProxyState {
         if !(upstream.scheme() == "https" || (upstream.scheme() == "http" && loopback))
             || !upstream.username().is_empty()
             || upstream.password().is_some()
-            || upstream.query().is_some()
             || upstream.fragment().is_some()
             || (!custom_path
                 && !upstream.path().ends_with(match protocol {

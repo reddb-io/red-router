@@ -13,7 +13,7 @@ Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 
 | Order | Requested capability | Complexity | State | Current acceptance gap |
 | ---: | --- | --- | --- | --- |
-| 1 | Reusable compatible providers, custom paths and model discovery | Medium-high | **In progress** | Native definitions, account bindings, encrypted headers and authenticated discovery exist. The legacy definition importer now preserves custom paths (including query strings) and headers transactionally, pending CI. Still bind/adopt legacy compatible accounts, implement presets/media variants and prove full cutover. |
+| 1 | Reusable compatible providers, custom paths and model discovery | Medium-high | **In progress** | Native definitions, account bindings, encrypted headers and authenticated discovery exist. Strict legacy import now preserves definitions, custom paths (including query strings), headers and disabled compatible-account bindings transactionally, pending CI. Still implement presets/media variants and prove full cutover. |
 | 2 | Custom models, aliases, context limits, capabilities and parameters | Medium-high | **Partial / P0 blocker** | Custom metadata and aliases exist. Fix quotas keyed by the public alias, import legacy model/alias rows, add parameter policies and prove routing/accounting semantics. |
 | 3 | Account priorities, groups, default model and provider queues/limits | High | **Open** | Implement the PV-02..09 selection/admission contracts without adding an arbitrary global agent cap; migrate and concurrency-test them. |
 | 4 | OAuth/CLI per executor | High | **Partial** | A small native OAuth set and strict staged adoption exist. Port and verify every supported legacy executor independently, including refresh/revoke and terminal account state. |
@@ -31,8 +31,8 @@ Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 
 ## Current execution order
 
-1. Finish item 1 by adopting and binding compatible-provider accounts to the
-   imported definitions, then validate the complete cutover path in CI.
+1. Finish item 1 by validating imported compatible-account bindings, then port
+   the remaining presets/media variants and prove the complete cutover path.
 2. Fix the item 2 public-alias quota/accounting blocker before enabling aliases.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.

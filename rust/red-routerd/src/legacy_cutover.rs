@@ -158,7 +158,7 @@ pub async fn migrate(
         activation_required: true,
         follow_up: vec![
             "adopt staged OAuth providers with their provider-specific command",
-            "bind imported compatible-provider accounts to their reusable definitions",
+            "import compatible-provider accounts by id to bind their reusable definitions",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

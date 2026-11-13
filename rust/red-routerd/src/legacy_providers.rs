@@ -1,5 +1,6 @@
-//! Offline staging of one simple legacy API-key provider. OAuth and routing
-//! metadata require separate migration and are intentionally refused.
+//! Offline staging and adoption of legacy provider accounts. Unsupported
+//! routing metadata is intentionally refused rather than silently discarded.
+use crate::storage::StoredProviderNode;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::path::Path;
 use zeroize::Zeroizing;
@@ -10,6 +11,72 @@ fn valid_uuid(value: &str) -> bool {
             8 | 13 | 18 | 23 => byte == b'-',
             _ => byte.is_ascii_hexdigit(),
         })
+}
+
+fn legacy_node_type(id: &str) -> &str {
+    let Some((prefix, suffix)) = id.rsplit_once('-') else {
+        return id;
+    };
+    if suffix.len() != 12 || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return id;
+    }
+    let Some((prefix, group)) = prefix.rsplit_once('-') else {
+        return id;
+    };
+    if group.len() != 4 || !group.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return id;
+    }
+    let Some((prefix, group)) = prefix.rsplit_once('-') else {
+        return id;
+    };
+    if group.len() != 4 || !group.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return id;
+    }
+    let Some((prefix, group)) = prefix.rsplit_once('-') else {
+        return id;
+    };
+    if group.len() != 4 || !group.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return id;
+    }
+    let Some((prefix, group)) = prefix.rsplit_once('-') else {
+        return id;
+    };
+    if group.len() == 8 && group.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        prefix
+    } else {
+        id
+    }
+}
+
+async fn compatible_node(
+    target: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    legacy_provider: &str,
+    tenant: &str,
+) -> Result<StoredProviderNode, &'static str> {
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT config_json FROM redrouter_control_provider_nodes ORDER BY id",
+    )
+    .fetch_all(&mut **target)
+    .await
+    .map_err(|_| "destination provider definition schema unavailable")?;
+    let mut candidates = Vec::new();
+    for document in rows {
+        let node: StoredProviderNode = serde_json::from_str(&document)
+            .map_err(|_| "invalid destination provider definition")?;
+        if node.tenant_id == tenant
+            && (node.id == legacy_provider || legacy_node_type(&node.id) == legacy_provider)
+        {
+            candidates.push(node);
+        }
+    }
+    if let Some(exact) = candidates.iter().find(|node| node.id == legacy_provider) {
+        return Ok((*exact).clone());
+    }
+    match candidates.len() {
+        1 => Ok(candidates.remove(0)),
+        0 => Err("legacy provider transport is unsupported"),
+        _ => Err("legacy provider definition is ambiguous"),
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -390,7 +457,6 @@ pub async fn import(
         let text = |field: &str| row.try_get::<Option<String>, _>(field).map_err(|_| "invalid legacy provider");
         let number = |field: &str| row.try_get::<Option<i64>, _>(field).map_err(|_| "invalid legacy provider");
         let provider = text("provider")?.ok_or("invalid legacy provider")?;
-        let upstream = crate::product_provider::chat_url(&provider).ok_or("legacy provider transport is unsupported")?;
         if text("auth_type")?.as_deref() != Some("apikey") { return Err("legacy OAuth or provider authentication requires migration"); }
         let source_enabled = match number("is_active")? { Some(0) => false, Some(1) => true, _ => return Err("invalid legacy provider status") };
         for field in ["access_token", "refresh_token", "id_token", "expires_at", "token_expires_at", "scope", "project_id", "rate_limited_until", "default_model", "group"] {
@@ -417,12 +483,33 @@ pub async fn import(
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
+        let node = if crate::product_provider::chat_url(&provider).is_some() {
+            None
+        } else {
+            Some(compatible_node(&mut target, &provider, &tenant).await?)
+        };
+        let (native_provider, upstream, protocol, node_id) = match node {
+            Some(node) => (
+                node.prefix,
+                node.upstream_url,
+                Some(node.protocol),
+                Some(node.id),
+            ),
+            None => (
+                provider.clone(),
+                crate::product_provider::chat_url(&provider)
+                    .ok_or("legacy provider transport is unsupported")?
+                    .to_owned(),
+                None,
+                None,
+            ),
+        };
         let label = text("display_name")?.filter(|value| !value.trim().is_empty()).or(text("name")?.filter(|value| !value.trim().is_empty())).unwrap_or_else(|| id.to_owned());
         let label = label.trim();
         let email = text("email")?.unwrap_or_default();
         let email = email.trim();
         if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_node_bindings"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let existing: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut *target).await.map_err(|_| "destination provider schema unavailable")?;
             if existing != 0 { return Err("destination provider already exists"); }
@@ -434,11 +521,19 @@ pub async fn import(
         sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut *target).await.map_err(|_| "cannot initialize provider migration state")?;
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration (provider_id,source_enabled) VALUES (?,?)").bind(id).bind(i64::from(source_enabled)).execute(&mut *target).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
-            .bind(id).bind(&provider).bind(upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
+            .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         sqlx::query("INSERT INTO redrouter_control_provider_ownership (provider_id,tenant_id,revision) VALUES (?,?,1)")
             .bind(id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth (record_id,provider_id,auth_scheme,label,account_email,expires_at_unix,revision) VALUES (?,?,'auto',?,?,0,1)")
             .bind(format!("{id}:1")).bind(id).bind(label).bind(email).execute(&mut *target).await.map_err(|_| "cannot write provider identity")?;
+        if let Some(protocol) = protocol {
+            sqlx::query("INSERT INTO redrouter_control_provider_protocols (record_id,provider_id,protocol,revision) VALUES (?,?,?,1)")
+                .bind(format!("{id}:1")).bind(id).bind(protocol).execute(&mut *target).await.map_err(|_| "cannot write provider protocol")?;
+        }
+        if let Some(node_id) = node_id {
+            sqlx::query("INSERT INTO redrouter_control_provider_node_bindings (record_id,provider_id,node_id,revision) VALUES (?,?,?,1)")
+                .bind(format!("{id}:1")).bind(id).bind(node_id).execute(&mut *target).await.map_err(|_| "cannot bind provider definition")?;
+        }
         Ok(ProviderImport { imported: 1, enabled: false, source_enabled })
     }.await;
     match result {
