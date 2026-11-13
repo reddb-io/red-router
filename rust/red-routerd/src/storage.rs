@@ -47,6 +47,47 @@ const CREATE_CLIENT_KEY_SCHEDULES: &str = "CREATE TABLE IF NOT EXISTS redrouter_
 const CREATE_CLIENT_KEY_MODEL_ACCESS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_model_access (key_id TEXT PRIMARY KEY, model_access_mode TEXT NOT NULL, revision BIGINT NOT NULL)";
 const CREATE_CLIENT_KEY_COMBO_ACCESS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_combo_access (key_id TEXT PRIMARY KEY, allowed_combos_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
+// One statement gives SQLite and PostgreSQL one consistent policy snapshot.
+const LIST_SQL_CLIENT_KEY_SNAPSHOT: &str = r#"SELECT
+    k.id,
+    k.label,
+    k.key_hash,
+    k.enabled,
+    k.expiry_unix,
+    k.scopes_json,
+    k.allowed_endpoints_json,
+    k.allowed_models_json,
+    k.blocked_models_json,
+    k.allowed_provider_ids_json,
+    k.max_concurrent,
+    k.max_rpm,
+    k.max_rpd,
+    k.revision,
+    CASE WHEN p.key_id IS NULL THEN k.revision ELSE p.revision END AS preference_revision,
+    CASE WHEN p.key_id IS NULL THEN 'prefixed' ELSE p.model_id_format END AS model_id_format,
+    CASE WHEN s.key_id IS NULL THEN k.revision ELSE s.revision END AS schedule_revision,
+    CASE WHEN s.key_id IS NULL THEN '' ELSE s.schedule_json END AS schedule_json,
+    CASE WHEN m.key_id IS NULL THEN k.revision ELSE m.revision END AS model_access_revision,
+    CASE WHEN m.key_id IS NULL THEN 'all' ELSE m.model_access_mode END AS model_access_mode,
+    CASE WHEN c.key_id IS NULL THEN k.revision ELSE c.revision END AS combo_access_revision,
+    CASE WHEN c.key_id IS NULL THEN 'null' ELSE c.allowed_combos_json END AS allowed_combos_json,
+    CASE WHEN o.key_id IS NULL THEN k.revision ELSE o.revision END AS ownership_revision,
+    CASE WHEN o.key_id IS NULL THEN 'red' ELSE o.tenant_id END AS tenant_id,
+    CASE WHEN o.key_id IS NULL THEN 'legacy' ELSE o.created_by END AS created_by,
+    CASE WHEN q.key_id IS NULL THEN k.revision ELSE q.revision END AS quota_revision,
+    CASE WHEN q.key_id IS NULL THEN 0 ELSE q.max_tokens_per_minute END AS max_tokens_per_minute,
+    CASE WHEN q.key_id IS NULL THEN 0 ELSE q.max_tokens_per_day END AS max_tokens_per_day,
+    CASE WHEN q.key_id IS NULL THEN 0 ELSE q.max_monthly_microusd END AS max_monthly_microusd,
+    CASE WHEN q.key_id IS NULL THEN 0 ELSE q.reservation_tokens END AS reservation_tokens,
+    CASE WHEN q.key_id IS NULL THEN 0 ELSE q.reservation_microusd END AS reservation_microusd
+FROM redrouter_control_client_keys k
+LEFT JOIN redrouter_control_client_key_preferences p ON p.key_id = k.id
+LEFT JOIN redrouter_control_client_key_schedules s ON s.key_id = k.id
+LEFT JOIN redrouter_control_client_key_model_access m ON m.key_id = k.id
+LEFT JOIN redrouter_control_client_key_combo_access c ON c.key_id = k.id
+LEFT JOIN redrouter_control_client_key_ownership o ON o.key_id = k.id
+LEFT JOIN redrouter_control_client_key_quotas q ON q.key_id = k.id
+ORDER BY k.revision DESC, k.id ASC"#;
 const LIST_CLIENT_KEY_PREFERENCES: &str = "SELECT key_id, model_id_format, revision FROM redrouter_control_client_key_preferences ORDER BY key_id ASC";
 const LIST_CLIENT_KEY_SCHEDULES: &str = "SELECT key_id, schedule_json, revision FROM redrouter_control_client_key_schedules ORDER BY key_id ASC";
 const LIST_CLIENT_KEY_MODEL_ACCESS: &str = "SELECT key_id, model_access_mode, revision FROM redrouter_control_client_key_model_access ORDER BY key_id ASC";
@@ -2321,13 +2362,15 @@ impl Database {
 
     pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
         let mut keys: Vec<StoredClientKey> = match self {
-            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEYS)
-                .fetch_all(pool)
-                .await
-                .map_err(|_| "cannot read client key configuration")?
-                .iter()
-                .map(read_sql_client_key)
-                .collect::<Result<Vec<_>, _>>(),
+            Self::Sql(pool) => {
+                return sqlx::query(LIST_SQL_CLIENT_KEY_SNAPSHOT)
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|_| "cannot read client key configuration")?
+                    .iter()
+                    .map(read_sql_client_key_snapshot)
+                    .collect()
+            }
             Self::Remote(_) => self
                 .remote_query(LIST_CLIENT_KEYS, &[])
                 .await?
@@ -2449,15 +2492,78 @@ impl Database {
         if !matches!(key.model_access_mode.as_str(), "all" | "restricted") {
             return Err("invalid client key model access mode");
         }
-        self.upsert_client_key_combo_access(key).await?;
-        self.upsert_client_key_model_access(key).await?;
-        self.upsert_client_key_preference(key).await?;
-        self.upsert_client_key_schedule(key).await?;
-        self.upsert_client_key_ownership(key).await?;
-        self.upsert_client_key_quota(key).await?;
+        if !matches!(key.model_id_format.as_str(), "prefixed" | "flat") {
+            return Err("invalid client key model ID format");
+        }
+        if !matches!(self, Self::Sql(_)) {
+            self.upsert_client_key_combo_access(key).await?;
+            self.upsert_client_key_model_access(key).await?;
+            self.upsert_client_key_preference(key).await?;
+            self.upsert_client_key_schedule(key).await?;
+            self.upsert_client_key_ownership(key).await?;
+            self.upsert_client_key_quota(key).await?;
+        }
         let enabled = if key.enabled { 1_i64 } else { 0_i64 };
         match self {
             Self::Sql(pool) => {
+                let mut transaction = pool
+                    .begin()
+                    .await
+                    .map_err(|_| "cannot begin client key update")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_COMBO_ACCESS)
+                    .bind(&key.id)
+                    .bind(&key.allowed_combos_json)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key combo grants")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_MODEL_ACCESS)
+                    .bind(&key.id)
+                    .bind(&key.model_access_mode)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key model access mode")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_PREFERENCE)
+                    .bind(&key.id)
+                    .bind(&key.model_id_format)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key preferences")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_SCHEDULE)
+                    .bind(&key.id)
+                    .bind(&key.access_schedule_json)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key access schedule")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_OWNERSHIP)
+                    .bind(&key.id)
+                    .bind(&key.tenant_id)
+                    .bind(&key.created_by)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key ownership")?;
+
+                sqlx::query(UPSERT_CLIENT_KEY_QUOTA)
+                    .bind(&key.id)
+                    .bind(key.max_tokens_per_minute)
+                    .bind(key.max_tokens_per_day)
+                    .bind(key.max_monthly_microusd)
+                    .bind(key.reservation_tokens)
+                    .bind(key.reservation_microusd)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key quotas")?;
+
                 sqlx::query(UPSERT_CLIENT_KEY)
                     .bind(&key.id)
                     .bind(&key.label)
@@ -2473,9 +2579,13 @@ impl Database {
                     .bind(key.max_rpm)
                     .bind(key.max_rpd)
                     .bind(key.revision)
-                    .execute(pool)
+                    .execute(&mut *transaction)
                     .await
                     .map_err(|_| "cannot write client key configuration")?;
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| "cannot commit client key update")?;
             }
             Self::Remote(_) => {
                 self.remote_query(UPSERT_CLIENT_KEY, &client_key_params(key, enabled))
@@ -5035,6 +5145,75 @@ fn provider_params(provider: &StoredProvider, enabled: i64) -> Vec<reddb_client:
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(provider.updated_at),
     ]
+}
+
+fn read_sql_client_key_snapshot(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'static str> {
+    let mut key = read_sql_client_key(row)?;
+    for (column, error) in [
+        (
+            "preference_revision",
+            "client key preference revision mismatch",
+        ),
+        (
+            "schedule_revision",
+            "client key access schedule revision mismatch",
+        ),
+        (
+            "model_access_revision",
+            "client key model access mode revision mismatch",
+        ),
+        (
+            "combo_access_revision",
+            "client key combo grants revision mismatch",
+        ),
+        (
+            "ownership_revision",
+            "client key ownership revision mismatch",
+        ),
+        ("quota_revision", "client key quota revision mismatch"),
+    ] {
+        if row
+            .try_get::<i64, _>(column)
+            .map_err(|_| "invalid client key snapshot revision")?
+            != key.revision
+        {
+            return Err(error);
+        }
+    }
+    key.model_id_format = row
+        .try_get("model_id_format")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.access_schedule_json = row
+        .try_get("schedule_json")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.model_access_mode = row
+        .try_get("model_access_mode")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.allowed_combos_json = row
+        .try_get("allowed_combos_json")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.tenant_id = row
+        .try_get("tenant_id")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.created_by = row
+        .try_get("created_by")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.max_tokens_per_minute = row
+        .try_get("max_tokens_per_minute")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.max_tokens_per_day = row
+        .try_get("max_tokens_per_day")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.max_monthly_microusd = row
+        .try_get("max_monthly_microusd")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.reservation_tokens = row
+        .try_get("reservation_tokens")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.reservation_microusd = row
+        .try_get("reservation_microusd")
+        .map_err(|_| "invalid client key snapshot")?;
+    Ok(key)
 }
 
 fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'static str> {

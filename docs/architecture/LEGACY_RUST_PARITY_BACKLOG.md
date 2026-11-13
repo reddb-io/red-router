@@ -188,3 +188,18 @@ This is a distinct permission domain, not proof that the model wildcard engine i
 
 Nonempty legacy model allow/deny lists, group policies and auto-combo controls still
 need translation. These rows remain partial; no full key/combination parity claim.
+
+
+2026-11-13 — CORE-05/06/09: client-key records and their six policy sidecars now
+commit in one SQL transaction. SQL readers use one joined statement so concurrent
+writers cannot expose a key from one commit with permissions/ownership/quotas from
+another. Missing sidecars retain pre-migration defaults; present sidecars with a
+mismatched revision still fail closed. This removes six SQL round trips per key
+snapshot while retaining the indexed merge for the RedDB paths.
+
+New SQLite regressions inject a failure at the final write and verify rollback of
+both updates and inserts, exercise independent writers plus a reader against the
+same file, and check compatibility with pre-sidecar records. This is atomic policy
+persistence, not compare-and-swap editing: simultaneous full replacements still use
+last-commit-wins semantics. RedDB writes remain version-checked sequential writes;
+this change does not claim transactional or multi-replica parity for that backend.
