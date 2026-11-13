@@ -18,6 +18,14 @@ pub struct ModelImport {
     pub already_present: u64,
 }
 
+struct LegacyNode {
+    tenant: String,
+    prefix: String,
+    node_type: String,
+    api_type: Option<String>,
+    base_url: String,
+}
+
 pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'static str> {
     let source = std::fs::canonicalize(source).map_err(|_| "legacy database does not exist")?;
     let destination =
@@ -69,17 +77,22 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 if hidden != 0 { return Err("unsupported legacy provider node schema"); }
                 names.insert(name);
             }
-            if !names.contains("id") || !names.contains("prefix") { return Err("legacy provider node schema incomplete"); }
-            let query = if names.contains("tenant_id") { "SELECT id,prefix,tenant_id FROM provider_nodes ORDER BY id" } else { "SELECT id,prefix,NULL AS tenant_id FROM provider_nodes ORDER BY id" };
-            let mut source_nodes = sqlx::query(query).fetch(&mut *snapshot);
+            if ["id", "prefix", "type", "base_url"].iter().any(|name| !names.contains(*name)) { return Err("legacy provider node schema incomplete"); }
+            let tenant_field = if names.contains("tenant_id") { "tenant_id" } else { "NULL AS tenant_id" };
+            let api_field = if names.contains("api_type") { "api_type" } else { "NULL AS api_type" };
+            let query = format!("SELECT id,prefix,type,base_url,{tenant_field},{api_field} FROM provider_nodes ORDER BY id");
+            let mut source_nodes = sqlx::query(&query).fetch(&mut *snapshot);
             while let Some(row) = source_nodes.try_next().await.map_err(|_| "cannot read legacy provider definitions")? {
                 if nodes.len() >= 10_000 { return Err("too many legacy provider definitions"); }
                 let id: String = row.try_get("id").map_err(|_| "invalid legacy provider definition")?;
                 let prefix: String = row.try_get("prefix").map_err(|_| "invalid legacy provider definition")?;
                 let tenant: Option<String> = row.try_get("tenant_id").map_err(|_| "invalid legacy provider definition")?;
                 let tenant = tenant.unwrap_or_else(|| "red".to_owned());
-                if id.is_empty() || id.len() > 128 || tenant.is_empty() || tenant.len() > 128 || prefix.len() > 64 { return Err("invalid legacy provider definition"); }
-                if nodes.insert(id, (tenant, prefix)).is_some() { return Err("duplicate legacy provider definition"); }
+                let node_type: String = row.try_get("type").map_err(|_| "invalid legacy provider definition")?;
+                let api_type: Option<String> = row.try_get("api_type").map_err(|_| "invalid legacy provider definition")?;
+                let base_url: String = row.try_get("base_url").map_err(|_| "invalid legacy provider definition")?;
+                if id.is_empty() || id.len() > 128 || tenant.is_empty() || tenant.len() > 128 || prefix.len() > 64 || node_type.len() > 128 || base_url.len() > 2048 || api_type.as_ref().is_some_and(|value| value.len() > 128) { return Err("invalid legacy provider definition"); }
+                if nodes.insert(id, LegacyNode { tenant, prefix, node_type, api_type, base_url }).is_some() { return Err("duplicate legacy provider definition"); }
             }
         }
         let mut rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='customModels' ORDER BY key").fetch(&mut *snapshot);
@@ -92,13 +105,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             row_count += 1;
             if row_count > 10_000 { return Err("too many legacy model rows"); }
             let legacy_provider: String = row.try_get("key").map_err(|_| "invalid legacy model provider")?;
-            let (tenant, provider) = if let Some((tenant, prefix)) = nodes.get(&legacy_provider) {
+            let (tenant, provider) = if let Some(source_node) = nodes.get(&legacy_provider) {
                 let document: Option<String> = sqlx::query_scalar("SELECT config_json FROM redrouter_control_provider_nodes WHERE id=? AND tenant_id=?")
-                    .bind(&legacy_provider).bind(tenant).fetch_optional(&mut *target).await.map_err(|_| "destination provider definitions unavailable")?;
+                    .bind(&legacy_provider).bind(&source_node.tenant).fetch_optional(&mut *target).await.map_err(|_| "destination provider definitions unavailable")?;
                 let node: StoredProviderNode = serde_json::from_str(document.as_deref().ok_or("import legacy provider definition before its models")?).map_err(|_| "invalid destination provider definition")?;
-                if node.id != legacy_provider || node.tenant_id != *tenant || node.prefix != *prefix { return Err("legacy provider definition does not match destination"); }
-                if node.protocol != "openai" { return Err("legacy model protocol requires migration"); }
-                (tenant.clone(), prefix.clone())
+                if node.id != legacy_provider || node.tenant_id != source_node.tenant || node.prefix != source_node.prefix || node.base_url != source_node.base_url.trim_end_matches('/') { return Err("legacy provider definition does not match destination"); }
+                if source_node.node_type != "openai-compatible" || source_node.api_type.as_deref().filter(|value| !value.is_empty()).unwrap_or("chat") != "chat" || node.protocol != "openai" { return Err("legacy model protocol requires migration"); }
+                (source_node.tenant.clone(), source_node.prefix.clone())
             } else {
                 // Never treat a missing compatible node ID as a built-in provider.
                 if legacy_provider.starts_with("openai-compatible-") || legacy_provider.starts_with("anthropic-compatible-") || legacy_provider.starts_with("claude-code-compatible-") { return Err("legacy provider definition unavailable"); }

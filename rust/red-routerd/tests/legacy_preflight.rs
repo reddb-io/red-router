@@ -321,4 +321,13 @@ async fn custom_node_model_import_preserves_tenant_and_requires_matching_definit
         legacy_models::import(&source, &destination).await.is_err(),
         "a mismatched definition must fail closed"
     );
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_nodes SET prefix='acme-gateway',base_url='https://other.example/v1' WHERE id=?").bind(id).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "a changed endpoint must not be mistaken for the imported definition"
+    );
 }
