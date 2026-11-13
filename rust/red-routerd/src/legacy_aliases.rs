@@ -1,13 +1,16 @@
 //! Strict offline import of legacy exact model aliases.
 //!
-//! Exact aliases for the built-in OpenAI-compatible chat transports, sourced
-//! from the legacy database and Settings. Managed and wildcard aliases and
-//! unsupported protocols must be migrated separately.
-use crate::{control_plane::model_aliases, storage::StoredModelAlias};
+//! Exact aliases for built-in and verified custom OpenAI-compatible chat
+//! transports. Managed and wildcard aliases and unsupported protocols must be
+//! migrated separately.
+use crate::{
+    control_plane::{model_aliases, provider_nodes},
+    storage::{StoredModelAlias, StoredProviderNode},
+};
 use futures_util::TryStreamExt;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
 };
 
@@ -15,6 +18,128 @@ use std::{
 pub struct AliasImport {
     pub imported: u64,
     pub already_present: u64,
+}
+
+/// A legacy alias may address a custom node by its public prefix or node ID.
+/// Require the original definition and its already imported equivalent to
+/// agree before mapping the alias to the Rust provider namespace.
+async fn compatible_node_provider(
+    source: &mut SqliteConnection,
+    destination: &mut SqliteConnection,
+    name: &str,
+) -> Result<Option<String>, &'static str> {
+    let definition: Option<String> = sqlx::query_scalar(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_nodes'",
+    )
+    .fetch_optional(&mut *source)
+    .await
+    .map_err(|_| "cannot inspect legacy provider definitions")?;
+    let Some(definition) = definition else {
+        return Ok(None);
+    };
+    if definition.to_ascii_uppercase().contains("VIRTUAL TABLE") {
+        return Err("unsupported legacy provider node schema");
+    }
+    let mut columns = HashSet::new();
+    for row in sqlx::query("PRAGMA table_xinfo('provider_nodes')")
+        .fetch_all(&mut *source)
+        .await
+        .map_err(|_| "cannot inspect legacy provider definitions")?
+    {
+        let hidden: i64 = row
+            .try_get("hidden")
+            .map_err(|_| "invalid legacy provider node schema")?;
+        if hidden != 0 {
+            return Err("unsupported legacy provider node schema");
+        }
+        columns.insert(
+            row.try_get::<String, _>("name")
+                .map_err(|_| "invalid legacy provider node schema")?,
+        );
+    }
+    if ["id", "prefix", "type", "base_url"]
+        .iter()
+        .any(|column| !columns.contains(*column))
+    {
+        return Err("legacy provider node schema incomplete");
+    }
+    let optional = |column: &'static str| -> &'static str {
+        if columns.contains(column) {
+            column
+        } else {
+            "NULL"
+        }
+    };
+    let sql = format!("SELECT id,prefix,type,base_url,{} AS tenant_id,{} AS api_type,{} AS chat_path FROM provider_nodes WHERE id=? OR prefix=? LIMIT 2", optional("tenant_id"), optional("api_type"), optional("chat_path"));
+    let rows = sqlx::query(&sql)
+        .bind(name)
+        .bind(name)
+        .fetch_all(&mut *source)
+        .await
+        .map_err(|_| "cannot read legacy provider definition")?;
+    if rows.len() > 1 {
+        return Err("ambiguous legacy provider definition");
+    }
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let id: String = row
+        .try_get("id")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let prefix: String = row
+        .try_get("prefix")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let kind: String = row
+        .try_get("type")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let base: String = row
+        .try_get("base_url")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let tenant: Option<String> = row
+        .try_get("tenant_id")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let api_type: Option<String> = row
+        .try_get("api_type")
+        .map_err(|_| "invalid legacy provider definition")?;
+    let chat_path: Option<String> = row
+        .try_get("chat_path")
+        .map_err(|_| "invalid legacy provider definition")?;
+    if tenant.as_deref().unwrap_or("red") != "red"
+        || kind != "openai-compatible"
+        || api_type
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("chat")
+            != "chat"
+    {
+        return Err("legacy alias destination requires migration");
+    }
+    let chat_path = chat_path.as_deref().unwrap_or("/chat/completions");
+    let upstream = provider_nodes::endpoint(&base, chat_path)?;
+    let document: Option<String> = sqlx::query_scalar(
+        "SELECT config_json FROM redrouter_control_provider_nodes WHERE id=? AND tenant_id='red'",
+    )
+    .bind(&id)
+    .fetch_optional(&mut *destination)
+    .await
+    .map_err(|_| "destination provider definitions unavailable")?;
+    let node: StoredProviderNode = serde_json::from_str(
+        document
+            .as_deref()
+            .ok_or("import legacy provider definition before its aliases")?,
+    )
+    .map_err(|_| "invalid destination provider definition")?;
+    if node.id != id
+        || node.tenant_id != "red"
+        || node.prefix != prefix
+        || node.protocol != "openai"
+        || node.base_url != base.trim_end_matches('/')
+        || node.chat_path != chat_path
+        || node.upstream_url != upstream
+    {
+        return Err("legacy provider definition does not match destination");
+    }
+    Ok(Some(prefix))
 }
 
 pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'static str> {
@@ -92,11 +217,21 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             }
             let mut imported = 0;
             let mut already_present = 0;
+            let mut custom_providers: HashMap<String, String> = HashMap::new();
             for (alias,value) in aliases {
                 let (legacy_provider, model) = value.as_str().and_then(|v| v.split_once('/')).ok_or("legacy alias destination requires migration")?;
                 let provider = crate::model_permissions::legacy_provider_id(legacy_provider).unwrap_or(legacy_provider);
-                if !crate::product_provider::supports_model(provider, model) { return Err("legacy alias destination requires migration"); }
-                let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider: provider.into(), alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
+                let provider = if crate::product_provider::supports_model(provider, model) {
+                    provider.to_owned()
+                } else if let Some(provider) = custom_providers.get(legacy_provider) {
+                    provider.clone()
+                } else {
+                    let provider = compatible_node_provider(&mut snapshot, &mut target, legacy_provider).await?
+                        .ok_or("legacy alias destination requires migration")?;
+                    custom_providers.insert(legacy_provider.to_owned(), provider.clone());
+                    provider
+                };
+                let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider, alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
                 model_aliases::validate(&record)?;
                 if record.alias.contains(['*','?']) { return Err("legacy wildcard aliases require migration"); }
                 let collision: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_combos WHERE id IN (?,?)").bind(&record.id).bind(&record.alias).fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination combos")?;
