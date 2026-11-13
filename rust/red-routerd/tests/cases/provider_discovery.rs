@@ -14,7 +14,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
         let capture = capture.clone();
         async move {
             capture.lock().unwrap().push((headers, uri.to_string()));
-            Json(serde_json::json!({"data":[{"id":"model-b","context_length":32768,"top_provider":{"max_completion_tokens":4096},"unrelated_secret":"must-not-return"},{"id":"model-a"}]}))
+            Json(serde_json::json!({"data":[{"id":"model-b","context_length":32768,"inputTokenLimit":30000,"top_provider":{"max_completion_tokens":4096},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true,"unrelated_secret":"must-not-return"},{"id":"model-a"}]}))
         }
     });
     let app = Router::new()
@@ -82,6 +82,10 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(listed["data"].as_array().unwrap().len(), 1);
     assert_eq!(listed["data"][0]["id"], "openai-compatible/model-b");
     assert_eq!(listed["data"][0]["context_length"], 32768);
+    assert_eq!(listed["data"][0]["max_input_tokens"], 30000);
+    assert_eq!(listed["data"][0]["capabilities"]["vision"], true);
+    assert_eq!(listed["data"][0]["capabilities"]["tool_calling"], true);
+    assert_eq!(listed["data"][0]["capabilities"]["reasoning"], true);
     let response = chat_model(&client, &base, catalog_key, "openai-compatible/model-b").await;
     assert_eq!(response.status(), StatusCode::OK);
     let response: serde_json::Value = response.json().await.unwrap();

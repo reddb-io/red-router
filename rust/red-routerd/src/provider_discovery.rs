@@ -29,7 +29,41 @@ pub(super) struct DiscoveredModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) context_length: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) max_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max_output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) model_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) input_modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) output_modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) supports_tools: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) supports_thinking: Option<bool>,
+}
+
+fn valid_modality(value: &str) -> bool {
+    matches!(value, "text" | "image" | "audio" | "video" | "file" | "pdf")
+}
+
+fn modalities(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    let values = value?.as_array()?;
+    if values.is_empty() || values.len() > 16 {
+        return None;
+    }
+    let mut result = Vec::new();
+    for value in values {
+        let value = value.as_str()?;
+        if !valid_modality(value) {
+            return None;
+        }
+        if !result.iter().any(|entry| entry == value) {
+            result.push(value.to_owned());
+        }
+    }
+    Some(result)
 }
 
 pub(super) fn parse_inventory(
@@ -51,10 +85,28 @@ pub(super) fn parse_inventory(
             .name
             .as_ref()
             .is_some_and(|name| name.len() > 512 || name.chars().any(char::is_control))
-            || [model.context_length, model.max_output_tokens]
+            || [
+                model.context_length,
+                model.max_input_tokens,
+                model.max_output_tokens,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|value| value == 0 || value > 1_000_000_000)
+            || model.model_type.as_deref().is_some_and(|value| {
+                !matches!(
+                    value,
+                    "chat" | "embedding" | "image" | "rerank" | "decision"
+                )
+            })
+            || [&model.input_modalities, &model.output_modalities]
                 .into_iter()
                 .flatten()
-                .any(|value| value == 0 || value > 1_000_000_000)
+                .any(|values| {
+                    values.is_empty()
+                        || values.len() > 16
+                        || values.iter().any(|value| !valid_modality(value))
+                })
             || result.insert(model.id.clone(), model).is_some()
         {
             return Err("invalid synced model inventory");
@@ -144,7 +196,13 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
             .map(str::to_owned);
         let context_length = row
             .get("context_length")
+            .or_else(|| row.get("contextWindow"))
             .or_else(|| row.get("inputTokenLimit"))
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| (1..=1_000_000_000).contains(value));
+        let max_input_tokens = row
+            .get("inputTokenLimit")
+            .or_else(|| row.get("max_input_tokens"))
             .and_then(serde_json::Value::as_u64)
             .filter(|value| (1..=1_000_000_000).contains(value));
         let max_output_tokens = row
@@ -153,11 +211,54 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
             .or_else(|| row.pointer("/top_provider/max_completion_tokens"))
             .and_then(serde_json::Value::as_u64)
             .filter(|value| (1..=1_000_000_000).contains(value));
+        let model_type = row
+            .get("modelType")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| {
+                matches!(
+                    *value,
+                    "chat" | "embedding" | "image" | "rerank" | "decision"
+                )
+            })
+            .map(str::to_owned);
+        let input_modalities = modalities(
+            row.pointer("/architecture/input_modalities")
+                .or_else(|| row.get("input_modalities"))
+                .or_else(|| row.get("supportedInputTypes")),
+        )
+        .or_else(|| {
+            (row.get("supportsVision")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true))
+            .then(|| vec!["image".to_owned()])
+        });
+        let output_modalities = modalities(
+            row.pointer("/architecture/output_modalities")
+                .or_else(|| row.get("output_modalities")),
+        );
+        let supports_tools = row
+            .get("supportsTools")
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                row.get("supported_parameters")
+                    .and_then(serde_json::Value::as_array)
+                    .filter(|values| values.iter().any(|value| value.as_str() == Some("tools")))
+                    .map(|_| true)
+            });
+        let supports_thinking = row
+            .get("supportsThinking")
+            .and_then(serde_json::Value::as_bool);
         models.entry(id.to_owned()).or_insert(DiscoveredModel {
             id: id.to_owned(),
             name,
             context_length,
+            max_input_tokens,
             max_output_tokens,
+            model_type,
+            input_modalities,
+            output_modalities,
+            supports_tools,
+            supports_thinking,
         });
     }
     let next_token = match value.get("nextPageToken") {
@@ -725,6 +826,28 @@ mod tests {
         .is_err());
         assert_eq!(models.models.len(), 2);
         assert_eq!(models.models[0].id, "a");
+        let capabilities = parse_models(br#"{"data":[{"id":"vision","contextWindow":1000,"inputTokenLimit":900,"outputTokenLimit":100,"modelType":"chat","architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true},{"id":"image-model","modelType":"image"}]}"#, ProviderProtocol::OpenAi).unwrap();
+        let vision = capabilities
+            .models
+            .iter()
+            .find(|model| model.id == "vision")
+            .unwrap();
+        assert_eq!(vision.context_length, Some(1000));
+        assert_eq!(vision.max_input_tokens, Some(900));
+        assert_eq!(vision.max_output_tokens, Some(100));
+        assert_eq!(
+            vision.input_modalities.as_deref(),
+            Some(["text".to_owned(), "image".to_owned()].as_slice())
+        );
+        assert_eq!(vision.supports_tools, Some(true));
+        assert_eq!(vision.supports_thinking, Some(true));
+        assert_eq!(capabilities.models[0].model_type.as_deref(), Some("image"));
+        assert_eq!(
+            parse_inventory(&serde_json::to_string(&capabilities.models).unwrap())
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(!serde_json::to_string(&models.models)
             .unwrap()
             .contains("secret"));

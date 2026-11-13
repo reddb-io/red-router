@@ -2918,10 +2918,10 @@ fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u6
         ("temperature", metadata.temperature),
         (
             "vision",
-            metadata
-                .modalities
-                .as_ref()
-                .map(|modalities| modalities.input.iter().any(|value| value == "image")),
+            metadata.modalities.as_ref().and_then(|modalities| {
+                (!modalities.input.is_empty())
+                    .then(|| modalities.input.iter().any(|value| value == "image"))
+            }),
         ),
     ] {
         if let Some(value) = value {
@@ -7647,6 +7647,16 @@ async fn record_route_outcome(
 #[cfg(test)]
 mod address_tests {
     use super::*;
+
+    #[test]
+    fn missing_input_modalities_do_not_claim_vision_is_unsupported() {
+        let metadata: catalog::ModelMetadata = serde_json::from_value(serde_json::json!({
+            "id":"example", "modalities":{"input":[],"output":["text"]}
+        }))
+        .unwrap();
+        let listed = listed_direct_model("test/example".to_owned(), metadata, 0);
+        assert!(listed.capabilities.is_none());
+    }
 
     #[test]
     fn usage_attribution_prefers_body_user_and_normalizes_tags() {

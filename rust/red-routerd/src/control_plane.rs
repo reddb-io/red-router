@@ -4383,18 +4383,58 @@ impl ControlPlane {
                 {
                     continue;
                 }
-                let metadata = match overrides.model(catalog, tenant, provider, id)? {
+                let mut metadata = match overrides.model(catalog, tenant, provider, id)? {
                     Some(metadata) => metadata,
                     None => {
                         let discovered = discovered
                             .get(id)
                             .ok_or("discovered model metadata unavailable")?;
-                        serde_json::from_value(serde_json::json!({
-                            "id":id, "name":discovered.name,
-                            "limit":{"context":discovered.context_length,"output":discovered.max_output_tokens}
-                        })).map_err(|_| "invalid synced model metadata")?
+                        serde_json::from_value(serde_json::json!({"id":id,"name":discovered.name}))
+                            .map_err(|_| "invalid synced model metadata")?
                     }
                 };
+                if let Some(discovered) = discovered.get(id) {
+                    if metadata.name.is_none() {
+                        metadata.name = discovered.name.clone();
+                    }
+                    if metadata.r#type.is_none() {
+                        metadata.r#type = discovered.model_type.clone();
+                    }
+                    if metadata.tool_call.is_none() {
+                        metadata.tool_call = discovered.supports_tools;
+                    }
+                    if metadata.reasoning.is_none() {
+                        metadata.reasoning = discovered.supports_thinking;
+                    }
+                    if discovered.context_length.is_some()
+                        || discovered.max_input_tokens.is_some()
+                        || discovered.max_output_tokens.is_some()
+                    {
+                        let limit = metadata.limit.get_or_insert(crate::catalog::CatalogLimit {
+                            context: None,
+                            input: None,
+                            output: None,
+                        });
+                        if limit.context.is_none() {
+                            limit.context = discovered.context_length;
+                        }
+                        if limit.input.is_none() {
+                            limit.input = discovered.max_input_tokens;
+                        }
+                        if limit.output.is_none() {
+                            limit.output = discovered.max_output_tokens;
+                        }
+                    }
+                    if metadata.modalities.is_none()
+                        && (discovered.input_modalities.is_some()
+                            || discovered.output_modalities.is_some())
+                    {
+                        metadata.modalities = Some(crate::catalog::CatalogModalities {
+                            input: discovered.input_modalities.clone().unwrap_or_default(),
+                            output: discovered.output_modalities.clone().unwrap_or_default(),
+                        });
+                    }
+                }
                 if metadata
                     .r#type
                     .as_deref()
