@@ -49,6 +49,15 @@ five-minute failure backoff and the existing last-good snapshot (CI pending).
 The authenticated manual refresh remains available. Shared scheduling for the
 other database backends remains open.
 
+Connection discovery currently returns an ephemeral probe only. A complete
+port must persist each sanitized result against the exact tenant, connection,
+credential/configuration generation and discovery path; reject a late result
+after configuration changes or a newer probe; and use a shared immutable
+snapshot for catalog visibility and account selection without querying SQLite
+on inference requests. Verify different model sets on two accounts, key-scoped
+visibility, fail-open behavior for expired inventory, migration of legacy
+`syncedAvailableModels`, and refresh/failure/restart across two instances.
+
 ## Current execution order
 
 1. Finish item 1 by validating imported compatible-account bindings, then port
