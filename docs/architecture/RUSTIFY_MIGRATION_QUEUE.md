@@ -52,7 +52,9 @@ other database backends remains open.
 Successful connection discovery now stores sanitized SQLite snapshots bound
 to connection, tenant, credential/configuration and probe generation. The
 client catalog consumes a shared in-memory snapshot scoped to the accounts
-allowed by the client key; integration and account-isolation tests await CI.
+allowed by the client key. An earlier Rust CI run exposed slow propagation to a
+second instance; inventory-only updates now rebuild the account inventory without
+recreating provider clients or decrypting credentials again (CI pending).
 Account selection does not yet use this inventory: port the legacy authoritative
 catalog rules without treating incomplete or expired lists as entitlements.
 The offline cutover now preserves legacy `syncedAvailableModels`, `customModels`

@@ -709,7 +709,7 @@ impl ControlPlane {
             if !self.0.database.synced_model_probe_current(ticket).await? {
                 return Err("provider_changed");
             }
-            if let Err(error) = self.refresh_routes().await {
+            if let Err(error) = self.refresh_synced_model_pools().await {
                 *self.0.routes.write().await = RouteSnapshot::Unavailable;
                 return Err(error);
             }
@@ -774,7 +774,7 @@ pub async fn put_config(
         } else {
             control.0.database.delete_provider_discovery(&id).await?;
         }
-        if let Err(error) = control.refresh_routes().await {
+        if let Err(error) = control.refresh_synced_model_pools().await {
             *control.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
@@ -834,6 +834,83 @@ pub async fn discover(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn inventory_refresh_reuses_clients_without_waiting_for_credential_workers() {
+        let database = Arc::new(
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap(),
+        );
+        let key = "fixture-storage-key-1234567890";
+        let control = ControlPlane::new(
+            database.clone(),
+            "fixture-admin-key-1234567890-abcdef",
+            key,
+            true,
+        )
+        .await
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let provider = StoredProvider {
+            node_id: None,
+            protocol: "auto".into(),
+            priority: 0,
+            default_model: None,
+            id: "account".into(),
+            tenant_id: "red".into(),
+            provider: "openai-compatible".into(),
+            upstream_url: format!(
+                "http://{}/v1/chat/completions",
+                listener.local_addr().unwrap()
+            ),
+            credential_ciphertext: super::super::encrypt("fixture-secret", "account", key).unwrap(),
+            enabled: true,
+            updated_at: 1,
+        };
+        database.upsert_provider(&provider).await.unwrap();
+        control.sync_provider_snapshot().await.unwrap();
+        let before = {
+            let routes = control.0.routes.read().await;
+            let pools = match &*routes {
+                RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+                RouteSnapshot::Unavailable => panic!("routes unavailable"),
+            };
+            pools.values().flatten().next().unwrap().live.clone()
+        };
+        let ticket = database
+            .begin_synced_model_probe("account", "red")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(database
+            .publish_synced_models(
+                &ticket,
+                r#"[{"id":"private-model"}]"#,
+                unix_time_ms().unwrap()
+            )
+            .await
+            .unwrap());
+        let workers = super::super::credential_crypto::reserve_workers_for_test().await;
+        tokio::time::timeout(Duration::from_secs(5), control.sync_provider_snapshot())
+            .await
+            .expect("inventory update waited for credential workers")
+            .unwrap();
+        drop(workers);
+        let routes = control.0.routes.read().await;
+        let pools = match &*routes {
+            RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+            RouteSnapshot::Unavailable => panic!("routes unavailable"),
+        };
+        let account = pools.values().flatten().next().unwrap();
+        assert!(Arc::ptr_eq(&before, &account.live));
+        assert!(account
+            .synced_models
+            .as_ref()
+            .unwrap()
+            .models
+            .contains_key("private-model"));
+    }
+
     #[tokio::test]
     async fn waiting_for_credential_work_does_not_block_edits_or_use_stale_config() {
         let database = Arc::new(

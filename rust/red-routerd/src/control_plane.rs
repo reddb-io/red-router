@@ -192,6 +192,7 @@ struct Inner {
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     sqlite_changes: Option<tokio::sync::Mutex<SqliteChangeWatcher>>,
     provider_snapshot_signature: RwLock<[u8; 32]>,
+    inventory_snapshot_signature: RwLock<[u8; 32]>,
     oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
     provider_models: RwLock<Option<Arc<provider_models::ModelOverrides>>>,
@@ -408,6 +409,7 @@ enum ClientSnapshot {
     Unavailable,
 }
 
+#[derive(Clone)]
 struct DirectAccount {
     record: StoredProvider,
     auth: StoredProviderAuth,
@@ -416,7 +418,7 @@ struct DirectAccount {
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
     quota: Arc<TargetQuota>,
     synced_models: Option<Arc<SyncedModelInventory>>,
-    live: tokio::sync::OnceCell<LiveProvider>,
+    live: Arc<tokio::sync::OnceCell<LiveProvider>>,
 }
 
 struct SyncedModelInventory {
@@ -433,6 +435,7 @@ impl SyncedModelInventory {
 
 type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
 
+#[derive(Clone)]
 enum RouteSnapshot {
     Legacy(Arc<DirectPools>),
     Current(Arc<HashMap<String, Arc<ModelRoute>>>, Arc<DirectPools>),
@@ -2236,6 +2239,7 @@ impl ControlPlane {
             oidc_browser: RwLock::new(oidc_browser),
             sqlite_changes,
             provider_snapshot_signature: RwLock::new([0; 32]),
+            inventory_snapshot_signature: RwLock::new([0; 32]),
             oidc_snapshot_signature: RwLock::new([0; 32]),
             catalog: RwLock::new(CatalogState {
                 catalog,
@@ -2261,11 +2265,16 @@ impl ControlPlane {
         }));
         plane.refresh().await?;
         plane.refresh_clients().await?;
+        // Record the inventory revision before building pools. A concurrent
+        // publication during startup must trigger another refresh, not be
+        // acknowledged as if it had already been loaded.
+        let inventory_signature = plane.inventory_runtime_signature().await?;
         plane.refresh_routes().await?;
         plane.refresh_availability_profiles().await?;
         plane.refresh_breaker_profiles().await?;
         *plane.0.provider_snapshot_signature.write().await =
             plane.provider_runtime_signature().await?;
+        *plane.0.inventory_snapshot_signature.write().await = inventory_signature;
         *plane.0.oidc_snapshot_signature.write().await = plane.oidc_runtime_signature().await?;
         plane.spawn_model_catalog_sync(catalog_poll_interval);
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
@@ -2385,7 +2394,16 @@ impl ControlPlane {
                 return Err(error);
             }
         };
-        if *self.0.provider_snapshot_signature.read().await == latest {
+        let latest_inventory = self.inventory_runtime_signature().await?;
+        let routes_available = !matches!(&*self.0.routes.read().await, RouteSnapshot::Unavailable);
+        if routes_available && *self.0.provider_snapshot_signature.read().await == latest {
+            if *self.0.inventory_snapshot_signature.read().await != latest_inventory {
+                if let Err(error) = self.refresh_synced_model_pools().await {
+                    *self.0.routes.write().await = RouteSnapshot::Unavailable;
+                    return Err(error);
+                }
+                *self.0.inventory_snapshot_signature.write().await = latest_inventory;
+            }
             return Ok(());
         }
         if let Err(error) = self.refresh_model_aliases().await {
@@ -2414,6 +2432,7 @@ impl ControlPlane {
         }
         self.refresh_availability_profiles().await?;
         *self.0.provider_snapshot_signature.write().await = latest;
+        *self.0.inventory_snapshot_signature.write().await = latest_inventory;
         Ok(())
     }
 
@@ -9272,6 +9291,18 @@ impl ControlPlane {
         }
     }
 
+    async fn inventory_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
+        let mut digest = Sha256::new();
+        signature_text(&mut digest, "redrouter-model-inventory-v1");
+        for marker in self.0.database.synced_model_markers().await? {
+            signature_text(&mut digest, &marker.kind);
+            signature_text(&mut digest, &marker.provider_id);
+            signature_i64(&mut digest, marker.revision);
+            signature_i64(&mut digest, marker.observed_at_unix_ms);
+        }
+        Ok(digest.finalize().into())
+    }
+
     async fn provider_runtime_signature(&self) -> Result<[u8; 32], &'static str> {
         let mut digest = Sha256::new();
         signature_text(&mut digest, "redrouter-provider-runtime-v3");
@@ -9324,12 +9355,6 @@ impl ControlPlane {
             signature_text(&mut digest, &record.upstream_identity);
             signature_text(&mut digest, &record.headers_ciphertext);
             signature_i64(&mut digest, record.revision);
-        }
-        for marker in self.0.database.synced_model_markers().await? {
-            signature_text(&mut digest, &marker.kind);
-            signature_text(&mut digest, &marker.provider_id);
-            signature_i64(&mut digest, marker.revision);
-            signature_i64(&mut digest, marker.observed_at_unix_ms);
         }
         for record in self.0.database.provider_sessions().await? {
             signature_text(&mut digest, &record.provider_id);
@@ -9549,6 +9574,54 @@ impl ControlPlane {
             ClientSnapshot::Current(Arc::new(ClientPolicies::from_stored(policies)?))
         };
         *self.0.clients.write().await = snapshot;
+        Ok(())
+    }
+
+    /// Update only connection inventories. Existing routes, quota state and
+    /// initialized provider clients stay intact, including in-flight setup.
+    async fn refresh_synced_model_pools(&self) -> Result<(), &'static str> {
+        if !self.0.database.is_sqlite().await {
+            return Ok(());
+        }
+        let snapshot = self.0.routes.read().await.clone();
+        let pools = match &snapshot {
+            RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+            RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+        };
+        let now = unix_time_ms()?;
+        let mut refreshed = DirectPools::with_capacity(pools.len());
+        for (key, accounts) in pools.iter() {
+            let mut copies = Vec::with_capacity(accounts.len());
+            for account in accounts {
+                let mut copy = (**account).clone();
+                copy.synced_models = self
+                    .0
+                    .database
+                    .synced_models(
+                        &copy.record.id,
+                        &copy.record.tenant_id,
+                        now,
+                        SYNCED_MODEL_MAX_AGE_MS,
+                    )
+                    .await?
+                    .filter(|snapshot| snapshot.binding.provider_revision == copy.record.updated_at)
+                    .map(|snapshot| {
+                        Ok::<_, &'static str>(Arc::new(SyncedModelInventory {
+                            observed_at_unix_ms: snapshot.observed_at_unix_ms,
+                            models: provider_discovery::parse_inventory(&snapshot.models_json)?,
+                        }))
+                    })
+                    .transpose()?;
+                copies.push(Arc::new(copy));
+            }
+            refreshed.insert(key.clone(), copies);
+        }
+        let refreshed = Arc::new(refreshed);
+        *self.0.routes.write().await = match snapshot {
+            RouteSnapshot::Legacy(_) => RouteSnapshot::Legacy(refreshed),
+            RouteSnapshot::Current(routes, _) => RouteSnapshot::Current(routes, refreshed),
+            RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+        };
         Ok(())
     }
 
@@ -9841,7 +9914,9 @@ impl ControlPlane {
                 claude_identity: claude_identities.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
                 synced_models,
-                live: tokio::sync::OnceCell::new_with(live.get(&provider.id).cloned()),
+                live: Arc::new(tokio::sync::OnceCell::new_with(
+                    live.get(&provider.id).cloned(),
+                )),
             };
             pool.push(Arc::new(account));
         }
