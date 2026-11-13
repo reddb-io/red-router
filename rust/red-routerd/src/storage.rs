@@ -245,6 +245,7 @@ const READ_OIDC_BROWSER: &str = "SELECT public_origin, client_id, client_secret_
 const UPSERT_OIDC_BROWSER: &str = "INSERT INTO redrouter_control_oidc_browser (id, public_origin, client_id, client_secret_ciphertext, authorization_endpoint, token_endpoint, scopes_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET public_origin = $1, client_id = $2, client_secret_ciphertext = $3, authorization_endpoint = $4, token_endpoint = $5, scopes_json = $6, revision = $7";
 const DELETE_OIDC_BROWSER: &str = "DELETE FROM redrouter_control_oidc_browser WHERE id = 1";
 const CREATE_MODEL_CATALOG: &str = "CREATE TABLE IF NOT EXISTS redrouter_model_catalog_snapshot (id INTEGER PRIMARY KEY, snapshot_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const CREATE_MODEL_CATALOG_REFRESH_LEASE: &str = "CREATE TABLE IF NOT EXISTS redrouter_model_catalog_refresh_lease (id INTEGER PRIMARY KEY CHECK (id = 1), owner TEXT NOT NULL, lease_until_unix_ms BIGINT NOT NULL, next_allowed_unix_ms BIGINT NOT NULL)";
 const READ_MODEL_CATALOG: &str =
     "SELECT snapshot_json, revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
 const READ_MODEL_CATALOG_REVISION: &str =
@@ -1123,6 +1124,7 @@ impl Database {
                     .map_err(|_| "cannot initialize provider namespace index")?;
                 if backend == Backend::Sqlite {
                     for statement in [
+                        CREATE_MODEL_CATALOG_REFRESH_LEASE,
                         CREATE_DASHBOARD_KEY_VALUE,
                         CREATE_USAGE_RESERVATIONS,
                         CREATE_USAGE_LEDGER,
@@ -1930,6 +1932,39 @@ impl Database {
             .execute(pool)
             .await
             .map_err(|_| "cannot acquire provider OAuth refresh lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// SQLite coordinates the daily models.dev update across proxy instances.
+    pub async fn acquire_model_catalog_refresh_lease(
+        &self,
+        owner: &str,
+        now_unix_ms: i64,
+        lease_until_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("catalog refresh coordination requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("catalog refresh coordination requires SQLite")?;
+        let result = sqlx::query("INSERT INTO redrouter_model_catalog_refresh_lease (id,owner,lease_until_unix_ms,next_allowed_unix_ms) VALUES (1,$1,$2,0) ON CONFLICT (id) DO UPDATE SET owner=$1,lease_until_unix_ms=$2 WHERE redrouter_model_catalog_refresh_lease.lease_until_unix_ms <= $3 AND redrouter_model_catalog_refresh_lease.next_allowed_unix_ms <= $3")
+            .bind(owner).bind(lease_until_unix_ms).bind(now_unix_ms).execute(pool).await
+            .map_err(|_| "cannot acquire catalog refresh lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn finish_model_catalog_refresh_lease(
+        &self,
+        owner: &str,
+        next_allowed_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        let pool = self
+            .sql_pool()
+            .ok_or("catalog refresh coordination requires SQLite")?;
+        let result = sqlx::query("UPDATE redrouter_model_catalog_refresh_lease SET lease_until_unix_ms=0,next_allowed_unix_ms=$1 WHERE id=1 AND owner=$2")
+            .bind(next_allowed_unix_ms).bind(owner).execute(pool).await
+            .map_err(|_| "cannot finish catalog refresh lease")?;
         Ok(result.rows_affected() == 1)
     }
 

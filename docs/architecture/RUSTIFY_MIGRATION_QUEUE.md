@@ -43,9 +43,11 @@ combines configured chat models with matching models.dev entries for eligible
 accounts, but does not yet synchronize per-connection inventory, migrate
 activation rules, honor the key's flat model-ID format, or reproduce those
 post-filters. Provider metadata is descriptive and must not itself grant
-access to inference or guarantee upstream entitlement. Refresh from models.dev
-is currently an authenticated management operation; automatic daily refresh
-with coordination across instances and offline-safe behavior remains open.
+access to inference or guarantee upstream entitlement. SQLite instances now
+schedule refreshes after a 15-minute startup delay, with a shared daily lease,
+five-minute failure backoff and the existing last-good snapshot (CI pending).
+The authenticated manual refresh remains available. Shared scheduling for the
+other database backends remains open.
 
 ## Current execution order
 

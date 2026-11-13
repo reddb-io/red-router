@@ -61,6 +61,11 @@ use zeroize::{Zeroize, Zeroizing};
 
 type ControlCipher = AesGcm<Aes256, U16>;
 const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
+const MODEL_CATALOG_AUTO_INITIAL_DELAY: Duration = Duration::from_secs(15 * 60);
+const MODEL_CATALOG_AUTO_RETRY: Duration = Duration::from_secs(5 * 60);
+const MODEL_CATALOG_AUTO_TIMEOUT: Duration = Duration::from_secs(90);
+const MODEL_CATALOG_AUTO_LEASE_MS: i64 = 120_000;
+const MODEL_CATALOG_AUTO_DAY_MS: i64 = 24 * 60 * 60 * 1_000;
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const CONTROL_SNAPSHOT_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -2250,6 +2255,7 @@ impl ControlPlane {
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
         plane.spawn_control_snapshot_sync(snapshot_cadence);
         if sqlite {
+            plane.spawn_model_catalog_auto_refresh();
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
             plane.spawn_provider_quota_sync(quota_cadence);
             plane.spawn_usage_maintenance(USAGE_MAINTENANCE_INTERVAL);
@@ -3554,6 +3560,67 @@ impl ControlPlane {
                 }
             }
         });
+    }
+
+    fn spawn_model_catalog_auto_refresh(&self) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            // Avoid delaying startup or triggering network I/O in short-lived
+            // command invocations. Every SQLite replica shares one schedule.
+            tokio::time::sleep(MODEL_CATALOG_AUTO_INITIAL_DELAY).await;
+            loop {
+                let Some(inner) = weak.upgrade() else { return };
+                let control = ControlPlane(inner);
+                if let Err(error) = control.refresh_model_catalog_if_due().await {
+                    eprintln!("Automatic model catalog refresh failed: {error}");
+                }
+                drop(control);
+                tokio::time::sleep(MODEL_CATALOG_AUTO_RETRY).await;
+            }
+        });
+    }
+
+    /// Execute one scheduled attempt. A durable lease suppresses duplicate
+    /// refreshes across SQLite replicas and retries errors without replacing
+    /// the last usable catalog.
+    #[doc(hidden)]
+    pub async fn refresh_model_catalog_if_due(&self) -> Result<bool, &'static str> {
+        let now = unix_time_ms()?;
+        let owner = random_token(18)?;
+        if !self
+            .0
+            .database
+            .acquire_model_catalog_refresh_lease(
+                &owner,
+                now,
+                now.saturating_add(MODEL_CATALOG_AUTO_LEASE_MS),
+            )
+            .await?
+        {
+            return Ok(false);
+        }
+        let result =
+            tokio::time::timeout(MODEL_CATALOG_AUTO_TIMEOUT, self.refresh_model_catalog()).await;
+        let success = matches!(&result, Ok(Ok(_)));
+        let delay = if success {
+            MODEL_CATALOG_AUTO_DAY_MS
+        } else {
+            MODEL_CATALOG_AUTO_RETRY.as_millis() as i64
+        };
+        let next = unix_time_ms()?.saturating_add(delay);
+        if !self
+            .0
+            .database
+            .finish_model_catalog_refresh_lease(&owner, next)
+            .await?
+        {
+            return Err("catalog refresh lease was lost");
+        }
+        match result {
+            Ok(Ok(_)) => Ok(true),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err("model catalog refresh timed out"),
+        }
     }
 
     pub(crate) async fn model_catalog(&self) -> Arc<crate::catalog::ModelCatalog> {

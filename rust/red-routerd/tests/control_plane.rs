@@ -2292,6 +2292,102 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
 }
 
 #[tokio::test]
+async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snapshot() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("catalog-schedule.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let (source, requests, mode, source_task) = models_dev_catalog_server().await;
+    let first_db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let second_db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let first = ControlPlane::new_with_model_catalog_source(
+        first_db.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        &source,
+    )
+    .await
+    .unwrap();
+    let second = ControlPlane::new_with_model_catalog_source(
+        second_db.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        &source,
+    )
+    .await
+    .unwrap();
+    let (one, two) = tokio::join!(
+        first.refresh_model_catalog_if_due(),
+        second.refresh_model_catalog_if_due()
+    );
+    let (one, two) = (one.unwrap(), two.unwrap());
+    assert_ne!(one, two, "exactly one instance should refresh");
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    let saved = first_db.model_catalog_snapshot().await.unwrap().unwrap();
+    assert!(!first.refresh_model_catalog_if_due().await.unwrap());
+    assert!(!second.refresh_model_catalog_if_due().await.unwrap());
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+    sqlx::query(
+        "UPDATE redrouter_model_catalog_refresh_lease SET next_allowed_unix_ms=0 WHERE id=1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    mode.store(1, Ordering::SeqCst);
+    assert!(first.refresh_model_catalog_if_due().await.is_err());
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        first_db.model_catalog_snapshot().await.unwrap().unwrap(),
+        saved
+    );
+    assert!(
+        !second.refresh_model_catalog_if_due().await.unwrap(),
+        "failed refreshes must be backed off across instances"
+    );
+    sqlx::query(
+        "UPDATE redrouter_model_catalog_refresh_lease SET next_allowed_unix_ms=0 WHERE id=1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    mode.store(0, Ordering::SeqCst);
+    assert!(second.refresh_model_catalog_if_due().await.unwrap());
+    assert_eq!(requests.load(Ordering::SeqCst), 3);
+    sqlx::query("DELETE FROM redrouter_model_catalog_refresh_lease WHERE id=1")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(first_db
+        .acquire_model_catalog_refresh_lease("old", 100, 200)
+        .await
+        .unwrap());
+    assert!(!second_db
+        .acquire_model_catalog_refresh_lease("new", 199, 300)
+        .await
+        .unwrap());
+    assert!(second_db
+        .acquire_model_catalog_refresh_lease("new", 201, 300)
+        .await
+        .unwrap());
+    assert!(!first_db
+        .finish_model_catalog_refresh_lease("old", 999)
+        .await
+        .unwrap());
+    assert!(second_db
+        .finish_model_catalog_refresh_lease("new", 999)
+        .await
+        .unwrap());
+    pool.close().await;
+    drop(first);
+    drop(second);
+    first_db.close().await.unwrap();
+    second_db.close().await.unwrap();
+    source_task.abort();
+}
+
+#[tokio::test]
 async fn migrated_key_cannot_be_enabled_before_quota_state_is_adopted() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("migration-gate.sqlite")).unwrap();
