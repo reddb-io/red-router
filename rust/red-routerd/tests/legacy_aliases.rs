@@ -282,3 +282,106 @@ async fn custom_provider_aliases_require_matching_imported_definition_and_rollba
         "legacy alias destination requires migration"
     );
 }
+
+#[tokio::test]
+async fn migrated_custom_alias_routes_through_imported_node_in_two_instances() {
+    use axum::{
+        extract::Json,
+        http::{HeaderMap, StatusCode},
+        routing::post,
+        Router,
+    };
+    use red_routerd::{control_plane::ControlPlane, router, ProxyState};
+    use std::sync::Arc;
+    const ADMIN: &str = "migrated-node-admin-key-123456789";
+    const STORAGE: &str = "migrated-node-storage-key-1234567";
+    const CLIENT: &str = "migrated-node-client-key-12345678";
+    let provider = Router::new().route("/v1/custom", post(|headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+        assert_eq!(headers["authorization"], "Bearer migrated-node-secret");
+        assert_eq!(body["model"], "model-x");
+        Json(serde_json::json!({"model":"model-x","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}/v1", listener.local_addr().unwrap());
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let destination = dir.path().join("native.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key)); CREATE TABLE provider_nodes (id TEXT PRIMARY KEY, type TEXT, name TEXT, prefix TEXT, base_url TEXT, chat_path TEXT);").execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_nodes VALUES ('custom-node','openai-compatible','Private','private-api',?,'/custom')").bind(&upstream).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','friendly',?)")
+        .bind(r#""private-api/model-x""#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    legacy_provider_nodes::import(&source, &destination, STORAGE)
+        .await
+        .unwrap();
+    legacy_aliases::import(&source, &destination).await.unwrap();
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let start = |database: Arc<Database>| async move {
+        let control = ControlPlane::new(database, ADMIN, STORAGE, true)
+            .await
+            .unwrap();
+        let state = ProxyState::new(
+            "http://127.0.0.1:1/v1/chat/completions",
+            CLIENT,
+            "placeholder",
+            true,
+        )
+        .await
+        .unwrap()
+        .with_control_plane(control);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        (base, task)
+    };
+    let (base, task) = start(database.clone()).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/account"))
+            .bearer_auth(ADMIN)
+            .json(&serde_json::json!({"node_id":"custom-node","api_key":"migrated-node-secret"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/client")).bearer_auth(ADMIN)
+        .json(&serde_json::json!({"label":"client","api_key":CLIENT,"scopes":["inference:chat"],"allowed_models":["friendly"]})).send().await.unwrap().status(), StatusCode::OK);
+    let (replica, replica_task) = start(database.clone()).await;
+    for base in [base, replica] {
+        let response = client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth(CLIENT)
+            .json(&serde_json::json!({"model":"friendly","messages":[]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["model"], "friendly");
+    }
+    task.abort();
+    replica_task.abort();
+    provider_task.abort();
+}
