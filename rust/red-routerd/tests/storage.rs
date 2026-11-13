@@ -13,6 +13,9 @@ use url::Url;
 #[path = "client_policy_atomicity.rs"]
 mod client_policy_atomicity_tests;
 
+#[path = "synced_models_storage.rs"]
+mod synced_models_storage_tests;
+
 // Keep the read-only legacy inspection contract in the Windows storage job as
 // well as its standalone integration test.
 #[path = "legacy_archive.rs"]

@@ -17,7 +17,10 @@ mod provider_default_storage;
 mod provider_discovery_storage;
 #[path = "provider_node_binding_storage.rs"]
 mod provider_node_binding_storage;
+#[path = "synced_models_storage.rs"]
+mod synced_models_storage;
 pub use provider_discovery_storage::StoredProviderDiscovery;
+pub use synced_models_storage::{SyncedModelBinding, SyncedModelSnapshot, SyncedModelTicket};
 #[path = "provider_priority_storage.rs"]
 mod provider_priority_storage;
 #[path = "provider_protocol_storage.rs"]
@@ -1125,6 +1128,7 @@ impl Database {
                 if backend == Backend::Sqlite {
                     for statement in [
                         CREATE_MODEL_CATALOG_REFRESH_LEASE,
+                        synced_models_storage::CREATE,
                         CREATE_DASHBOARD_KEY_VALUE,
                         CREATE_USAGE_RESERVATIONS,
                         CREATE_USAGE_LEDGER,

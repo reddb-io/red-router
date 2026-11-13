@@ -7169,6 +7169,9 @@ impl ControlPlane {
 
         self.0.database.delete_provider_header(id).await?;
         self.0.database.delete_provider_discovery(id).await?;
+        if self.0.database.is_sqlite().await {
+            self.0.database.delete_synced_models(id).await?;
+        }
         self.0.database.delete_provider_auth(id).await?;
         self.0.database.delete_provider_oauth(id).await?;
         self.0.database.delete_provider_session(id).await?;
