@@ -35,6 +35,14 @@ pub struct SyncedModelSnapshot {
     pub models_json: String,
     pub observed_at_unix_ms: i64,
     pub generation: i64,
+    pub binding: SyncedModelBinding,
+}
+
+pub(crate) struct SyncedModelMarker {
+    pub kind: String,
+    pub provider_id: String,
+    pub revision: i64,
+    pub observed_at_unix_ms: i64,
 }
 
 fn binding(row: &sqlx::any::AnyRow) -> Result<SyncedModelBinding, &'static str> {
@@ -55,6 +63,37 @@ fn binding(row: &sqlx::any::AnyRow) -> Result<SyncedModelBinding, &'static str> 
 }
 
 impl Database {
+    pub(crate) async fn synced_model_markers(
+        &self,
+    ) -> Result<Vec<SyncedModelMarker>, &'static str> {
+        if !self.is_sqlite().await {
+            return Ok(Vec::new());
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("synced model inventory requires SQLite")?;
+        let rows = sqlx::query("SELECT 'path' AS kind,provider_id,revision,0 AS observed_at_unix_ms FROM redrouter_control_provider_discovery UNION ALL SELECT 'snapshot',provider_id,COALESCE(published_generation,0),COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models ORDER BY kind,provider_id")
+            .fetch_all(pool).await.map_err(|_| "cannot read synced model markers")?;
+        rows.iter()
+            .map(|row| {
+                Ok(SyncedModelMarker {
+                    kind: row
+                        .try_get("kind")
+                        .map_err(|_| "invalid synced model marker")?,
+                    provider_id: row
+                        .try_get("provider_id")
+                        .map_err(|_| "invalid synced model marker")?,
+                    revision: row
+                        .try_get("revision")
+                        .map_err(|_| "invalid synced model marker")?,
+                    observed_at_unix_ms: row
+                        .try_get("observed_at_unix_ms")
+                        .map_err(|_| "invalid synced model marker")?,
+                })
+            })
+            .collect()
+    }
+
     /// Confirm that a probe still describes the current account and is the
     /// newest probe before using its captured credentials for network I/O.
     pub async fn synced_model_probe_current(
@@ -259,6 +298,7 @@ impl Database {
             models_json,
             observed_at_unix_ms: observed,
             generation,
+            binding: saved,
         }))
     }
 

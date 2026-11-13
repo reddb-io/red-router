@@ -66,6 +66,7 @@ const MODEL_CATALOG_AUTO_RETRY: Duration = Duration::from_secs(5 * 60);
 const MODEL_CATALOG_AUTO_TIMEOUT: Duration = Duration::from_secs(90);
 const MODEL_CATALOG_AUTO_LEASE_MS: i64 = 120_000;
 const MODEL_CATALOG_AUTO_DAY_MS: i64 = 24 * 60 * 60 * 1_000;
+const SYNCED_MODEL_MAX_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const CONTROL_SNAPSHOT_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -153,6 +154,8 @@ UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_c
 UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_provider_auth
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
+UNION ALL SELECT 'provider-discovery', provider_id, revision, 0 FROM redrouter_control_provider_discovery
+UNION ALL SELECT 'synced-models', provider_id, COALESCE(published_generation,0), COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
 UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
@@ -412,7 +415,20 @@ struct DirectAccount {
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
     quota: Arc<TargetQuota>,
+    synced_models: Option<Arc<SyncedModelInventory>>,
     live: tokio::sync::OnceCell<LiveProvider>,
+}
+
+struct SyncedModelInventory {
+    observed_at_unix_ms: i64,
+    models: BTreeMap<String, provider_discovery::DiscoveredModel>,
+}
+
+impl SyncedModelInventory {
+    fn fresh(&self, now: i64) -> bool {
+        self.observed_at_unix_ms <= now.saturating_add(5 * 60 * 1_000)
+            && self.observed_at_unix_ms >= now.saturating_sub(SYNCED_MODEL_MAX_AGE_MS)
+    }
 }
 
 type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
@@ -4315,7 +4331,7 @@ impl ControlPlane {
             {
                 continue;
             }
-            let protocols: Vec<_> = accounts
+            let eligible: Vec<_> = accounts
                 .iter()
                 .filter(|account| policy.provider_allowed(Some(&account.record.id)))
                 .filter_map(|account| {
@@ -4324,8 +4340,9 @@ impl ControlPlane {
                         &account.record.protocol,
                     )
                     .ok()
+                    .map(|protocol| (account, protocol))
                 })
-                .filter(|protocol| {
+                .filter(|(_, protocol)| {
                     matches!(
                         protocol,
                         ProviderProtocol::OpenAi
@@ -4334,7 +4351,7 @@ impl ControlPlane {
                     )
                 })
                 .collect();
-            if protocols.is_empty() {
+            if eligible.is_empty() {
                 continue;
             }
             let catalog_models = catalog.models_for_provider(provider)?;
@@ -4342,19 +4359,42 @@ impl ControlPlane {
             for configured in overrides.configured_models(tenant, provider) {
                 candidates.insert(&configured.id);
             }
+            let now = unix_time_ms()?;
+            let mut discovered = BTreeMap::new();
+            for (account, _) in &eligible {
+                if let Some(inventory) = account
+                    .synced_models
+                    .as_ref()
+                    .filter(|inventory| inventory.fresh(now))
+                {
+                    for (id, model) in &inventory.models {
+                        discovered.entry(id.as_str()).or_insert(model);
+                        candidates.insert(id.as_str());
+                    }
+                }
+            }
             for id in candidates {
                 let public = format!("{provider}/{id}");
                 if !model_aliases::valid_model_name(id)
                     || !policy.model_alias_target_allowed(&public, id, Some(provider))
-                    || !protocols.iter().any(|protocol| {
+                    || !eligible.iter().any(|(_, protocol)| {
                         *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(id)
                     })
                 {
                     continue;
                 }
-                let metadata = overrides
-                    .model(catalog, tenant, provider, id)?
-                    .ok_or("configured model metadata unavailable")?;
+                let metadata = match overrides.model(catalog, tenant, provider, id)? {
+                    Some(metadata) => metadata,
+                    None => {
+                        let discovered = discovered
+                            .get(id)
+                            .ok_or("discovered model metadata unavailable")?;
+                        serde_json::from_value(serde_json::json!({
+                            "id":id, "name":discovered.name,
+                            "limit":{"context":discovered.context_length,"output":discovered.max_output_tokens}
+                        })).map_err(|_| "invalid synced model metadata")?
+                    }
+                };
                 if metadata
                     .r#type
                     .as_deref()
@@ -4511,6 +4551,7 @@ impl ControlPlane {
             .await;
         initialized.sort_by_key(|(index, _, _, _)| *index);
         let model_quotas = self.0.model_quotas.read().await;
+        let now = unix_time_ms()?;
         let targets = initialized
             .into_iter()
             .map(|(_, account, live, protocol)| {
@@ -4525,7 +4566,14 @@ impl ControlPlane {
                         weight: 1,
                         input_cost_per_million: cost.and_then(|cost| cost.input),
                         output_cost_per_million: cost.and_then(|cost| cost.output),
-                        context_window_tokens: context,
+                        context_window_tokens: context.or_else(|| {
+                            account
+                                .synced_models
+                                .as_ref()
+                                .filter(|inventory| inventory.fresh(now))
+                                .and_then(|inventory| inventory.models.get(model))
+                                .and_then(|model| model.context_length)
+                        }),
                         prompt: None,
                     },
                     account.quota.clone(),
@@ -9211,6 +9259,12 @@ impl ControlPlane {
             signature_text(&mut digest, &record.headers_ciphertext);
             signature_i64(&mut digest, record.revision);
         }
+        for marker in self.0.database.synced_model_markers().await? {
+            signature_text(&mut digest, &marker.kind);
+            signature_text(&mut digest, &marker.provider_id);
+            signature_i64(&mut digest, marker.revision);
+            signature_i64(&mut digest, marker.observed_at_unix_ms);
+        }
         for record in self.0.database.provider_sessions().await? {
             signature_text(&mut digest, &record.provider_id);
             signature_text(&mut digest, &record.provider);
@@ -9671,6 +9725,8 @@ impl ControlPlane {
         let mut ordered: Vec<_> = providers.iter().collect();
         ordered.sort_by(|a, b| model_aliases::compare_accounts(a, b));
         let mut direct_pools: DirectPools = HashMap::new();
+        let supports_synced_models = self.0.database.is_sqlite().await;
+        let now = unix_time_ms()?;
         // A definition without active accounts must remain distinguishable
         // from an unknown model prefix; it must never fall through to a
         // different provider's credentials.
@@ -9687,6 +9743,27 @@ impl ControlPlane {
                 continue;
             }
             let key = (provider.id.clone(), provider.updated_at);
+            let synced_models = if supports_synced_models {
+                self.0
+                    .database
+                    .synced_models(
+                        &provider.id,
+                        &provider.tenant_id,
+                        now,
+                        SYNCED_MODEL_MAX_AGE_MS,
+                    )
+                    .await?
+                    .filter(|snapshot| snapshot.binding.provider_revision == provider.updated_at)
+                    .map(|snapshot| {
+                        Ok::<_, &'static str>(Arc::new(SyncedModelInventory {
+                            observed_at_unix_ms: snapshot.observed_at_unix_ms,
+                            models: provider_discovery::parse_inventory(&snapshot.models_json)?,
+                        }))
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
             let account = DirectAccount {
                 record: provider.clone(),
                 auth: auth
@@ -9697,6 +9774,7 @@ impl ControlPlane {
                 antigravity_project: antigravity_projects.get(&key).cloned(),
                 claude_identity: claude_identities.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
+                synced_models,
                 live: tokio::sync::OnceCell::new_with(live.get(&provider.id).cloned()),
             };
             pool.push(Arc::new(account));

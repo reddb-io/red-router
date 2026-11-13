@@ -18,6 +18,12 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
         }
     });
     let app = Router::new()
+        .route("/v1/chat/completions", post(|headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+            assert_eq!(headers["authorization"], "Bearer private-provider-key");
+            assert_eq!(headers["x-project"], "private-project");
+            assert_eq!(body["model"], "model-b");
+            Json(serde_json::json!({"id":"chat-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
+        }))
         .route("/pages/models", get(|headers: HeaderMap, axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>| async move {
             assert_eq!(headers["authorization"], "Bearer private-provider-key");
             assert_eq!(headers["x-project"], "private-project");
@@ -68,6 +74,18 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert!(!snapshot.models_json.contains("must-not-return"));
     assert_eq!(serde_json::from_str::<serde_json::Value>(&snapshot.models_json).unwrap()[0]["id"], "model-a");
     assert!(db.synced_models("discovery-fixture", "other", now, 60_000).await.unwrap().is_none());
+    let catalog_key = "discovery-catalog-client-key-123456789";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/discovery-catalog")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Discovery catalog","api_key":catalog_key,"scopes":["inference:chat"],"allowed_models":["openai-compatible/model-b"],"allowed_provider_ids":["discovery-fixture"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(catalog_key).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed["data"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["data"][0]["id"], "openai-compatible/model-b");
+    assert_eq!(listed["data"][0]["context_length"], 32768);
+    let response = chat_model(&client, &base, catalog_key, "openai-compatible/model-b").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(response["choices"][0]["message"]["content"], "ok");
     {
         let requests = seen.lock().unwrap();
         assert_eq!(requests.len(), 1);
@@ -82,6 +100,8 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":"/custom/models?version=2"})).send().await.unwrap().status(), StatusCode::OK);
     assert_eq!(db.provider_discovery("discovery-fixture").await.unwrap().unwrap().models_path, "/custom/models?version=2");
     assert!(db.synced_models("discovery-fixture", "red", now, 60_000).await.unwrap().is_none());
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(catalog_key).send().await.unwrap().json().await.unwrap();
+    assert!(listed["data"].as_array().unwrap().is_empty());
     // A fresh connection/control plane reads the durable configuration without a hot-path cache.
     let db2 = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
     let control2 = ControlPlane::new(db2, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
@@ -92,6 +112,13 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(client.post(&endpoint2).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::OK);
     assert_eq!(seen.lock().unwrap().last().unwrap().1, "/custom/models?version=2");
     assert!(db.synced_models("discovery-fixture", "red", now + 5_000, 60_000).await.unwrap().is_some());
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(catalog_key).send().await.unwrap().json().await.unwrap();
+            if listed["data"].as_array().unwrap().iter().any(|model| model["id"] == "openai-compatible/model-b") { break; }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    }).await.expect("discovered models were not published to the other proxy");
     for path in ["/pages/models?kind=token", "/pages/models?kind=cursor"] {
         assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":path})).send().await.unwrap().status(), StatusCode::OK);
         let response = client.post(&endpoint2).bearer_auth(ADMIN_KEY).send().await.unwrap();
@@ -120,4 +147,51 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     assert_eq!(client.delete(format!("{provider_endpoint}/purge")).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::NO_CONTENT);
     assert!(db.provider_discovery("discovery-fixture").await.unwrap().is_none());
     upstream_task.abort(); gateway_task.abort(); gateway2_task.abort();
+}
+
+#[tokio::test]
+async fn discovered_models_are_scoped_to_permitted_provider_accounts() {
+    let dir = TempDir::new().unwrap();
+    let file = Url::from_file_path(dir.path().join("account-catalog.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(db, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let app = Router::new().route("/v1/models", get(|headers: HeaderMap| async move {
+        let model = match headers["authorization"].to_str().unwrap() {
+            "Bearer account-a-secret" => "private-model-a",
+            "Bearer account-b-secret" => "private-model-b",
+            _ => panic!("unexpected provider credential"),
+        };
+        Json(serde_json::json!({"data":[{"id":model}]}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}/v1/chat/completions", listener.local_addr().unwrap());
+    let upstream_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (account, secret) in [("account-a", "account-a-secret"), ("account-b", "account-b-secret")] {
+        let endpoint = format!("{base}/api/admin/providers/{account}");
+        assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"provider":"openai-compatible","upstream_url":upstream,"api_key":secret}))
+            .send().await.unwrap().status(), StatusCode::OK);
+        assert_eq!(client.post(format!("{endpoint}/discovery")).bearer_auth(ADMIN_KEY)
+            .send().await.unwrap().status(), StatusCode::OK);
+    }
+    for (account, key, model) in [
+        ("account-a", "discovery-account-a-client-key-123456", "openai-compatible/private-model-a"),
+        ("account-b", "discovery-account-b-client-key-123456", "openai-compatible/private-model-b"),
+    ] {
+        assert_eq!(client.put(format!("{base}/api/admin/client-keys/{account}")).bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"label":account,"api_key":key,"scopes":["inference:chat"],
+                "allowed_models":["openai-compatible/private-model-a","openai-compatible/private-model-b"],
+                "allowed_provider_ids":[account]}))
+            .send().await.unwrap().status(), StatusCode::OK);
+        let listed: serde_json::Value = client.get(format!("{base}/v1/models"))
+            .bearer_auth(key).send().await.unwrap().json().await.unwrap();
+        let models = listed["data"].as_array().unwrap();
+        assert_eq!(models.len(), 1, "{listed}");
+        assert_eq!(models[0]["id"], model);
+    }
+    upstream_task.abort();
+    gateway_task.abort();
 }

@@ -20,15 +20,47 @@ struct DiscoveryView {
     revision: Option<String>,
 }
 
-#[derive(Serialize)]
-struct DiscoveredModel {
-    id: String,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DiscoveredModel {
+    pub(super) id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub(super) name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    context_length: Option<u64>,
+    pub(super) context_length: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    max_output_tokens: Option<u64>,
+    pub(super) max_output_tokens: Option<u64>,
+}
+
+pub(super) fn parse_inventory(
+    json: &str,
+) -> Result<BTreeMap<String, DiscoveredModel>, &'static str> {
+    let models: Vec<DiscoveredModel> =
+        serde_json::from_str(json).map_err(|_| "invalid synced model inventory")?;
+    if models.len() > MAX_MODELS {
+        return Err("invalid synced model inventory");
+    }
+    let mut result = BTreeMap::new();
+    for model in models {
+        // A provider may list IDs that the proxy cannot route. Ignore those
+        // entries instead of making every route unavailable for that account.
+        if !model_aliases::valid_model_name(&model.id) {
+            continue;
+        }
+        if model
+            .name
+            .as_ref()
+            .is_some_and(|name| name.len() > 512 || name.chars().any(char::is_control))
+            || [model.context_length, model.max_output_tokens]
+                .into_iter()
+                .flatten()
+                .any(|value| value == 0 || value > 1_000_000_000)
+            || result.insert(model.id.clone(), model).is_some()
+        {
+            return Err("invalid synced model inventory");
+        }
+    }
+    Ok(result)
 }
 
 fn models_url(upstream: &str, path: &str) -> Result<reqwest::Url, &'static str> {
@@ -113,12 +145,14 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
         let context_length = row
             .get("context_length")
             .or_else(|| row.get("inputTokenLimit"))
-            .and_then(serde_json::Value::as_u64);
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| (1..=1_000_000_000).contains(value));
         let max_output_tokens = row
             .get("max_output_tokens")
             .or_else(|| row.get("outputTokenLimit"))
             .or_else(|| row.pointer("/top_provider/max_completion_tokens"))
-            .and_then(serde_json::Value::as_u64);
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| (1..=1_000_000_000).contains(value));
         models.entry(id.to_owned()).or_insert(DiscoveredModel {
             id: id.to_owned(),
             name,
@@ -456,6 +490,14 @@ impl ControlPlane {
             {
                 return Err("provider_changed");
             }
+            let _mutation = self.0.mutation.lock().await;
+            if !self.0.database.synced_model_probe_current(ticket).await? {
+                return Err("provider_changed");
+            }
+            if let Err(error) = self.refresh_routes().await {
+                *self.0.routes.write().await = RouteSnapshot::Unavailable;
+                return Err(error);
+            }
         }
         Ok(models)
     }
@@ -516,6 +558,10 @@ pub async fn put_config(
                 .await?;
         } else {
             control.0.database.delete_provider_discovery(&id).await?;
+        }
+        if let Err(error) = control.refresh_routes().await {
+            *control.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
         }
         let after = control.discovery_view(&provider).await?;
         control
