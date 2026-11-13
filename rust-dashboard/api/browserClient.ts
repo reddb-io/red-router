@@ -2327,12 +2327,24 @@ export interface ProviderHeadersView {
   revision: string | null;
 }
 
-export async function providerRequestHeaders(
+export function providerRequestHeaders(
   id: string,
   headers?: Record<string, string>
 ): Promise<ProviderHeadersView> {
+  return requestHeaderMap(`/api/admin/providers/${encodeURIComponent(id)}/headers`, headers);
+}
+export function providerDefinitionHeaders(
+  id: string,
+  headers?: Record<string, string>
+): Promise<ProviderHeadersView> {
+  return requestHeaderMap(`/api/admin/provider-nodes/${encodeURIComponent(id)}/headers`, headers);
+}
+async function requestHeaderMap(
+  path: string,
+  headers?: Record<string, string>
+): Promise<ProviderHeadersView> {
   const value = await rustAdminJson(
-    `/api/admin/providers/${encodeURIComponent(id)}/headers`,
+    path,
     headers === undefined ? undefined : jsonRequest("PUT", { headers })
   );
   if (!value || typeof value !== "object") throw new Error("Invalid provider headers response");

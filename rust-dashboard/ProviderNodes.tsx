@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import ProviderHeaders from "./ProviderHeaders";
 import { Button, Card } from "./components";
 import {
   listProviderNodes,
@@ -262,6 +263,11 @@ export default function ProviderNodes({
             </Button>
           </div>
         </form>
+      )}
+      {editor && editing && (
+        <div className="mt-4">
+          <ProviderHeaders id={id} scope="definition" />
+        </div>
       )}
       <div className="mt-4 space-y-3">
         {filtered.slice(0, 100).map((node) => (

@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 import { Button, Card } from "./components";
-import { providerRequestHeaders, type ProviderHeadersView } from "./api/browserClient";
+import {
+  providerDefinitionHeaders,
+  providerRequestHeaders,
+  type ProviderHeadersView,
+} from "./api/browserClient";
 
-export default function ProviderHeaders({ id }: { id: string }) {
-  return <ProviderHeadersEditor key={id} id={id} />;
+type Scope = "connection" | "definition";
+export default function ProviderHeaders({
+  id,
+  scope = "connection",
+}: {
+  id: string;
+  scope?: Scope;
+}) {
+  return <ProviderHeadersEditor key={`${scope}:${id}`} id={id} scope={scope} />;
 }
 
-function ProviderHeadersEditor({ id }: { id: string }) {
+function ProviderHeadersEditor({ id, scope }: { id: string; scope: Scope }) {
+  const shared = scope === "definition";
+  const fetchHeaders = shared ? providerDefinitionHeaders : providerRequestHeaders;
   const [view, setView] = useState<ProviderHeadersView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,7 +28,7 @@ function ProviderHeadersEditor({ id }: { id: string }) {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let active = true;
-    providerRequestHeaders(id)
+    fetchHeaders(id)
       .then((value) => {
         if (active) {
           setView(value);
@@ -28,7 +41,7 @@ function ProviderHeadersEditor({ id }: { id: string }) {
     return () => {
       active = false;
     };
-  }, [id, reload]);
+  }, [id, reload, fetchHeaders]);
 
   async function save(clear: boolean) {
     setError("");
@@ -46,7 +59,7 @@ function ProviderHeadersEditor({ id }: { id: string }) {
       if (!clear && Object.keys(headers).length === 0)
         throw new Error("Enter headers or use Remove all headers");
       setBusy(true);
-      setView(await providerRequestHeaders(id, headers as Record<string, string>));
+      setView(await fetchHeaders(id, headers as Record<string, string>));
       setDraft("");
       setMessage(clear ? "Custom headers removed." : "Custom headers saved and activated.");
     } catch (cause) {
@@ -58,12 +71,17 @@ function ProviderHeadersEditor({ id }: { id: string }) {
 
   return (
     <Card
-      title="Custom request headers"
-      subtitle="Additional headers for this API connection, such as HTTP-Referer and X-Title."
+      title={shared ? "Shared request headers" : "Custom request headers"}
+      subtitle={
+        shared
+          ? "Default headers for every account linked to this provider definition. Matching account headers take precedence."
+          : "Additional headers for this API connection, such as HTTP-Referer and X-Title. Shared definition headers still apply unless overridden here."
+      }
     >
       <p className="text-sm text-text-muted">
         Values are stored encrypted and are never returned here. Saving replaces the entire map.
-        Editing connection details preserves it; changing the destination detaches it.
+        Editing metadata preserves it; changing the endpoint, protocol or provider prefix detaches
+        it.
       </p>
       {view && <p className="mt-2 text-sm">Configured: {view.names.join(", ") || "None"}</p>}
       {view && !view.attached && (
@@ -72,7 +90,7 @@ function ProviderHeadersEditor({ id }: { id: string }) {
         </p>
       )}
       <label className="mt-3 flex flex-col gap-1 text-sm">
-        Replacement headers (JSON)
+        {shared ? "Shared replacement headers (JSON)" : "Replacement headers (JSON)"}
         <textarea
           className="min-h-28 rounded-lg border border-border bg-surface p-3 font-mono text-sm"
           value={draft}
@@ -98,14 +116,14 @@ function ProviderHeadersEditor({ id }: { id: string }) {
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button disabled={!view || !draft.trim()} loading={busy} onClick={() => void save(false)}>
-          Replace headers
+          {shared ? "Replace shared headers" : "Replace headers"}
         </Button>
         <Button
           variant="secondary"
           disabled={!view?.names.length || busy}
           onClick={() => void save(true)}
         >
-          Remove all headers
+          {shared ? "Remove shared headers" : "Remove all headers"}
         </Button>
         {!view && error && (
           <Button variant="secondary" onClick={() => setReload((value) => value + 1)}>

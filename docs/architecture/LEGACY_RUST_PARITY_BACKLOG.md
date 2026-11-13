@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-85 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+86 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -426,3 +426,20 @@ Packaging review corrected both source Dockerfiles to copy compile-time catalog
 and provider-namespace JSON inputs and invalidate the temporary dependency-cache
 targets before compiling real sources. A full source Docker image build has not yet
 been established by the current checks; native build/browser evidence is narrower.
+
+
+2026-11-13 — real SPA browser run **43410984355** passed, including creation of a
+reusable definition, account binding, persisted reload and confirmation of a shared
+endpoint update. Rust run **43410122205** has passed main tests, Windows, FastLLM,
+embedded storage and lint; release/performance completion is still pending.
+
+PV-16/17: encrypted shared header defaults now live in the definition document,
+with names-only GET/PUT management and the SPA editor. Account values override
+matching names; removing overrides reveals shared defaults. Both sets detach on
+transport identity changes. A bounded per-control-plane cache avoids repeating
+scrypt for every linked account and refreshes by encrypted revision. Definition
+metadata updates preserve ciphertext; public node responses use an explicit allowlist.
+Revision-checked writes reject stale changes and cannot resurrect deleted nodes.
+Tests extend two-connection precedence, diagnosis/discovery/combos, restart,
+cross-instance removal, corruption, owner isolation and simultaneous writers.
+Validation for shared headers is pending; legacy node import remains open.

@@ -4,7 +4,7 @@
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
-pub use provider_nodes_storage::StoredProviderNode;
+pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
 #[path = "provider_discovery_storage.rs"]
 mod provider_discovery_storage;
 #[path = "provider_node_binding_storage.rs"]

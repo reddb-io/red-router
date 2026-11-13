@@ -9,6 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const api = vi.hoisted(() => ({
+  providerDefinitionHeaders: vi
+    .fn()
+    .mockResolvedValue({ names: [], attached: true, revision: null }),
   listProviderNodes: vi.fn().mockResolvedValue([]),
   saveProviderNode: vi.fn(),
   deleteProviderNode: vi.fn(),

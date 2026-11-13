@@ -71,10 +71,27 @@ bootstrap connection protocol; it has no effect on an already saved provider.
   Omitted `node_id` preserves an existing binding; `null` detaches it and requires
   explicit standalone settings and the credential again. OAuth connections cannot
   bind to API definitions. Model discovery inherits the definition unless overridden
-  on the account. Shared definition headers, legacy node import, preset/media settings,
-  model CRUD and model-prefix routing aliases are separate pending capabilities.
+  on the account. Legacy node import, preset/media settings, model CRUD and
+  model-prefix routing aliases are separate pending capabilities.
   The linked-account check is serialized within one control plane; distributed
   create/delete races and non-SQL namespace uniqueness still need dedicated acceptance.
+- `GET`/`PUT /api/admin/provider-nodes/{id}/headers` manage encrypted shared header
+  defaults. GET exposes names/revision/attachment only; PUT replaces the map and an
+  empty map removes it. Account headers override matching names case-insensitively;
+  clearing an account map restores inherited defaults. Each map permits 16 headers,
+  so the merged snapshot has at most 32. Authentication, framing and forwarding
+  names remain reserved. Endpoint/protocol/prefix changes detach stored shared values.
+  Shared header ciphertext lives in the definition document, with AAD bound to
+  organization, definition and transport; public definition responses omit it.
+  Definition edits and header writes use revision-checked storage updates: a concurrent
+  change returns 409 instead of overwriting new settings or recreating a deleted row.
+  Decoded shared maps are cached by encrypted revision within each control plane
+  (bounded to 256 entries), and compiled into direct/combo/diagnostic/discovery
+  snapshots. This adds no database query to the inference forwarding path.
+  Definitions without shared headers retain their prior stored JSON shape. Definitions
+  with shared headers require updated server processes; older strict readers reject
+  the new field rather than silently omitting its behavior. Mixed-version rollout and
+  rollback of populated definitions still require deployment acceptance (retain backups).
 - `GET /api/admin/providers` lists redacted provider metadata.
 - API connections accept optional `protocol`: `auto` (URL detection), `openai`,
   `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic` or `gemini`.

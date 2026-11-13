@@ -2181,6 +2181,11 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::provider_nodes::list),
         )
         .route(
+            "/api/admin/provider-nodes/{id}/headers",
+            get(control_plane::provider_headers::get_node_headers)
+                .put(control_plane::provider_headers::put_node_headers),
+        )
+        .route(
             "/api/admin/provider-nodes/{id}",
             get(control_plane::provider_nodes::get_node)
                 .put(control_plane::provider_nodes::put)

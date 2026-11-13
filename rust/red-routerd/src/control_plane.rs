@@ -189,6 +189,7 @@ struct Inner {
     claude_sessions: StdMutex<HashMap<String, Arc<str>>>,
     context_relay_generations: StdMutex<HashSet<String>>,
     mutation: tokio::sync::Mutex<()>,
+    node_header_cache: tokio::sync::Mutex<HashMap<String, (String, HeaderMap)>>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
     allow_private: bool,
@@ -2201,6 +2202,7 @@ impl ControlPlane {
             claude_sessions: StdMutex::new(HashMap::new()),
             context_relay_generations: StdMutex::new(HashSet::new()),
             mutation: tokio::sync::Mutex::new(()),
+            node_header_cache: tokio::sync::Mutex::new(HashMap::new()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
             allow_private,
@@ -8691,6 +8693,10 @@ impl ControlPlane {
             signature_text(&mut digest, &record.refresh_token_ciphertext);
             signature_i64(&mut digest, record.generation);
             signature_i64(&mut digest, record.revision);
+        }
+        for node in self.0.database.provider_nodes().await? {
+            signature_text(&mut digest, &node.id);
+            signature_i64(&mut digest, node.revision);
         }
         for record in self.0.database.provider_headers().await? {
             signature_text(&mut digest, &record.provider_id);

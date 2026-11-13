@@ -181,6 +181,7 @@ impl ControlPlane {
         )
         .await?;
         let node = StoredProviderNode {
+            header_config: existing.and_then(|node| node.header_config.clone()),
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             name: input.name.trim().to_owned(),
@@ -224,7 +225,10 @@ impl ControlPlane {
                 }
             }
         }
-        self.0.database.upsert_provider_node(&node).await?;
+        self.0
+            .database
+            .upsert_provider_node(&node, existing.map(|node| node.revision))
+            .await?;
         self.record_audit_event(AuditContext { action: "provider.definition.update", actor, tenant_id: &node.tenant_id, target: id, resource_type: "provider-definition" },
             existing.map(|old| serde_json::json!({"id":old.id,"prefix":old.prefix,"revision":old.revision.to_string()})).as_ref(),
             Some(&serde_json::json!({"id":node.id,"prefix":node.prefix,"revision":node.revision.to_string(),"linked_accounts":linked.len()}))).await;
@@ -242,9 +246,7 @@ impl ControlPlane {
 }
 
 fn node_view(node: &StoredProviderNode) -> serde_json::Value {
-    let mut value = serde_json::to_value(node).expect("provider definition serialization");
-    value["revision"] = node.revision.to_string().into();
-    value
+    serde_json::json!({"id":node.id,"tenant_id":node.tenant_id,"name":node.name,"prefix":node.prefix,"protocol":node.protocol,"base_url":node.base_url,"chat_path":node.chat_path,"upstream_url":node.upstream_url,"models_path":node.models_path,"revision":node.revision.to_string()})
 }
 
 pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
@@ -296,7 +298,8 @@ pub async fn get_node(
 fn failure(error: &'static str) -> Response {
     let status = match error {
         "Provider definition unavailable" => StatusCode::NOT_FOUND,
-        "Confirm applying endpoint changes to linked accounts"
+        "Provider definition changed; reload and retry"
+        | "Confirm applying endpoint changes to linked accounts"
         | "Provider prefix already exists"
         | "Provider definition has linked accounts"
         | "provider protocol is incompatible with an enabled combo" => StatusCode::CONFLICT,
@@ -381,6 +384,12 @@ pub async fn remove(
             .database
             .delete_provider_node(&id, &node.tenant_id)
             .await?;
+        control
+            .0
+            .node_header_cache
+            .lock()
+            .await
+            .remove(&format!("node:{}:{}", node.tenant_id, node.id));
         control
             .record_audit_event(
                 AuditContext {
