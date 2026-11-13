@@ -36,7 +36,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::{Connection, Row};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     io::{Cursor, Read},
@@ -222,7 +222,7 @@ struct OAuthRefreshRuntime {
 }
 
 struct SqliteChangeWatcher {
-    pool: sqlx::AnyPool,
+    connection: sqlx::AnyConnection,
     version: i64,
     control_marker: [u8; 32],
     pending: Option<(i64, [u8; 32])>,
@@ -230,13 +230,28 @@ struct SqliteChangeWatcher {
 
 impl SqliteChangeWatcher {
     async fn new(pool: &sqlx::AnyPool) -> Result<Self, &'static str> {
-        let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
-            .fetch_one(pool)
+        // data_version belongs to a physical connection, and does not advance
+        // for its own commits. A pool may return the writer (or a different
+        // connection each time), so keep a separate read-only observer lifetime.
+        // Do not acquire and retain a pooled slot: SQLite's write pool has one.
+        let mut connection = sqlx::AnyConnection::connect_with(pool.connect_options().as_ref())
             .await
             .map_err(|_| "cannot initialize control snapshot watcher")?;
-        let control_marker = sqlite_control_marker(pool).await?;
+        sqlx::query("PRAGMA busy_timeout = 5000")
+            .execute(&mut connection)
+            .await
+            .map_err(|_| "cannot initialize control snapshot watcher")?;
+        sqlx::query("PRAGMA query_only = ON")
+            .execute(&mut connection)
+            .await
+            .map_err(|_| "cannot initialize control snapshot watcher")?;
+        let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
+            .fetch_one(&mut connection)
+            .await
+            .map_err(|_| "cannot initialize control snapshot watcher")?;
+        let control_marker = sqlite_control_marker(&mut connection).await?;
         Ok(Self {
-            pool: pool.clone(),
+            connection,
             version,
             control_marker,
             pending: None,
@@ -252,13 +267,13 @@ impl SqliteChangeWatcher {
             return Ok(true);
         }
         let version = sqlx::query_scalar::<_, i64>("PRAGMA data_version")
-            .fetch_one(&self.pool)
+            .fetch_one(&mut self.connection)
             .await
             .map_err(|_| "control snapshot watcher unavailable")?;
         if version == self.version {
             return Ok(false);
         }
-        let control_marker = sqlite_control_marker(&self.pool).await?;
+        let control_marker = sqlite_control_marker(&mut self.connection).await?;
         let changed = control_marker != self.control_marker;
         if changed {
             self.pending = Some((version, control_marker));
@@ -277,9 +292,11 @@ impl SqliteChangeWatcher {
     }
 }
 
-async fn sqlite_control_marker(pool: &sqlx::AnyPool) -> Result<[u8; 32], &'static str> {
+async fn sqlite_control_marker(
+    connection: &mut sqlx::AnyConnection,
+) -> Result<[u8; 32], &'static str> {
     let rows = sqlx::query(SQLITE_CONTROL_MARKER)
-        .fetch_all(pool)
+        .fetch_all(connection)
         .await
         .map_err(|_| "control snapshot watcher unavailable")?;
     let mut digest = Sha256::new();
@@ -15450,6 +15467,56 @@ pub async fn delete_client_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn sqlite_observer_detects_same_pool_writes_without_reserving_the_writer() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = url::Url::from_file_path(directory.path().join("observer.sqlite")).unwrap();
+        let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+        let database = crate::storage::Database::connect(crate::storage::Backend::Sqlite, &url)
+            .await
+            .unwrap();
+        let pool = database.sql_pool().unwrap();
+        let mut watcher = SqliteChangeWatcher::new(pool).await.unwrap();
+        assert!(!watcher.changed().await.unwrap());
+        let own_version: i64 = sqlx::query_scalar("PRAGMA data_version")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        for revision in 1..=2 {
+            sqlx::query("INSERT INTO redrouter_control_provider_headers (provider_id,upstream_identity,headers_ciphertext,revision) VALUES ('fixture','identity','ciphertext',$1) ON CONFLICT(provider_id) DO UPDATE SET revision=$1")
+                .bind(revision).execute(pool).await.unwrap();
+            let after: i64 = sqlx::query_scalar("PRAGMA data_version")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                after, own_version,
+                "writer's data_version is not a change feed"
+            );
+            assert!(watcher.changed().await.unwrap());
+            assert!(
+                watcher.changed().await.unwrap(),
+                "pending changes must remain until acknowledged"
+            );
+            watcher.acknowledge();
+            assert!(!watcher.changed().await.unwrap());
+        }
+        sqlx::query("DELETE FROM redrouter_control_provider_headers")
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(watcher.changed().await.unwrap());
+        watcher.acknowledge();
+        assert!(!watcher.changed().await.unwrap());
+        assert!(
+            sqlx::query("DELETE FROM redrouter_control_provider_headers")
+                .execute(&mut watcher.connection)
+                .await
+                .is_err(),
+            "observer cannot write durable data"
+        );
+    }
 
     fn direct_combo_target(provider_id: &str, model: &str) -> ComboTarget {
         ComboTarget {

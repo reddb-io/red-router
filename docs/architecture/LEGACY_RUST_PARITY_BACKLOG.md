@@ -304,3 +304,12 @@ persistence, diagnostic/dispatch use, combo use, secret redaction, clear/reload 
 invalid input. CI must confirm this commit; legacy custom-node import, OAuth custom
 headers and per-model overrides remain open. Also corrected the global catalog E2E
 fixture to establish its admin session rather than timing out on the login screen.
+
+
+The new header convergence regression exposed a SQLite watcher defect: PRAGMA
+`data_version` was read from the single-connection writer pool, so its own commits
+were invisible to another control-plane instance sharing that pool. The watcher now
+owns a separate query-only physical connection, retains pending changes until both
+snapshots acknowledge them, and leaves the writer slot available. A focused regression
+checks repeated writes/deletion through the same pool and the observer's read-only
+boundary. CI still must confirm the fix; OAuth lease assertions remain unchanged.
