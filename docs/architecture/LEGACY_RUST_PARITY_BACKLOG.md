@@ -454,3 +454,18 @@ have CI regressions. Audit records distinguish an encrypted envelope from an act
 credential. Legacy import and duplicate replacement are still open; this is not full
 PV-22 acceptance. Validation pending for this slice. Shared header UI/checks at
 `86d217044` passed; its Rust suite and browser coverage remain in progress.
+
+
+2026-11-13 — validation follow-up: shared definition headers at `86d217044`
+passed [the full Rust suite](https://github.com/reddb-io/red-router/actions/runs/43413305187),
+including storage/restart, concurrent write rejection, embedded RedDB opt-in,
+Windows, all-features lint, FastLLM fixtures and benchmarks. Shared header browser
+save/reload/detach/remove passed at `2af7463f1`. The latest provider no-auth / legacy
+policy refusal code (`444aded25`) passed
+[product checks](https://github.com/reddb-io/red-router/actions/runs/43416237406) and
+[229 UI tests](https://github.com/reddb-io/red-router/actions/runs/43416242737).
+[Its Rust run](https://github.com/reddb-io/red-router/actions/runs/43416650151) is still
+active. The no-auth browser test encountered an exact-label locator timeout (12
+other browser tests passed); `84b405406` fixes the locator and
+[the browser rerun](https://github.com/reddb-io/red-router/actions/runs/43417518373)
+is pending. These are fixture results, not real-provider or full-port acceptance.
