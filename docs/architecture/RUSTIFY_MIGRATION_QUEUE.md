@@ -43,7 +43,9 @@ combines configured chat models with matching models.dev entries for eligible
 accounts, but does not yet synchronize per-connection inventory, migrate
 activation rules, honor the key's flat model-ID format, or reproduce those
 post-filters. Provider metadata is descriptive and must not itself grant
-access to inference or guarantee upstream entitlement.
+access to inference or guarantee upstream entitlement. Refresh from models.dev
+is currently an authenticated management operation; automatic daily refresh
+with coordination across instances and offline-safe behavior remains open.
 
 ## Current execution order
 
