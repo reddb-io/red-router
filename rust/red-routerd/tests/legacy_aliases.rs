@@ -19,8 +19,8 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     .await
     .unwrap();
     sqlx::query("CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key))").execute(&mut source_db).await.unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('settings','modelAliases',?)")
-        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#"{"fast":"openai/new-model"}"#)
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','fast',?),('modelAliases','other',?),('modelAliases','openrouter-alias',?),('settings','modelAliases',?)")
+        .bind(r#""openai/old-model""#).bind(r#""openai/other-model""#).bind(r#""openrouter/provider/model""#).bind(r#"{"fast":"openai/new-model"}"#)
         .execute(&mut source_db).await.unwrap();
     source_db.close().await.unwrap();
     let source_before = tokio::fs::read(&source).await.unwrap();
@@ -33,12 +33,18 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     let report = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((report.imported, report.already_present), (2, 0));
+    assert_eq!((report.imported, report.already_present), (3, 0));
     let repeat = legacy_aliases::import(&source, &destination).await.unwrap();
-    assert_eq!((repeat.imported, repeat.already_present), (0, 2));
+    assert_eq!((repeat.imported, repeat.already_present), (0, 3));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let aliases = db.model_aliases().await.unwrap();
-    assert_eq!(aliases.len(), 2);
+    assert_eq!(aliases.len(), 3);
+    let openrouter = aliases
+        .iter()
+        .find(|a| a.alias == "openrouter-alias")
+        .unwrap();
+    assert_eq!(openrouter.provider, "openrouter");
+    assert_eq!(openrouter.model, "provider/model");
     assert_eq!(
         aliases.iter().find(|a| a.alias == "fast").unwrap().model,
         "new-model"
@@ -63,7 +69,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(
         db.model_aliases().await.unwrap().len(),
-        2,
+        3,
         "a later unsupported alias must roll back previous inserts"
     );
     db.close().await.unwrap();
@@ -110,7 +116,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         "managed aliases require migration"
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
-    assert_eq!(db.model_aliases().await.unwrap().len(), 2);
+    assert_eq!(db.model_aliases().await.unwrap().len(), 3);
     db.close().await.unwrap();
 
     let mut source_db =
@@ -151,5 +157,26 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
             .await
             .unwrap_err(),
         "legacy prefix stripping requires migration"
+    );
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM key_value WHERE namespace='settings' AND key='stripModelPrefix'")
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
+    let mut dest_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_tenants (id,slug,name,enabled,revision) VALUES ('other','other','Other',1,1)").execute(&mut dest_db).await.unwrap();
+    dest_db.close().await.unwrap();
+    assert_eq!(
+        legacy_aliases::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy global aliases require tenant mapping"
     );
 }

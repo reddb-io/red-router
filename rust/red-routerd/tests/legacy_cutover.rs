@@ -49,6 +49,11 @@ async fn model_fixture(model: &str) -> (TempDir, std::path::PathBuf, std::path::
         CREATE TABLE request_cost_ledger (id INTEGER PRIMARY KEY);
     "#).execute(&mut db).await.unwrap();
     sqlx::query("INSERT INTO key_value VALUES ('customModels','openai-compatible-chat-12345678-1234-1234-1234-123456789abc',?)").bind(model).execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','router-model',?)")
+        .bind(r#""openrouter/vendor/model""#)
+        .execute(&mut db)
+        .await
+        .unwrap();
     db.close().await.unwrap();
     let file = Url::from_file_path(&destination).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -70,9 +75,10 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     let report = legacy_cutover::migrate(&source, &destination, &backup, STORAGE_KEY)
         .await
         .unwrap();
-    assert_eq!(report.version, 3);
+    assert_eq!(report.version, 4);
     assert_eq!(report.provider_nodes.imported, 1);
     assert_eq!(report.custom_models.imported, 1);
+    assert_eq!(report.model_aliases.imported, 1);
     assert!(report.activation_required);
     assert!(report.follow_up.iter().any(|item| item.contains("aliases")));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
@@ -83,9 +89,42 @@ async fn cutover_imports_models_after_their_provider_definitions() {
         models[0].metadata.limit.as_ref().unwrap().input,
         Some(16000)
     );
+    let aliases = db.model_aliases().await.unwrap();
+    assert_eq!(aliases.len(), 1);
+    assert_eq!(aliases[0].provider, "openrouter");
+    assert_eq!(aliases[0].model, "vendor/model");
     db.close().await.unwrap();
     assert_eq!(before, tokio::fs::read(&source).await.unwrap());
     assert!(backup.exists());
+}
+
+#[tokio::test]
+async fn cutover_restores_prior_stages_when_alias_behavior_is_unsupported() {
+    let (dir, source, destination, _) =
+        model_fixture(r#"[{"id":"custom-model","source":"manual"}]"#).await;
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('settings','wildcardAliases',?)")
+        .bind(r#"[{"pattern":"fast-*","target":"openrouter/vendor/model"}]"#)
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
+    let before = tokio::fs::read(&destination).await.unwrap();
+    let backup = dir.path().join("rollback.sqlite");
+    let error = match legacy_cutover::migrate(&source, &destination, &backup, STORAGE_KEY).await {
+        Ok(_) => panic!("unsupported aliases must abort cutover"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("migration failed during model aliases"),
+        "{error}"
+    );
+    assert!(error.contains("destination restored"), "{error}");
+    assert_eq!(before, tokio::fs::read(&destination).await.unwrap());
+    assert_eq!(before, tokio::fs::read(&backup).await.unwrap());
 }
 
 #[tokio::test]

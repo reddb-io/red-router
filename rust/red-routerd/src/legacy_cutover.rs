@@ -4,8 +4,8 @@
 //! a durable rollback boundary around them so a later unsupported slice cannot
 //! leave an operator with a partially migrated Rust database.
 use crate::{
-    legacy_archive, legacy_keys, legacy_models, legacy_preflight, legacy_provider_nodes,
-    legacy_providers,
+    legacy_aliases, legacy_archive, legacy_keys, legacy_models, legacy_preflight,
+    legacy_provider_nodes, legacy_providers,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,7 @@ pub struct CutoverReport {
     pub keys: legacy_keys::KeyImport,
     pub provider_nodes: legacy_provider_nodes::ProviderNodeImport,
     pub custom_models: legacy_models::ModelImport,
+    pub model_aliases: legacy_aliases::AliasImport,
     pub providers: legacy_providers::ProviderStage,
     pub usage_archive: legacy_archive::ArchiveReport,
     pub activation_required: bool,
@@ -140,6 +141,10 @@ pub async fn migrate(
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "custom models", error)),
     };
+    let model_aliases = match legacy_aliases::import(&source, &destination).await {
+        Ok(report) => report,
+        Err(error) => return Err(restore(&destination, &rollback, "model aliases", error)),
+    };
     let providers = match legacy_providers::stage(&source, &destination, storage_key).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "providers", error)),
@@ -153,7 +158,7 @@ pub async fn migrate(
         .map_err(|error| restore(&destination, &rollback, "final verification", &error))?;
 
     Ok(CutoverReport {
-        version: 3,
+        version: 4,
         source: source.to_string_lossy().into_owned(),
         destination: destination.to_string_lossy().into_owned(),
         rollback_copy: rollback.to_string_lossy().into_owned(),
@@ -162,6 +167,7 @@ pub async fn migrate(
         keys,
         provider_nodes,
         custom_models,
+        model_aliases,
         providers,
         usage_archive,
         activation_required: true,

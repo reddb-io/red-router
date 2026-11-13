@@ -1,8 +1,8 @@
 //! Strict offline import of legacy exact model aliases.
 //!
-//! The first supported slice is OpenAI aliases explicitly set in the legacy
-//! database or Settings. Other destinations and managed or wildcard aliases
-//! must be migrated separately; refusing them avoids silently changing routes.
+//! Exact aliases for the built-in OpenAI-compatible chat transports, sourced
+//! from the legacy database and Settings. Managed and wildcard aliases and
+//! unsupported protocols must be migrated separately.
 use crate::{control_plane::model_aliases, storage::StoredModelAlias};
 use futures_util::TryStreamExt;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
@@ -86,11 +86,16 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             if !managed.is_empty() { return Err("managed aliases require migration"); }
             let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id='red' AND enabled=1").fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
             if tenant_exists != 1 { return Err("destination tenant unavailable"); }
+            if !aliases.is_empty() {
+                let other_tenants: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id <> 'red'").fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
+                if other_tenants != 0 { return Err("legacy global aliases require tenant mapping"); }
+            }
             let mut imported = 0;
             let mut already_present = 0;
             for (alias,value) in aliases {
-                let model = value.as_str().and_then(|v| v.strip_prefix("openai/")).ok_or("legacy alias destination requires migration")?;
-                let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider: "openai".into(), alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
+                let (provider, model) = value.as_str().and_then(|v| v.split_once('/')).ok_or("legacy alias destination requires migration")?;
+                if !crate::product_provider::supports_model(provider, model) { return Err("legacy alias destination requires migration"); }
+                let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider: provider.into(), alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
                 model_aliases::validate(&record)?;
                 if record.alias.contains(['*','?']) { return Err("legacy wildcard aliases require migration"); }
                 let collision: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_combos WHERE id IN (?,?)").bind(&record.id).bind(&record.alias).fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination combos")?;

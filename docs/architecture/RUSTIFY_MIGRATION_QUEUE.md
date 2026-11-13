@@ -50,12 +50,14 @@ change by itself completes the legacy model/alias migration.
    cutover now invokes this importer after node definitions and restores the
    destination if it encounters unsupported model settings. The cutover now
    closes SQLite connections before verification or rollback on Windows (Rust
-   CI run 43483203079 and product checks 43483203248 passed). A separate offline importer now handles ordinary exact
-   OpenAI aliases from both the dedicated namespace and settings, with settings
-   taking precedence; it rejects managed aliases, provider-scoped aliases, wildcard aliases and
-   other target providers rather than importing them with changed behavior (CI pending).
-   Other providers, managed provenance, wildcards, other model formats and
-   compatibility settings remain open; aliases are not yet in the full cutover.
+   CI run 43483203079 and product checks 43483203248 passed). The alias
+   importer handles exact aliases for recognized built-in OpenAI-compatible
+   chat transports including OpenRouter, applying Settings precedence. The
+   full cutover runs the importer and restores the prior database on unsupported
+   alias behavior. Managed and provider-scoped aliases, wildcards, prefix
+   stripping, multi-tenant mapping and unsupported target protocols still need
+   migration; these cases are rejected explicitly (CI pending). Other model
+   formats and compatibility settings remain open.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.
 4. Continue down the table in vertical slices: runtime behavior, persistence,
