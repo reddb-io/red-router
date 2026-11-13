@@ -77,7 +77,7 @@ Missing surface is based on the registered production router, not a claim that n
 | UI-22 | P2 / XL | Conductor / orchestration | Missing surface | Workflow DAG/task state, recovery after restart, concurrency, logs and permissions. |
 | UI-23 | P2 / L | Agent bridge | Missing surface | Configured bridges, connection lifecycle, protocol mapping, access controls and diagnosis. |
 | UI-24 | P2 / XL | Plugins | Missing surface | Manifest/installation/lifecycle/permissions with extension boundaries; do not execute arbitrary frontend plugins with backend privileges. |
-| UI-25 | P1 / M | Pricing overrides | Partial; custom model editor in Models | Tenant-scoped input/output/cache/reasoning/audio token prices now persist and feed native metering. SPA/browser checks passed; full backend acceptance remains pending. Dedicated pricing navigation, sync/source provenance, all legacy pricing rules and conflict-safe import remain open; catalog list prices alone are insufficient. |
+| UI-25 | P1 / M | Pricing overrides | Partial; custom model editor in Models | Tenant-scoped input/output/cache/reasoning/audio token prices now persist and feed native metering. Native and SPA/browser checks passed; legacy parity gaps below remain open. Dedicated pricing navigation, sync/source provenance, all legacy pricing rules and conflict-safe import remain open; catalog list prices alone are insufficient. |
 | UI-26 | P1 / M | Provider quota view | Partial; `/dashboard/quota` → Resilience | Restore account/model windows, auto-refresh settings and quota sharing semantics beyond shared monetary budgets. |
 | UI-27 | P1 / L | Request/proxy/console logs | Partial only for usage aggregate | Bounded searchable records, request detail, redaction, retention and live tail. No infinite memory buffers. |
 | UI-28 | P1 / L | Timeline / conversations / activity | Missing UI; activity currently aggregate usage | Reconstruct correlated requests/messages with permission-aware payload retention and deletion. |
@@ -526,3 +526,17 @@ deletes, JSON/SSE public names, fragmented stream events and nine-account fallba
 They are not accepted until CI passes. Legacy model/provider alias imports,
 managed alias provenance and sync pruning, alias-to-combo resolution, and historic
 account-selection precedence remain open.
+
+Custom metadata acceptance update: the complete Rust suite passed at `935d41271`
+([43423604333](https://github.com/reddb-io/red-router/actions/runs/43423604333)),
+including the new price/replica/streaming integration, two-connection SQLite writes,
+Windows, embedded RedDB opt-in, lint, FastLLM fixtures and all existing benchmarks.
+This validates that slice, not full PV-25/28/29 parity or live upstream providers.
+
+Alias implementation `db6fc25f4` passed product checks and UI tests. Code review
+then found that virtual aliases needed their own route-view decoder for empty
+pools and pools larger than eight accounts; `6f7ac5538` fixes that boundary without
+relaxing operator combo validation. `453d83e6e` indexes account lookup while
+compiling routes. Corrected native/browser suites are running; no alias acceptance
+claim is made yet. The local preview remains on the validated custom-metadata
+slice pending those results.
