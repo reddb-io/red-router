@@ -501,7 +501,7 @@ pub async fn get_one(
                         .is_none_or(|tenant| *tenant == row.tenant_id)
             })
             .ok_or("Provider model unavailable")?;
-        view(&record, &control.model_catalog().await)
+        view(&record, control.model_catalog().await.as_ref())
     }
     .await;
     match result {
@@ -550,7 +550,7 @@ async fn save(
         )
         .await
     {
-        Ok(model) => match view(&model, &control.model_catalog().await) {
+        Ok(model) => match view(&model, control.model_catalog().await.as_ref()) {
             Ok(view) => (
                 [(header::CACHE_CONTROL, "no-store")],
                 Json(serde_json::json!({"model":view})),
