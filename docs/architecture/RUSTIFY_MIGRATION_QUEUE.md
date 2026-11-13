@@ -29,8 +29,8 @@ Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 | 14 | MCP, A2A, memory, skills and guardrails | High-very high | **Open** | Implement durable tenant-scoped protocols/data/policies, cancellation, audit and bounded resource use; no placeholder pages count. |
 | 15 | Agents, bridges, Conductor, orchestration and plugins | Very high | **Open** | Port lifecycle, durable jobs/workflows, restart recovery, permissions, secret handling and constrained extension boundaries. |
 
-Follow-up in CI: model quota admission now combines matching public and actual
-model names across reservations and settled usage. Preflight v2 counts legacy
+Validated in Rust CI run 43460310769: model quota admission combines matching
+public and actual model names across reservations and settled usage. Preflight v2 counts legacy
 custom-model, global/provider alias, managed-alias and compatibility namespaces
 without disclosing contents; these are row counts, not imported models. Neither
 change by itself completes the legacy model/alias migration.
