@@ -247,3 +247,78 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     );
     db.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn custom_node_model_import_preserves_tenant_and_requires_matching_definition() {
+    use red_routerd::{
+        legacy_models, legacy_provider_nodes,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-node.sqlite");
+    let destination = dir.path().join("native-node.sqlite");
+    let id = "openai-compatible-chat-12345678-1234-1234-1234-123456789abc";
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key)); CREATE TABLE provider_nodes (id TEXT PRIMARY KEY, type TEXT, name TEXT, prefix TEXT, base_url TEXT, tenant_id TEXT);").execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_nodes VALUES (?,'openai-compatible','Gateway','acme-gateway','https://gateway.example/v1','acme')").bind(id).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels',?,?)").bind(id).bind(r#"[{"id":"internal-model","name":"Internal","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":8192}]"#).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_tenants VALUES ('acme','acme','Acme',1,1)")
+        .execute(&mut target)
+        .await
+        .unwrap();
+    target.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "missing definition must not be guessed"
+    );
+    legacy_provider_nodes::import(&source, &destination, "test-storage-key-at-least-16-bytes")
+        .await
+        .unwrap();
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (1, 0));
+    let repeat = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((repeat.imported, repeat.already_present), (0, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        (&models[0].tenant_id, &models[0].provider),
+        (&"acme".to_owned(), &"acme-gateway".to_owned())
+    );
+    assert_eq!(models[0].metadata.limit.as_ref().unwrap().input, Some(8192));
+    db.close().await.unwrap();
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_nodes SET prefix='changed' WHERE id=?")
+        .bind(id)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "a mismatched definition must fail closed"
+    );
+}
