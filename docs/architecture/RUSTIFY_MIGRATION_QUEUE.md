@@ -42,8 +42,10 @@ change by itself completes the legacy model/alias migration.
 2. Port legacy custom models and alias rows. A first offline importer handles
    manually created chat model metadata, input/output limits and thinking flags
    for ordinary provider IDs; it rejects unsupported fields and conflicts
-   transactionally. CI acceptance is pending. Custom provider node identity,
-   other formats, compatibility settings, provenance and alias imports remain open.
+   transactionally. Full Rust CI passed in run 43468887364; product checks
+   passed in 43468893389. Custom provider node identity, other formats,
+   compatibility settings, provenance and alias imports remain open. Alias
+   import must include both the dedicated namespace and settings-based aliases.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.
 4. Continue down the table in vertical slices: runtime behavior, persistence,
