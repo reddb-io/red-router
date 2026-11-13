@@ -171,3 +171,38 @@ test("the SPA creates a local API connection without a provider credential", asy
   await expect(page.getByText("local-no-auth-e2e", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Not required", { exact: true })).toBeVisible();
 });
+
+test("custom model metadata is created, edited and removed through the production SPA", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  await page.getByLabel("Administrator key").fill(ADMIN_KEY);
+  await page.getByRole("button", { name: "Sign in locally" }).click();
+  await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.getByRole("link", { name: "Models", exact: true }).click();
+  await page.getByRole("button", { name: "Add custom model", exact: true }).click();
+  await page.getByLabel("Model provider", { exact: true }).fill("private-api");
+  await page.getByLabel("Custom model ID", { exact: true }).fill("browser-custom-model");
+  await page.getByLabel("Model display name", { exact: true }).fill("Browser custom model");
+  await page.getByLabel("Context window", { exact: true }).fill("4096");
+  await page.getByLabel(/^Input price/).fill("1.5");
+  await page.getByLabel(/^Output price/).fill("2.5");
+  await page.getByRole("button", { name: "Save custom model", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Custom model saved.");
+  await page.reload();
+  await expect(page.getByText("Browser custom model", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit model", exact: true }).click();
+  await expect(page.getByLabel(/^Input price/)).toHaveValue("1.5");
+  await expect(page.getByLabel("Context window", { exact: true })).toHaveValue("4096");
+  await page.getByLabel(/^Input price/).fill("0");
+  await page.getByRole("button", { name: "Save custom model", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Custom model saved.");
+  await page.reload();
+  await expect(page.getByText("0 / 2.5 USD / 1M", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Remove model", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Custom model removed.");
+  await page.reload();
+  await expect(page.getByText("Browser custom model", { exact: true })).toHaveCount(0);
+});

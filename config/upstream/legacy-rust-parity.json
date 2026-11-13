@@ -12,7 +12,7 @@
     "partialSpaRoutes": 35,
     "externalLinks": 2,
     "oldApiRouteFiles": 803,
-    "rustRegisteredPaths": 86,
+    "rustRegisteredPaths": 88,
     "samePathCandidates": 28
   },
   "pages": [
@@ -9286,6 +9286,21 @@
       "path": "/api/admin/combos",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "path": "/api/admin/provider-models",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/api/admin/provider-models/{id}",
+      "methods": [
+        "PUT",
+        "GET",
+        "DELETE"
       ]
     },
     {

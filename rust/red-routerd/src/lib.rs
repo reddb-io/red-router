@@ -2356,6 +2356,16 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/admin/combos", get(control_plane::list_combos))
         .route(
+            "/api/admin/provider-models",
+            get(control_plane::provider_models::list).post(control_plane::provider_models::create),
+        )
+        .route(
+            "/api/admin/provider-models/{id}",
+            put(control_plane::provider_models::put)
+                .get(control_plane::provider_models::get_one)
+                .delete(control_plane::provider_models::remove),
+        )
+        .route(
             "/api/admin/model-catalog",
             get(control_plane::list_model_catalog),
         )
@@ -2681,6 +2691,7 @@ fn listed_models(
     routes: &HashMap<String, Arc<ModelRoute>>,
     policy: &policy::ClientPolicy,
     catalog: &catalog::ModelCatalog,
+    overrides: Option<&control_plane::provider_models::ModelOverrides>,
 ) -> Result<Vec<ListedModel>, &'static str> {
     let created = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2725,7 +2736,12 @@ fn listed_models(
         let mut output_modalities = Vec::new();
         for target in eligible {
             let discovered = match target.provider_name.as_deref() {
-                Some(provider) => catalog.model(provider, &target.model)?,
+                Some(provider) => match overrides {
+                    Some(overrides) => {
+                        overrides.model(catalog, &route.tenant_id, provider, &target.model)?
+                    }
+                    None => catalog.model(provider, &target.model)?,
+                },
                 None => None,
             };
             let catalog_context = discovered
@@ -2917,7 +2933,7 @@ async fn authorized_models(
                     "Product combo changed or is unavailable; restart required",
                 )));
             }
-            return listed_models(state.routes.as_ref(), policy, &catalog).map_err(|_| {
+            return listed_models(state.routes.as_ref(), policy, &catalog, None).map_err(|_| {
                 Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Model catalog unavailable",
@@ -2958,7 +2974,16 @@ async fn authorized_models(
         None => None,
     };
     let routes = control_routes.as_deref().unwrap_or(state.routes.as_ref());
-    listed_models(routes, policy, &catalog).map_err(|_| {
+    let overrides = match &state.control_plane {
+        Some(control) => Some(control.provider_model_overrides().await.map_err(|_| {
+            Box::new(error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Provider model metadata unavailable",
+            ))
+        })?),
+        None => None,
+    };
+    listed_models(routes, policy, &catalog, overrides.as_deref()).map_err(|_| {
         Box::new(error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Model catalog unavailable",
@@ -4979,7 +5004,11 @@ fn spawn_context_relay_summary(
         };
         async {
             let usage_attempt = match control
-                .begin_context_relay_usage(&summary_target.provider_name, &summary_target.model)
+                .begin_context_relay_usage(
+                    &summary_target.tenant_id,
+                    &summary_target.provider_name,
+                    &summary_target.model,
+                )
                 .await
             {
                 Ok(attempt) => attempt,

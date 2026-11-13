@@ -2,6 +2,9 @@
 //!
 //! Each process selects one database authority; connection errors never fall
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
+#[path = "provider_models_storage.rs"]
+mod provider_models_storage;
+pub use provider_models_storage::StoredProviderModel;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
@@ -769,6 +772,7 @@ impl Database {
                         provider_discovery_storage::CREATE,
                         provider_protocol_storage::CREATE,
                         provider_nodes_storage::CREATE,
+                        provider_models_storage::CREATE,
                         provider_node_binding_storage::CREATE,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
@@ -900,6 +904,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_protocol_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_models_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(provider_nodes_storage::CREATE)
                     .await?;
                 db.remote_schema_query(provider_node_binding_storage::CREATE)
@@ -1030,6 +1036,7 @@ impl Database {
                     provider_discovery_storage::CREATE,
                     provider_protocol_storage::CREATE,
                     provider_nodes_storage::CREATE,
+                    provider_models_storage::CREATE,
                     provider_node_binding_storage::CREATE,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
@@ -1074,6 +1081,10 @@ impl Database {
                         .await
                         .map_err(|_| "cannot initialize database")?;
                 }
+                sqlx::query(provider_models_storage::INDEX)
+                    .execute(&pool)
+                    .await
+                    .map_err(|_| "cannot initialize provider model namespace")?;
                 sqlx::query(provider_nodes_storage::INDEX)
                     .execute(&pool)
                     .await

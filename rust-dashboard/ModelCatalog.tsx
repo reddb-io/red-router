@@ -1,3 +1,4 @@
+import CustomModels from "./CustomModels";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { rustAdminFetch } from "./api/browserClient";
 import {
@@ -200,6 +201,7 @@ export default function ModelCatalog() {
   return (
     <section className="space-y-4 p-6">
       <h1 className="text-2xl font-semibold">Model catalog</h1>
+      <CustomModels providers={catalog?.providers ?? []} />
       <p>
         Descriptive metadata from models.dev. Listing a model does not configure a provider or grant
         access.

@@ -4,6 +4,8 @@ pub use crate::policy::AccessScheduleConfig;
 mod credential_crypto;
 #[path = "provider_discovery.rs"]
 pub mod provider_discovery;
+#[path = "provider_models.rs"]
+pub mod provider_models;
 #[path = "provider_nodes.rs"]
 pub mod provider_nodes;
 pub(crate) use credential_crypto::{decrypt_async, encrypt_async};
@@ -146,6 +148,7 @@ UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrou
 UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
+UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
 UNION ALL SELECT 'provider-node-binding', record_id, revision, 0 FROM redrouter_control_provider_node_bindings
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
@@ -179,6 +182,7 @@ struct Inner {
     provider_snapshot_signature: RwLock<[u8; 32]>,
     oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
+    provider_models: RwLock<Option<Arc<provider_models::ModelOverrides>>>,
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
     catalog_source: reqwest::Url,
@@ -2099,6 +2103,7 @@ impl ControlPlane {
             )),
             _ => None,
         };
+        let provider_models = provider_models::ModelOverrides::load(&database).await?;
         let bundled_catalog = crate::catalog::bundled_catalog()?;
         let stored_catalog = database.model_catalog_snapshot().await?;
         let (catalog, source, catalog_revision, rejected_revision, catalog_error) =
@@ -2169,6 +2174,7 @@ impl ControlPlane {
             None
         };
         let plane = Self(Arc::new(Inner {
+            provider_models: RwLock::new(Some(Arc::new(provider_models))),
             database,
             current: RwLock::new(None),
             clients: RwLock::new(ClientSnapshot::Unavailable),
@@ -2335,6 +2341,11 @@ impl ControlPlane {
         };
         if *self.0.provider_snapshot_signature.read().await == latest {
             return Ok(());
+        }
+        if let Err(error) = self.refresh_provider_models().await {
+            *self.0.current.write().await = None;
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
         }
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
@@ -3803,7 +3814,9 @@ impl ControlPlane {
             .await
             .clone()
             .ok_or("native usage storage unavailable")?;
-        let prices = self.native_usage_prices(provider, model).await?;
+        let prices = self
+            .native_usage_prices(&identity.tenant_id, provider, model)
+            .await?;
         let shared_reservation = usage
             .shared_budget_reservation(&identity.tenant_id, &identity.id, attribution)
             .await?;
@@ -3994,6 +4007,7 @@ impl ControlPlane {
 
     pub(crate) async fn begin_context_relay_usage(
         &self,
+        tenant: &str,
         provider: &str,
         model: &str,
     ) -> Result<Option<ContextRelayUsageAttempt>, &'static str> {
@@ -4002,7 +4016,7 @@ impl ControlPlane {
         }
         Ok(Some(ContextRelayUsageAttempt {
             event_id: format!("relay_usage_{}", random_token(16)?),
-            prices: self.native_usage_prices(provider, model).await?,
+            prices: self.native_usage_prices(tenant, provider, model).await?,
         }))
     }
 
@@ -4043,11 +4057,11 @@ impl ControlPlane {
 
     async fn native_usage_prices(
         &self,
+        tenant: &str,
         provider: &str,
         model: &str,
     ) -> Result<Option<crate::accounting::TokenPrices>, &'static str> {
-        let catalog = self.0.catalog.read().await.catalog.clone();
-        let Some(metadata) = catalog.model(provider, model)? else {
+        let Some(metadata) = self.effective_model(tenant, provider, model).await? else {
             return Ok(None);
         };
         let Some(cost) = metadata.cost else {
@@ -8706,6 +8720,10 @@ impl ControlPlane {
             signature_i64(&mut digest, record.generation);
             signature_i64(&mut digest, record.revision);
         }
+        for model in self.0.database.provider_models().await? {
+            signature_text(&mut digest, &model.id);
+            signature_i64(&mut digest, model.revision);
+        }
         for node in self.0.database.provider_nodes().await? {
             signature_text(&mut digest, &node.id);
             signature_i64(&mut digest, node.revision);
@@ -9040,15 +9058,27 @@ impl ControlPlane {
                 }
                 let quota = self.quota_state(&provider.id).await;
                 let model_quota = self.model_quota_state(&provider.id, &target.model).await;
+                let metadata = self
+                    .effective_model(&record.tenant_id, &provider.provider, &target.model)
+                    .await?;
+                let catalog_cost = metadata.as_ref().and_then(|model| model.cost.as_ref());
+                let catalog_context = metadata
+                    .as_ref()
+                    .and_then(|model| model.limit.as_ref())
+                    .and_then(|limit| limit.context);
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     crate::ControlTargetConfig {
                         protocol,
                         model: target.model,
                         weight: target.weight.unwrap_or(1),
-                        input_cost_per_million: target.input_cost_per_million,
-                        output_cost_per_million: target.output_cost_per_million,
-                        context_window_tokens: target.context_window_tokens,
+                        input_cost_per_million: target
+                            .input_cost_per_million
+                            .or_else(|| catalog_cost.and_then(|cost| cost.input)),
+                        output_cost_per_million: target
+                            .output_cost_per_million
+                            .or_else(|| catalog_cost.and_then(|cost| cost.output)),
+                        context_window_tokens: target.context_window_tokens.or(catalog_context),
                         prompt: target.prompt,
                     },
                     quota,

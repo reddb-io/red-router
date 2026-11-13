@@ -11731,3 +11731,5 @@ include!("cases/provider_protocol.rs");
 include!("cases/provider_nodes.rs");
 
 include!("cases/provider_no_auth.rs");
+
+include!("cases/provider_models.rs");

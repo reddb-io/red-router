@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-86 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+88 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -469,3 +469,14 @@ active. The no-auth browser test encountered an exact-label locator timeout (12
 other browser tests passed); `84b405406` fixes the locator and
 [the browser rerun](https://github.com/reddb-io/red-router/actions/runs/43417518373)
 is pending. These are fixture results, not real-provider or full-port acceptance.
+
+## Custom model metadata implementation (validation pending)
+
+Tenant-scoped CRUD and the SPA editor now persist overrides independently from the
+models.dev catalog. Limits, capabilities and prices flow into authorized model
+discovery, combo selection metadata and native usage metering. Updates and deletes
+require an expected revision. Tests cover cross-tenant denial, concurrent stale
+writes, restart, replica refresh, streaming prices and browser persistence. These
+changes are not yet accepted until CI passes. Model routing aliases, legacy custom
+model imports and discovery reconciliation remain open; metadata alone grants no
+route or client permission.
