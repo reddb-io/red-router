@@ -276,8 +276,25 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN priority INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET priority=9007199254740992")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy provider priority")
+    );
+    sqlx::query("UPDATE provider_connections SET priority=0")
+        .execute(&mut input)
+        .await
+        .unwrap();
     for field in [
-        "priority",
         "global_priority",
         "backoff_level",
         "rate_limit_protection",
@@ -308,6 +325,10 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
             .unwrap();
     }
     let legacy_label = "é".repeat(200);
+    sqlx::query("UPDATE provider_connections SET priority=-4")
+        .execute(&mut input)
+        .await
+        .unwrap();
     sqlx::query("UPDATE provider_connections SET display_name=?")
         .bind(&legacy_label)
         .execute(&mut input)
@@ -339,6 +360,7 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     let providers = db.providers().await.unwrap();
     assert_eq!(providers.len(), 1);
     assert!(!providers[0].enabled);
+    assert_eq!(providers[0].priority, -4);
     assert_eq!(providers[0].tenant_id, "red");
     assert_eq!(
         providers[0].upstream_url,
@@ -475,6 +497,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .execute(&mut input)
         .await
         .unwrap();
+    sqlx::query("UPDATE provider_connections SET priority=4 WHERE id='codex-good'")
+        .execute(&mut input)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-extra','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
@@ -543,6 +569,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     assert_eq!(providers.len(), 1);
     assert!(!providers[0].enabled);
     assert_eq!(providers[0].provider, "codex");
+    assert_eq!(providers[0].priority, 4);
     assert_eq!(
         db.provider_auth().await.unwrap()[0].label,
         legacy_oauth_label

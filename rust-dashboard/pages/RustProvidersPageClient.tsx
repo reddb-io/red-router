@@ -43,6 +43,7 @@ import {
 type Draft = {
   nodeId: string;
   protocol: RustProviderProtocol;
+  priority: string;
   id: string;
   provider: string;
   upstreamUrl: string;
@@ -85,6 +86,7 @@ const EMPTY_QUOTA_DRAFT: QuotaDraft = {
 const EMPTY_DRAFT: Draft = {
   nodeId: "",
   protocol: "auto",
+  priority: "0",
   id: "",
   provider: "openai-compatible",
   upstreamUrl: "",
@@ -114,6 +116,7 @@ function providerDraft(provider: RustProvider): Draft {
   return {
     nodeId: provider.node_id ?? "",
     protocol: provider.protocol ?? "auto",
+    priority: String(provider.priority ?? 0),
     id: provider.id,
     provider: provider.provider,
     upstreamUrl: provider.upstream_url,
@@ -144,6 +147,10 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   const apiKey = draft.apiKey;
   const label = draft.label.trim() || id;
   const accountEmail = draft.accountEmail.trim();
+  const priority = Number(draft.priority);
+  if (!/^-?\d+$/.test(draft.priority) || !Number.isSafeInteger(priority)) {
+    throw new Error("Account priority must be a safe integer");
+  }
   if (!id || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) {
     throw new Error("Connection ID must contain only letters, numbers, dashes or underscores");
   }
@@ -202,6 +209,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   return {
     node_id: draft.credentialType === "oauth" ? null : draft.nodeId || null,
     protocol: draft.credentialType === "oauth" ? "auto" : draft.protocol,
+    priority,
     provider,
     upstream_url: upstreamUrl,
     api_key: apiKey,
@@ -876,6 +884,19 @@ export default function RustProvidersPageClient() {
               maxLength={200}
               onChange={(event) => set("label", event.target.value)}
             />
+          </label>
+          <label className={labelClass}>
+            Account priority
+            <input
+              className={inputClass}
+              type="number"
+              min="-9007199254740991"
+              max="9007199254740991"
+              step="1"
+              value={draft.priority}
+              onChange={(event) => set("priority", event.target.value)}
+            />
+            <span className="font-normal">For model aliases, lower values are tried first; 0 uses 999.</span>
           </label>
           <div className={labelClass}>
             <span>Provider type</span>

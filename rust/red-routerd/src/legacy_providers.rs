@@ -167,7 +167,12 @@ async fn adopt_oauth(
         };
         if text("id")? != Some(id) || text("provider")? != Some(provider) || text("auth_type")? != Some("oauth") { return Err("staged provider is not the expected OAuth session"); }
         let active = match object.get("is_active").and_then(serde_json::Value::as_i64) { Some(0) => false, Some(1) => true, _ => return Err("invalid staged provider status") };
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "priority", "global_priority", "backoff_level", "rate_limit_protection"] {
+        let priority = match object.get("priority") {
+            Some(serde_json::Value::Null) => 0,
+            Some(value) => value.as_i64().filter(|value| crate::control_plane::valid_provider_priority(*value)).ok_or("invalid legacy provider priority")?,
+            None => return Err("unsupported staged provider schema"),
+        };
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "global_priority", "backoff_level", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
         for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
@@ -180,7 +185,7 @@ async fn adopt_oauth(
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_priorities", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut db).await.map_err(|_| "destination provider schema unavailable")?;
             if count != 0 { return Err("destination provider already exists"); }
@@ -266,6 +271,9 @@ async fn adopt_oauth(
         sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut db).await.map_err(|_| "cannot initialize provider migration state")?;
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
+        if priority != 0 {
+            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,priority,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
+        }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
         sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,?,?,0,1)").bind(id).bind(provider).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
@@ -478,7 +486,13 @@ pub async fn import(
         }
         // Older schemas omit these columns. When present, never silently drop
         // account selection/admission policy merely because the API key imports.
-        for field in ["priority", "global_priority", "backoff_level", "rate_limit_protection", "health_check_interval"] {
+        let priority = match row.try_get::<Option<i64>, _>("priority") {
+            Ok(value) => value.unwrap_or(0),
+            Err(sqlx::Error::ColumnNotFound(_)) => 0,
+            Err(_) => return Err("invalid legacy provider priority"),
+        };
+        if !crate::control_plane::valid_provider_priority(priority) { return Err("invalid legacy provider priority"); }
+        for field in ["global_priority", "backoff_level", "rate_limit_protection", "health_check_interval"] {
             match row.try_get::<Option<i64>, _>(field) {
                 Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
                 Ok(_) => return Err("legacy provider selection or health policy requires migration"),
@@ -517,7 +531,7 @@ pub async fn import(
         let email = text("email")?.unwrap_or_default();
         let email = email.trim();
         if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_node_bindings"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_priorities", "redrouter_control_provider_node_bindings"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let existing: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut *target).await.map_err(|_| "destination provider schema unavailable")?;
             if existing != 0 { return Err("destination provider already exists"); }
@@ -530,6 +544,9 @@ pub async fn import(
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration (provider_id,source_enabled) VALUES (?,?)").bind(id).bind(i64::from(source_enabled)).execute(&mut *target).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
+        if priority != 0 {
+            sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,priority,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
+        }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership (provider_id,tenant_id,revision) VALUES (?,?,1)")
             .bind(id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth (record_id,provider_id,auth_scheme,label,account_email,expires_at_unix,revision) VALUES (?,?,'auto',?,?,0,1)")

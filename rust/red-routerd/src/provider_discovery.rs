@@ -549,6 +549,7 @@ mod tests {
             .upsert_provider(&StoredProvider {
                 node_id: None,
                 protocol: "auto".to_owned(),
+                priority: 0,
                 id: "account".into(),
                 tenant_id: "red".into(),
                 provider: "openai-compatible".into(),

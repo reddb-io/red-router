@@ -1021,6 +1021,7 @@ async fn run(
                         ProviderInput {
                             node_id: None,
                             protocol: env::var("RED_ROUTER_PROVIDER_PROTOCOL").ok(),
+                            priority: None,
                             tenant_id: None,
                             provider,
                             upstream_url: upstream.to_owned(),

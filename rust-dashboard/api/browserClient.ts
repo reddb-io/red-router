@@ -227,6 +227,7 @@ export type RustProviderProtocol = (typeof providerApiProtocols)[number];
 export interface RustProvider {
   node_id?: string | null;
   protocol?: RustProviderProtocol;
+  priority?: number;
   id: string;
   tenant_id: string;
   provider: string;
@@ -252,6 +253,7 @@ export interface RustProvider {
 export interface RustProviderInput {
   node_id?: string | null;
   protocol?: RustProviderProtocol;
+  priority?: number;
   tenant_id?: string;
   provider: string;
   upstream_url: string;

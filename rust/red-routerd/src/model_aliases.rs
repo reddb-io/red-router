@@ -85,7 +85,15 @@ impl AliasSnapshot {
                 .push(provider);
         }
         for pool in accounts.values_mut() {
-            pool.sort_by(|a, b| a.id.cmp(&b.id));
+            // The legacy fill-first selector treats zero as unspecified, then
+            // prefers the most recently updated connection on equal priority.
+            let rank = |priority| if priority == 0 { 999 } else { priority };
+            pool.sort_by(|a, b| {
+                rank(a.priority)
+                    .cmp(&rank(b.priority))
+                    .then_with(|| b.updated_at.cmp(&a.updated_at))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
         }
         let mut total_targets = 0usize;
         self.records.iter().map(|alias| {

@@ -16,6 +16,8 @@ mod provider_discovery_storage;
 #[path = "provider_node_binding_storage.rs"]
 mod provider_node_binding_storage;
 pub use provider_discovery_storage::StoredProviderDiscovery;
+#[path = "provider_priority_storage.rs"]
+mod provider_priority_storage;
 #[path = "provider_protocol_storage.rs"]
 mod provider_protocol_storage;
 
@@ -28,6 +30,10 @@ const SEED: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES
 const SET: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET upstream_url = $1";
 const CREATE_PROVIDERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_providers (id TEXT PRIMARY KEY, provider TEXT NOT NULL, upstream_url TEXT NOT NULL, credential_ciphertext TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, revision FROM redrouter_control_providers ORDER BY revision DESC, id ASC";
+// Read the provider and its matching priority in one database snapshot. This
+// avoids loading historical priority revisions into memory and prevents an
+// update between separate reads from temporarily changing the account order.
+const LIST_PROVIDERS_SQL: &str = "SELECT v.id,v.provider,v.upstream_url,v.credential_ciphertext,v.enabled,v.revision,COALESCE(p.priority,0) AS priority FROM redrouter_control_providers v LEFT JOIN redrouter_control_provider_priorities p ON p.record_id = v.id || ':' || CAST(v.revision AS TEXT) ORDER BY v.revision DESC,v.id ASC";
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
@@ -255,6 +261,7 @@ const DELETE_PROVIDER_THOUGHT_SIGNATURES: &str =
 pub struct StoredProvider {
     pub node_id: Option<String>,
     pub protocol: String,
+    pub priority: i64,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -774,6 +781,7 @@ impl Database {
                         CREATE_PROVIDER_HEADERS,
                         provider_discovery_storage::CREATE,
                         provider_protocol_storage::CREATE,
+                        provider_priority_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
                         model_aliases_storage::CREATE,
@@ -909,6 +917,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_protocol_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_priority_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(model_aliases_storage::STATE).await?;
                 db.remote_schema_query(model_aliases_storage::CREATE)
                     .await?;
@@ -1043,6 +1053,7 @@ impl Database {
                     CREATE_PROVIDER_HEADERS,
                     provider_discovery_storage::CREATE,
                     provider_protocol_storage::CREATE,
+                    provider_priority_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
                     model_aliases_storage::CREATE,
@@ -1164,7 +1175,7 @@ impl Database {
 
     pub async fn providers(&self) -> Result<Vec<StoredProvider>, &'static str> {
         let mut providers = match self {
-            Self::Sql(pool) => sqlx::query(LIST_PROVIDERS)
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDERS_SQL)
                 .fetch_all(pool)
                 .await
                 .map_err(|_| "cannot read provider configuration")?
@@ -1190,9 +1201,19 @@ impl Database {
         };
         let ownership = self.provider_ownership().await?;
         let mut protocols = self.provider_protocols().await?;
+        let mut priorities = if matches!(self, Self::Sql(_)) {
+            None
+        } else {
+            Some(self.provider_priorities().await?)
+        };
         let mut bindings = self.provider_node_bindings().await?;
         let nodes = self.provider_nodes().await?;
         for provider in &mut providers {
+            if let Some(priorities) = &mut priorities {
+                provider.priority = priorities
+                    .remove(&(provider.id.clone(), provider.updated_at))
+                    .unwrap_or(0);
+            }
             provider.protocol = protocols
                 .remove(&(provider.id.clone(), provider.updated_at))
                 .unwrap_or_else(|| "auto".to_owned());
@@ -1230,6 +1251,7 @@ impl Database {
     pub async fn upsert_provider(&self, provider: &StoredProvider) -> Result<(), &'static str> {
         let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
         self.upsert_provider_protocol(provider).await?;
+        self.upsert_provider_priority(provider).await?;
         self.upsert_provider_node_binding(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
@@ -1271,6 +1293,7 @@ impl Database {
             ..provider
         };
         self.upsert_provider_protocol(&provider).await?;
+        self.upsert_provider_priority(&provider).await?;
         self.upsert_provider_node_binding(&provider).await?;
         self.upsert_provider_ownership(&provider).await?;
         match self {
@@ -1314,6 +1337,7 @@ impl Database {
     /// statement fails on a backend without multi-statement transactions.
     pub async fn delete_provider(&self, id: &str) -> Result<(), &'static str> {
         self.delete_provider_protocols(id).await?;
+        self.delete_provider_priorities(id).await?;
         self.delete_provider_node_bindings(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
@@ -5063,6 +5087,9 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
     Ok(StoredProvider {
         node_id: None,
         protocol: "auto".to_owned(),
+        priority: row
+            .try_get("priority")
+            .map_err(|_| "invalid provider priority")?,
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
         provider: row
@@ -5102,6 +5129,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
     Ok(StoredProvider {
         node_id: None,
         protocol: "auto".to_owned(),
+        priority: 0,
         id: text("id")?,
         tenant_id: "red".to_owned(),
         provider: text("provider")?,

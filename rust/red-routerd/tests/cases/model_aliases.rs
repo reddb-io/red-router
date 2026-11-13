@@ -332,7 +332,7 @@ async fn alias_account_pool_falls_back_beyond_the_fixed_combo_target_deck() {
     let (healthy, healthy_models, healthy_task) =
         alias_test_provider("pool-secret", StatusCode::OK).await;
     for index in 0..9 {
-        assert_eq!(client.put(format!("{base}/api/admin/providers/pool-{index:02}")).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"provider":"pool-api","upstream_url":if index==8 {&healthy}else{&limited},"api_key":"pool-secret"})).send().await.unwrap().status(),StatusCode::OK);
+        assert_eq!(client.put(format!("{base}/api/admin/providers/pool-{index:02}")).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"provider":"pool-api","upstream_url":if index==8 {&healthy}else{&limited},"api_key":"pool-secret","priority":index+1})).send().await.unwrap().status(),StatusCode::OK);
     }
     let added=client.post(format!("{base}/api/admin/model-aliases")).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"alias":"pool-model","provider":"pool-api","model":"real-pool-model"})).send().await.unwrap();
     assert_eq!(added.status(), StatusCode::OK);
@@ -350,4 +350,87 @@ async fn alias_account_pool_falls_back_beyond_the_fixed_combo_target_deck() {
     task.abort();
     limited_task.abort();
     healthy_task.abort();
+}
+
+#[tokio::test]
+async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("account-priority.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY, STORAGE_KEY, true,
+    ).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (first_url, first_seen, first_task) = alias_test_provider("priority-first", StatusCode::OK).await;
+    let (second_url, second_seen, second_task) = alias_test_provider("priority-second", StatusCode::OK).await;
+    for (id, upstream, key, priority) in [
+        ("a-account", &first_url, "priority-first", 20),
+        ("z-account", &second_url, "priority-second", 1),
+    ] {
+        let response = client.put(format!("{base}/api/admin/providers/{id}"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":key,"priority":priority}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.json::<serde_json::Value>().await.unwrap()["priority"], priority);
+    }
+    let alias = client.post(format!("{base}/api/admin/model-aliases"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"friendly-priority","provider":"private-api","model":"target"}))
+        .send().await.unwrap();
+    assert_eq!(alias.status(), StatusCode::OK);
+    let key = "priority-client-key-12345678901234567890";
+    let created = client.put(format!("{base}/api/admin/client-keys/priority-key"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"priority","api_key":key,"scopes":["inference:chat"],"allowed_models":["friendly-priority"]}))
+        .send().await.unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, key, "friendly-priority").await.status(), StatusCode::OK);
+    assert_eq!(first_seen.lock().unwrap().len(), 0);
+    assert_eq!(second_seen.lock().unwrap().len(), 1);
+
+    // Updating other connection metadata must retain its configured priority.
+    let update = client.put(format!("{base}/api/admin/providers/z-account"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"label":"renamed"}))
+        .send().await.unwrap();
+    assert_eq!(update.status(), StatusCode::OK);
+    assert_eq!(update.json::<serde_json::Value>().await.unwrap()["priority"], 1);
+    let invalid = client.put(format!("{base}/api/admin/providers/z-account"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"priority":9007199254740992_i64}))
+        .send().await.unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let replica = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY, STORAGE_KEY, true,
+    ).await.unwrap();
+    let (replica_base, replica_task) = gateway(replica).await;
+    assert_eq!(chat_model(&client, &replica_base, key, "friendly-priority").await.status(), StatusCode::OK);
+    assert_eq!(first_seen.lock().unwrap().len(), 0);
+    assert_eq!(second_seen.lock().unwrap().len(), 2);
+    let change = client.put(format!("{base}/api/admin/providers/a-account"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":&first_url,"priority":0}))
+        .send().await.unwrap();
+    assert_eq!(change.status(), StatusCode::OK);
+    let change = client.put(format!("{base}/api/admin/providers/z-account"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"priority":1000}))
+        .send().await.unwrap();
+    assert_eq!(change.status(), StatusCode::OK);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            assert_eq!(chat_model(&client, &replica_base, key, "friendly-priority").await.status(), StatusCode::OK);
+            if !first_seen.lock().unwrap().is_empty() { break; }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    }).await.unwrap();
+    gateway_task.abort();
+    replica_task.abort();
+    first_task.abort();
+    second_task.abort();
 }

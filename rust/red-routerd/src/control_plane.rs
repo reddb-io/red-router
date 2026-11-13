@@ -484,6 +484,7 @@ pub struct ProviderInput {
     #[serde(default, deserialize_with = "provider_nodes::present_node_id")]
     pub node_id: Option<Option<String>>,
     pub protocol: Option<String>,
+    pub priority: Option<i64>,
     pub tenant_id: Option<String>,
     #[serde(default)]
     pub provider: String,
@@ -510,6 +511,7 @@ pub struct ProviderInput {
 pub struct ProviderView {
     pub node_id: Option<String>,
     pub protocol: String,
+    pub priority: i64,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -4842,6 +4844,7 @@ impl ControlPlane {
                         ProviderInput {
                             node_id: None,
                             protocol: None,
+                            priority: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
                             upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
@@ -4944,6 +4947,7 @@ impl ControlPlane {
                         ProviderInput {
                             node_id: None,
                             protocol: None,
+                            priority: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
                             upstream_url: self
@@ -5049,6 +5053,7 @@ impl ControlPlane {
                 ProviderInput {
                     node_id: None,
                     protocol: None,
+                    priority: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
                     upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
@@ -5166,6 +5171,7 @@ impl ControlPlane {
                 ProviderInput {
                     node_id: None,
                     protocol: None,
+                    priority: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
                     upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
@@ -5285,6 +5291,7 @@ impl ControlPlane {
                 ProviderInput {
                     node_id: None,
                     protocol: None,
+                    priority: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
                     upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
@@ -5587,6 +5594,12 @@ impl ControlPlane {
     ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
         validate_actor(actor)?;
+        if input
+            .priority
+            .is_some_and(|value| !valid_provider_priority(value))
+        {
+            return Err("provider priority must be a safe integer");
+        }
         let _mutation = self.0.mutation.lock().await;
         let existing = self
             .0
@@ -5883,6 +5896,10 @@ impl ControlPlane {
         let stored = StoredProvider {
             node_id,
             protocol,
+            priority: input
+                .priority
+                .or_else(|| existing.as_ref().map(|record| record.priority))
+                .unwrap_or(0),
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             provider: input.provider,
@@ -8730,6 +8747,7 @@ impl ControlPlane {
             signature_text(&mut digest, &record.provider);
             signature_text(&mut digest, &record.upstream_url);
             signature_text(&mut digest, &record.protocol);
+            signature_i64(&mut digest, record.priority);
             signature_text(&mut digest, record.node_id.as_deref().unwrap_or(""));
             signature_text(&mut digest, &record.credential_ciphertext);
             signature_bool(&mut digest, record.enabled);
@@ -10936,6 +10954,7 @@ fn view(
     Ok(ProviderView {
         node_id: record.node_id.clone(),
         protocol: record.protocol.clone(),
+        priority: record.priority,
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -12489,6 +12508,10 @@ fn validate_id(value: &str) -> Result<(), &'static str> {
         return Err("invalid provider identifier");
     }
     Ok(())
+}
+
+pub(crate) fn valid_provider_priority(value: i64) -> bool {
+    (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&value)
 }
 
 pub(crate) fn validate_provider(value: &str) -> Result<(), &'static str> {
@@ -15976,6 +15999,7 @@ mod tests {
         let providers = vec![StoredProvider {
             node_id: None,
             protocol: "auto".to_owned(),
+            priority: 0,
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),
