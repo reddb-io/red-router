@@ -29,6 +29,10 @@ important product capability; P2 restores additional subsystems. All remain in s
 
 Provider configuration now has a [32-item field-level expansion](LEGACY_PROVIDER_PARITY_FIELDS.md), covering node definitions, accounts, transport settings, model overrides and migration gaps. The [executor audit](LEGACY_EXECUTOR_PARITY.md) separately enumerates 142 legacy aliases across 81 source-module groups; none is accepted as complete by name or catalog presence.
 
+The [Rustify audit](RUSTIFY_PARITY_AUDIT.md) adds a pinned legacy dependency graph,
+per-file Rust candidates, import-resolution evidence and a priority/complexity queue.
+Its static candidates do not close any row below. Feature implementation remains paused.
+
 ## Core replacement: first execution wave
 
 | ID | Priority / complexity | Capability and current state | Legacy evidence → new implementation | Remaining work and acceptance |
