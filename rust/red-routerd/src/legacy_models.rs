@@ -100,6 +100,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
         // a separate namespace. Do not import a model whose matching override
         // would otherwise be silently lost.
         let mut overrides: HashSet<(String, String)> = HashSet::new();
+        let mut visibility: HashMap<(String, String), bool> = HashMap::new();
         let mut compat = sqlx::query("SELECT key,value FROM key_value WHERE namespace='modelCompatOverrides' ORDER BY key").fetch(&mut *snapshot);
         let mut compat_bytes = 0_usize;
         let mut compat_rows = 0_usize;
@@ -112,13 +113,35 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             if provider.is_empty() || provider.len() > 128 || compat_bytes > 8 * 1024 * 1024 { return Err("invalid legacy model compatibility"); }
             let entries: Vec<serde_json::Value> = serde_json::from_str(&value).map_err(|_| "invalid legacy model compatibility")?;
             for entry in entries {
-                if overrides.len() >= 10_000 { return Err("too many legacy model compatibility entries"); }
+                if overrides.len().saturating_add(visibility.len()) >= 10_000 { return Err("too many legacy model compatibility entries"); }
                 let object = entry.as_object().ok_or("invalid legacy model compatibility")?;
                 let id = object.get("id").and_then(|value| value.as_str()).filter(|value| !value.is_empty() && value.len() <= 256).ok_or("invalid legacy model compatibility")?;
                 // The legacy reader explicitly ignores retired isDeleted
                 // tombstones; an ID-only entry has no runtime effect either.
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "isDeleted")) {
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "isDeleted" | "isHidden" | "hiddenModalities")) {
                     overrides.insert((provider.clone(), id.to_owned()));
+                } else {
+                    let scoped = match object.get("hiddenModalities") {
+                        None | Some(serde_json::Value::Null) => None,
+                        Some(value) => {
+                            let Some(map) = value.as_object() else { return Err("invalid legacy model visibility"); };
+                            if map.keys().any(|key| key != "chat") {
+                                overrides.insert((provider.clone(), id.to_owned()));
+                                continue;
+                            }
+                            match map.get("chat") {
+                                None => None,
+                                Some(value) => Some(value.as_bool().ok_or("invalid legacy model visibility")?),
+                            }
+                        }
+                    };
+                    let unscoped = match object.get("isHidden") {
+                        None | Some(serde_json::Value::Null) => None,
+                        Some(value) => Some(value.as_bool().ok_or("invalid legacy model visibility")?),
+                    };
+                    if let Some(hidden) = scoped.or(unscoped) {
+                        visibility.insert((provider.clone(), id.to_owned()), hidden);
+                    }
                 }
             }
         }
@@ -180,7 +203,21 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 let input = number("inputTokenLimit")?;
                 let output = number("outputTokenLimit")?;
                 let reasoning = match object.get("supportsThinking") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
-                let hidden = match object.get("isHidden") { None | Some(serde_json::Value::Null) => false, Some(value) => value.as_bool().ok_or("invalid legacy model visibility")? };
+                // Legacy catalog activation is opt-in. A custom decision wins
+                // over compat for the same key; hidden wins across sibling keys.
+                let explicit = match object.get("isHidden") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model visibility")?) };
+                let own = explicit.or_else(|| visibility.get(&(legacy_provider.clone(), id.to_owned())).copied());
+                let mut keys = vec![legacy_provider.as_str(), provider.as_str()];
+                if let Some(aliases) = crate::model_permissions::legacy_provider_spellings(&legacy_provider) {
+                    keys.extend(aliases.iter().map(String::as_str));
+                }
+                if matches!(legacy_provider.as_str(), "opencode-zen" | "opencode-go") { keys.push("opencode"); }
+                keys.sort_unstable();
+                keys.dedup();
+                let related = keys.into_iter().filter(|key| *key != legacy_provider.as_str())
+                    .filter_map(|key| visibility.get(&(key.to_owned(), id.to_owned())).copied()).collect::<Vec<_>>();
+                let hidden = own == Some(true) || related.contains(&true)
+                    || (own.is_none() && !related.contains(&false));
                 let mut metadata: ModelMetadata = serde_json::from_value(serde_json::json!({"id":id,"name":name,"reasoning":reasoning})).map_err(|_| "invalid legacy model")?;
                 if input.is_some() || output.is_some() { metadata.limit = Some(crate::catalog::CatalogLimit { context: None, input, output }); }
                 provider_models::validate_metadata(&metadata)?;

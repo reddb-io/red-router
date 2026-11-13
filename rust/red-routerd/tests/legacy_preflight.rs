@@ -190,6 +190,84 @@ async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() 
 }
 
 #[tokio::test]
+async fn legacy_custom_model_activation_preserves_default_and_override_precedence() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)").bind(r#"[{"id":"default","source":"manual"},{"id":"custom-active","source":"manual","isHidden":false},{"id":"compat-active","source":"manual"},{"id":"custom-wins","source":"manual","isHidden":false},{"id":"scoped-hide","source":"manual"},{"id":"scoped-show","source":"manual"}]"#).execute(&mut legacy).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"compat-active","isHidden":false},{"id":"custom-wins","isHidden":true},{"id":"scoped-hide","isHidden":false,"hiddenModalities":{"chat":true}},{"id":"scoped-show","isHidden":true,"hiddenModalities":{"chat":false}}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','codex',?)")
+        .bind(r#"[{"id":"cross-key","source":"manual","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','cx',?)")
+        .bind(r#"[{"id":"cross-key","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap()
+            .imported,
+        7
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    for (id, hidden) in [
+        ("default", true),
+        ("custom-active", false),
+        ("compat-active", false),
+        ("custom-wins", false),
+        ("scoped-hide", true),
+        ("scoped-show", false),
+        ("cross-key", true),
+    ] {
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.metadata.id == id)
+                .unwrap()
+                .hidden,
+            hidden,
+            "{id}"
+        );
+    }
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
     let directory = TempDir::new().unwrap();
     let source = directory.path().join("legacy.sqlite");
@@ -349,15 +427,22 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     assert_eq!(
         legacy_models::import(&source, &destination)
             .await
-            .unwrap_err(),
-        "legacy model compatibility settings require migration"
+            .unwrap()
+            .imported,
+        1
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(
         db.provider_models().await.unwrap().len(),
-        1,
-        "a model with unmigrated visibility must not be imported"
+        2,
+        "the compatibility visibility must be imported with the model"
     );
+    assert!(db
+        .provider_models()
+        .await
+        .unwrap()
+        .iter()
+        .any(|model| model.metadata.id == "new-model" && model.hidden));
     db.close().await.unwrap();
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
@@ -374,9 +459,9 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
         legacy_models::import(&source, &destination)
             .await
             .unwrap()
-            .imported,
+            .already_present,
         1,
-        "unrelated overrides and legacy tombstones must not block this import"
+        "legacy tombstones must not change an already hidden model"
     );
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await

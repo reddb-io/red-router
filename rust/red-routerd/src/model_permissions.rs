@@ -138,6 +138,10 @@ pub(crate) fn legacy_provider_id(provider: &str) -> Option<&str> {
     ALIASES.get(provider).map(|aliases| aliases[0].as_str())
 }
 
+pub(crate) fn legacy_provider_spellings(provider: &str) -> Option<&[String; 2]> {
+    ALIASES.get(provider)
+}
+
 fn add_candidate(candidates: &mut Vec<String>, model: &str) {
     let model = model.trim();
     if model.is_empty() {
