@@ -13437,7 +13437,7 @@ pub async fn local_admin_login(
     Json(input): Json<LocalAdminLoginInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some((origin, secure)) = local_login_origin(&headers) else {
         return api_error(StatusCode::FORBIDDEN, "Invalid dashboard login origin");
@@ -13487,7 +13487,7 @@ pub async fn oidc_login(
     Query(query): Query<OidcLoginQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let test = match query.test.as_deref() {
         None => false,
@@ -13523,7 +13523,7 @@ pub async fn oidc_callback(
     Query(query): Query<OidcCallbackQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let secure = control
         .0
@@ -13627,7 +13627,7 @@ pub async fn oidc_logout(State(state): State<ProxyState>) -> Response {
 
 pub async fn get_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
@@ -13641,7 +13641,7 @@ pub async fn discover_oidc(
     Json(input): Json<OidcDiscoveryInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
@@ -13669,7 +13669,7 @@ pub async fn put_oidc(
     Json(input): Json<OidcInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
@@ -13686,7 +13686,7 @@ pub async fn put_oidc(
 
 pub async fn delete_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
@@ -13699,7 +13699,7 @@ pub async fn delete_oidc(State(state): State<ProxyState>, headers: HeaderMap) ->
 
 pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13715,7 +13715,7 @@ pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Respon
 
 pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13731,7 +13731,7 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
 
 pub async fn list_shared_budgets(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13754,7 +13754,7 @@ pub async fn create_shared_budget(
     Json(input): Json<crate::shared_budget::BudgetInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13783,7 +13783,7 @@ pub async fn put_shared_budget(
     Json(input): Json<crate::shared_budget::BudgetInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13807,7 +13807,7 @@ pub async fn delete_shared_budget(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13832,7 +13832,7 @@ pub async fn token_limits(
     Query(query): Query<TokenLimitQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13860,7 +13860,7 @@ pub async fn put_token_limit(
     Json(input): Json<TokenLimitInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13885,7 +13885,7 @@ pub async fn delete_token_limit(
     Query(query): Query<TokenLimitQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13909,7 +13909,7 @@ pub async fn delete_token_limit(
 
 pub async fn usage_export_types(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.management_scope(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -13929,7 +13929,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
             {
                 "type": "bigquery",
                 "label": "Google BigQuery",
-                "description": "Exports attributed token and spend reports from the Rust usage ledger.",
+                "description": "Exports attributed token and spend reports from the usage ledger.",
                 "modes": ["instant"],
                 "fields": [
                     {"key":"projectId","labelFallback":"Project ID","type":"text","required":true},
@@ -13993,7 +13993,7 @@ pub async fn usage_export_types(State(state): State<ProxyState>, headers: Header
 
 pub async fn list_usage_exports(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14013,7 +14013,7 @@ pub async fn create_usage_export(
     Json(input): Json<UsageExportCreateInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14040,7 +14040,7 @@ pub async fn get_usage_export(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14067,7 +14067,7 @@ pub async fn update_usage_export(
     Json(input): Json<UsageExportUpdateInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14097,7 +14097,7 @@ pub async fn delete_usage_export(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14123,7 +14123,7 @@ pub async fn test_usage_export(
     Json(input): Json<UsageExportUpdateInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14160,7 +14160,7 @@ pub async fn get_legacy_usage_report(
     Query(query): Query<LegacyUsageQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14206,7 +14206,7 @@ pub async fn get_usage_report(
 ) -> Response {
     const REPORT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14262,7 +14262,7 @@ pub async fn get_usage_report(
 
 pub async fn maintain_usage(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14291,7 +14291,7 @@ pub async fn maintain_usage(State(state): State<ProxyState>, headers: HeaderMap)
 
 pub async fn list_tenants(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.authorized_admin_actor(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14310,7 +14310,7 @@ pub async fn list_identity_bindings(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.authorized_admin_actor(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14330,7 +14330,7 @@ pub async fn list_audit_events(
     Query(query): Query<AuditQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14359,7 +14359,7 @@ pub async fn issue_client_key(
     Json(input): Json<ClientKeyIssueInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14393,7 +14393,7 @@ pub async fn issue_client_key(
 
 pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14406,7 +14406,7 @@ pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) ->
 
 pub async fn list_model_catalog(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.management_scope(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14483,7 +14483,7 @@ pub async fn get_model_catalog_provider(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.management_scope(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14501,7 +14501,7 @@ pub async fn refresh_model_catalog(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14525,7 +14525,7 @@ pub async fn refresh_model_catalog(
 
 pub async fn list_provider_health(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14541,7 +14541,7 @@ pub async fn list_provider_health(State(state): State<ProxyState>, headers: Head
 
 pub async fn get_runtime_settings(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.authorized_admin_actor(&headers).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14556,7 +14556,7 @@ pub async fn put_runtime_settings(
     Json(input): Json<RuntimeSettingsInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14573,7 +14573,7 @@ pub async fn put_runtime_settings(
 
 pub async fn list_provider_quotas(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14593,7 +14593,7 @@ pub async fn delete_provider_health(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14618,7 +14618,7 @@ pub async fn put_provider_health(
     Json(input): Json<ProviderHealthInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14646,7 +14646,7 @@ pub async fn put_provider(
     Json(input): Json<ProviderInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14679,7 +14679,7 @@ pub async fn authorize_provider_oauth(
     Query(query): Query<ProviderOAuthAuthorizeQuery>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14715,7 +14715,7 @@ pub async fn exchange_provider_oauth(
     Json(input): Json<ProviderOAuthExchangeInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14765,7 +14765,7 @@ pub async fn exchange_provider_oauth(
 
 async fn extract_auth_zip_response(state: ProxyState, request: Request) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if control.management_scope(request.headers()).await.is_none() {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14833,7 +14833,7 @@ pub async fn import_codex_auth(
     Json(input): Json<ProviderAuthImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14872,7 +14872,7 @@ pub async fn import_codex_auth_bulk(
     Json(input): Json<CodexAuthBulkImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14940,7 +14940,7 @@ pub async fn import_claude_auth(
     Json(input): Json<ProviderAuthImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -14984,7 +14984,7 @@ pub async fn import_agy_auth(
     Json(input): Json<ProviderAuthImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15028,7 +15028,7 @@ pub async fn import_agy_auth_bulk(
     Json(input): Json<AgyAuthBulkImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15104,7 +15104,7 @@ async fn export_provider_auth_response(
     provider: &'static str,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15194,7 +15194,7 @@ pub async fn import_claude_auth_bulk(
     Json(input): Json<ClaudeAuthBulkImportInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15262,7 +15262,7 @@ pub async fn diagnose_provider(
     Json(input): Json<ProviderDiagnosticInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15287,7 +15287,7 @@ pub async fn rotate_provider_oauth(
     Json(input): Json<ProviderOAuthRotationInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15315,7 +15315,7 @@ pub async fn refresh_provider_oauth(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15339,7 +15339,7 @@ pub async fn refresh_provider_oauth_compat(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15470,7 +15470,7 @@ pub async fn put_provider_quota(
     Json(input): Json<ProviderQuotaInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15494,7 +15494,7 @@ pub async fn refresh_provider_quota(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15521,7 +15521,7 @@ pub async fn delete_provider_quota(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15545,7 +15545,7 @@ pub async fn delete_provider(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15572,7 +15572,7 @@ pub async fn purge_provider(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15604,7 +15604,7 @@ pub async fn put_combo(
     Json(input): Json<ComboInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15628,7 +15628,7 @@ pub async fn delete_combo(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15651,7 +15651,7 @@ pub async fn delete_combo_route_pin(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15676,7 +15676,7 @@ pub async fn put_client_key(
     Json(input): Json<ClientKeyInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15701,7 +15701,7 @@ pub async fn put_tenant(
     Json(input): Json<TenantInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15723,7 +15723,7 @@ pub async fn put_identity_binding(
     Json(input): Json<IdentityBindingInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15750,7 +15750,7 @@ pub async fn delete_identity_binding(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
@@ -15778,7 +15778,7 @@ pub async fn provision_client_key(
     Json(input): Json<ClientKeyInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     if input.api_key.is_none() {
         return api_error(StatusCode::BAD_REQUEST, "api_key is required");
@@ -15808,7 +15808,7 @@ pub async fn delete_client_key(
     headers: HeaderMap,
 ) -> Response {
     let Some(control) = &state.control_plane else {
-        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
     };
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
