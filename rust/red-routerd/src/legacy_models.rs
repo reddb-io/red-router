@@ -51,6 +51,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
     )
     .await
     .map_err(|_| "cannot open destination database")?;
+    let result = async {
     let mut snapshot = input
         .begin()
         .await
@@ -215,4 +216,11 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             Err(error)
         }
     }
+    }.await;
+    let output_close = output.close().await;
+    let input_close = input.close().await;
+    if output_close.is_err() || input_close.is_err() {
+        return Err("cannot close migration database");
+    }
+    result
 }

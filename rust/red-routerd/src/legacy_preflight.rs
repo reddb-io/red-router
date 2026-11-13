@@ -90,6 +90,7 @@ pub async fn import_pricing(
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(destination_path))
             .await
             .map_err(|_| "cannot open destination SQLite database")?;
+    let result = async {
     sqlx::query("PRAGMA busy_timeout = 5000")
         .execute(&mut output)
         .await
@@ -176,6 +177,13 @@ pub async fn import_pricing(
             Err(error)
         }
     }
+    }.await;
+    let output_close = output.close().await;
+    let input_close = input.close().await;
+    if output_close.is_err() || input_close.is_err() {
+        return Err("cannot close migration database");
+    }
+    result
 }
 
 pub async fn inspect(path: &Path) -> Result<LegacyPreflight, &'static str> {

@@ -54,6 +54,7 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
     let mut db = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(dest_path))
         .await
         .map_err(|_| "cannot open destination SQLite database")?;
+    let result = async {
     sqlx::query("PRAGMA busy_timeout = 5000")
         .execute(&mut db)
         .await
@@ -157,6 +158,12 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
             Err(error)
         }
     }
+    }.await;
+    let close = db.close().await;
+    if close.is_err() {
+        return Err("cannot close destination database");
+    }
+    result
 }
 
 fn ident(value: &str) -> String {
