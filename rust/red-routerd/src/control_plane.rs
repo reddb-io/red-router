@@ -8991,12 +8991,20 @@ impl ControlPlane {
     async fn refresh_routes(&self) -> Result<(), &'static str> {
         let mut records = self.0.database.combos().await?;
         let providers = self.0.database.providers().await?;
+        let provider_index: HashMap<_, _> = providers
+            .iter()
+            .map(|provider| (provider.id.as_str(), provider))
+            .collect();
+        let combo_ids: HashSet<_> = records.iter().map(|record| record.id.as_str()).collect();
+        let combo_names: HashSet<_> = records
+            .iter()
+            .map(|record| (record.tenant_id.as_str(), record.id.as_str()))
+            .collect();
         let aliases = self.model_aliases_snapshot().await?;
         for alias in &aliases.records {
-            if records.iter().any(|combo| {
-                combo.id == alias.id
-                    || (combo.tenant_id == alias.tenant_id && combo.id == alias.alias)
-            }) {
+            if combo_ids.contains(alias.id.as_str())
+                || combo_names.contains(&(alias.tenant_id.as_str(), alias.alias.as_str()))
+            {
                 return Err("Model alias conflicts with a combo");
             }
         }
@@ -9054,11 +9062,11 @@ impl ControlPlane {
             let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in concrete_targets {
-                let Some(provider) = providers.iter().find(|provider| {
-                    provider.id == target.provider_id
-                        && provider.tenant_id == record.tenant_id
-                        && provider.enabled
-                }) else {
+                let Some(provider) = provider_index
+                    .get(target.provider_id.as_str())
+                    .copied()
+                    .filter(|provider| provider.tenant_id == record.tenant_id && provider.enabled)
+                else {
                     continue;
                 };
                 if !live.contains_key(&provider.id) {
