@@ -7524,7 +7524,12 @@ async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
             .iter()
             .filter_map(|model| model["id"].as_str())
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec![own_combo]);
+        assert!(ids.contains(&own_combo));
+        assert!(!ids.contains(&hidden_combo));
+        assert!(ids.contains(&"openai/gpt-4o"));
+        assert!(ids
+            .iter()
+            .all(|id| *id == own_combo || id.starts_with("openai/")));
         assert_eq!(
             chat_model(&client, &base, key, own_combo)
                 .await
@@ -7536,6 +7541,15 @@ async fn rust_control_plane_isolates_provider_and_combo_routes_by_tenant() {
         assert_eq!(
             chat_model(&client, &base, key, hidden_combo).await.status(),
             StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            chat_model(&client, &base, key, "openai/gpt-4o")
+                .await
+                .text()
+                .await
+                .unwrap(),
+            expected,
+            "the same catalog ID must route only through the key's organization"
         );
     }
 
