@@ -48,6 +48,9 @@ export async function readChatStream(response: Response, onText: (text: string) 
 export default function Playground() {
   const [key, setKey] = useState("");
   const [model, setModel] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsMessage, setModelsMessage] = useState("");
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
@@ -55,8 +58,62 @@ export default function Playground() {
   const [partial, setPartial] = useState("");
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
+  const modelsRequest = useRef<AbortController | null>(null);
 
-  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => () => {
+    request.current?.abort();
+    modelsRequest.current?.abort();
+  }, []);
+
+  function changeKey(value: string) {
+    modelsRequest.current?.abort();
+    modelsRequest.current = null;
+    setModelsLoading(false);
+    setModels([]);
+    setModelsMessage("");
+    setKey(value);
+  }
+
+  async function loadModels() {
+    if (!key.trim() || modelsRequest.current) return;
+    const controller = new AbortController();
+    modelsRequest.current = controller;
+    setModelsLoading(true);
+    setModelsMessage("");
+    setModels([]);
+    try {
+      const response = await fetch("/v1/models", {
+        headers: { Authorization: `Bearer ${key.trim()}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const detail = body && typeof body === "object" && "error" in body
+          ? (body as { error?: { message?: unknown } }).error?.message
+          : null;
+        throw new Error(typeof detail === "string" ? detail : `Could not load models (${response.status}).`);
+      }
+      const data = body && typeof body === "object" && "data" in body
+        ? (body as { data?: unknown }).data : null;
+      if (!Array.isArray(data)) throw new Error("Invalid model list response.");
+      const ids = [...new Set(data.flatMap((item: unknown) => {
+        if (!item || typeof item !== "object" || !("id" in item)) return [];
+        const id = (item as { id?: unknown }).id;
+        return typeof id === "string" && id.trim() ? [id] : [];
+      }))].sort((a, b) => a.localeCompare(b));
+      if (controller.signal.aborted) return;
+      setModels(ids);
+      setModelsMessage(ids.length ? `${ids.length} models available to this key.` : "No models were listed for this key. You can still enter a model or combo manually.");
+    } catch (cause) {
+      if (!controller.signal.aborted) setModelsMessage(cause instanceof Error ? cause.message : "Could not load models.");
+    } finally {
+      if (modelsRequest.current === controller) {
+        modelsRequest.current = null;
+        setModelsLoading(false);
+      }
+    }
+  }
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,8 +164,15 @@ export default function Playground() {
       </div>
       <Card title="Connection">
         <div className="grid gap-4 md:grid-cols-2">
-          <label>API key<input className={inputClass} type="password" autoComplete="off" disabled={busy} value={key} onChange={(event) => setKey(event.target.value)} /></label>
-          <label>Model or combo<input className={inputClass} disabled={busy} value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model" /></label>
+          <label>API key<input className={inputClass} type="password" autoComplete="off" disabled={busy} value={key} onChange={(event) => changeKey(event.target.value)} /></label>
+          <label>Model or combo<input className={inputClass} list="playground-models" disabled={busy} value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model" /></label>
+          <datalist id="playground-models">{models.map((id) => <option key={id} value={id} />)}</datalist>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button variant="outline" disabled={busy || modelsLoading || !key.trim()} onClick={() => void loadModels()}>
+            {modelsLoading ? "Loading models…" : "Load available models"}
+          </Button>
+          {modelsMessage && <p role="status" className="text-sm text-text-muted">{modelsMessage}</p>}
         </div>
         <p className="mt-2 text-sm text-text-muted">The key stays in this page's memory and is sent with each request.</p>
         <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={stream} disabled={busy} onChange={(event) => setStream(event.target.checked)} /> Stream responses</label>

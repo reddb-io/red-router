@@ -57,6 +57,10 @@ test("playground sends a multi-turn conversation using the supplied client key",
     backend: "rust", control_plane_enabled: true, oidc_browser_login: false, password_login: true,
   } }));
   const requests: unknown[] = [];
+  await page.route("**/v1/models", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer local-client-key");
+    await route.fulfill({ json: { object: "list", data: [{ id: "openrouter/example" }, { id: "example-combo" }] } });
+  });
   await page.route("**/v1/chat/completions", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer local-client-key");
     const body = route.request().postDataJSON();
@@ -65,6 +69,12 @@ test("playground sends a multi-turn conversation using the supplied client key",
     else await route.fulfill({ json: { choices: [{ message: { content: `Reply ${requests.length}` } }] } });
   });
   await page.goto(`${origin}/dashboard/playground`);
+  await page.getByLabel("API key", { exact: true }).fill("local-client-key");
+  await page.getByRole("button", { name: "Load available models" }).click();
+  await expect(page.getByRole("status")).toHaveText("2 models available to this key.");
+  await expect(page.locator("#playground-models option")).toHaveCount(2);
+  await page.getByLabel("API key", { exact: true }).fill("changed-key");
+  await expect(page.locator("#playground-models option")).toHaveCount(0);
   await page.getByLabel("API key", { exact: true }).fill("local-client-key");
   await page.getByLabel("Model or combo").fill("openrouter/example");
   await page.getByLabel("Stream responses").uncheck();
