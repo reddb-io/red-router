@@ -956,7 +956,9 @@ async fn run(
                 allow_private,
             )?;
         }
-        if !control.has_active_provider().await? {
+        // Environment values seed an empty authority only. A deliberately disabled
+        // account must remain disabled after restart, even if seed secrets remain.
+        if db.providers().await?.is_empty() {
             if let Some(upstream) = requested.as_deref() {
                 let provider_key = zeroize::Zeroizing::new(env::var("RED_ROUTER_PROVIDER_KEY")?);
                 let provider =

@@ -392,3 +392,123 @@ async fn proxy_uses_authenticated_tls_reddb_after_restart() {
         proxy_roundtrip(Backend::ReddbRemote, &url, true).await;
     }
 }
+
+#[tokio::test]
+async fn custom_protocol_bootstrap_preserves_saved_and_disabled_accounts_after_restart() {
+    let temp = TempDir::new().unwrap();
+    let file = Url::from_file_path(temp.path().join("managed.sqlite")).unwrap();
+    let database_url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let provider = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}/custom/infer", provider.local_addr().unwrap());
+    let provider_task = tokio::spawn(async move {
+        axum::serve(provider, Router::new().route("/custom/infer", post(|headers: axum::http::HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer saved-provider-secret");
+            axum::Json(serde_json::json!({"id":"fixture","object":"chat.completion","model":"fixture-model","choices":[{"index":0,"message":{"role":"assistant","content":"saved account"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
+        }))).await.unwrap();
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap();
+    let admin = "test-admin-bootstrap-1234567890-abcdef";
+    for attempt in 0..3 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        drop(listener);
+        let base = format!("http://{proxy_addr}");
+        let log = temp.path().join(format!("managed-{attempt}.log"));
+        let mut process = Process(
+            Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+                .current_dir(temp.path())
+                .env("RED_ROUTER_DB_BACKEND", "sqlite")
+                .env("RED_ROUTER_DATABASE_URL", &database_url)
+                .env("RED_ROUTER_LISTEN", proxy_addr.to_string())
+                .env("RED_ROUTER_ADMIN_KEY", admin)
+                .env(
+                    "STORAGE_ENCRYPTION_KEY",
+                    "test-storage-bootstrap-1234567890",
+                )
+                .env("RED_ROUTER_CLIENT_KEY", "test-client-bootstrap-1234567890")
+                .env(
+                    "RED_ROUTER_PROVIDER_KEY",
+                    if attempt == 0 {
+                        "saved-provider-secret"
+                    } else {
+                        "must-not-overwrite"
+                    },
+                )
+                .env(
+                    "RED_ROUTER_PROVIDER_PROTOCOL",
+                    if attempt == 0 {
+                        "openai"
+                    } else {
+                        "invalid-protocol-must-be-ignored"
+                    },
+                )
+                .env("RED_ROUTER_UPSTREAM_URL", &upstream)
+                .env_remove("RED_ROUTER_ROUTES_JSON")
+                .env_remove("RED_ROUTER_CLIENT_POLICIES_JSON")
+                .stdout(Stdio::null())
+                .stderr(Stdio::from(std::fs::File::create(&log).unwrap()))
+                .spawn()
+                .unwrap(),
+        );
+        let mut ready = false;
+        let deadline = Instant::now() + PROXY_STARTUP_TIMEOUT;
+        while Instant::now() < deadline {
+            if process.0.try_wait().unwrap().is_some() {
+                break;
+            }
+            if client
+                .get(format!("{base}/healthz"))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success())
+            {
+                ready = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            ready,
+            "attempt {attempt}: {}",
+            std::fs::read_to_string(&log).unwrap_or_default()
+        );
+        let response = client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("test-client-bootstrap-1234567890")
+            .json(&serde_json::json!({"model":"fixture-model","messages":[]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if attempt < 2 { 200 } else { 503 }
+        );
+        if attempt == 1 {
+            assert_eq!(
+                client
+                    .delete(format!("{base}/api/admin/providers/default"))
+                    .bearer_auth(admin)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+                    .as_u16(),
+                204
+            );
+        }
+        drop(process);
+    }
+    let db = Database::connect(Backend::Sqlite, &database_url)
+        .await
+        .unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].protocol, "openai");
+    assert!(!providers[0].enabled);
+    db.close().await.unwrap();
+    provider_task.abort();
+}
