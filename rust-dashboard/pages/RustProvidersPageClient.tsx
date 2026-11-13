@@ -704,7 +704,7 @@ export default function RustProvidersPageClient() {
 
       <Card
         title="models.dev catalog"
-        subtitle="Validated and cached by red-routerd; the browser never downloads upstream catalog data directly."
+        subtitle="Browse provider and model metadata, including capabilities, context limits and pricing."
         action={
           <Button variant="secondary" loading={catalogBusy} onClick={() => void refreshCatalog()}>
             Refresh catalog
