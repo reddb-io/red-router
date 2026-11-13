@@ -175,6 +175,7 @@ pub async fn migrate(
             "adopt staged OAuth providers with their provider-specific command",
             "import compatible-provider accounts by id to bind their reusable definitions",
             "migrate and verify legacy aliases and remaining model compatibility settings",
+            "migrate and verify legacy per-connection synced model inventories",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

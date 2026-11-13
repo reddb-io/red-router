@@ -29,6 +29,7 @@ const TABLES: &[&str] = &[
 // not counts of individual models or a claim that they can already be migrated.
 const MODEL_NAMESPACES: &[&str] = &[
     "customModels",
+    "syncedAvailableModels",
     "modelAliases",
     "providerAliases",
     "managedModelAliasNames",

@@ -11,7 +11,7 @@ async fn inspection_counts_known_tables_without_exposing_or_modifying_records() 
         .filename(&path)
         .create_if_missing(true);
     let mut db = SqliteConnection::connect_with(&options).await.unwrap();
-    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT, api_key TEXT); INSERT INTO provider_connections VALUES ('private-id','secret-provider'); CREATE TABLE api_keys (id TEXT, key TEXT); INSERT INTO api_keys VALUES ('private-key','secret-client'); CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT); INSERT INTO key_value VALUES ('pricing','cohere','secret-pricing'),('settings','unrelated','secret-setting'),('customModels','private-provider','secret-model'),('modelAliases','private-alias','secret-target');")
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT, api_key TEXT); INSERT INTO provider_connections VALUES ('private-id','secret-provider'); CREATE TABLE api_keys (id TEXT, key TEXT); INSERT INTO api_keys VALUES ('private-key','secret-client'); CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT); INSERT INTO key_value VALUES ('pricing','cohere','secret-pricing'),('settings','unrelated','secret-setting'),('customModels','private-provider','secret-model'),('modelAliases','private-alias','secret-target'),('syncedAvailableModels','private-provider:private-id','secret-inventory');")
         .execute(&mut db).await.unwrap();
     db.close().await.unwrap();
     let before = tokio::fs::read(&path).await.unwrap();
@@ -20,6 +20,15 @@ async fn inspection_counts_known_tables_without_exposing_or_modifying_records() 
     assert!(!report.migration_ready);
     assert_eq!(report.pricing_rows, Some(1));
     assert_eq!(report.version, 2);
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "syncedAvailableModels")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
     assert_eq!(
         report
             .model_namespaces

@@ -81,6 +81,10 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     assert_eq!(report.model_aliases.imported, 1);
     assert!(report.activation_required);
     assert!(report.follow_up.iter().any(|item| item.contains("aliases")));
+    assert!(report
+        .follow_up
+        .iter()
+        .any(|item| item.contains("synced model")));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let models = db.provider_models().await.unwrap();
     assert_eq!(models.len(), 1);
