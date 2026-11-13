@@ -19,7 +19,7 @@ Every row needs SQLite persistence, request behavior, import and regression evid
 | ID | Priority / complexity | Legacy feature / fields | Current gap and next acceptance |
 | --- | --- | --- | --- |
 | PV-01 | P0 / M | Connection name, `display_name`, email | Native CRUD, SPA and API/OAuth import now accept the legacy 200 UTF-16-unit limit, including Unicode without truncation. CI regressions cover both import paths; email and identity precedence remain under review. |
-| PV-02 | P0 / M | `priority` per provider | Missing connection-level contract; combo target order is a different policy. Preserve order across accounts/restart/import. |
+| PV-02 | P0 / M | `priority` per provider | Missing connection-level contract; combo target order is a different policy. API-key import now rejects nonzero persisted account priorities instead of silently discarding them (CI pending). Preserve order across accounts/restart/import before lifting this refusal. |
 | PV-03 | P0 / M | `globalPriority` | Missing contract; resolve provider/account precedence and null semantics. |
 | PV-04 | P0 / M | `defaultModel` | Missing connection default; route model is not a connection default. Trace omitted-model resolution. |
 | PV-05 | P0 / M | `group` | Missing provider grouping/filter/routing contract and migration. |

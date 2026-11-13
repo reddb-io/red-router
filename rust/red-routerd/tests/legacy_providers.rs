@@ -106,6 +106,41 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
+    sqlx::query("UPDATE provider_connections SET provider_specific_data=NULL")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    for field in [
+        "priority",
+        "global_priority",
+        "backoff_level",
+        "rate_limit_protection",
+        "health_check_interval",
+    ] {
+        sqlx::query(&format!(
+            "ALTER TABLE provider_connections ADD COLUMN {field} INTEGER"
+        ))
+        .execute(&mut input)
+        .await
+        .unwrap();
+        sqlx::query(&format!("UPDATE provider_connections SET {field}=7"))
+            .execute(&mut input)
+            .await
+            .unwrap();
+        assert_eq!(
+            legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+                .await
+                .err(),
+            Some("legacy provider selection or health policy requires migration")
+        );
+        let check = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        assert!(check.providers().await.unwrap().is_empty());
+        check.close().await.unwrap();
+        sqlx::query(&format!("UPDATE provider_connections SET {field}=0"))
+            .execute(&mut input)
+            .await
+            .unwrap();
+    }
     let legacy_label = "é".repeat(200);
     sqlx::query("UPDATE provider_connections SET display_name=?")
         .bind(&legacy_label)

@@ -385,7 +385,7 @@ pub async fn import(
         // Prevent same-file hard links as well as intentionally mixed databases.
         let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'").fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination schema")?;
         if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
-        let row = sqlx::query("SELECT provider,auth_type,name,display_name,email,is_active,api_key,tenant_id,access_token,refresh_token,id_token,expires_at,token_expires_at,scope,project_id,provider_specific_data,rate_limited_until,per_key_proxy_enabled,proxy_enabled,max_concurrent,quota_window_thresholds_json,rate_limit_overrides_json,default_model,\"group\",test_status FROM provider_connections WHERE id=?")
+        let row = sqlx::query("SELECT * FROM provider_connections WHERE id=?")
             .bind(id).fetch_optional(&mut *snapshot).await.map_err(|_| "unsupported legacy provider schema")?.ok_or("legacy provider not found")?;
         let text = |field: &str| row.try_get::<Option<String>, _>(field).map_err(|_| "invalid legacy provider");
         let number = |field: &str| row.try_get::<Option<i64>, _>(field).map_err(|_| "invalid legacy provider");
@@ -401,6 +401,15 @@ pub async fn import(
         }
         for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent"] {
             if number(field)?.unwrap_or(0) != 0 { return Err("legacy provider policy requires migration"); }
+        }
+        // Older schemas omit these columns. When present, never silently drop
+        // account selection/admission policy merely because the API key imports.
+        for field in ["priority", "global_priority", "backoff_level", "rate_limit_protection", "health_check_interval"] {
+            match row.try_get::<Option<i64>, _>(field) {
+                Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
+                Ok(_) => return Err("legacy provider selection or health policy requires migration"),
+                Err(_) => return Err("invalid legacy provider policy"),
+            }
         }
         if text("test_status")?.is_some_and(|status| !matches!(status.as_str(), "" | "untested" | "success" | "active")) {
             return Err("legacy provider health requires migration");
