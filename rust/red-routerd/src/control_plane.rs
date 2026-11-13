@@ -12491,7 +12491,7 @@ fn validate_id(value: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn validate_provider(value: &str) -> Result<(), &'static str> {
+pub(crate) fn validate_provider(value: &str) -> Result<(), &'static str> {
     if value.is_empty()
         || value.len() > 64
         || !value

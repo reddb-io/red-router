@@ -1,6 +1,7 @@
 use red_routerd::legacy_preflight;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
+use url::Url;
 
 #[tokio::test]
 async fn inspection_counts_known_tables_without_exposing_or_modifying_records() {
@@ -165,4 +166,84 @@ async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
     assert!(legacy_preflight::import_pricing(&source, &source)
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn custom_model_import_is_transactional_and_preserves_metadata() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let destination = dir.path().join("native.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','openai',?)")
+        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false}]"#)
+        .execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (1, 0));
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (0, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].provider, "openai");
+    assert_eq!(models[0].metadata.name.as_deref(), Some("Custom Model"));
+    assert_eq!(models[0].metadata.reasoning, Some(false));
+    assert_eq!(
+        models[0].metadata.limit.as_ref().unwrap().input,
+        Some(32000)
+    );
+    assert_eq!(
+        models[0].metadata.limit.as_ref().unwrap().output,
+        Some(4000)
+    );
+    db.close().await.unwrap();
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','z-provider',?)")
+        .bind(r#"[{"id":"unsafe","targetFormat":"claude"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='customModels' AND key='openai'")
+        .bind(r#"[{"id":"new-model","source":"manual"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert!(legacy_models::import(&source, &destination).await.is_err());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        db.provider_models().await.unwrap().len(),
+        1,
+        "a later unsupported model must roll back earlier inserts"
+    );
+    db.close().await.unwrap();
 }

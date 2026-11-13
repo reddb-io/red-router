@@ -39,8 +39,11 @@ change by itself completes the legacy model/alias migration.
 
 1. Finish item 1 by validating imported compatible-account bindings, then port
    the remaining presets/media variants and prove the complete cutover path.
-2. Validate the item 2 public-alias quota/accounting fix, then import legacy
-   custom model and alias rows.
+2. Port legacy custom models and alias rows. A first offline importer handles
+   manually created chat model metadata, input/output limits and thinking flags
+   for ordinary provider IDs; it rejects unsupported fields and conflicts
+   transactionally. CI acceptance is pending. Custom provider node identity,
+   other formats, compatibility settings, provenance and alias imports remain open.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.
 4. Continue down the table in vertical slices: runtime behavior, persistence,
