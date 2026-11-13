@@ -264,7 +264,14 @@ impl ControlPlane {
     ) -> Result<DiscoveryView, &'static str> {
         let entry = self.0.database.provider_discovery(&provider.id).await?;
         let models_path = entry.as_ref().map(|value| value.models_path.clone());
-        let effective_models_path = models_path.clone().or_else(|| {
+        let inherited_path = if let Some(id) = provider.node_id.as_deref() {
+            Some(super::provider_nodes::models_path(
+                &self.provider_node(id, &provider.tenant_id).await?,
+            )?)
+        } else {
+            None
+        };
+        let effective_models_path = models_path.clone().or(inherited_path).or_else(|| {
             if provider.protocol == "gemini" {
                 reqwest::Url::parse(&provider.upstream_url)
                     .ok()
@@ -538,6 +545,7 @@ mod tests {
         .unwrap();
         database
             .upsert_provider(&StoredProvider {
+                node_id: None,
                 protocol: "auto".to_owned(),
                 id: "account".into(),
                 tenant_id: "red".into(),

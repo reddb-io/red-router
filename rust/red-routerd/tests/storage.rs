@@ -162,6 +162,7 @@ async fn exercise(backend: Backend, url: &str) {
         .await
         .unwrap();
     let first = StoredProvider {
+        node_id: None,
         protocol: "auto".to_owned(),
         id: "first".into(),
         tenant_id: "red".into(),
@@ -172,6 +173,7 @@ async fn exercise(backend: Backend, url: &str) {
         updated_at: 1,
     };
     let mut second = StoredProvider {
+        node_id: None,
         protocol: "openai-responses".to_owned(),
         id: "second".into(),
         tenant_id: "red".into(),

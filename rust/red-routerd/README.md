@@ -56,6 +56,25 @@ describe that bootstrap connection. Subsequent provider changes do not require
 those environment secrets. `RED_ROUTER_PROVIDER_PROTOCOL` optionally selects the
 bootstrap connection protocol; it has no effect on an already saved provider.
 
+- `GET /api/admin/provider-nodes` and `PUT`/`DELETE /api/admin/provider-nodes/{id}`
+  manage tenant-owned reusable API definitions: `name`, `prefix`, explicit `protocol`,
+  `base_url`, optional `chat_path` and `models_path`. Paths append to the base URL;
+  default inference paths follow the chosen protocol and model discovery defaults
+  to `/models`. Prefixes cannot shadow catalog or historical executor identities.
+  SQLite/PostgreSQL enforce unique prefixes within a tenant. Linked accounts block
+  deletion. Endpoint/protocol/prefix edits with linked accounts require
+  `apply_to_connections:true`; this intentionally reuses each account's encrypted
+  credential at the approved endpoint, after URL/auth/combo compatibility checks.
+  Per-connection custom headers detach on transport identity changes.
+- Provider creation accepts `node_id` instead of repeating `provider`, `upstream_url`
+  and `protocol`. These values are inherited in runtime snapshots and after restart.
+  Omitted `node_id` preserves an existing binding; `null` detaches it and requires
+  explicit standalone settings and the credential again. OAuth connections cannot
+  bind to API definitions. Model discovery inherits the definition unless overridden
+  on the account. Shared definition headers, legacy node import, preset/media settings,
+  model CRUD and model-prefix routing aliases are separate pending capabilities.
+  The linked-account check is serialized within one control plane; distributed
+  create/delete races and non-SQL namespace uniqueness still need dedicated acceptance.
 - `GET /api/admin/providers` lists redacted provider metadata.
 - API connections accept optional `protocol`: `auto` (URL detection), `openai`,
   `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic` or `gemini`.

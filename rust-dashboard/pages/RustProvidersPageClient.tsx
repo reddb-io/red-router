@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProviderHeaders from "../ProviderHeaders";
 import ProviderDiscovery from "../ProviderDiscovery";
+import ProviderNodes from "../ProviderNodes";
 import { Button, Card } from "../components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
@@ -32,6 +33,7 @@ import {
   type RustProviderHealth,
   type RustProviderInput,
   type RustProviderProtocol,
+  type ProviderNode,
   type RustProviderOAuthKind,
   type RustProviderQuota,
   type RustProviderQuotaRefreshCategory,
@@ -39,6 +41,7 @@ import {
 } from "../api/browserClient";
 
 type Draft = {
+  nodeId: string;
   protocol: RustProviderProtocol;
   id: string;
   provider: string;
@@ -80,6 +83,7 @@ const EMPTY_QUOTA_DRAFT: QuotaDraft = {
 };
 
 const EMPTY_DRAFT: Draft = {
+  nodeId: "",
   protocol: "auto",
   id: "",
   provider: "openai-compatible",
@@ -108,6 +112,7 @@ const labelClass = "flex flex-col gap-1 text-xs font-medium text-text-muted";
 
 function providerDraft(provider: RustProvider): Draft {
   return {
+    nodeId: provider.node_id ?? "",
     protocol: provider.protocol ?? "auto",
     id: provider.id,
     provider: provider.provider,
@@ -192,6 +197,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
     }
   }
   return {
+    node_id: draft.credentialType === "oauth" ? null : draft.nodeId || null,
     protocol: draft.credentialType === "oauth" ? "auto" : draft.protocol,
     provider,
     upstream_url: upstreamUrl,
@@ -264,6 +270,7 @@ function supportsQuotaRefresh(provider: RustProvider): boolean {
 
 export default function RustProvidersPageClient() {
   const [providers, setProviders] = useState<RustProvider[]>([]);
+  const [providerNodes, setProviderNodes] = useState<ProviderNode[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
   const [quotaDrafts, setQuotaDrafts] = useState<Record<string, QuotaDraft>>({});
   const [providerHealth, setProviderHealth] = useState<Record<string, RustProviderHealth>>({});
@@ -390,8 +397,15 @@ export default function RustProvidersPageClient() {
     try {
       const input = providerInput(draft, editingId !== null);
       const existing = providers.find((provider) => provider.id === editingId);
-      if (existing && !input.api_key && input.protocol !== (existing.protocol ?? "auto")) {
-        throw new Error("Re-enter the provider credential when changing its API protocol");
+      if (
+        existing &&
+        !input.api_key &&
+        ((!input.node_id && input.protocol !== (existing.protocol ?? "auto")) ||
+          input.node_id !== (existing.node_id ?? null))
+      ) {
+        throw new Error(
+          "Re-enter the provider credential when changing its API protocol or definition"
+        );
       }
       await replaceRustProvider(draft.id.trim(), input);
       reset();
@@ -756,6 +770,12 @@ export default function RustProvidersPageClient() {
         )}
       </Card>
 
+      <ProviderNodes
+        accounts={providers}
+        onNodes={setProviderNodes}
+        onUpdated={() => void reload()}
+      />
+
       <Card
         title="Provider browser sign-in"
         subtitle="Connect supported CLI accounts without copying access or refresh tokens into the dashboard. Credentials are stored encrypted."
@@ -795,6 +815,44 @@ export default function RustProvidersPageClient() {
         }
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {draft.credentialType === "static" && (
+            <label className={labelClass}>
+              Provider definition
+              <select
+                className={inputClass}
+                value={draft.nodeId}
+                onChange={(event) => {
+                  const node = providerNodes.find((entry) => entry.id === event.target.value);
+                  setDraft((current) => ({
+                    ...current,
+                    nodeId: event.target.value,
+                    ...(node
+                      ? {
+                          provider: node.prefix,
+                          protocol: node.protocol,
+                          upstreamUrl: node.upstream_url,
+                        }
+                      : {}),
+                  }));
+                }}
+              >
+                <option value="">Standalone connection</option>
+                {draft.nodeId && !providerNodes.some((node) => node.id === draft.nodeId) && (
+                  <option value={draft.nodeId}>{draft.nodeId}</option>
+                )}
+                {providerNodes.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.name} ({node.prefix})
+                  </option>
+                ))}
+              </select>
+              {draft.nodeId && (
+                <span className="font-normal">
+                  Endpoint and protocol are inherited from the definition.
+                </span>
+              )}
+            </label>
+          )}
           <label className={labelClass}>
             Connection ID
             <input
@@ -820,6 +878,7 @@ export default function RustProvidersPageClient() {
             <input
               className={inputClass}
               list="rust-model-catalog-providers"
+              disabled={!!draft.nodeId && draft.credentialType === "static"}
               value={draft.provider}
               placeholder="openai-compatible"
               onChange={(event) => {
@@ -854,6 +913,7 @@ export default function RustProvidersPageClient() {
               <select
                 className={inputClass}
                 value={draft.protocol}
+                disabled={!!draft.nodeId}
                 onChange={(event) => set("protocol", event.target.value as RustProviderProtocol)}
               >
                 <option value="auto">Detect from URL</option>
@@ -968,6 +1028,7 @@ export default function RustProvidersPageClient() {
               className={inputClass}
               type="url"
               value={draft.upstreamUrl}
+              disabled={!!draft.nodeId && draft.credentialType === "static"}
               placeholder="https://openrouter.ai/api/v1"
               onChange={(event) => set("upstreamUrl", event.target.value)}
             />

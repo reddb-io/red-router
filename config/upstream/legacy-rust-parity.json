@@ -12,7 +12,7 @@
     "partialSpaRoutes": 35,
     "externalLinks": 2,
     "oldApiRouteFiles": 803,
-    "rustRegisteredPaths": 83,
+    "rustRegisteredPaths": 85,
     "samePathCandidates": 28
   },
   "pages": [
@@ -9016,6 +9016,19 @@
       "path": "/api/admin/oidc/discover",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "path": "/api/admin/provider-nodes",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/api/admin/provider-nodes/{id}",
+      "methods": [
+        "PUT",
+        "DELETE"
       ]
     },
     {

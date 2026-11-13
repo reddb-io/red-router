@@ -9,6 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const api = vi.hoisted(() => ({
+  listProviderNodes: vi.fn().mockResolvedValue([]),
+  saveProviderNode: vi.fn(),
+  deleteProviderNode: vi.fn(),
   authorizeRustProviderOAuth: vi.fn(),
   clearRustProviderQuota: vi.fn(),
   configureRustProviderHealth: vi.fn(),
@@ -72,6 +75,7 @@ const { default: RustProvidersPageClient } =
 const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
+  api.listProviderNodes.mockResolvedValue([]);
   api.providerRequestHeaders.mockResolvedValue({ names: [], attached: true, revision: null });
   api.providerDiscoveryConfig.mockResolvedValue({
     models_path: null,
@@ -488,6 +492,96 @@ describe("Rust provider models.dev catalog", () => {
     expect(api.replaceRustProvider).toHaveBeenCalledWith(
       "custom-path",
       expect.objectContaining({ protocol: "anthropic", api_key: "replacement-secret" })
+    );
+  });
+  it("binds account credentials to reusable definitions and edits shared settings explicitly", async () => {
+    const node = {
+      id: "company-node",
+      tenant_id: "red",
+      name: "Company API",
+      prefix: "company-api",
+      protocol: "openai",
+      base_url: "https://gateway.example/v1",
+      chat_path: "/infer",
+      upstream_url: "https://gateway.example/v1/infer",
+      models_path: "/catalog",
+      revision: "1",
+    };
+    api.listProviderNodes.mockResolvedValue([node]);
+    api.listRustProviders.mockResolvedValue([
+      {
+        id: "node-account",
+        node_id: node.id,
+        protocol: node.protocol,
+        tenant_id: "red",
+        provider: node.prefix,
+        upstream_url: node.upstream_url,
+        enabled: true,
+        revision: "1",
+        has_credential: true,
+        rate_limit_scope: "auto",
+        auth_scheme: "auto",
+        label: "Node account",
+        credential_type: "static",
+        credential_expired: false,
+        refreshable: false,
+        reauth_required: false,
+      },
+    ]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [],
+      snapshot: { source: "persisted", revision: "1" },
+    });
+    api.saveProviderNode.mockResolvedValue(node);
+    const container = await mount();
+    const click = async (text: string) => {
+      const button = [...container.querySelectorAll("button")].find(
+        (entry) => entry.textContent === text
+      )!;
+      expect(button).toBeDefined();
+      await act(async () => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    await click("Replace");
+    const selector = [...container.querySelectorAll("select")].find((entry) =>
+      entry.querySelector('option[value="company-node"]')
+    )!;
+    expect(selector.value).toBe("company-node");
+    const upstream = [...container.querySelectorAll("input")].find(
+      (entry) => entry.value === node.upstream_url
+    )!;
+    expect(upstream.disabled).toBe(true);
+    await click("Replace connection");
+    expect(api.replaceRustProvider).toHaveBeenLastCalledWith(
+      "node-account",
+      expect.objectContaining({ node_id: "company-node", api_key: "" })
+    );
+    expect(
+      [...container.querySelectorAll("button")].find(
+        (entry) => entry.textContent === "Remove definition"
+      )?.disabled
+    ).toBe(true);
+    await click("Edit definition");
+    expect(container.textContent).toContain("1 linked accounts");
+    const form = container.querySelector("form")!;
+    const consent = form.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(consent.checked).toBe(false);
+    await act(async () => {
+      consent.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(api.saveProviderNode).toHaveBeenCalledWith(
+      "company-node",
+      expect.objectContaining({
+        base_url: node.base_url,
+        protocol: "openai",
+        apply_to_connections: true,
+        models_path: "/catalog",
+      })
     );
   });
 });

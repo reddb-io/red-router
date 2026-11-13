@@ -969,6 +969,7 @@ async fn run(
                     .configure_provider(
                         "default",
                         ProviderInput {
+                            node_id: None,
                             protocol: env::var("RED_ROUTER_PROVIDER_PROTOCOL").ok(),
                             tenant_id: None,
                             provider,

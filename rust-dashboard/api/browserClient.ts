@@ -225,6 +225,7 @@ export const providerApiProtocols = [
 export type RustProviderProtocol = (typeof providerApiProtocols)[number];
 
 export interface RustProvider {
+  node_id?: string | null;
   protocol?: RustProviderProtocol;
   id: string;
   tenant_id: string;
@@ -249,6 +250,7 @@ export interface RustProvider {
 }
 
 export interface RustProviderInput {
+  node_id?: string | null;
   protocol?: RustProviderProtocol;
   tenant_id?: string;
   provider: string;
@@ -1030,6 +1032,9 @@ function isRustProvider(value: unknown): value is RustProvider {
   if (!value || typeof value !== "object") return false;
   const provider = value as Record<string, unknown>;
   return (
+    (provider.node_id === undefined ||
+      provider.node_id === null ||
+      typeof provider.node_id === "string") &&
     !("api_key" in provider) &&
     !("credential" in provider) &&
     !("credential_ciphertext" in provider) &&
@@ -2400,4 +2405,72 @@ export async function discoverProviderModels(id: string): Promise<DiscoveredProv
     throw new Error("Invalid discovered model list");
   }
   return models as DiscoveredProviderModel[];
+}
+
+export interface ProviderNode {
+  id: string;
+  tenant_id: string;
+  name: string;
+  prefix: string;
+  protocol: RustProviderProtocol;
+  base_url: string;
+  chat_path: string;
+  upstream_url: string;
+  models_path: string | null;
+  revision: string;
+}
+export type ProviderNodeInput = Omit<
+  ProviderNode,
+  "id" | "tenant_id" | "revision" | "upstream_url"
+> & {
+  tenant_id?: string;
+  apply_to_connections?: boolean;
+};
+function isProviderNode(value: unknown): value is ProviderNode {
+  if (!value || typeof value !== "object") return false;
+  const node = value as Record<string, unknown>;
+  return (
+    [
+      "id",
+      "tenant_id",
+      "name",
+      "prefix",
+      "base_url",
+      "chat_path",
+      "upstream_url",
+      "revision",
+    ].every((key) => typeof node[key] === "string") &&
+    providerApiProtocols.includes(node.protocol as RustProviderProtocol) &&
+    node.protocol !== "auto" &&
+    (node.models_path === null || typeof node.models_path === "string")
+  );
+}
+export async function listProviderNodes(): Promise<ProviderNode[]> {
+  const value = await rustAdminJson("/api/admin/provider-nodes");
+  const nodes =
+    value && typeof value === "object" ? (value as { nodes?: unknown }).nodes : undefined;
+  if (!Array.isArray(nodes) || !nodes.every(isProviderNode))
+    throw new Error("Invalid provider definitions response");
+  return nodes;
+}
+export async function saveProviderNode(
+  id: string,
+  input: ProviderNodeInput
+): Promise<ProviderNode> {
+  const value = await rustAdminJson(
+    `/api/admin/provider-nodes/${encodeURIComponent(id)}`,
+    jsonRequest("PUT", input)
+  );
+  const node = value && typeof value === "object" ? (value as { node?: unknown }).node : undefined;
+  if (!isProviderNode(node)) throw new Error("Invalid provider definition response");
+  return node;
+}
+export async function deleteProviderNode(id: string): Promise<void> {
+  const response = await rustAdminFetch(`/api/admin/provider-nodes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    throw new Error(rustAdminError(value, response.status));
+  }
 }

@@ -2,8 +2,13 @@
 //!
 //! Each process selects one database authority; connection errors never fall
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
+#[path = "provider_nodes_storage.rs"]
+mod provider_nodes_storage;
+pub use provider_nodes_storage::StoredProviderNode;
 #[path = "provider_discovery_storage.rs"]
 mod provider_discovery_storage;
+#[path = "provider_node_binding_storage.rs"]
+mod provider_node_binding_storage;
 pub use provider_discovery_storage::StoredProviderDiscovery;
 #[path = "provider_protocol_storage.rs"]
 mod provider_protocol_storage;
@@ -242,6 +247,7 @@ const DELETE_PROVIDER_THOUGHT_SIGNATURES: &str =
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
+    pub node_id: Option<String>,
     pub protocol: String,
     pub id: String,
     pub tenant_id: String,
@@ -762,6 +768,8 @@ impl Database {
                         CREATE_PROVIDER_HEADERS,
                         provider_discovery_storage::CREATE,
                         provider_protocol_storage::CREATE,
+                        provider_nodes_storage::CREATE,
+                        provider_node_binding_storage::CREATE,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
@@ -892,6 +900,10 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_protocol_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_nodes_storage::CREATE)
+                    .await?;
+                db.remote_schema_query(provider_node_binding_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
                 db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
@@ -1017,6 +1029,8 @@ impl Database {
                     CREATE_PROVIDER_HEADERS,
                     provider_discovery_storage::CREATE,
                     provider_protocol_storage::CREATE,
+                    provider_nodes_storage::CREATE,
+                    provider_node_binding_storage::CREATE,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,
@@ -1060,6 +1074,10 @@ impl Database {
                         .await
                         .map_err(|_| "cannot initialize database")?;
                 }
+                sqlx::query(provider_nodes_storage::INDEX)
+                    .execute(&pool)
+                    .await
+                    .map_err(|_| "cannot initialize provider namespace index")?;
                 if backend == Backend::Sqlite {
                     for statement in [
                         CREATE_DASHBOARD_KEY_VALUE,
@@ -1147,6 +1165,8 @@ impl Database {
         };
         let ownership = self.provider_ownership().await?;
         let mut protocols = self.provider_protocols().await?;
+        let mut bindings = self.provider_node_bindings().await?;
+        let nodes = self.provider_nodes().await?;
         for provider in &mut providers {
             provider.protocol = protocols
                 .remove(&(provider.id.clone(), provider.updated_at))
@@ -1159,6 +1179,16 @@ impl Database {
                     return Err("provider ownership revision mismatch");
                 }
                 provider.tenant_id.clone_from(&owner.tenant_id);
+            }
+            if let Some(node_id) = bindings.remove(&(provider.id.clone(), provider.updated_at)) {
+                let node = nodes
+                    .iter()
+                    .find(|node| node.id == node_id && node.tenant_id == provider.tenant_id)
+                    .ok_or("provider definition is unavailable")?;
+                provider.node_id = Some(node_id);
+                provider.provider.clone_from(&node.prefix);
+                provider.upstream_url.clone_from(&node.upstream_url);
+                provider.protocol.clone_from(&node.protocol);
             }
         }
         Ok(providers)
@@ -1175,6 +1205,7 @@ impl Database {
     pub async fn upsert_provider(&self, provider: &StoredProvider) -> Result<(), &'static str> {
         let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
         self.upsert_provider_protocol(provider).await?;
+        self.upsert_provider_node_binding(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
             Self::Sql(pool) => {
@@ -1215,6 +1246,7 @@ impl Database {
             ..provider
         };
         self.upsert_provider_protocol(&provider).await?;
+        self.upsert_provider_node_binding(&provider).await?;
         self.upsert_provider_ownership(&provider).await?;
         match self {
             Self::Sql(pool) => {
@@ -1257,6 +1289,7 @@ impl Database {
     /// statement fails on a backend without multi-statement transactions.
     pub async fn delete_provider(&self, id: &str) -> Result<(), &'static str> {
         self.delete_provider_protocols(id).await?;
+        self.delete_provider_node_bindings(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
             Self::Sql(pool) => {
@@ -4984,6 +5017,7 @@ fn read_reddb_row(result: &reddb_client::QueryResult) -> Result<Option<String>, 
 
 fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static str> {
     Ok(StoredProvider {
+        node_id: None,
         protocol: "auto".to_owned(),
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
@@ -5022,6 +5056,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         _ => Err("invalid provider record"),
     };
     Ok(StoredProvider {
+        node_id: None,
         protocol: "auto".to_owned(),
         id: text("id")?,
         tenant_id: "red".to_owned(),

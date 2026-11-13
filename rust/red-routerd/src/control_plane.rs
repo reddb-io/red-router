@@ -4,6 +4,8 @@ pub use crate::policy::AccessScheduleConfig;
 mod credential_crypto;
 #[path = "provider_discovery.rs"]
 pub mod provider_discovery;
+#[path = "provider_nodes.rs"]
+pub mod provider_nodes;
 pub(crate) use credential_crypto::{decrypt_async, encrypt_async};
 #[path = "provider_headers.rs"]
 pub mod provider_headers;
@@ -143,6 +145,8 @@ UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
 UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
+UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
+UNION ALL SELECT 'provider-node-binding', record_id, revision, 0 FROM redrouter_control_provider_node_bindings
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'provider-breaker-override', provider_id, revision, 0 FROM redrouter_provider_breaker_overrides
@@ -467,9 +471,13 @@ impl Drop for ContextRelayGenerationGuard {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderInput {
+    #[serde(default, deserialize_with = "provider_nodes::present_node_id")]
+    pub node_id: Option<Option<String>>,
     pub protocol: Option<String>,
     pub tenant_id: Option<String>,
+    #[serde(default)]
     pub provider: String,
+    #[serde(default)]
     pub upstream_url: String,
     #[serde(default)]
     pub api_key: String,
@@ -490,6 +498,7 @@ pub struct ProviderInput {
 
 #[derive(Debug, Serialize)]
 pub struct ProviderView {
+    pub node_id: Option<String>,
     pub protocol: String,
     pub id: String,
     pub tenant_id: String,
@@ -4801,6 +4810,7 @@ impl ControlPlane {
                     .configure_provider_as(
                         &provider_id,
                         ProviderInput {
+                            node_id: None,
                             protocol: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
@@ -4902,6 +4912,7 @@ impl ControlPlane {
                     .configure_provider_as(
                         &provider_id,
                         ProviderInput {
+                            node_id: None,
                             protocol: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
@@ -5006,6 +5017,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    node_id: None,
                     protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
@@ -5122,6 +5134,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    node_id: None,
                     protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
@@ -5240,6 +5253,7 @@ impl ControlPlane {
             .configure_provider_as(
                 &provider_id,
                 ProviderInput {
+                    node_id: None,
                     protocol: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
@@ -5543,10 +5557,6 @@ impl ControlPlane {
     ) -> Result<ProviderView, &'static str> {
         validate_id(id)?;
         validate_actor(actor)?;
-        validate_provider(&input.provider)?;
-        if input.upstream_url.len() > 2048 {
-            return Err("provider upstream URL is too long");
-        }
         let _mutation = self.0.mutation.lock().await;
         let existing = self
             .0
@@ -5555,6 +5565,34 @@ impl ControlPlane {
             .await?
             .into_iter()
             .find(|provider| provider.id == id);
+        let node_id = input.node_id.take().unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|provider| provider.node_id.clone())
+        });
+        if let Some(node_id) = node_id.as_deref() {
+            if input.credential_type != "static" {
+                return Err("Provider definitions require API credentials");
+            }
+            let tenant_id = input
+                .tenant_id
+                .as_deref()
+                .or_else(|| {
+                    existing
+                        .as_ref()
+                        .map(|provider| provider.tenant_id.as_str())
+                })
+                .or(enforced_tenant)
+                .unwrap_or("red");
+            let node = self.provider_node(node_id, tenant_id).await?;
+            input.provider = node.prefix;
+            input.upstream_url = node.upstream_url;
+            input.protocol = Some(node.protocol);
+        }
+        validate_provider(&input.provider)?;
+        if input.upstream_url.len() > 2048 {
+            return Err("provider upstream URL is too long");
+        }
         let existing_oauth = self
             .0
             .database
@@ -5631,6 +5669,7 @@ impl ControlPlane {
             if existing.provider != input.provider
                 || existing.upstream_url != input.upstream_url
                 || existing.protocol != protocol
+                || existing.node_id != node_id
                 || existing_auth_scheme != auth_scheme.as_str()
                 || (input.credential_type == "oauth") != existing_oauth.is_some()
             {
@@ -5801,6 +5840,7 @@ impl ControlPlane {
         let ciphertext =
             encrypt_async(api_key.as_str(), id, self.0.encryption_key.as_str()).await?;
         let stored = StoredProvider {
+            node_id,
             protocol,
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
@@ -8632,6 +8672,7 @@ impl ControlPlane {
             signature_text(&mut digest, &record.provider);
             signature_text(&mut digest, &record.upstream_url);
             signature_text(&mut digest, &record.protocol);
+            signature_text(&mut digest, record.node_id.as_deref().unwrap_or(""));
             signature_text(&mut digest, &record.credential_ciphertext);
             signature_bool(&mut digest, record.enabled);
             signature_i64(&mut digest, record.updated_at);
@@ -10771,6 +10812,7 @@ fn view(
         _ => return Err("provider credential expiry is invalid"),
     };
     Ok(ProviderView {
+        node_id: record.node_id.clone(),
         protocol: record.protocol.clone(),
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
@@ -11383,6 +11425,7 @@ fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
         "tenant_id": record.tenant_id,
         "provider": record.provider,
         "protocol": record.protocol,
+        "node_id": record.node_id,
         "enabled": record.enabled,
         "revision": record.updated_at.to_string(),
         "has_credential": true
@@ -15809,6 +15852,7 @@ mod tests {
     #[test]
     fn combo_metadata_uses_models_dev_without_overriding_operator_values() {
         let providers = vec![StoredProvider {
+            node_id: None,
             protocol: "auto".to_owned(),
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),

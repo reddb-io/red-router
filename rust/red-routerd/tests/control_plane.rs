@@ -11727,3 +11727,5 @@ include!("cases/provider_headers.rs");
 include!("cases/provider_discovery.rs");
 
 include!("cases/provider_protocol.rs");
+
+include!("cases/provider_nodes.rs");

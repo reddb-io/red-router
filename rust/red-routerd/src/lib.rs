@@ -2177,6 +2177,16 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::discover_oidc),
         )
         .route(
+            "/api/admin/provider-nodes",
+            get(control_plane::provider_nodes::list),
+        )
+        .route(
+            "/api/admin/provider-nodes/{id}",
+            get(control_plane::provider_nodes::get_node)
+                .put(control_plane::provider_nodes::put)
+                .delete(control_plane::provider_nodes::remove),
+        )
+        .route(
             "/api/admin/providers/{id}",
             put(control_plane::put_provider).delete(control_plane::delete_provider),
         )

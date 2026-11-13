@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-83 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+85 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -394,3 +394,21 @@ requests at concurrency 16 measured p95 1.768 ms for the SQLite product connecti
 2.930 ms with dashboard policy, 7.485 ms for dashboard combo primary and 10.007 ms
 with fallback. Shared RPM measured p95 27.587 ms. These are synthetic CI scenarios,
 not provider latency, production SLOs or a fresh Next-versus-Rust comparison.
+
+
+2026-11-13 — protocol run **43406953586** completed successfully, including all
+Rust, Windows, embedded and performance stages. Native provider definitions are the
+next PV-17/18 slice: tenant-scoped CRUD, separate account credentials, revision-bound
+bindings, inherited endpoint/protocol/model-discovery settings and SPA selection.
+Shared endpoint changes require explicit operator intent and validate account auth
+and enabled-combo compatibility before persistence. Namespace uniqueness is enforced
+in SQL; cross-tenant update/delete guards are enforced in storage. Removal refuses
+linked accounts, including disabled ones. API/SPA regressions cover dispatch,
+discovery, credentials, namespace collisions, tenant scope, confirmation, compatible
+shared updates and restart; this slice and the preceding startup follow-ups need CI.
+
+This does not close shared definition headers, presets, legacy node migration,
+custom models or model-prefix routing aliases. Distributed binding/create/delete
+races and non-SQL namespace uniqueness remain explicit acceptance gaps. A binding
+whose definition disappears fails closed rather than sending credentials to a
+fallback destination. The 71-front backlog remains open.
