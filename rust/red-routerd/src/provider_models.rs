@@ -171,6 +171,18 @@ pub(crate) fn overlay(base: Option<ModelMetadata>, patch: &ModelMetadata) -> Mod
 }
 
 impl ModelOverrides {
+    pub(crate) fn configured_models<'a>(
+        &'a self,
+        tenant: &str,
+        provider: &str,
+    ) -> impl Iterator<Item = &'a ModelMetadata> {
+        self.tenants
+            .get(tenant)
+            .and_then(|providers| providers.get(provider))
+            .into_iter()
+            .flat_map(|models| models.values())
+    }
+
     pub(crate) async fn load(database: &Database) -> Result<Self, &'static str> {
         let records = database.provider_models().await?;
         if records.len() > MAX_MODELS {

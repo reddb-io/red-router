@@ -2907,6 +2907,54 @@ fn listed_models(
     Ok(models)
 }
 
+fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u64) -> ListedModel {
+    let mut capabilities = BTreeMap::new();
+    for (name, value) in [
+        ("tool_calling", metadata.tool_call),
+        ("reasoning", metadata.reasoning),
+        ("attachment", metadata.attachment),
+        ("structured_output", metadata.structured_output),
+        ("temperature", metadata.temperature),
+        (
+            "vision",
+            metadata
+                .modalities
+                .as_ref()
+                .map(|modalities| modalities.input.iter().any(|value| value == "image")),
+        ),
+    ] {
+        if let Some(value) = value {
+            capabilities.insert(name, value);
+        }
+    }
+    let context_length = metadata.limit.as_ref().and_then(|limit| limit.context);
+    ListedModel {
+        id,
+        object: "model",
+        created,
+        owned_by: "provider",
+        r#type: "chat",
+        context_length,
+        max_input_tokens: metadata
+            .limit
+            .as_ref()
+            .and_then(|limit| limit.input)
+            .or(context_length),
+        max_output_tokens: metadata.limit.as_ref().and_then(|limit| limit.output),
+        input_modalities: metadata
+            .modalities
+            .as_ref()
+            .map(|value| value.input.clone())
+            .filter(|value| !value.is_empty()),
+        output_modalities: metadata
+            .modalities
+            .as_ref()
+            .map(|value| value.output.clone())
+            .filter(|value| !value.is_empty()),
+        capabilities: (!capabilities.is_empty()).then_some(capabilities),
+    }
+}
+
 async fn authenticate_product_request(
     state: &ProxyState,
     headers: &HeaderMap,
@@ -3051,12 +3099,55 @@ async fn authorized_models(
         })?),
         None => None,
     };
-    listed_models(routes, policy, &catalog, overrides.as_deref()).map_err(|_| {
-        Box::new(error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Model catalog unavailable",
-        ))
-    })
+    let mut models =
+        listed_models(routes, policy, &catalog, overrides.as_deref()).map_err(|_| {
+            Box::new(error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Model catalog unavailable",
+            ))
+        })?;
+    if let (Some(control), Some(overrides)) = (&state.control_plane, overrides.as_deref()) {
+        let aliases = control.model_aliases_snapshot().await.map_err(|_| {
+            Box::new(error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Model alias routing unavailable",
+            ))
+        })?;
+        let tenant = policy
+            .identity()
+            .map_or("red", |identity| identity.tenant_id.as_ref());
+        let direct = control
+            .direct_discovery_models(policy, &catalog, overrides)
+            .await
+            .map_err(|_| {
+                Box::new(error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Model catalog unavailable",
+                ))
+            })?;
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| {
+                Box::new(error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Model catalog unavailable",
+                ))
+            })?
+            .as_secs();
+        for (id, metadata) in direct {
+            // A configured combo or alias wins dispatch, even if it is disabled.
+            if aliases.resolve(tenant, &id).is_some()
+                || routes
+                    .get(&id)
+                    .is_some_and(|route| policy.tenant_allowed(&route.tenant_id))
+            {
+                continue;
+            }
+            models.push(listed_direct_model(id, metadata, created));
+        }
+        models.sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    }
+    Ok(models)
 }
 
 async fn models(State(state): State<ProxyState>, headers: HeaderMap) -> Response {

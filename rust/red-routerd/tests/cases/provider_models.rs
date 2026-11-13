@@ -54,7 +54,7 @@ async fn custom_provider_models_drive_scoped_discovery_and_metering_after_restar
             .status(),
         StatusCode::CONFLICT
     );
-    // Metadata alone must not publish a route or bypass model grants.
+    // A configured model and an eligible account now form a direct route.
     let listed: serde_json::Value = client
         .get(format!("{base}/v1/models"))
         .bearer_auth(CLIENT_KEY)
@@ -64,7 +64,8 @@ async fn custom_provider_models_drive_scoped_discovery_and_metering_after_restar
         .json()
         .await
         .unwrap();
-    assert!(listed["data"].as_array().unwrap().is_empty());
+    assert_eq!(listed["data"][0]["id"], "private-api/custom-model");
+    assert_eq!(listed["data"][0]["context_length"], 4096);
     assert_eq!(client.put(format!("{base}/api/admin/combos/custom-combo")).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"protocol":"openai","strategy":"priority","targets":[{"provider_id":"custom-provider","model":"custom-model"}]})).send().await.unwrap().status(),StatusCode::OK);
     let key = "custom-model-client-key-1234567890";
     for (id, key, models) in [
@@ -234,5 +235,74 @@ async fn custom_provider_models_drive_scoped_discovery_and_metering_after_restar
     pool.close().await;
     gateway_task.abort();
     replica_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
+async fn direct_model_discovery_respects_tenants_accounts_denials_and_alias_precedence() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("direct-discovery.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+    ).await.unwrap();
+    let (base, task) = gateway(control).await;
+    let (upstream, _, provider_task) = usage_provider("discovery-secret").await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(client.put(format!("{base}/api/admin/tenants/blue")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"slug":"blue","name":"Blue"})).send().await.unwrap().status(), StatusCode::OK);
+    for (id, tenant) in [("discovery-red", "red"), ("discovery-blue", "blue")] {
+        assert_eq!(client.put(format!("{base}/api/admin/providers/{id}")).bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"tenant_id":tenant,"provider":"private-api","upstream_url":upstream,"api_key":"discovery-secret"}))
+            .send().await.unwrap().status(), StatusCode::OK);
+        assert_eq!(client.post(format!("{base}/api/admin/provider-models")).bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"tenant_id":tenant,"provider":"private-api","metadata":{"id":format!("model-{tenant}"),"limit":{"context":4096}}}))
+            .send().await.unwrap().status(), StatusCode::OK);
+    }
+    assert_eq!(client.post(format!("{base}/api/admin/provider-models")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"unused-api","metadata":{"id":"orphan"}}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let red_key = "direct-discovery-red-key-1234567890";
+    let blue_key = "direct-discovery-blue-key-1234567890";
+    let blocked_key = "direct-discovery-blocked-key-1234567890";
+    let other_account_key = "direct-discovery-account-key-1234567890";
+    let no_chat_key = "direct-discovery-no-chat-key-1234567890";
+    for (id, key, tenant, extra) in [
+        ("discover-red", red_key, "red", serde_json::json!({})),
+        ("discover-blue", blue_key, "blue", serde_json::json!({})),
+        ("discover-blocked", blocked_key, "red", serde_json::json!({"blocked_models":["private-api/model-red"]})),
+        ("discover-account", other_account_key, "red", serde_json::json!({"allowed_provider_ids":["discovery-blue"]})),
+        ("discover-no-chat", no_chat_key, "red", serde_json::json!({"allowed_endpoints":["embeddings"]})),
+    ] {
+        let mut input = serde_json::json!({"tenant_id":tenant,"label":id,"api_key":key,"scopes":["inference:chat"]});
+        input.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        assert_eq!(client.put(format!("{base}/api/admin/client-keys/{id}")).bearer_auth(ADMIN_KEY)
+            .json(&input).send().await.unwrap().status(), StatusCode::OK);
+    }
+    for (key, expected) in [(red_key, Some("private-api/model-red")), (blue_key, Some("private-api/model-blue")), (blocked_key, None), (other_account_key, None), (no_chat_key, None)] {
+        let response = client.get(format!("{base}/v1/models")).bearer_auth(key).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        let ids: Vec<_> = body["data"].as_array().unwrap().iter().filter_map(|row| row["id"].as_str()).collect();
+        assert_eq!(ids, expected.into_iter().collect::<Vec<_>>());
+    }
+    assert_eq!(chat_model(&client, &base, red_key, "private-api/model-red").await.status(), StatusCode::OK);
+    // A disabled alias shadows direct dispatch, so it must not be advertised as direct.
+    assert_eq!(client.post(format!("{base}/api/admin/model-aliases")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"private-api/model-red","provider":"private-api","model":"elsewhere","enabled":false}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(red_key)
+        .send().await.unwrap().json().await.unwrap();
+    assert!(listed["data"].as_array().unwrap().is_empty());
+    assert_ne!(chat_model(&client, &base, red_key, "private-api/model-red").await.status(), StatusCode::OK);
+    assert_eq!(client.delete(format!("{base}/api/admin/providers/discovery-blue")).bearer_auth(ADMIN_KEY)
+        .send().await.unwrap().status(), StatusCode::NO_CONTENT);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(blue_key)
+        .send().await.unwrap().json().await.unwrap();
+    assert!(listed["data"].as_array().unwrap().is_empty());
+    task.abort();
     provider_task.abort();
 }

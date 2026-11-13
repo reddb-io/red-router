@@ -4172,6 +4172,70 @@ impl ControlPlane {
         }
     }
 
+    /// Only operator-configured models with an eligible chat account are
+    /// advertised. The public catalog supplies metadata, never entitlement.
+    pub(crate) async fn direct_discovery_models(
+        &self,
+        policy: &ClientPolicy,
+        catalog: &crate::catalog::ModelCatalog,
+        overrides: &provider_models::ModelOverrides,
+    ) -> Result<Vec<(String, crate::catalog::ModelMetadata)>, &'static str> {
+        if !policy.endpoint_allowed("chat") {
+            return Ok(Vec::new());
+        }
+        let tenant = policy
+            .identity()
+            .map_or("red", |identity| identity.tenant_id.as_ref());
+        let pools = {
+            let snapshot = self.0.routes.read().await;
+            match &*snapshot {
+                RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools.clone(),
+                RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+            }
+        };
+        let mut models = Vec::new();
+        for ((owner, provider), accounts) in pools.iter() {
+            if owner != tenant
+                || crate::model_permissions::legacy_provider_id(provider)
+                    .is_some_and(|canonical| canonical != provider.as_str())
+            {
+                continue;
+            }
+            for configured in overrides.configured_models(tenant, provider) {
+                let public = format!("{provider}/{}", configured.id);
+                if !model_aliases::valid_model_name(&configured.id)
+                    || !policy.model_alias_target_allowed(&public, &configured.id, Some(provider))
+                {
+                    continue;
+                }
+                let available = accounts.iter().any(|account| {
+                    if !policy.provider_allowed(Some(&account.record.id)) {
+                        return false;
+                    }
+                    match ProviderProtocol::from_configuration(
+                        &account.record.upstream_url,
+                        &account.record.protocol,
+                    ) {
+                        Ok(ProviderProtocol::OpenAi | ProviderProtocol::Anthropic) => true,
+                        Ok(ProviderProtocol::Antigravity) => {
+                            crate::valid_gemini_model(&configured.id)
+                        }
+                        _ => false,
+                    }
+                });
+                if available {
+                    if let Some(metadata) =
+                        overrides.model(catalog, tenant, provider, &configured.id)?
+                    {
+                        models.push((public, metadata));
+                    }
+                }
+            }
+        }
+        models.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        Ok(models)
+    }
+
     async fn direct_account_live<'a>(
         &'a self,
         account: &'a DirectAccount,
