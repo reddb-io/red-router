@@ -614,6 +614,7 @@ describe("Rust control-plane browser client", () => {
   });
 
   it("preserves restricted empty model lists and rejects unknown access modes", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
     const restricted = { ...clientKey, allowed_models: [], model_access_mode: "restricted" };
     vi.stubGlobal(
       "fetch",
