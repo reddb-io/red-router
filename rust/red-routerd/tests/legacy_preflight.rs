@@ -246,6 +246,51 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
         "a later unsupported model must roll back earlier inserts"
     );
     db.close().await.unwrap();
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM key_value WHERE namespace='customModels' AND key='z-provider'")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"new-model","isHidden":true}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model compatibility settings require migration"
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        db.provider_models().await.unwrap().len(),
+        1,
+        "a model with unmigrated visibility must not be imported"
+    );
+    db.close().await.unwrap();
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='openai'",
+    )
+    .bind(r#"[{"id":"different-model","isHidden":true}]"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap()
+            .imported,
+        1,
+        "unrelated model overrides must not block this import"
+    );
 }
 
 #[tokio::test]

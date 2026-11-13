@@ -95,6 +95,28 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 if nodes.insert(id, LegacyNode { tenant, prefix, node_type, api_type, base_url }).is_some() { return Err("duplicate legacy provider definition"); }
             }
         }
+        // Model-specific transport, headers and visibility can also live in
+        // a separate namespace. Do not import a model whose matching override
+        // would otherwise be silently lost.
+        let mut overrides: HashSet<(String, String)> = HashSet::new();
+        let mut compat = sqlx::query("SELECT key,value FROM key_value WHERE namespace='modelCompatOverrides' ORDER BY key").fetch(&mut *snapshot);
+        let mut compat_bytes = 0_usize;
+        let mut compat_rows = 0_usize;
+        while let Some(row) = compat.try_next().await.map_err(|_| "legacy model compatibility unavailable")? {
+            compat_rows += 1;
+            if compat_rows > 10_000 { return Err("too many legacy model compatibility rows"); }
+            let provider: String = row.try_get("key").map_err(|_| "invalid legacy model compatibility")?;
+            let value: String = row.try_get("value").map_err(|_| "invalid legacy model compatibility")?;
+            compat_bytes = compat_bytes.checked_add(value.len()).ok_or("legacy model compatibility too large")?;
+            if provider.is_empty() || provider.len() > 128 || compat_bytes > 8 * 1024 * 1024 { return Err("invalid legacy model compatibility"); }
+            let entries: Vec<serde_json::Value> = serde_json::from_str(&value).map_err(|_| "invalid legacy model compatibility")?;
+            for entry in entries {
+                if overrides.len() >= 10_000 { return Err("too many legacy model compatibility entries"); }
+                let id = entry.get("id").and_then(|value| value.as_str()).filter(|value| !value.is_empty() && value.len() <= 256).ok_or("invalid legacy model compatibility")?;
+                overrides.insert((provider.clone(), id.to_owned()));
+            }
+        }
+        drop(compat);
         let mut rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='customModels' ORDER BY key").fetch(&mut *snapshot);
         let mut row_count = 0_u64;
         let mut seen = HashSet::new();
@@ -118,7 +140,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_provider_nodes WHERE id=?")
                     .bind(&legacy_provider).fetch_one(&mut *target).await.map_err(|_| "destination provider definitions unavailable")?;
                 if exists != 0 { return Err("legacy provider definition unavailable"); }
-                ("red".to_owned(), legacy_provider)
+                ("red".to_owned(), legacy_provider.clone())
             };
             crate::control_plane::validate_provider(&provider)?;
             let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
@@ -139,6 +161,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                     return Err("legacy model routing or provenance requires migration");
                 }
                 let id = object.get("id").and_then(|v| v.as_str()).ok_or("invalid legacy model")?;
+                if overrides.contains(&(legacy_provider.clone(), id.to_owned())) { return Err("legacy model compatibility settings require migration"); }
                 let name = match object.get("name") { None | Some(serde_json::Value::Null) => id, Some(value) => value.as_str().ok_or("invalid legacy model name")? };
                 let name = if name.is_empty() { id } else { name };
                 let number = |field: &str| -> Result<Option<u64>, &'static str> {
