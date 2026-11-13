@@ -550,7 +550,7 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
   await page.goto(`${origin}/dashboard/model-catalog`);
   await expect(page.getByLabel("Provider", { exact: true })).toBeVisible({ timeout: 10_000 });
   await page.getByLabel("Provider", { exact: true }).selectOption("example");
-  await expect(page.getByText("128,000")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "128,000", exact: true })).toBeVisible();
   await expect(page.getByText("$1.25")).toBeVisible();
   await page.getByLabel("Filter models").fill("alpha");
   await expect(page.getByText("beta")).not.toBeVisible();

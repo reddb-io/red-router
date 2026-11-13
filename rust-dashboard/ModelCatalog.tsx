@@ -64,7 +64,10 @@ export default function ModelCatalog() {
     })
       .then(({ provider }) => {
         if (!Array.isArray(provider?.models)) throw new Error("Invalid provider catalog response.");
-        if (!controller.signal.aborted) setResult({ providerId, catalog, models: provider.models });
+        if (!controller.signal.aborted) {
+          setResult({ providerId, catalog, models: provider.models });
+          setModelsError("");
+        }
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
