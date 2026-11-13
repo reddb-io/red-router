@@ -14,7 +14,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
         let capture = capture.clone();
         async move {
             capture.lock().unwrap().push((headers, uri.to_string()));
-            Json(serde_json::json!({"data":[{"id":"model-b","context_length":32768,"inputTokenLimit":30000,"top_provider":{"max_completion_tokens":4096},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true,"unrelated_secret":"must-not-return"},{"id":"model-a","modelType":"image"}]}))
+            Json(serde_json::json!({"data":[{"id":"model-b","modelType":"image","supportedEndpoints":["chat","images"],"context_length":32768,"inputTokenLimit":30000,"top_provider":{"max_completion_tokens":4096},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["tools"],"supportsThinking":true,"unrelated_secret":"must-not-return"},{"id":"model-a","supportedEndpoints":["images"]}]}))
         }
     });
     let app = Router::new()
@@ -169,12 +169,12 @@ async fn discovered_models_are_scoped_to_permitted_provider_accounts() {
     let control = ControlPlane::new(db, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
     let (base, gateway_task) = gateway(control).await;
     let app = Router::new().route("/v1/models", get(|headers: HeaderMap| async move {
-        let model = match headers["authorization"].to_str().unwrap() {
-            "Bearer account-a-secret" => "private-model-a",
-            "Bearer account-b-secret" => "private-model-b",
+        let (model, endpoint) = match headers["authorization"].to_str().unwrap() {
+            "Bearer account-a-secret" => ("private-model-a", "images"),
+            "Bearer account-b-secret" => ("private-model-b", "chat"),
             _ => panic!("unexpected provider credential"),
         };
-        Json(serde_json::json!({"data":[{"id":model}]}))
+        Json(serde_json::json!({"data":[{"id":model},{"id":"shared-model","supportedEndpoints":[endpoint]}]}))
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let upstream = format!("http://{}/v1/chat/completions", listener.local_addr().unwrap());
@@ -194,15 +194,23 @@ async fn discovered_models_are_scoped_to_permitted_provider_accounts() {
     ] {
         assert_eq!(client.put(format!("{base}/api/admin/client-keys/{account}")).bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({"label":account,"api_key":key,"scopes":["inference:chat"],
-                "allowed_models":["openai-compatible/private-model-a","openai-compatible/private-model-b"],
+                "allowed_models":["openai-compatible/private-model-a","openai-compatible/private-model-b","openai-compatible/shared-model"],
                 "allowed_provider_ids":[account]}))
             .send().await.unwrap().status(), StatusCode::OK);
         let listed: serde_json::Value = client.get(format!("{base}/v1/models"))
             .bearer_auth(key).send().await.unwrap().json().await.unwrap();
         let models = listed["data"].as_array().unwrap();
-        assert_eq!(models.len(), 1, "{listed}");
+        assert_eq!(models.len(), if account == "account-b" { 2 } else { 1 }, "{listed}");
         assert_eq!(models[0]["id"], model);
     }
+    let combined_key = "discovery-combined-client-key-123456";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/both-accounts")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Both accounts","api_key":combined_key,"scopes":["inference:chat"],
+            "allowed_models":["openai-compatible/shared-model"],"allowed_provider_ids":["account-a","account-b"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(combined_key).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed["data"].as_array().unwrap().len(), 1, "{listed}");
+    assert_eq!(listed["data"][0]["id"], "openai-compatible/shared-model");
     upstream_task.abort();
     gateway_task.abort();
 }

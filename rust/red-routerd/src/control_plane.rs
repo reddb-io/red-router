@@ -4360,7 +4360,9 @@ impl ControlPlane {
                 candidates.insert(&configured.id);
             }
             let now = unix_time_ms()?;
-            let mut discovered = BTreeMap::new();
+            let mut discovered: BTreeMap<&str, &provider_discovery::DiscoveredModel> =
+                BTreeMap::new();
+            let mut discovered_chat = BTreeSet::new();
             for (account, _) in &eligible {
                 if let Some(inventory) = account
                     .synced_models
@@ -4368,7 +4370,17 @@ impl ControlPlane {
                     .filter(|inventory| inventory.fresh(now))
                 {
                     for (id, model) in &inventory.models {
-                        discovered.entry(id.as_str()).or_insert(model);
+                        discovered
+                            .entry(id.as_str())
+                            .and_modify(|selected| {
+                                if !selected.supports_chat() && model.supports_chat() {
+                                    *selected = model;
+                                }
+                            })
+                            .or_insert(model);
+                        if model.supports_chat() {
+                            discovered_chat.insert(id.as_str());
+                        }
                         candidates.insert(id.as_str());
                     }
                 }
@@ -4386,6 +4398,9 @@ impl ControlPlane {
                 let mut metadata = match overrides.model(catalog, tenant, provider, id)? {
                     Some(metadata) => metadata,
                     None => {
+                        if !discovered_chat.contains(id) {
+                            continue;
+                        }
                         let discovered = discovered
                             .get(id)
                             .ok_or("discovered model metadata unavailable")?;

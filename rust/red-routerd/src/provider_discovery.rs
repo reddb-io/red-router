@@ -35,6 +35,8 @@ pub(super) struct DiscoveredModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) model_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) supported_endpoints: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) input_modalities: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) output_modalities: Option<Vec<String>>,
@@ -42,6 +44,42 @@ pub(super) struct DiscoveredModel {
     pub(super) supports_tools: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) supports_thinking: Option<bool>,
+}
+
+impl DiscoveredModel {
+    pub(super) fn supports_chat(&self) -> bool {
+        if let Some(endpoints) = &self.supported_endpoints {
+            return endpoints.iter().any(|value| {
+                matches!(
+                    value.as_str(),
+                    "chat" | "chat-completions" | "chat/completions" | "messages" | "responses"
+                )
+            });
+        }
+        self.model_type.as_deref().is_none_or(|kind| kind == "chat")
+            && self
+                .output_modalities
+                .as_ref()
+                .is_none_or(|values| values.iter().any(|value| value == "text"))
+    }
+}
+
+fn endpoints(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    let values = value?.as_array()?;
+    if values.is_empty() || values.len() > 32 {
+        return None;
+    }
+    let mut result = Vec::new();
+    for value in values {
+        let value = value.as_str()?.trim().to_ascii_lowercase();
+        if value.is_empty() || value.len() > 64 || value.chars().any(char::is_control) {
+            return None;
+        }
+        if !result.contains(&value) {
+            result.push(value);
+        }
+    }
+    Some(result)
 }
 
 fn valid_modality(value: &str) -> bool {
@@ -106,6 +144,13 @@ pub(super) fn parse_inventory(
                     value,
                     "chat" | "embedding" | "image" | "rerank" | "decision"
                 )
+            })
+            || model.supported_endpoints.as_ref().is_some_and(|values| {
+                values.is_empty()
+                    || values.len() > 32
+                    || values.iter().any(|value| {
+                        value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
+                    })
             })
             || [&model.input_modalities, &model.output_modalities]
                 .into_iter()
@@ -226,6 +271,15 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
             row.get("max_tokens"),
             row.pointer("/top_provider/max_completion_tokens"),
         ]);
+        let supported_endpoints = endpoints(row.get("supportedEndpoints"));
+        let has_chat = supported_endpoints.as_ref().is_some_and(|values| {
+            values.iter().any(|value| {
+                matches!(
+                    value.as_str(),
+                    "chat" | "chat-completions" | "chat/completions" | "messages" | "responses"
+                )
+            })
+        });
         let model_type = row
             .get("modelType")
             .and_then(serde_json::Value::as_str)
@@ -235,7 +289,7 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
                     "chat" | "embedding" | "image" | "rerank" | "decision"
                 )
             })
-            .map(str::to_owned);
+            .map(|value| if has_chat { "chat" } else { value }.to_owned());
         let input_modalities = modalities(
             row.pointer("/architecture/input_modalities")
                 .or_else(|| row.get("input_modalities"))
@@ -270,6 +324,7 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
             max_input_tokens,
             max_output_tokens,
             model_type,
+            supported_endpoints,
             input_modalities,
             output_modalities,
             supports_tools,
@@ -860,6 +915,10 @@ mod tests {
         let vllm = parse_models(br#"{"data":[{"id":"local-model","context_length":null,"max_model_len":250000,"max_output_tokens":0,"max_tokens":4096}]}"#, ProviderProtocol::OpenAi).unwrap();
         assert_eq!(vllm.models[0].context_length, Some(250000));
         assert_eq!(vllm.models[0].max_output_tokens, Some(4096));
+        let endpoints = parse_models(br#"{"data":[{"id":"image-only","supportedEndpoints":["images"]},{"id":"multimodal","modelType":"image","supportedEndpoints":["chat","images"]}]}"#, ProviderProtocol::OpenAi).unwrap();
+        assert!(!endpoints.models[0].supports_chat());
+        assert!(endpoints.models[1].supports_chat());
+        assert_eq!(endpoints.models[1].model_type.as_deref(), Some("chat"));
         assert_eq!(
             parse_inventory(&serde_json::to_string(&capabilities.models).unwrap())
                 .unwrap()
