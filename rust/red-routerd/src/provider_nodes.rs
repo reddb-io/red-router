@@ -57,6 +57,9 @@ pub(crate) fn endpoint(base: &str, path: &str) -> Result<String, &'static str> {
     if parsed.origin() != url.origin() {
         return Err("Endpoint must retain the provider origin");
     }
+    if !crate::public_endpoint_query(&parsed) {
+        return Err("Endpoint query must not contain credentials");
+    }
     Ok(parsed.to_string())
 }
 
@@ -181,6 +184,7 @@ impl ControlPlane {
             ProviderAuthScheme::Auto,
             0,
             &input.protocol,
+            true,
         )
         .await?;
         let node = StoredProviderNode {

@@ -66,6 +66,26 @@ const ANTIGRAVITY_CREDITS_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_ERROR_BODY_TIMEOUT: Duration = Duration::from_secs(2);
 const RED_ROUTER_CATALOG_VERSION: &str = "x-redrouter-catalog-version";
 const RED_ROUTER_SERVED_MODEL: &str = "x-redrouter-served-model";
+
+fn public_endpoint_query(url: &reqwest::Url) -> bool {
+    url.query_pairs().all(|(name, _)| {
+        !matches!(
+            name.to_ascii_lowercase().replace('-', "_").as_str(),
+            "key"
+                | "api_key"
+                | "apikey"
+                | "token"
+                | "access_token"
+                | "secret"
+                | "signature"
+                | "sig"
+                | "credential"
+                | "password"
+                | "auth"
+                | "authorization"
+        )
+    })
+}
 const ROUTING_STRATEGIES: &[&str] = &[
     "priority",
     "auto",
@@ -1338,6 +1358,7 @@ impl ProxyState {
             protocol,
             auth_scheme,
             false,
+            false,
         )
         .await
     }
@@ -1350,6 +1371,7 @@ impl ProxyState {
         protocol: ProviderProtocol,
         auth_scheme: ProviderAuthScheme,
         custom_path: bool,
+        allow_public_query: bool,
     ) -> Result<Self, &'static str> {
         let upstream = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
         let loopback = match upstream.host() {
@@ -1360,6 +1382,8 @@ impl ProxyState {
         if !(upstream.scheme() == "https" || (upstream.scheme() == "http" && loopback))
             || !upstream.username().is_empty()
             || upstream.password().is_some()
+            || (upstream.query().is_some()
+                && (!allow_public_query || !public_endpoint_query(&upstream)))
             || upstream.fragment().is_some()
             || (!custom_path
                 && !upstream.path().ends_with(match protocol {
@@ -1458,6 +1482,7 @@ impl ProxyState {
         auth_scheme: ProviderAuthScheme,
         credential_expires_at_unix: i64,
         configured_protocol: &str,
+        allow_public_query: bool,
     ) -> Result<LiveProvider, &'static str> {
         let protocol = ProviderProtocol::from_configuration(upstream, configured_protocol)?;
         let state = Self::new_for_protocol_with_path(
@@ -1468,6 +1493,7 @@ impl ProxyState {
             protocol,
             auth_scheme,
             configured_protocol != "auto",
+            allow_public_query,
         )
         .await?;
         Ok(LiveProvider {

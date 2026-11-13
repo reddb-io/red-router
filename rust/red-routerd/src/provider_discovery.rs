@@ -329,6 +329,7 @@ impl ControlPlane {
             ProviderAuthScheme::parse(&auth.auth_scheme)?,
             auth.expires_at_unix,
             &provider.protocol,
+            provider.node_id.is_some(),
         )
         .await?;
         let mut request = live

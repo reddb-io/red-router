@@ -5837,6 +5837,7 @@ impl ControlPlane {
             auth_scheme,
             expires_at_unix,
             &protocol,
+            node_id.is_some(),
         )
         .await?;
         let tenant_id = input
@@ -6076,6 +6077,7 @@ impl ControlPlane {
             ProviderAuthScheme::parse(&auth.auth_scheme)?,
             auth.expires_at_unix,
             &provider.protocol,
+            provider.node_id.is_some(),
         )
         .await?;
         let mut live = live;
@@ -8933,6 +8935,7 @@ impl ControlPlane {
                     auth_scheme,
                     provider_auth.expires_at_unix,
                     &record.protocol,
+                    record.node_id.is_some(),
                 )
                 .await?;
                 let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
@@ -9088,6 +9091,7 @@ impl ControlPlane {
                         auth_scheme,
                         provider_auth.expires_at_unix,
                         &provider.protocol,
+                        provider.node_id.is_some(),
                     )
                     .await?;
                     runtime.custom_headers = self.request_headers(provider).await?;
