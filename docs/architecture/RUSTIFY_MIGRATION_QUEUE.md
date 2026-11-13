@@ -50,15 +50,13 @@ The authenticated manual refresh remains available. Shared scheduling for the
 other database backends remains open.
 
 Successful connection discovery now stores sanitized SQLite snapshots bound
-to connection, tenant, credential/configuration and probe generation (CI
-pending). Routing and client catalog do not consume those snapshots yet. A
-complete port must preserve each result against the exact tenant, connection,
-credential/configuration generation and discovery path; reject a late result
-after configuration changes or a newer probe; and use a shared immutable
-snapshot for catalog visibility and account selection without querying SQLite
-on inference requests. Verify different model sets on two accounts, key-scoped
-visibility, fail-open behavior for expired inventory, migration of legacy
-`syncedAvailableModels`, and refresh/failure/restart across two instances.
+to connection, tenant, credential/configuration and probe generation. The
+client catalog consumes a shared in-memory snapshot scoped to the accounts
+allowed by the client key; integration and account-isolation tests await CI.
+Account selection does not yet use this inventory: port the legacy authoritative
+catalog rules without treating incomplete or expired lists as entitlements.
+Migration of legacy `syncedAvailableModels` and further failure/restart
+validation also remain.
 
 ## Current execution order
 
