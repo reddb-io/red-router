@@ -172,3 +172,58 @@ impl Database {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sqlite_replicas_cannot_replace_each_others_model_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let url = url::Url::from_file_path(directory.path().join("model-writes.sqlite"))
+            .unwrap()
+            .as_str()
+            .replacen("file:", "sqlite:", 1)
+            + "?mode=rwc";
+        let first = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let second = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let original = StoredProviderModel {
+            id: "shared-model".to_owned(),
+            tenant_id: "red".to_owned(),
+            provider: "private-api".to_owned(),
+            metadata: serde_json::from_value(serde_json::json!({"id":"model","cost":{"input":1}}))
+                .unwrap(),
+            revision: 1,
+        };
+        first.upsert_provider_model(&original, None).await.unwrap();
+        let mut a = original.clone();
+        a.revision = 2;
+        a.metadata.name = Some("First editor".to_owned());
+        let mut b = original.clone();
+        b.revision = 3;
+        b.metadata.name = Some("Second editor".to_owned());
+        let (a_result, b_result) = tokio::join!(
+            first.upsert_provider_model(&a, Some(1)),
+            second.upsert_provider_model(&b, Some(1)),
+        );
+        assert_ne!(a_result.is_ok(), b_result.is_ok());
+        let saved = first.provider_models().await.unwrap().pop().unwrap();
+        let winner = if a_result.is_ok() { &a } else { &b };
+        assert_eq!(saved.revision, winner.revision);
+        assert_eq!(saved.metadata, winner.metadata);
+        assert!(second
+            .delete_provider_model("shared-model", "red", 1)
+            .await
+            .is_err());
+        second
+            .delete_provider_model("shared-model", "red", saved.revision)
+            .await
+            .unwrap();
+        // A stale edit cannot resurrect a row removed by the other replica.
+        assert!(first
+            .upsert_provider_model(&original, Some(saved.revision))
+            .await
+            .is_err());
+        assert!(first.provider_models().await.unwrap().is_empty());
+    }
+}
