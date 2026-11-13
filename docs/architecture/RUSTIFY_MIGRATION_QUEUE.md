@@ -40,12 +40,12 @@ entries, synchronized per-connection models, custom models, aliases, modality
 registries and activation/connection rules. Its `catalogResponse.ts` adds
 variants, post-filters, pagination and client formatting. Direct discovery now
 combines configured chat models with matching models.dev entries for eligible
-accounts, but does not yet synchronize per-connection inventory, migrate
-activation rules, honor the key's flat model-ID format, or reproduce those
+accounts and includes eligible synchronized per-connection inventory. It does
+not yet honor the key's flat model-ID format or reproduce those
 post-filters. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
 schedule refreshes after a 30-second startup delay, with a shared daily lease,
-five-minute failure backoff and the existing last-good snapshot (CI pending).
+five-minute failure backoff and the existing last-good snapshot.
 The authenticated manual refresh remains available. Shared scheduling for the
 other database backends remains open.
 
@@ -54,18 +54,18 @@ to connection, tenant, credential/configuration and probe generation. The
 client catalog consumes a shared in-memory snapshot scoped to the accounts
 allowed by the client key. An earlier Rust CI run exposed slow propagation to a
 second instance; inventory-only updates now rebuild the account inventory without
-recreating provider clients or decrypting credentials again (CI pending).
+recreating provider clients or decrypting credentials again (Rust CI 43520919898).
 Account selection does not yet use this inventory: port the legacy authoritative
 catalog rules without treating incomplete or expired lists as entitlements.
 The offline cutover now preserves legacy `syncedAvailableModels`, `customModels`
 and `modelCompatOverrides` records in separate staging tables, including hidden
-decisions and fields not yet supported by Rust (CI pending).
+decisions and fields not yet supported by Rust.
 The SQLite cutover now imports chat activation defaults per provider and owning
 organization, plus explicit custom-model and compatibility decisions. Entries
 that only control visibility do not create models. For migrated providers, the
 Rust proxy also rejects inactive inference targets, including combo targets; native
-visibility controls remain list-only. These migration and admission changes await
-CI. Import refuses to silently change activation defaults on an already configured
+visibility controls remain list-only. Rust CI 43523079672 passed. Import refuses
+to silently change activation defaults on an already configured
 native provider. Other modalities and unsupported compatibility fields still
 require migration.
 An operator can restore a staged per-account inventory for a matching migrated
@@ -74,7 +74,10 @@ and configuration, requires imported activation defaults and refuses to replace
 a discovery that has started. Only metadata with a supported native equivalent
 is accepted; the original remains staged. The source age is unknown, so the UI
 asks the operator to refresh it. OAuth, unsupported metadata and broader
-failure/restart validation remain open. CI validation of restore is pending.
+failure/restart validation remain open. Rust, Windows storage, FastLLM concurrent
+agent benchmarks, UI tests and product checks passed for code commit cd2dcb66e
+(CI runs 43525639243, 43525639555 and 43525639350). These tests cover SQLite
+adoption and HTTP access denial, not a full browser-to-Rust migration rehearsal.
 
 ## Current execution order
 
