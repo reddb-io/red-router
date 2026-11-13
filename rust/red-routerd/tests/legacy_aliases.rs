@@ -112,4 +112,25 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(db.model_aliases().await.unwrap().len(), 2);
     db.close().await.unwrap();
+
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM key_value WHERE namespace='managedModelAliasNames'")
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('providerAliases','openai',?)")
+        .bind(r#"{"new-model":"different-model"}"#)
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
+    assert_eq!(
+        legacy_aliases::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "provider-scoped aliases require migration"
+    );
 }

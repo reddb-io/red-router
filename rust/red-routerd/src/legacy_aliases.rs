@@ -44,7 +44,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
         let inner: Result<AliasImport, &'static str> = async {
             let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'").fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination")?;
             if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
-            let mut rows = sqlx::query("SELECT namespace,key,value FROM key_value WHERE namespace IN ('modelAliases','managedModelAliasNames') OR (namespace='settings' AND key IN ('modelAliases','wildcardAliases')) ORDER BY namespace,key").fetch(&mut *snapshot);
+            let mut rows = sqlx::query("SELECT namespace,key,value FROM key_value WHERE namespace IN ('modelAliases','managedModelAliasNames','providerAliases') OR (namespace='settings' AND key IN ('modelAliases','wildcardAliases')) ORDER BY namespace,key").fetch(&mut *snapshot);
             let mut row_count = 0_usize;
             let mut aliases = BTreeMap::new();
             let mut settings = None;
@@ -63,6 +63,11 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                     ("modelAliases", _) => { if aliases.insert(key, value).is_some() { return Err("duplicate legacy alias"); } }
                     ("settings", "modelAliases") => { if settings.replace(value).is_some() { return Err("duplicate settings aliases"); } }
                     ("settings", "wildcardAliases") => if value.as_array().is_none_or(|items| !items.is_empty()) && !value.is_null() { return Err("legacy wildcard aliases require migration"); },
+                    ("providerAliases", _) => {
+                        if value.as_object().is_none_or(|aliases| !aliases.is_empty()) {
+                            return Err("provider-scoped aliases require migration");
+                        }
+                    }
                     ("managedModelAliasNames", "names") => {
                         let names = value.as_array().ok_or("invalid managed alias names")?;
                         for name in names { managed.insert(name.as_str().ok_or("invalid managed alias name")?.to_owned()); }

@@ -52,8 +52,8 @@ change by itself completes the legacy model/alias migration.
    closes SQLite connections before verification or rollback on Windows (Rust
    CI run 43483203079 and product checks 43483203248 passed). A separate offline importer now handles ordinary exact
    OpenAI aliases from both the dedicated namespace and settings, with settings
-   taking precedence; it rejects managed aliases, wildcard aliases and other
-   target providers rather than importing them with changed behavior (CI pending).
+   taking precedence; it rejects managed aliases, provider-scoped aliases, wildcard aliases and
+   other target providers rather than importing them with changed behavior (CI pending).
    Other providers, managed provenance, wildcards, other model formats and
    compatibility settings remain open; aliases are not yet in the full cutover.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
