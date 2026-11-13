@@ -2349,7 +2349,7 @@ async fn measure_quota_aware_control_plane() {
                 "api_key":CLIENT,
                 "scopes":["inference:chat"],
                 "allowed_endpoints":["chat"],
-                "allowed_models":["quota-combo","upstream-model"],
+                "allowed_models":["quota-combo","upstream-model","openai/upstream-model"],
                 "allowed_provider_ids":["quota-first","quota-second"]
             })
             .to_string(),
@@ -2395,36 +2395,41 @@ async fn measure_quota_aware_control_plane() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    let samples: Vec<u128> = stream::iter(0..220)
-        .map(|_| {
-            let client = client.clone();
-            let url = format!("{base}/v1/chat/completions");
-            async move {
-                let start = std::time::Instant::now();
-                let response = client
-                    .post(url)
-                    .bearer_auth(CLIENT)
-                    .header("content-type", "application/json")
-                    .body(r#"{"model":"quota-combo","messages":[]}"#)
-                    .send()
-                    .await
-                    .unwrap();
-                assert_eq!(response.status(), 200);
-                response.bytes().await.unwrap();
-                start.elapsed().as_micros()
-            }
-        })
-        .buffered(16)
-        .collect()
-        .await;
-    let mut measured = samples[20..].to_vec();
-    measured.sort_unstable();
-    println!(
-        "quota-weighted-control: journal=wal n={} concurrency=16 p50={}us p95={}us",
-        measured.len(),
-        measured[measured.len() / 2],
-        measured[measured.len() * 95 / 100]
-    );
+    for (label, model) in [
+        ("quota-weighted-control", "quota-combo"),
+        ("direct-provider-control", "openai/upstream-model"),
+    ] {
+        let samples: Vec<u128> = stream::iter(0..220)
+            .map(|_| {
+                let client = client.clone();
+                let url = format!("{base}/v1/chat/completions");
+                async move {
+                    let start = std::time::Instant::now();
+                    let response = client
+                        .post(url)
+                        .bearer_auth(CLIENT)
+                        .header("content-type", "application/json")
+                        .json(&serde_json::json!({"model":model,"messages":[]}))
+                        .send()
+                        .await
+                        .unwrap();
+                    assert_eq!(response.status(), 200);
+                    response.bytes().await.unwrap();
+                    start.elapsed().as_micros()
+                }
+            })
+            .buffered(16)
+            .collect()
+            .await;
+        let mut measured = samples[20..].to_vec();
+        measured.sort_unstable();
+        println!(
+            "{label}: journal=wal n={} concurrency=16 p50={}us p95={}us",
+            measured.len(),
+            measured[measured.len() / 2],
+            measured[measured.len() * 95 / 100]
+        );
+    }
     server.abort();
     provider.abort();
     database.close().await.unwrap();
