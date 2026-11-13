@@ -105,6 +105,17 @@ test("provider definitions bind accounts and preserve approved shared updates af
   );
   await expect(page.getByLabel("Upstream URL", { exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Edit definition", exact: true }).click();
+  const sharedHeaders = page.getByLabel("Shared replacement headers (JSON)", { exact: true });
+  await expect(sharedHeaders).toBeEnabled();
+  await sharedHeaders.fill('{"X-Project":"e2e-shared-secret"}');
+  await page.getByRole("button", { name: "Replace shared headers", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Custom headers saved and activated.");
+  await expect(sharedHeaders).toHaveValue("");
+  await page.reload();
+  await page.getByRole("button", { name: "Edit definition", exact: true }).click();
+  await expect(page.getByText("Configured: x-project", { exact: true })).toBeVisible();
+  await expect(sharedHeaders).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText("e2e-shared-secret");
   await page.getByLabel("Inference path", { exact: true }).fill("/next");
   await page.getByRole("button", { name: "Save provider definition", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
@@ -119,4 +130,15 @@ test("provider definitions bind accounts and preserve approved shared updates af
     "http://127.0.0.1:1/v1/next"
   );
   await expect(page.getByLabel("API key or provider credential", { exact: false })).toHaveValue("");
+  await page.getByRole("button", { name: "Edit definition", exact: true }).click();
+  await expect(page.getByText("The destination changed.", { exact: false })).toBeVisible();
+  await expect(sharedHeaders).toHaveValue("");
+  await page.getByRole("button", { name: "Remove shared headers", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Custom headers removed.");
+  await page.reload();
+  await page.getByRole("button", { name: "Edit definition", exact: true }).click();
+  await expect(page.getByText("Configured: None", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Remove shared headers", exact: true })
+  ).toBeDisabled();
 });
