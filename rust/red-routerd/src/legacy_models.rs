@@ -26,6 +26,82 @@ struct LegacyNode {
     base_url: String,
 }
 
+async fn resolve_provider(
+    target: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    nodes: &HashMap<String, LegacyNode>,
+    legacy_provider: &str,
+) -> Result<(String, String), &'static str> {
+    let (tenant, provider) = if let Some(source_node) = nodes.get(legacy_provider) {
+        let document: Option<String> = sqlx::query_scalar(
+            "SELECT config_json FROM redrouter_control_provider_nodes WHERE id=? AND tenant_id=?",
+        )
+        .bind(legacy_provider)
+        .bind(&source_node.tenant)
+        .fetch_optional(&mut **target)
+        .await
+        .map_err(|_| "destination provider definitions unavailable")?;
+        let node: StoredProviderNode = serde_json::from_str(
+            document
+                .as_deref()
+                .ok_or("import legacy provider definition before its models")?,
+        )
+        .map_err(|_| "invalid destination provider definition")?;
+        if node.id != legacy_provider
+            || node.tenant_id != source_node.tenant
+            || node.prefix != source_node.prefix
+            || node.base_url != source_node.base_url.trim_end_matches('/')
+        {
+            return Err("legacy provider definition does not match destination");
+        }
+        if source_node.node_type != "openai-compatible"
+            || source_node
+                .api_type
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .unwrap_or("chat")
+                != "chat"
+            || node.protocol != "openai"
+        {
+            return Err("legacy model protocol requires migration");
+        }
+        (source_node.tenant.clone(), source_node.prefix.clone())
+    } else {
+        if legacy_provider.starts_with("openai-compatible-")
+            || legacy_provider.starts_with("anthropic-compatible-")
+            || legacy_provider.starts_with("claude-code-compatible-")
+        {
+            return Err("legacy provider definition unavailable");
+        }
+        let exists: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_provider_nodes WHERE id=?")
+                .bind(legacy_provider)
+                .fetch_one(&mut **target)
+                .await
+                .map_err(|_| "destination provider definitions unavailable")?;
+        if exists != 0 {
+            return Err("legacy provider definition unavailable");
+        }
+        (
+            "red".to_owned(),
+            crate::model_permissions::legacy_provider_id(legacy_provider)
+                .unwrap_or(legacy_provider)
+                .to_owned(),
+        )
+    };
+    crate::control_plane::validate_provider(&provider)?;
+    let exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1",
+    )
+    .bind(&tenant)
+    .fetch_one(&mut **target)
+    .await
+    .map_err(|_| "destination tenant unavailable")?;
+    if exists != 1 {
+        return Err("destination tenant unavailable");
+    }
+    Ok((tenant, provider))
+}
+
 pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'static str> {
     let source = std::fs::canonicalize(source).map_err(|_| "legacy database does not exist")?;
     let destination =
@@ -156,24 +232,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
             row_count += 1;
             if row_count > 10_000 { return Err("too many legacy model rows"); }
             let legacy_provider: String = row.try_get("key").map_err(|_| "invalid legacy model provider")?;
-            let (tenant, provider) = if let Some(source_node) = nodes.get(&legacy_provider) {
-                let document: Option<String> = sqlx::query_scalar("SELECT config_json FROM redrouter_control_provider_nodes WHERE id=? AND tenant_id=?")
-                    .bind(&legacy_provider).bind(&source_node.tenant).fetch_optional(&mut *target).await.map_err(|_| "destination provider definitions unavailable")?;
-                let node: StoredProviderNode = serde_json::from_str(document.as_deref().ok_or("import legacy provider definition before its models")?).map_err(|_| "invalid destination provider definition")?;
-                if node.id != legacy_provider || node.tenant_id != source_node.tenant || node.prefix != source_node.prefix || node.base_url != source_node.base_url.trim_end_matches('/') { return Err("legacy provider definition does not match destination"); }
-                if source_node.node_type != "openai-compatible" || source_node.api_type.as_deref().filter(|value| !value.is_empty()).unwrap_or("chat") != "chat" || node.protocol != "openai" { return Err("legacy model protocol requires migration"); }
-                (source_node.tenant.clone(), source_node.prefix.clone())
-            } else {
-                // Never treat a missing compatible node ID as a built-in provider.
-                if legacy_provider.starts_with("openai-compatible-") || legacy_provider.starts_with("anthropic-compatible-") || legacy_provider.starts_with("claude-code-compatible-") { return Err("legacy provider definition unavailable"); }
-                let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_provider_nodes WHERE id=?")
-                    .bind(&legacy_provider).fetch_one(&mut *target).await.map_err(|_| "destination provider definitions unavailable")?;
-                if exists != 0 { return Err("legacy provider definition unavailable"); }
-                ("red".to_owned(), legacy_provider.clone())
-            };
-            crate::control_plane::validate_provider(&provider)?;
-            let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
-            if tenant_exists != 1 { return Err("destination tenant unavailable"); }
+            let (tenant, provider) = resolve_provider(&mut target, &nodes, &legacy_provider).await?;
             let value: String = row.try_get("value").map_err(|_| "invalid legacy models")?;
             bytes = bytes.checked_add(value.len()).ok_or("legacy models too large")?;
             if bytes > 8 * 1024 * 1024 { return Err("legacy models too large"); }
@@ -220,6 +279,11 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 if input.is_some() || output.is_some() { metadata.limit = Some(crate::catalog::CatalogLimit { context: None, input, output }); }
                 provider_models::validate_metadata(&metadata)?;
                 let identity = provider_models::record_id(&tenant, &provider, id);
+                if legacy_provider != provider && !nodes.contains_key(&legacy_provider) {
+                    let old_id = provider_models::record_id(&tenant, &legacy_provider, id);
+                    let old: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_provider_models WHERE id=?").bind(old_id).fetch_one(&mut *target).await.map_err(|_| "cannot inspect prior model import")?;
+                    if old != 0 { return Err("prior provider-alias model import requires reconciliation"); }
+                }
                 if !seen.insert(identity.clone()) { return Err("duplicate legacy model"); }
                 let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden, revision: 1 };
                 let namespace = serde_json::to_string(&(&record.tenant_id, &record.provider, &record.metadata.id)).map_err(|_| "invalid model identity")?;
@@ -230,6 +294,30 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                     if existing.as_deref() != Some(&document) { return Err("destination contains conflicting model"); }
                     already_present += 1;
                 }
+            }
+        }
+        drop(rows);
+        // Compatibility rows can hide static or discovered models without a
+        // corresponding custom-model row. A hidden override cannot create a
+        // new visible model, so preserve those decisions independently.
+        for ((legacy_provider, id), hidden) in visibility {
+            if !hidden { continue; }
+            let (tenant, provider) = resolve_provider(&mut target, &nodes, &legacy_provider).await?;
+            let identity = provider_models::record_id(&tenant, &provider, &id);
+            if !seen.insert(identity.clone()) { continue; }
+            let metadata: ModelMetadata = serde_json::from_value(serde_json::json!({"id":id}))
+                .map_err(|_| "invalid legacy model")?;
+            provider_models::validate_metadata(&metadata)?;
+            let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden: true, revision: 1 };
+            let namespace = serde_json::to_string(&(&record.tenant_id, &record.provider, &record.metadata.id)).map_err(|_| "invalid model identity")?;
+            let document = serde_json::to_string(&record).map_err(|_| "invalid legacy model")?;
+            let inserted = sqlx::query("INSERT INTO redrouter_control_provider_models (id,tenant_id,namespace,config_json,revision) VALUES (?,?,?,?,1) ON CONFLICT DO NOTHING")
+                .bind(&identity).bind(&tenant).bind(&namespace).bind(&document).execute(&mut *target).await.map_err(|_| "cannot import model visibility")?.rows_affected();
+            if inserted == 1 { imported += 1; } else {
+                let existing: Option<String> = sqlx::query_scalar("SELECT config_json FROM redrouter_control_provider_models WHERE id=? AND tenant_id=? AND namespace=?")
+                    .bind(&identity).bind(&tenant).bind(&namespace).fetch_optional(&mut *target).await.map_err(|_| "cannot verify model visibility")?;
+                if existing.as_deref() != Some(&document) { return Err("destination contains conflicting model visibility"); }
+                already_present += 1;
             }
         }
         Ok(ModelImport { imported, already_present })

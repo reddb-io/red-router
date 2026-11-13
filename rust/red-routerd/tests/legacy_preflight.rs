@@ -283,6 +283,55 @@ async fn legacy_custom_model_activation_preserves_default_and_override_precedenc
 }
 
 #[tokio::test]
+async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','cx',?)")
+        .bind(r#"[{"id":"private-model","isHidden":true},{"id":"only-active","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let first = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((first.imported, first.already_present), (1, 0));
+    let second = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((second.imported, second.already_present), (0, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].provider, "codex");
+    assert_eq!(models[0].metadata.id, "private-model");
+    assert!(models[0].hidden);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
     let directory = TempDir::new().unwrap();
     let source = directory.path().join("legacy.sqlite");

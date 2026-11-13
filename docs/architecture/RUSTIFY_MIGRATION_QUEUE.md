@@ -62,8 +62,10 @@ Manual custom-model visibility imports into the Rust catalog, including the
 legacy default-hidden rule and compatible chat-scoped decisions. The dashboard
 can edit it and client model lists omit hidden entries without changing inference
 grants. UI tests passed in run 43518209394; the Rust and browser gates remain
-pending. Visibility-only records without a matching imported custom model and
-other modalities still require migration.
+pending. Visibility-only hidden decisions now import as hidden overrides, including
+canonical provider aliases (CI pending). Explicit activation without a matching
+custom model, default-hidden policy for the rest of the catalog and other
+modalities still require migration.
 Those records are not active: adoption must verify the migrated account and its
 tenant, preserve its metadata and visibility rules, and avoid replacing a newer
 discovery. Adoption and further failure/restart validation remain open.
