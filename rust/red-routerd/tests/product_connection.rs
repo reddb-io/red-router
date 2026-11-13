@@ -2091,6 +2091,17 @@ async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
         }));
     }
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    // This exercises concurrent admission in one bucket. The production RPM
+    // algorithm deliberately fades the previous bucket after a minute rolls
+    // over, so crossing that boundary can legitimately admit a fifth request.
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        % 60_000;
+    if elapsed > 45_000 {
+        tokio::time::sleep(std::time::Duration::from_millis(60_100 - elapsed)).await;
+    }
     let statuses: Vec<_> = stream::iter(0..16)
         .map(|index| {
             let client = client.clone();
