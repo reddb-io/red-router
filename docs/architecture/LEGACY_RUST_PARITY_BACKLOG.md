@@ -374,3 +374,23 @@ remain compatible. Tests added for URL security, custom dispatch/diagnostics,
 combo protection, credential preservation, fresh-process reload, disable/purge and
 SPA editing; CI for this addition is pending. Reusable node definitions, inheritance,
 legacy node import and custom model/alias management are still unported.
+
+
+The custom-protocol SPA has passed UI run **43406962517** and product checks
+**43406957810** (source `6ccb581b4`). Follow-up fixes also reject disabled provider
+edits while an enabled combo depends on them, avoid adding protocol-history rows
+for auto-detected OAuth transports, and restrict environment bootstrap to an empty
+provider table. A process regression now exercises custom-path bootstrap, restart
+with conflicting seed values, disable and restart without reactivation. These
+follow-ups still require the next complete Rust CI run.
+
+Local preview now runs backend `c4a908434` with dashboard `6ccb581b4`, preserving
+SQLite via a backup before activation. Health and SPA serving return 200; the
+unauthenticated management API returns 401. This is local preview availability,
+not proof of real-provider access or completed migration.
+
+Performance evidence from successful Rust run **43404019368**: 200 fixture
+requests at concurrency 16 measured p95 1.768 ms for the SQLite product connection,
+2.930 ms with dashboard policy, 7.485 ms for dashboard combo primary and 10.007 ms
+with fallback. Shared RPM measured p95 27.587 ms. These are synthetic CI scenarios,
+not provider latency, production SLOs or a fresh Next-versus-Rust comparison.
