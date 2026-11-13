@@ -1,6 +1,7 @@
 //! Offline import of the subset of legacy custom models with native equivalents.
 //! Any unsupported behavior rolls back the entire import.
 use crate::{catalog::ModelMetadata, control_plane::provider_models, storage::StoredProviderModel};
+use futures_util::TryStreamExt;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::{collections::HashSet, path::Path};
 
@@ -48,13 +49,15 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
         if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
         let red: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id='red' AND enabled=1").fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
         if red != 1 { return Err("destination tenant unavailable"); }
-        let rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='customModels' ORDER BY key").fetch_all(&mut *snapshot).await.map_err(|_| "legacy model schema unavailable")?;
-        if rows.len() > 10_000 { return Err("too many legacy model rows"); }
+        let mut rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='customModels' ORDER BY key").fetch(&mut *snapshot);
+        let mut row_count = 0_u64;
         let mut seen = HashSet::new();
         let mut imported = 0_u64;
         let mut already_present = 0_u64;
         let mut bytes = 0_usize;
-        for row in rows {
+        while let Some(row) = rows.try_next().await.map_err(|_| "legacy model schema unavailable")? {
+            row_count += 1;
+            if row_count > 10_000 { return Err("too many legacy model rows"); }
             let provider: String = row.try_get("key").map_err(|_| "invalid legacy model provider")?;
             // Custom node IDs need explicit identity resolution, not a guessed prefix.
             crate::control_plane::validate_provider(&provider)?;
