@@ -428,9 +428,10 @@ fn parse_legacy_inventory(raw: &str) -> Result<Vec<DiscoveredModel>, &'static st
         if object
             .get("nativeModelId")
             .is_some_and(|value| !value.is_null() && value.as_str() != Some(id))
-            || object
-                .get("source")
-                .is_some_and(|value| !value.is_null() && value.as_str() != Some("imported"))
+            || object.get("source").is_some_and(|value| {
+                !value.is_null()
+                    && !matches!(value.as_str(), Some("imported" | "api-sync" | "auto-sync"))
+            })
             || object
                 .get("apiFormat")
                 .is_some_and(|value| !value.is_null() && value.as_str() != Some("chat-completions"))
@@ -462,6 +463,35 @@ fn parse_legacy_inventory(raw: &str) -> Result<Vec<DiscoveredModel>, &'static st
             {
                 return Err("legacy_inventory_unsupported");
             }
+        }
+        // Refuse capability flags that the native inventory cannot preserve.
+        if let Some(vision) = object
+            .get("supportsVision")
+            .and_then(serde_json::Value::as_bool)
+        {
+            let inputs = modalities(object.get("supportedInputTypes"));
+            if inputs
+                .as_ref()
+                .is_some_and(|values| values.iter().any(|value| value == "image") != vision)
+                || (!vision && inputs.is_none())
+            {
+                return Err("legacy_inventory_unsupported");
+            }
+        }
+        if object
+            .get("modelType")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| kind != "chat")
+            && endpoints(object.get("supportedEndpoints")).is_some_and(|values| {
+                values.iter().any(|value| {
+                    matches!(
+                        value.as_str(),
+                        "chat" | "chat-completions" | "chat/completions" | "messages" | "responses"
+                    )
+                })
+            })
+        {
+            return Err("legacy_inventory_unsupported");
         }
         if object.get("modelType").is_some_and(|value| {
             !value.is_null()
@@ -1174,6 +1204,9 @@ mod tests {
             r#"[{"id":"a","targetFormat":"responses"}]"#,
             r#"[{"id":"a","supportsTools":"true"}]"#,
             r#"[{"id":"a","contextWindow":0}]"#,
+            r#"[{"id":"a","supportsVision":false}]"#,
+            r#"[{"id":"a","supportsVision":true,"supportedInputTypes":["text"]}]"#,
+            r#"[{"id":"a","modelType":"image","supportedEndpoints":["chat"]}]"#,
         ] {
             assert_eq!(
                 parse_legacy_inventory(raw).unwrap_err(),
@@ -1294,6 +1327,20 @@ mod tests {
             "legacy_inventory_conflict"
         );
         database.delete_synced_models("account").await.unwrap();
+        let altered = staged.replace("provider-secret", "different-secret");
+        let altered_ciphertext =
+            super::super::encrypt(&altered, "legacy-provider-stage:account", key).unwrap();
+        sqlx::query("UPDATE redrouter_legacy_provider_records SET encrypted_record=$1 WHERE provider_id='account'")
+            .bind(altered_ciphertext).execute(pool).await.unwrap();
+        assert_eq!(
+            control
+                .adopt_legacy_models("account", Some("red"), "test")
+                .await
+                .unwrap_err(),
+            "legacy_config_changed"
+        );
+        sqlx::query("UPDATE redrouter_legacy_provider_records SET encrypted_record=$1 WHERE provider_id='account'")
+            .bind(&ciphertext).execute(pool).await.unwrap();
         let ticket = database
             .begin_synced_model_probe("account", "red")
             .await

@@ -78,6 +78,7 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
     setModels(null);
     try {
       setModels(await discoverProviderModels(id));
+      setConfig((current) => current && { ...current, legacy_inventory_available: false });
       setPage(0);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not discover models");
