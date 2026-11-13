@@ -303,12 +303,16 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
         for ((legacy_provider, id), hidden) in visibility {
             if !hidden { continue; }
             let (tenant, provider) = resolve_provider(&mut target, &nodes, &legacy_provider).await?;
-            let identity = provider_models::record_id(&tenant, &provider, &id);
+            let providers = if provider == "opencode" {
+                vec![provider.as_str(), "opencode-zen", "opencode-go"]
+            } else { vec![provider.as_str()] };
+            for provider in providers {
+            let identity = provider_models::record_id(&tenant, provider, &id);
             if !seen.insert(identity.clone()) { continue; }
             let metadata: ModelMetadata = serde_json::from_value(serde_json::json!({"id":id}))
                 .map_err(|_| "invalid legacy model")?;
             provider_models::validate_metadata(&metadata)?;
-            let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden: true, revision: 1 };
+            let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.to_owned(), metadata, hidden: true, revision: 1 };
             let namespace = serde_json::to_string(&(&record.tenant_id, &record.provider, &record.metadata.id)).map_err(|_| "invalid model identity")?;
             let document = serde_json::to_string(&record).map_err(|_| "invalid legacy model")?;
             let inserted = sqlx::query("INSERT INTO redrouter_control_provider_models (id,tenant_id,namespace,config_json,revision) VALUES (?,?,?,?,1) ON CONFLICT DO NOTHING")
@@ -318,6 +322,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                     .bind(&identity).bind(&tenant).bind(&namespace).fetch_optional(&mut *target).await.map_err(|_| "cannot verify model visibility")?;
                 if existing.as_deref() != Some(&document) { return Err("destination contains conflicting model visibility"); }
                 already_present += 1;
+            }
             }
         }
         Ok(ModelImport { imported, already_present })

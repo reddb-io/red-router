@@ -309,6 +309,11 @@ async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries
         .execute(&mut legacy)
         .await
         .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','opencode',?)")
+        .bind(r#"[{"id":"shared-model","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
     legacy.close().await.unwrap();
     let file = Url::from_file_path(&destination).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -319,15 +324,20 @@ async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries
         .await
         .unwrap();
     let first = legacy_models::import(&source, &destination).await.unwrap();
-    assert_eq!((first.imported, first.already_present), (1, 0));
+    assert_eq!((first.imported, first.already_present), (4, 0));
     let second = legacy_models::import(&source, &destination).await.unwrap();
-    assert_eq!((second.imported, second.already_present), (0, 1));
+    assert_eq!((second.imported, second.already_present), (0, 4));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let models = db.provider_models().await.unwrap();
-    assert_eq!(models.len(), 1);
-    assert_eq!(models[0].provider, "codex");
-    assert_eq!(models[0].metadata.id, "private-model");
-    assert!(models[0].hidden);
+    assert_eq!(models.len(), 4);
+    assert!(models.iter().any(|model| model.provider == "codex"
+        && model.metadata.id == "private-model"
+        && model.hidden));
+    for provider in ["opencode", "opencode-zen", "opencode-go"] {
+        assert!(models.iter().any(|model| model.provider == provider
+            && model.metadata.id == "shared-model"
+            && model.hidden));
+    }
     db.close().await.unwrap();
 }
 
