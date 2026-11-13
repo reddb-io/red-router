@@ -4631,7 +4631,7 @@ impl ControlPlane {
         {
             return Err("provider route forbidden");
         }
-        let accounts: Vec<_> = accounts
+        let mut accounts: Vec<_> = accounts
             .into_iter()
             .filter(|account| policy.provider_allowed(Some(&account.record.id)))
             .collect();
@@ -4639,15 +4639,14 @@ impl ControlPlane {
             return Err("provider route forbidden");
         }
         let now = unix_time_ms()?;
-        let accounts: Vec<_> = accounts
-            .into_iter()
-            .filter(|account| {
-                !uses_local_account_inventory(provider)
-                    || account.synced_models.as_ref().is_none_or(|inventory| {
-                        inventory.permits_local_model(requested, model, now)
-                    })
-            })
-            .collect();
+        if uses_local_account_inventory(provider) {
+            accounts.retain(|account| {
+                account
+                    .synced_models
+                    .as_ref()
+                    .is_none_or(|inventory| inventory.permits_local_model(requested, model, now))
+            });
+        }
         if accounts.is_empty() {
             return Err("provider route has no available accounts");
         }
