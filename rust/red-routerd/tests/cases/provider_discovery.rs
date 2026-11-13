@@ -57,6 +57,7 @@ async fn provider_model_discovery_uses_saved_credentials_paths_and_network_bound
     for method in [reqwest::Method::GET, reqwest::Method::PUT, reqwest::Method::POST] {
         assert_eq!(client.request(method, &endpoint).json(&serde_json::json!({"models_path":null})).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
     }
+    assert_eq!(client.post(format!("{endpoint}/adopt-legacy")).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
     let view: serde_json::Value = client.get(&endpoint).bearer_auth(ADMIN_KEY).send().await.unwrap().json().await.unwrap();
     assert!(view["models_path"].is_null());
     assert_eq!(view["effective_models_path"], "/v1/models");

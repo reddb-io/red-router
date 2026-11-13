@@ -125,6 +125,11 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
           Saved path: {config.effective_models_path ?? "Not configured"}
         </p>
       )}
+      {config?.legacy_inventory_available && (
+        <p className="mt-2 text-sm text-text-muted">
+          Migrated models may be out of date. Discover models to verify current availability.
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button disabled={busy || !config || !path.trim()} onClick={() => void save(false)}>
           Save models path

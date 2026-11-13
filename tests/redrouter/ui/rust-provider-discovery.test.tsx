@@ -54,6 +54,7 @@ it("restores migrated models for the selected account and explains their unknown
   });
   api.adoptLegacyProviderModels.mockResolvedValue(3);
   const { container } = await render();
+  expect(container.textContent).toContain("Migrated models may be out of date");
   await click(container, "Restore migrated models");
   expect(api.adoptLegacyProviderModels).toHaveBeenCalledWith("account-a");
   expect(container.textContent).toContain("Restored 3 models. Their age is unknown");
