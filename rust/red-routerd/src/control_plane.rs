@@ -2284,17 +2284,9 @@ impl ControlPlane {
     }
 
     async fn sync_provider_snapshot(&self) -> Result<(), &'static str> {
-        let observed = match self.provider_runtime_signature().await {
-            Ok(signature) => signature,
-            Err(error) => {
-                *self.0.current.write().await = None;
-                *self.0.routes.write().await = RouteSnapshot::Unavailable;
-                return Err(error);
-            }
-        };
-        if *self.0.provider_snapshot_signature.read().await == observed {
-            return Ok(());
-        }
+        // The watcher also observes writes from this instance. Read signatures
+        // under the mutation lock so an in-progress local multi-record update
+        // cannot clear a valid runtime or prime a second OIDC verifier.
         let _mutation = self.0.mutation.lock().await;
         let latest = match self.provider_runtime_signature().await {
             Ok(signature) => signature,
@@ -2423,16 +2415,9 @@ impl ControlPlane {
     }
 
     async fn sync_oidc_snapshot(&self) -> Result<(), &'static str> {
-        let observed = match self.oidc_runtime_signature().await {
-            Ok(signature) => signature,
-            Err(error) => {
-                self.clear_oidc_runtime().await;
-                return Err(error);
-            }
-        };
-        if *self.0.oidc_snapshot_signature.read().await == observed {
-            return Ok(());
-        }
+        // The watcher also observes writes from this instance. Read signatures
+        // under the mutation lock so an in-progress local multi-record update
+        // cannot clear a valid runtime or prime a second OIDC verifier.
         let _mutation = self.0.mutation.lock().await;
         let latest = match self.oidc_runtime_signature().await {
             Ok(signature) => signature,

@@ -964,7 +964,19 @@ impl Database {
                     })
                     .connect(url)
                     .await
-                    .map_err(|_| "cannot connect to selected database")?;
+                    .map_err(|error| {
+                        // Report only a category: driver messages may contain
+                        // a connection URL with credentials.
+                        let category = match &error {
+                            sqlx::Error::PoolTimedOut => "pool_timeout",
+                            sqlx::Error::PoolClosed => "pool_closed",
+                            sqlx::Error::Io(_) => "io",
+                            sqlx::Error::Database(_) => "database",
+                            _ => "driver",
+                        };
+                        eprintln!("Selected database connection failed: {category}");
+                        "cannot connect to selected database"
+                    })?;
                 for statement in [
                     CREATE,
                     CREATE_PROVIDERS,

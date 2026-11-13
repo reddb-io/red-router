@@ -4223,7 +4223,6 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     for denied in [
         oidc_token("ec01", "other-audience", "operator"),
         oidc_token("ec01", "red-router-admin", "viewer"),
-        oidc_token("unknown-key", "red-router-admin", "operator"),
     ] {
         assert_eq!(
             client
@@ -4236,9 +4235,31 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             StatusCode::UNAUTHORIZED
         );
     }
-    // Unknown key IDs do not turn the management endpoint into an unbounded
-    // attacker-controlled JWKS refresh loop.
-    assert_eq!(jwks_requests.load(Ordering::SeqCst), 1);
+    // The preceding management flows may take longer than the 30-second
+    // unknown-kid refresh cooldown on CI. A fresh burst may trigger one fetch,
+    // but must not trigger a fetch for each attacker-controlled key identifier.
+    let before_unknown_keys = jwks_requests.load(Ordering::SeqCst);
+    for kid in [
+        "unknown-key-a",
+        "unknown-key-b",
+        "unknown-key-c",
+        "unknown-key-d",
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{base}/api/admin/providers"))
+                .bearer_auth(oidc_token(kid, "red-router-admin", "operator"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert!(
+        jwks_requests.load(Ordering::SeqCst) - before_unknown_keys <= 1,
+        "unknown-key bursts must respect the JWKS refresh cooldown"
+    );
 
     gateway_task.abort();
     let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
@@ -5908,7 +5929,7 @@ async fn context_relay_persists_session_and_injects_handoff_on_model_switch() {
         }
     })
     .await
-    .expect("Rust quota-warning handoff pre-generation timed out");
+    .unwrap_or_else(|error| panic!("Rust quota-warning handoff pre-generation timed out: {error}; captured upstream requests={}", first_bodies.lock().unwrap().len()));
     assert!(first_bodies.lock().unwrap()[3]["messages"][0]["content"]
         .as_str()
         .unwrap()
