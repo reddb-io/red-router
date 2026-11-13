@@ -166,6 +166,18 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
         "{}",
         response.text().await.unwrap()
     );
+    let response = client.put(format!("{base}/api/admin/client-keys/second"))
+        .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type", "application/json")
+        .body(serde_json::json!({"label":"New model restrictions","enabled":false,"allowed_models":["*"]}).to_string())
+        .send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let edited: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(edited["client_key"]["model_matching"], "legacy-v1");
+    assert_eq!(edited["client_key"]["model_access_mode"], "restricted");
+    assert!(
+        edited["client_key"]["allowed_combos"].is_null(),
+        "adding restrictions must not inherit an artificial all-combos grant"
+    );
     task.abort();
     let _ = task.await;
     upstream_task.abort();
@@ -520,7 +532,9 @@ async fn restricted_empty_models_are_imported_without_granting_access() {
             assert_eq!(result.unwrap().imported, 2);
             let key = keys.iter().find(|key| key.id == "second").unwrap();
             assert_eq!(key.model_access_mode, "restricted");
-            assert_eq!(key.allowed_models_json, "[]");
+            let grants: serde_json::Value = serde_json::from_str(&key.allowed_models_json).unwrap();
+            assert_eq!(grants["schema"], "redrouter-model-permissions-v1");
+            assert_eq!(grants["patterns"], serde_json::json!([]));
             assert!(!key.enabled);
         } else {
             assert!(result.is_err());
@@ -536,13 +550,15 @@ async fn restricted_empty_models_are_imported_without_granting_access() {
 #[tokio::test]
 async fn combo_grants_migrate_independently_of_direct_model_access() {
     for (raw, expected) in [
-        (None, serde_json::json!(["combo/*"])),
-        (Some("[]"), serde_json::json!([])),
+        (None, Some(serde_json::Value::Null)),
+        (Some("null"), Some(serde_json::Value::Null)),
+        (Some("[]"), Some(serde_json::json!([]))),
+        (Some(r#"["combo/*"]"#), Some(serde_json::json!(["combo/*"]))),
         (
             Some(r#"["combo/team","agents"]"#),
-            serde_json::json!(["combo/team", "agents"]),
+            Some(serde_json::json!(["combo/team", "agents"])),
         ),
-        (Some(r#"["*"]"#), serde_json::Value::Null),
+        (Some(r#"["*"]"#), None),
     ] {
         let (_dir, source, dest, url) = fixture().await;
         let mut input =
@@ -557,10 +573,7 @@ async fn combo_grants_migrate_independently_of_direct_model_access() {
         assert_eq!(before, tokio::fs::read(&source).await.unwrap());
         let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
         let keys = db.client_keys().await.unwrap();
-        if expected.is_null() {
-            assert!(result.is_err());
-            assert!(keys.is_empty());
-        } else {
+        if let Some(expected) = expected {
             result.unwrap();
             let key = keys.iter().find(|key| key.id == "second").unwrap();
             assert_eq!(
@@ -569,6 +582,9 @@ async fn combo_grants_migrate_independently_of_direct_model_access() {
             );
             assert_eq!(key.model_access_mode, "restricted");
             assert!(!key.enabled);
+        } else {
+            assert!(result.is_err());
+            assert!(keys.is_empty());
         }
         db.close().await.unwrap();
     }

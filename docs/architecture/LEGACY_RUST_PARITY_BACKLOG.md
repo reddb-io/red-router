@@ -178,9 +178,9 @@ This is a distinct permission domain, not proof that the model wildcard engine i
   when there are actual model allow/deny entries.
 - Catalog filtering uses the same combo/target decision as dispatch. Historical
   `combo/name` requests resolve to the durable combo ID before routing state is used.
-- Import preserves named/empty/all combo lists. With the currently supported empty
-  legacy model policies, an absent legacy combo list becomes `combo/*`; simply
-  treating it as native inheritance would incorrectly deny restricted-empty keys.
+- Import preserves named/empty/all combo lists. The initial empty-policy importer translated absent combo lists into `combo/*`.
+  The versioned matcher below supersedes that translation and preserves null exactly,
+  including its behavior after later edits.
 - Tests cover grants versus blocked models, metadata edits, explicit reset, provider
   and endpoint denial, RPM limits, catalog/dispatch agreement, source preservation
   and complete rollback on an invalid later key. Browser edits exercise separate
@@ -256,3 +256,13 @@ The migration regression now configures two accounts of the same provider and pr
 that the imported key only dispatches through its permitted account; the other account
 is also absent from the client model catalog. Edits/reload retain the grants. This
 does not port exclusive account leases or the separate scopes controlling those leases.
+
+
+The versioned matcher applies to **every newly imported key**, even an initially
+empty model policy. Null combo grants remain null instead of being converted to
+explicit all-combo grants. This matters after an administrator adds restrictions:
+legacy inherited target checks must then apply, and `*` must retain its source
+meaning. A regression edits a previously unrestricted imported key and verifies both
+properties. Older imports created by the earlier empty-policy importer cannot be
+unambiguously reinterpreted from destination fields alone; re-import from the preserved
+source is needed to distinguish originally null from explicit `combo/*`.

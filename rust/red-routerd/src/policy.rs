@@ -724,6 +724,9 @@ mod tests {
         policy.model_matching = crate::model_permissions::ModelMatching::Legacy {
             prefer_claude_code: false,
         };
+        policy.allowed_models = Some(vec![]);
+        assert!(!policy.target_allowed("codex/gpt-5"));
+        assert!(policy.combo_provider_target_allowed("team", "gpt-5", Some("codex")));
         policy.allowed_models = Some(vec!["cx/gpt-*".into(), "team".into()]);
         policy.blocked_models = vec!["codex/gpt-secret*".into()];
         assert!(policy.target_allowed("codex/gpt-5"));

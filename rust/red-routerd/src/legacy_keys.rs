@@ -210,10 +210,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             let allowed_connections = import_connection_grants(get("allowed_connections")?.as_deref())?;
             let allowed_models = import_model_patterns(get("allowed_models")?.as_deref())?;
             let blocked_models = import_model_patterns(get("blocked_models")?.as_deref())?;
-            let has_model_patterns = !allowed_models.is_empty() || !blocked_models.is_empty();
-            let matching = if has_model_patterns {
-                crate::model_permissions::ModelMatching::Legacy { prefer_claude_code }
-            } else { crate::model_permissions::ModelMatching::Native };
+            // Empty policies also retain the source semantics: adding patterns
+            // later must not reinterpret '*' or turn inherited combo access into
+            // an explicit grant that bypasses newly added model restrictions.
+            let matching = crate::model_permissions::ModelMatching::Legacy { prefer_claude_code };
             let allowed_models = crate::model_permissions::encode(allowed_models, matching)?;
             let blocked_models = serde_json::to_string(&blocked_models).map_err(|_| "invalid legacy model patterns")?;
             if raw_combos.as_ref().is_some_and(|value| value.len() > 65_536) { return Err("legacy combo policy is too large"); }
@@ -221,10 +221,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 None => None,
                 Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy combo grants")?,
             };
-            // Without model patterns, null grants are equivalent to explicit all.
-            // With patterns, legacy null applies the per-target/allow-listed-combo
-            // policy. Do not turn it into a grant that bypasses those restrictions.
-            let combos = if has_model_patterns { combos } else { Some(combos.unwrap_or_else(|| vec!["combo/*".to_owned()])) };
+            // Null remains distinct from explicit all, including on initially
+            // unrestricted keys. Future edits must retain the same target checks.
             if let Some(combos) = &combos { crate::policy::validate_combo_grants(combos)?; }
             let combos = serde_json::to_string(&combos).map_err(|_| "invalid legacy combo grants")?;
             let model_access_mode = get("model_access_mode")?.ok_or("invalid legacy model access mode")?;
