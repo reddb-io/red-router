@@ -190,9 +190,14 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                     return Err("legacy model routing or provenance requires migration");
                 }
                 let id = object.get("id").and_then(|v| v.as_str()).ok_or("invalid legacy model")?;
-                if overrides.contains(&(legacy_provider.clone(), id.to_owned()))
-                    || (matches!(legacy_provider.as_str(), "opencode-zen" | "opencode-go")
-                        && overrides.contains(&("opencode".to_owned(), id.to_owned()))) {
+                let mut keys = vec![legacy_provider.as_str(), provider.as_str()];
+                if let Some(aliases) = crate::model_permissions::legacy_provider_spellings(&legacy_provider) {
+                    keys.extend(aliases.iter().map(String::as_str));
+                }
+                if matches!(legacy_provider.as_str(), "opencode-zen" | "opencode-go") { keys.push("opencode"); }
+                keys.sort_unstable();
+                keys.dedup();
+                if keys.iter().any(|key| overrides.contains(&((*key).to_owned(), id.to_owned()))) {
                     return Err("legacy model compatibility settings require migration");
                 }
                 let name = match object.get("name") { None | Some(serde_json::Value::Null) => id, Some(value) => value.as_str().ok_or("invalid legacy model name")? };
@@ -207,13 +212,6 @@ pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'
                 // over compat for the same key; hidden wins across sibling keys.
                 let explicit = match object.get("isHidden") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model visibility")?) };
                 let own = explicit.or_else(|| visibility.get(&(legacy_provider.clone(), id.to_owned())).copied());
-                let mut keys = vec![legacy_provider.as_str(), provider.as_str()];
-                if let Some(aliases) = crate::model_permissions::legacy_provider_spellings(&legacy_provider) {
-                    keys.extend(aliases.iter().map(String::as_str));
-                }
-                if matches!(legacy_provider.as_str(), "opencode-zen" | "opencode-go") { keys.push("opencode"); }
-                keys.sort_unstable();
-                keys.dedup();
                 let related = keys.into_iter().filter(|key| *key != legacy_provider.as_str())
                     .filter_map(|key| visibility.get(&(key.to_owned(), id.to_owned())).copied()).collect::<Vec<_>>();
                 let hidden = own == Some(true) || related.contains(&true)

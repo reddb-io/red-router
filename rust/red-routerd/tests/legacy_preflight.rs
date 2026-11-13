@@ -265,6 +265,21 @@ async fn legacy_custom_model_activation_preserves_default_and_override_precedenc
         );
     }
     db.close().await.unwrap();
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='cx'")
+        .bind(r#"[{"id":"cross-key","targetFormat":"claude"}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model compatibility settings require migration"
+    );
 }
 
 #[tokio::test]
