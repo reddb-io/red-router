@@ -3,6 +3,10 @@ import { Button, Card } from "./components";
 import { providerRequestHeaders, type ProviderHeadersView } from "./api/browserClient";
 
 export default function ProviderHeaders({ id }: { id: string }) {
+  return <ProviderHeadersEditor key={id} id={id} />;
+}
+
+function ProviderHeadersEditor({ id }: { id: string }) {
   const [view, setView] = useState<ProviderHeadersView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -11,13 +15,12 @@ export default function ProviderHeaders({ id }: { id: string }) {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let active = true;
-    setView(null);
-    setDraft("");
-    setError("");
-    setMessage("");
     providerRequestHeaders(id)
       .then((value) => {
-        if (active) setView(value);
+        if (active) {
+          setView(value);
+          setError("");
+        }
       })
       .catch((cause) => {
         if (active) setError(cause instanceof Error ? cause.message : "Could not load headers");
