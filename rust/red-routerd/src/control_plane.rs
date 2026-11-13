@@ -1,7 +1,10 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 pub use crate::policy::AccessScheduleConfig;
+#[path = "credential_crypto.rs"]
+mod credential_crypto;
 #[path = "provider_discovery.rs"]
 pub mod provider_discovery;
+pub(crate) use credential_crypto::{decrypt_async, encrypt_async};
 #[path = "provider_headers.rs"]
 pub mod provider_headers;
 
@@ -2673,11 +2676,12 @@ impl ControlPlane {
         provider: &StoredProvider,
         oauth: &StoredProviderOAuth,
     ) -> Result<crate::provider_quota::Observation, &'static str> {
-        let access_token = decrypt(
+        let access_token = decrypt_async(
             &provider.credential_ciphertext,
             &provider.id,
             self.0.encryption_key.as_str(),
         )
+        .await
         .map_err(|_| "credential_unavailable")?;
         if oauth.oauth_provider == "agy" {
             return self.fetch_agy_quota(provider, access_token.as_str()).await;
@@ -2856,11 +2860,12 @@ impl ControlPlane {
             })
             .ok_or("session_unavailable")?;
         let aad = format!("{}:oauth-session", provider.id);
-        let metadata = decrypt(
+        let metadata = decrypt_async(
             &session.session_ciphertext,
             &aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let metadata: serde_json::Value =
             serde_json::from_str(metadata.as_str()).map_err(|_| "session_unavailable")?;
         let project =
@@ -2888,11 +2893,12 @@ impl ControlPlane {
             })
             .ok_or("session_unavailable")?;
         let aad = format!("{}:oauth-session", provider.id);
-        let metadata = decrypt(
+        let metadata = decrypt_async(
             &session.session_ciphertext,
             &aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let metadata: serde_json::Value =
             serde_json::from_str(metadata.as_str()).map_err(|_| "session_unavailable")?;
         let id_token =
@@ -3078,26 +3084,29 @@ impl ControlPlane {
         oauth: StoredProviderOAuth,
     ) -> Result<ProviderOAuthRefreshView, &'static str> {
         let aad = format!("{}:oauth-refresh", provider.id);
-        let refresh_token = decrypt(
+        let refresh_token = decrypt_async(
             &oauth.refresh_token_ciphertext,
             &aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         match self
             .exchange_oauth_token(&oauth.oauth_provider, refresh_token.as_str())
             .await
         {
             Ok(tokens) => {
-                let access_ciphertext = encrypt(
+                let access_ciphertext = encrypt_async(
                     tokens.access_token.as_str(),
                     &provider.id,
                     self.0.encryption_key.as_str(),
-                )?;
-                let refresh_ciphertext = encrypt(
+                )
+                .await?;
+                let refresh_ciphertext = encrypt_async(
                     tokens.refresh_token.as_str(),
                     &aad,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 let rotated = self
                     .0
                     .database
@@ -4292,7 +4301,7 @@ impl ControlPlane {
             .await
     }
 
-    fn start_provider_oauth_as(
+    async fn start_provider_oauth_as(
         &self,
         provider: &str,
         requested_redirect_uri: Option<&str>,
@@ -4361,11 +4370,12 @@ impl ControlPlane {
         };
         let flow =
             serde_json::to_string(&flow).map_err(|_| "cannot encode provider OAuth state")?;
-        let state = encrypt(
+        let state = encrypt_async(
             &flow,
             "provider-oauth-browser-flow",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let (authorize_url, client_id) = match provider {
             "codex" => (
                 CODEX_OAUTH_AUTHORIZE_URL,
@@ -4612,11 +4622,12 @@ impl ControlPlane {
             .or(input.state.as_deref())
             .filter(|value| !value.is_empty() && value.len() <= 8192)
             .ok_or("invalid provider OAuth state")?;
-        let flow = decrypt(
+        let flow = decrypt_async(
             returned_state,
             "provider-oauth-browser-flow",
             self.0.encryption_key.as_str(),
         )
+        .await
         .map_err(|_| "invalid provider OAuth state")?;
         let flow: ProviderOAuthFlowState =
             serde_json::from_str(&flow).map_err(|_| "invalid provider OAuth state")?;
@@ -5305,23 +5316,26 @@ impl ControlPlane {
         if session.revision != provider.updated_at || session.provider != expected_provider {
             return Err("provider session revision mismatch");
         }
-        let access_token = decrypt(
+        let access_token = decrypt_async(
             &provider.credential_ciphertext,
             id,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let refresh_aad = format!("{id}:oauth-refresh");
-        let refresh_token = decrypt(
+        let refresh_token = decrypt_async(
             &oauth.refresh_token_ciphertext,
             &refresh_aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let session_aad = format!("{id}:oauth-session");
-        let metadata = decrypt(
+        let metadata = decrypt_async(
             &session.session_ciphertext,
             &session_aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
             .map_err(|_| "provider session metadata is invalid")?;
         let label = if auth.account_email.is_empty() {
@@ -5579,11 +5593,12 @@ impl ControlPlane {
             let existing = existing
                 .as_ref()
                 .ok_or("provider credential must be 1-8192 bytes")?;
-            decrypt(
+            decrypt_async(
                 &existing.credential_ciphertext,
                 id,
                 self.0.encryption_key.as_str(),
-            )?
+            )
+            .await?
         };
         let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
         let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
@@ -5667,17 +5682,20 @@ impl ControlPlane {
                     .account_id
                     .filter(|value| valid_uuid(value))
                     .ok_or("Claude account identity could not be verified")?;
-                let existing_identity = existing_session
-                    .as_ref()
-                    .and_then(|session| {
+                let existing_metadata = match existing_session.as_ref() {
+                    Some(session) => {
                         let aad = format!("{id}:oauth-session");
-                        decrypt(
+                        decrypt_async(
                             &session.session_ciphertext,
                             &aad,
                             self.0.encryption_key.as_str(),
                         )
+                        .await
                         .ok()
-                    })
+                    }
+                    None => None,
+                };
+                let existing_identity = existing_metadata
                     .and_then(|metadata| claude_session_identity(metadata.as_str()).ok())
                     .filter(|(_, account)| account.eq_ignore_ascii_case(&account_uuid));
                 let cli_user_id = if let Some((device, _)) = existing_identity {
@@ -5700,11 +5718,12 @@ impl ControlPlane {
                     .as_ref()
                     .ok_or("Claude OAuth requires a verified CLI session")?;
                 let aad = format!("{id}:oauth-session");
-                let metadata = decrypt(
+                let metadata = decrypt_async(
                     &existing_session.session_ciphertext,
                     &aad,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 validate_claude_session_metadata(metadata.as_str())?;
             }
         }
@@ -5752,7 +5771,8 @@ impl ControlPlane {
             return Err("provider tenant is unavailable");
         }
         let revision = revision()?;
-        let ciphertext = encrypt(api_key.as_str(), id, self.0.encryption_key.as_str())?;
+        let ciphertext =
+            encrypt_async(api_key.as_str(), id, self.0.encryption_key.as_str()).await?;
         let stored = StoredProvider {
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
@@ -5788,11 +5808,12 @@ impl ControlPlane {
                 StoredProviderOAuth {
                     provider_id: id.to_owned(),
                     oauth_provider,
-                    refresh_token_ciphertext: encrypt(
+                    refresh_token_ciphertext: encrypt_async(
                         refresh_token.as_str(),
                         &aad,
                         self.0.encryption_key.as_str(),
-                    )?,
+                    )
+                    .await?,
                     generation: existing_oauth
                         .as_ref()
                         .map_or(0, |oauth| oauth.generation.saturating_add(1)),
@@ -5826,11 +5847,12 @@ impl ControlPlane {
                 .upsert_provider_session(&StoredProviderSession {
                     provider_id: id.to_owned(),
                     provider: stored.provider.clone(),
-                    session_ciphertext: encrypt(
+                    session_ciphertext: encrypt_async(
                         session_metadata.as_str(),
                         &aad,
                         self.0.encryption_key.as_str(),
-                    )?,
+                    )
+                    .await?,
                     revision,
                 })
                 .await?;
@@ -5933,11 +5955,12 @@ impl ControlPlane {
                 latency_ms: 0,
             });
         }
-        let credential = decrypt(
+        let credential = decrypt_async(
             &provider.credential_ciphertext,
             &provider.id,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let live = ProxyState::live_provider(
             &provider.upstream_url,
             credential.as_str(),
@@ -6003,10 +6026,11 @@ impl ControlPlane {
         if oauth.generation != expected_generation {
             return Err("provider OAuth generation conflict");
         }
-        let access_ciphertext = encrypt(access_token.as_str(), id, self.0.encryption_key.as_str())?;
+        let access_ciphertext =
+            encrypt_async(access_token.as_str(), id, self.0.encryption_key.as_str()).await?;
         let aad = format!("{id}:oauth-refresh");
         let refresh_ciphertext =
-            encrypt(refresh_token.as_str(), &aad, self.0.encryption_key.as_str())?;
+            encrypt_async(refresh_token.as_str(), &aad, self.0.encryption_key.as_str()).await?;
         let rotated = self
             .0
             .database
@@ -6128,11 +6152,12 @@ impl ControlPlane {
                         secret.zeroize();
                         return Err("invalid OIDC client secret");
                     }
-                    let encrypted = encrypt(
+                    let encrypted = encrypt_async(
                         &secret,
                         "oidc-browser-client-secret",
                         self.0.encryption_key.as_str(),
-                    )?;
+                    )
+                    .await?;
                     secret.zeroize();
                     encrypted
                 }
@@ -6230,11 +6255,12 @@ impl ControlPlane {
             test,
         };
         let flow = serde_json::to_string(&flow).map_err(|_| "cannot encode OIDC login state")?;
-        let flow_cookie = encrypt(
+        let flow_cookie = encrypt_async(
             &flow,
             "oidc-browser-login-flow",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let mut location = browser.authorization_endpoint.clone();
         location
             .query_pairs_mut()
@@ -6262,11 +6288,12 @@ impl ControlPlane {
         if flow_cookie.len() > 8192 || code.is_empty() || returned_state.is_empty() {
             return Err("invalid OIDC authorization response");
         }
-        let flow = decrypt(
+        let flow = decrypt_async(
             flow_cookie,
             "oidc-browser-login-flow",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let flow: OidcFlowState =
             serde_json::from_str(&flow).map_err(|_| "invalid OIDC login state")?;
         let now = unix_time_seconds()?;
@@ -6285,11 +6312,12 @@ impl ControlPlane {
         {
             return Err("OIDC login state is stale");
         }
-        let secret = decrypt(
+        let secret = decrypt_async(
             &browser.client_secret_ciphertext,
             "oidc-browser-client-secret",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let identity = verifier
             .exchange_browser_code(&browser, code, &flow.verifier, &flow.nonce, &secret)
             .await?;
@@ -6334,11 +6362,12 @@ impl ControlPlane {
             bootstrap_hash: None,
         };
         let session = serde_json::to_string(&session).map_err(|_| "cannot encode admin session")?;
-        let session_cookie = encrypt(
+        let session_cookie = encrypt_async(
             &session,
             "oidc-browser-admin-session",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         Ok(BrowserCallback::Session {
             location: browser
                 .public_origin
@@ -6351,7 +6380,7 @@ impl ControlPlane {
         })
     }
 
-    fn create_local_admin_session(
+    async fn create_local_admin_session(
         &self,
         candidate: &str,
         origin: String,
@@ -6377,11 +6406,12 @@ impl ControlPlane {
             bootstrap_hash: Some(hex::encode(self.0.admin_hash)),
         };
         let session = serde_json::to_string(&session).map_err(|_| "cannot encode admin session")?;
-        let session_cookie = encrypt(
+        let session_cookie = encrypt_async(
             &session,
             "oidc-browser-admin-session",
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         Ok(LocalAdminSession {
             session_cookie,
             csrf,
@@ -7708,16 +7738,18 @@ impl ControlPlane {
                     Some(value) if value != "__stored__" => {
                         let secret = Zeroizing::new(value);
                         let ciphertext =
-                            encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
+                            encrypt_async(secret.as_str(), &aad, self.0.encryption_key.as_str())
+                                .await?;
                         (ciphertext, secret)
                     }
                     _ => {
                         let stored = current.ok_or("BigQuery service account JSON is required")?;
-                        let secret = decrypt(
+                        let secret = decrypt_async(
                             &stored.service_account_ciphertext,
                             &aad,
                             self.0.encryption_key.as_str(),
-                        )?;
+                        )
+                        .await?;
                         (stored.service_account_ciphertext.clone(), secret)
                     }
                 };
@@ -7774,7 +7806,8 @@ impl ControlPlane {
                             return Err("Webhook secret is invalid");
                         }
                         let ciphertext =
-                            encrypt(secret.as_str(), &aad, self.0.encryption_key.as_str())?;
+                            encrypt_async(secret.as_str(), &aad, self.0.encryption_key.as_str())
+                                .await?;
                         (ciphertext, secret)
                     }
                     _ => {
@@ -7782,11 +7815,12 @@ impl ControlPlane {
                         if stored.secret_ciphertext.is_empty() {
                             return Err("Webhook secret is required");
                         }
-                        let secret = decrypt(
+                        let secret = decrypt_async(
                             &stored.secret_ciphertext,
                             &aad,
                             self.0.encryption_key.as_str(),
-                        )?;
+                        )
+                        .await?;
                         (stored.secret_ciphertext.clone(), secret)
                     }
                 };
@@ -7846,18 +7880,22 @@ impl ControlPlane {
                         } else {
                             let token = Zeroizing::new(token);
                             let ciphertext =
-                                encrypt(token.as_str(), &aad, self.0.encryption_key.as_str())?;
+                                encrypt_async(token.as_str(), &aad, self.0.encryption_key.as_str())
+                                    .await?;
                             (ciphertext, Some(token))
                         }
                     }
                     _ => match current {
                         Some(stored) if !stored.secret_ciphertext.is_empty() => (
                             stored.secret_ciphertext.clone(),
-                            Some(decrypt(
-                                &stored.secret_ciphertext,
-                                &aad,
-                                self.0.encryption_key.as_str(),
-                            )?),
+                            Some(
+                                decrypt_async(
+                                    &stored.secret_ciphertext,
+                                    &aad,
+                                    self.0.encryption_key.as_str(),
+                                )
+                                .await?,
+                            ),
                         ),
                         _ => (String::new(), None),
                     },
@@ -7941,8 +7979,12 @@ impl ControlPlane {
                             }))
                             .map_err(|_| "cannot encode SQS usage credentials")?,
                         );
-                        let ciphertext =
-                            encrypt(secret_json.as_str(), &aad, self.0.encryption_key.as_str())?;
+                        let ciphertext = encrypt_async(
+                            secret_json.as_str(),
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )
+                        .await?;
                         (ciphertext, secret_json, has_session_token)
                     }
                     _ => {
@@ -7950,11 +7992,12 @@ impl ControlPlane {
                         if stored.secret_ciphertext.is_empty() {
                             return Err("SQS secret access key is required");
                         }
-                        let secret_json = decrypt(
+                        let secret_json = decrypt_async(
                             &stored.secret_ciphertext,
                             &aad,
                             self.0.encryption_key.as_str(),
-                        )?;
+                        )
+                        .await?;
                         let (_, _, _, has_session_token) = sqs_usage_config(&stored.config_json)?;
                         (
                             stored.secret_ciphertext.clone(),
@@ -8052,17 +8095,21 @@ impl ControlPlane {
                         }
                         let password = Zeroizing::new(value);
                         let ciphertext =
-                            encrypt(password.as_str(), &aad, self.0.encryption_key.as_str())?;
+                            encrypt_async(password.as_str(), &aad, self.0.encryption_key.as_str())
+                                .await?;
                         (ciphertext, Some(password))
                     }
                     _ => match current {
                         Some(stored) if !stored.secret_ciphertext.is_empty() => (
                             stored.secret_ciphertext.clone(),
-                            Some(decrypt(
-                                &stored.secret_ciphertext,
-                                &aad,
-                                self.0.encryption_key.as_str(),
-                            )?),
+                            Some(
+                                decrypt_async(
+                                    &stored.secret_ciphertext,
+                                    &aad,
+                                    self.0.encryption_key.as_str(),
+                                )
+                                .await?,
+                            ),
                         ),
                         _ => (String::new(), None),
                     },
@@ -8249,11 +8296,12 @@ impl ControlPlane {
         match record.export_type.as_str() {
             "bigquery" => {
                 let aad = format!("usage-export:{id}:service-account");
-                let service_account_json = decrypt(
+                let service_account_json = decrypt_async(
                     &record.service_account_ciphertext,
                     &aad,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 let sink = crate::audit_export::BigQueryAuditSink::new(
                     crate::audit_export::BigQueryAuditConfig {
                         sink_id: format!("managed-{id}"),
@@ -8275,11 +8323,12 @@ impl ControlPlane {
             }
             "webhook" => {
                 let aad = format!("usage-export:{id}:secret");
-                let secret = decrypt(
+                let secret = decrypt_async(
                     &record.secret_ciphertext,
                     &aad,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 let url = webhook_usage_url(&record.config_json)?;
                 if record.mode == "window" {
                     crate::audit_export::send_usage_webhook_window_test(
@@ -8307,11 +8356,14 @@ impl ControlPlane {
                     None
                 } else {
                     let aad = format!("usage-export:{id}:secret");
-                    Some(decrypt(
-                        &record.secret_ciphertext,
-                        &aad,
-                        self.0.encryption_key.as_str(),
-                    )?)
+                    Some(
+                        decrypt_async(
+                            &record.secret_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )
+                        .await?,
+                    )
                 };
                 if record.mode == "window" {
                     crate::audit_export::send_usage_reddb_window_test(
@@ -8338,11 +8390,12 @@ impl ControlPlane {
             }
             "sqs" => {
                 let aad = format!("usage-export:{id}:secret");
-                let secret_json = decrypt(
+                let secret_json = decrypt_async(
                     &record.secret_ciphertext,
                     &aad,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 if record.mode == "window" {
                     crate::audit_export::send_usage_sqs_window_test(
                         id,
@@ -8369,11 +8422,14 @@ impl ControlPlane {
                     None
                 } else {
                     let aad = format!("usage-export:{id}:secret");
-                    Some(decrypt(
-                        &record.secret_ciphertext,
-                        &aad,
-                        self.0.encryption_key.as_str(),
-                    )?)
+                    Some(
+                        decrypt_async(
+                            &record.secret_ciphertext,
+                            &aad,
+                            self.0.encryption_key.as_str(),
+                        )
+                        .await?,
+                    )
                 };
                 if record.mode == "window" {
                     crate::audit_export::send_usage_kafka_window_test(
@@ -8690,11 +8746,12 @@ impl ControlPlane {
                     .cloned()
                     .unwrap_or_else(|| default_provider_auth(&record));
                 let auth_scheme = ProviderAuthScheme::parse(&provider_auth.auth_scheme)?;
-                let credential = decrypt(
+                let credential = decrypt_async(
                     &record.credential_ciphertext,
                     &record.id,
                     self.0.encryption_key.as_str(),
-                )?;
+                )
+                .await?;
                 let mut live = ProxyState::live_provider(
                     &record.upstream_url,
                     credential.as_str(),
@@ -8817,11 +8874,12 @@ impl ControlPlane {
                         .cloned()
                         .unwrap_or_else(|| default_provider_auth(provider));
                     let auth_scheme = ProviderAuthScheme::parse(&provider_auth.auth_scheme)?;
-                    let credential = decrypt(
+                    let credential = decrypt_async(
                         &provider.credential_ciphertext,
                         &provider.id,
                         self.0.encryption_key.as_str(),
-                    )?;
+                    )
+                    .await?;
                     let mut runtime = ProxyState::live_provider(
                         &provider.upstream_url,
                         credential.as_str(),
@@ -9364,11 +9422,12 @@ impl ControlPlane {
                 continue;
             }
             let aad = format!("{}:oauth-session", record.provider_id);
-            let metadata = decrypt(
+            let metadata = decrypt_async(
                 &record.session_ciphertext,
                 &aad,
                 self.0.encryption_key.as_str(),
-            )?;
+            )
+            .await?;
             let metadata: serde_json::Value = serde_json::from_str(metadata.as_str())
                 .map_err(|_| "invalid Antigravity session metadata")?;
             let Some(project) = json_non_empty_string(metadata.get("projectId")) else {
@@ -9399,11 +9458,12 @@ impl ControlPlane {
                 continue;
             }
             let aad = format!("{}:oauth-session", record.provider_id);
-            let metadata = decrypt(
+            let metadata = decrypt_async(
                 &record.session_ciphertext,
                 &aad,
                 self.0.encryption_key.as_str(),
-            )?;
+            )
+            .await?;
             let (device, account) = claude_session_identity(metadata.as_str())?;
             let session_id = {
                 let mut sessions = self
@@ -10332,11 +10392,13 @@ impl ControlPlane {
         {
             return None;
         }
-        let Ok(session) = decrypt(
+        let Ok(session) = decrypt_async(
             &session_cookie,
             "oidc-browser-admin-session",
             self.0.encryption_key.as_str(),
-        ) else {
+        )
+        .await
+        else {
             return None;
         };
         let Ok(session) = serde_json::from_str::<AdminSession>(&session) else {
@@ -13103,7 +13165,10 @@ pub async fn local_admin_login(
         return api_error(StatusCode::FORBIDDEN, "Invalid dashboard login origin");
     };
     let admin_key = Zeroizing::new(input.admin_key);
-    let session = match control.create_local_admin_session(admin_key.as_str(), origin, secure) {
+    let session = match control
+        .create_local_admin_session(admin_key.as_str(), origin, secure)
+        .await
+    {
         Ok(session) => session,
         Err(_) => return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication"),
     };
@@ -14333,12 +14398,15 @@ pub async fn authorize_provider_oauth(
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
-    match control.start_provider_oauth_as(
-        &provider,
-        query.redirect_uri.as_deref(),
-        &scope.actor,
-        scope.tenant_id.as_deref(),
-    ) {
+    match control
+        .start_provider_oauth_as(
+            &provider,
+            query.redirect_uri.as_deref(),
+            &scope.actor,
+            scope.tenant_id.as_deref(),
+        )
+        .await
+    {
         Ok(view) => {
             let mut response = Json(view).into_response();
             response

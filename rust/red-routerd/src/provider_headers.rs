@@ -117,11 +117,12 @@ impl ControlPlane {
             "{}:request-headers:{}",
             provider.id, entry.upstream_identity
         );
-        let plaintext = decrypt(
+        let plaintext = decrypt_async(
             &entry.headers_ciphertext,
             &aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let values: BTreeMap<String, String> =
             serde_json::from_str(&plaintext).map_err(|_| "invalid stored provider headers")?;
         let headers = validate(&values)?;
@@ -163,11 +164,12 @@ impl ControlPlane {
             "{}:request-headers:{}",
             provider.id, entry.upstream_identity
         );
-        let plaintext = decrypt(
+        let plaintext = decrypt_async(
             &entry.headers_ciphertext,
             &aad,
             self.0.encryption_key.as_str(),
-        )?;
+        )
+        .await?;
         let values =
             serde_json::from_str(&plaintext).map_err(|_| "invalid stored provider headers")?;
         validate(&values)
@@ -248,7 +250,12 @@ pub async fn put_headers(
             let entry = StoredProviderHeaders {
                 provider_id: id.clone(),
                 upstream_identity,
-                headers_ciphertext: encrypt(&plaintext, &aad, control.0.encryption_key.as_str())?,
+                headers_ciphertext: encrypt_async(
+                    &plaintext,
+                    &aad,
+                    control.0.encryption_key.as_str(),
+                )
+                .await?,
                 revision: revision()?,
             };
             control.0.database.upsert_provider_header(&entry).await?;

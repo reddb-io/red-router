@@ -535,11 +535,12 @@ impl ManagedUsageRelay {
         let transport = match record.export_type.as_str() {
             "bigquery" => {
                 let aad = format!("usage-export:{}:service-account", record.id);
-                let service_account_json = crate::control_plane::decrypt(
+                let service_account_json = crate::control_plane::decrypt_async(
                     &record.service_account_ciphertext,
                     &aad,
                     encryption_key,
-                )?;
+                )
+                .await?;
                 ManagedUsageTransport::BigQuery(Box::new(BigQueryAuditSink::new(
                     BigQueryAuditConfig {
                         sink_id: sink_id.clone(),
@@ -556,8 +557,12 @@ impl ManagedUsageRelay {
             }
             "webhook" => {
                 let aad = format!("usage-export:{}:secret", record.id);
-                let secret =
-                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                let secret = crate::control_plane::decrypt_async(
+                    &record.secret_ciphertext,
+                    &aad,
+                    encryption_key,
+                )
+                .await?;
                 let url = usage_webhook_url(&record.config_json)?;
                 ManagedUsageTransport::Webhook(
                     UsageWebhookSink::new(&record.id, &record.name, &url, secret.as_str()).await?,
@@ -568,11 +573,14 @@ impl ManagedUsageRelay {
                     None
                 } else {
                     let aad = format!("usage-export:{}:secret", record.id);
-                    Some(crate::control_plane::decrypt(
-                        &record.secret_ciphertext,
-                        &aad,
-                        encryption_key,
-                    )?)
+                    Some(
+                        crate::control_plane::decrypt_async(
+                            &record.secret_ciphertext,
+                            &aad,
+                            encryption_key,
+                        )
+                        .await?,
+                    )
                 };
                 ManagedUsageTransport::RedDb(
                     UsageRedDbSink::new(
@@ -587,8 +595,12 @@ impl ManagedUsageRelay {
             }
             "sqs" => {
                 let aad = format!("usage-export:{}:secret", record.id);
-                let secret =
-                    crate::control_plane::decrypt(&record.secret_ciphertext, &aad, encryption_key)?;
+                let secret = crate::control_plane::decrypt_async(
+                    &record.secret_ciphertext,
+                    &aad,
+                    encryption_key,
+                )
+                .await?;
                 ManagedUsageTransport::Sqs(
                     UsageSqsSink::new(
                         &record.id,
@@ -604,11 +616,14 @@ impl ManagedUsageRelay {
                     None
                 } else {
                     let aad = format!("usage-export:{}:secret", record.id);
-                    Some(crate::control_plane::decrypt(
-                        &record.secret_ciphertext,
-                        &aad,
-                        encryption_key,
-                    )?)
+                    Some(
+                        crate::control_plane::decrypt_async(
+                            &record.secret_ciphertext,
+                            &aad,
+                            encryption_key,
+                        )
+                        .await?,
+                    )
                 };
                 ManagedUsageTransport::Kafka(
                     UsageKafkaSink::new(&record.id, &record.config_json, password, allow_private)

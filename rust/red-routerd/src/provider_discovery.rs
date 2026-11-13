@@ -300,11 +300,12 @@ impl ControlPlane {
                 return Err("credential_expired");
             }
             let headers = self.request_headers(&provider).await?;
-            let credential = decrypt(
+            let credential = decrypt_async(
                 &provider.credential_ciphertext,
                 &provider.id,
                 self.0.encryption_key.as_str(),
-            )?;
+            )
+            .await?;
             (provider, auth, headers, credential, target)
         };
         // Reuse DNS pinning, private-address policy, auth resolution and redirect prohibition.

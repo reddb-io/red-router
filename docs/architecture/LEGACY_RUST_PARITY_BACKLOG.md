@@ -339,3 +339,20 @@ silently return a partial list. There is no network or storage query added to th
 inference hot path. Catalog metadata is not replaced and discovery does not grant
 model access or create routes. Reusable node definitions, node inheritance/import,
 custom-model mutation and routing aliases remain open. CI must validate this slice.
+
+The discovery UI regression suite passed (225 UI tests, run 43402203339), as did
+product checks (43402198768). The Rust run exposed an undersized admin key in the
+new isolation fixture; it is corrected and requires another full run. The preceding
+run also exposed a second OIDC test assumption (absolute lifetime JWKS count after
+restart); it now verifies exactly one additional fetch, independent of legitimate
+unknown-key refreshes before restart. SQLite startup avoids setting journal mode
+again when already in WAL and logs a non-sensitive setup phase on connection failure;
+this is not yet proof that the intermittent pool timeout has been eliminated.
+
+Credential KDF work in native control-plane HTTP, OAuth, snapshot reload, discovery,
+headers and managed export setup now runs on bounded blocking workers. Inference
+concurrency is independent. The scrypt parameters, ciphertext format, identity
+binding and zeroization are unchanged. Cancellation keeps the worker permit with
+its running job so abandoned requests cannot exceed the cryptographic memory bound.
+A current-thread runtime regression checks that another request progresses during
+encryption. CI must verify the changed asynchronous call paths and concurrency.
