@@ -55,8 +55,15 @@ client catalog consumes a shared in-memory snapshot scoped to the accounts
 allowed by the client key. An earlier Rust CI run exposed slow propagation to a
 second instance; inventory-only updates now rebuild the account inventory without
 recreating provider clients or decrypting credentials again (Rust CI 43520919898).
-Account selection does not yet use this inventory: port the legacy authoritative
-catalog rules without treating incomplete or expired lists as entitlements.
+Direct requests to the legacy self-hosted provider IDs now use each account's
+nonempty, fresh, verified inventory to skip hosts that do not advertise the
+model. Missing, empty, expired and imported-with-unknown-age inventories fail
+open; hosted providers retain their prior selection. Imported inventories get
+durable provenance, and only a successful new probe clears it. Existing
+first-generation staged inventories are conservatively marked unknown once on
+upgrade. Direct routing validation is pending; aliases, explicit combo targets,
+the full legacy authoritative-catalog rules and tenant-scoped rules still need
+separate coverage and implementation.
 The offline cutover now preserves legacy `syncedAvailableModels`, `customModels`
 and `modelCompatOverrides` records in separate staging tables, including hidden
 decisions and fields not yet supported by Rust.

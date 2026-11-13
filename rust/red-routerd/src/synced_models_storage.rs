@@ -7,6 +7,9 @@
 use super::*;
 
 pub(super) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_synced_models (provider_id TEXT PRIMARY KEY, generation BIGINT NOT NULL, probe_token TEXT NOT NULL, published_generation BIGINT, tenant_id TEXT, provider_revision BIGINT, discovery_revision BIGINT, headers_revision BIGINT, node_revision BIGINT, models_json TEXT, observed_at_unix_ms BIGINT)";
+// Imported inventories have an unknown observation date. Keep them visible,
+// but do not use them as proof that a host does or does not serve a model.
+pub(super) const CREATE_LEGACY_ORIGIN: &str = "CREATE TABLE IF NOT EXISTS redrouter_synced_model_legacy_origin (provider_id TEXT PRIMARY KEY, published_generation BIGINT NOT NULL)";
 
 const BINDING: &str = "SELECT p.revision AS provider_revision, COALESCE(d.revision,0) AS discovery_revision, COALESCE(h.revision,0) AS headers_revision, COALESCE(n.revision,0) AS node_revision FROM redrouter_control_providers p LEFT JOIN redrouter_control_provider_ownership o ON o.provider_id=p.id LEFT JOIN redrouter_control_provider_discovery d ON d.provider_id=p.id LEFT JOIN redrouter_control_provider_headers h ON h.provider_id=p.id LEFT JOIN redrouter_control_provider_node_bindings b ON b.record_id=p.id || ':' || CAST(p.revision AS TEXT) LEFT JOIN redrouter_control_provider_nodes n ON n.id=b.node_id AND n.tenant_id=COALESCE(o.tenant_id,'red') WHERE p.id=$1 AND p.enabled=1 AND COALESCE(o.tenant_id,'red')=$2 AND (o.provider_id IS NULL OR o.revision=p.revision) AND (b.record_id IS NULL OR n.id IS NOT NULL)";
 const MAX_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
@@ -36,6 +39,7 @@ pub struct SyncedModelSnapshot {
     pub observed_at_unix_ms: i64,
     pub generation: i64,
     pub binding: SyncedModelBinding,
+    pub source_verified: bool,
 }
 
 pub(crate) struct LegacyInventoryAdoption<'a> {
@@ -72,6 +76,27 @@ fn binding(row: &sqlx::any::AnyRow) -> Result<SyncedModelBinding, &'static str> 
             .try_get("node_revision")
             .map_err(|_| "invalid discovery binding")?,
     })
+}
+
+// Before provenance existed, an adopted inventory and a first native probe
+// had the same shape. On upgrade, conservatively mark first-generation rows
+// from staged migrated accounts as unknown; a real probe clears the marker.
+pub(super) async fn migrate_legacy_origins(pool: &sqlx::AnyPool) -> Result<(), &'static str> {
+    let mut tx = begin_client_key_update(pool).await?;
+    let first = sqlx::query("INSERT INTO redrouter_synced_model_legacy_origin(provider_id,published_generation) VALUES ('',0) ON CONFLICT(provider_id) DO NOTHING")
+        .execute(&mut *tx).await.map_err(|_| "cannot initialize synced model origin")?.rows_affected() == 1;
+    if first {
+        let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration')")
+            .fetch_one(&mut *tx).await.map_err(|_| "cannot inspect legacy inventory origin")?;
+        if staged == 2 {
+            sqlx::query("INSERT INTO redrouter_synced_model_legacy_origin(provider_id,published_generation) SELECT s.provider_id,s.published_generation FROM redrouter_synced_models s JOIN redrouter_legacy_provider_records p ON p.provider_id=s.provider_id JOIN redrouter_legacy_provider_migration m ON m.provider_id=s.provider_id WHERE s.published_generation=1 AND s.models_json IS NOT NULL ON CONFLICT(provider_id) DO NOTHING")
+                .execute(&mut *tx).await.map_err(|_| "cannot migrate legacy inventory origin")?;
+        }
+    }
+    tx.commit()
+        .await
+        .map_err(|_| "cannot commit synced model origin")?;
+    Ok(())
 }
 
 impl Database {
@@ -150,6 +175,10 @@ impl Database {
             .bind(input.binding.provider_revision).bind(input.binding.discovery_revision).bind(input.binding.headers_revision).bind(input.binding.node_revision)
             .bind(input.models_json).bind(input.observed_at_unix_ms).execute(&mut *tx).await.map_err(|_| "cannot adopt legacy inventory")?;
         let inserted = result.rows_affected() == 1;
+        if inserted {
+            sqlx::query("INSERT INTO redrouter_synced_model_legacy_origin(provider_id,published_generation) VALUES ($1,1) ON CONFLICT(provider_id) DO UPDATE SET published_generation=1")
+                .bind(input.provider_id).execute(&mut *tx).await.map_err(|_| "cannot record legacy inventory origin")?;
+        }
         tx.commit()
             .await
             .map_err(|_| "cannot commit legacy inventory adoption")?;
@@ -164,7 +193,7 @@ impl Database {
         let pool = self
             .sql_pool()
             .ok_or("synced model inventory requires SQLite")?;
-        let rows = sqlx::query("SELECT 'path' AS kind,provider_id,revision,0 AS observed_at_unix_ms FROM redrouter_control_provider_discovery UNION ALL SELECT 'snapshot',provider_id,COALESCE(published_generation,0),COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models ORDER BY kind,provider_id")
+        let rows = sqlx::query("SELECT 'path' AS kind,provider_id,revision,0 AS observed_at_unix_ms FROM redrouter_control_provider_discovery UNION ALL SELECT 'snapshot',provider_id,COALESCE(published_generation,0),COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models UNION ALL SELECT 'legacy-origin',provider_id,published_generation,0 FROM redrouter_synced_model_legacy_origin WHERE provider_id<>'' ORDER BY kind,provider_id")
             .fetch_all(pool).await.map_err(|_| "cannot read synced model markers")?;
         rows.iter()
             .map(|row| {
@@ -307,6 +336,13 @@ impl Database {
             .bind(ticket.binding.headers_revision).bind(ticket.binding.node_revision).bind(models_json)
             .bind(observed_at_unix_ms).bind(ticket.generation).bind(&ticket.provider_id).bind(&ticket.probe_token)
             .execute(&mut *transaction).await.map_err(|_| "cannot publish synced models")?.rows_affected() == 1;
+        if written {
+            sqlx::query("DELETE FROM redrouter_synced_model_legacy_origin WHERE provider_id=$1")
+                .bind(&ticket.provider_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| "cannot update synced model origin")?;
+        }
         transaction
             .commit()
             .await
@@ -349,7 +385,7 @@ impl Database {
             return Ok(None);
         };
         let current = binding(&current)?;
-        let row = sqlx::query("SELECT tenant_id,provider_revision,discovery_revision,headers_revision,node_revision,models_json,observed_at_unix_ms,published_generation FROM redrouter_synced_models WHERE provider_id=$1 AND models_json IS NOT NULL")
+        let row = sqlx::query("SELECT s.tenant_id,s.provider_revision,s.discovery_revision,s.headers_revision,s.node_revision,s.models_json,s.observed_at_unix_ms,s.published_generation, CASE WHEN EXISTS (SELECT 1 FROM redrouter_synced_model_legacy_origin o WHERE o.provider_id=s.provider_id AND o.published_generation=s.published_generation) THEN 0 ELSE 1 END AS source_verified FROM redrouter_synced_models s WHERE s.provider_id=$1 AND s.models_json IS NOT NULL")
             .bind(provider_id).fetch_optional(&mut *transaction).await.map_err(|_| "cannot read synced models")?;
         let Some(row) = row else {
             transaction
@@ -382,6 +418,9 @@ impl Database {
         let generation: i64 = row
             .try_get("published_generation")
             .map_err(|_| "invalid synced model inventory")?;
+        let source_verified: i64 = row
+            .try_get("source_verified")
+            .map_err(|_| "invalid synced model origin")?;
         transaction
             .commit()
             .await
@@ -391,6 +430,7 @@ impl Database {
             observed_at_unix_ms: observed,
             generation,
             binding: saved,
+            source_verified: source_verified == 1,
         }))
     }
 
@@ -401,9 +441,19 @@ impl Database {
         let pool = self
             .sql_pool()
             .ok_or("synced model inventory requires SQLite")?;
+        let mut transaction = begin_client_key_update(pool).await?;
         sqlx::query("DELETE FROM redrouter_synced_models WHERE provider_id=$1")
             .bind(provider_id)
-            .execute(pool)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| "cannot delete synced models")?;
+        sqlx::query("DELETE FROM redrouter_synced_model_legacy_origin WHERE provider_id=$1")
+            .bind(provider_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| "cannot delete synced model origin")?;
+        transaction
+            .commit()
             .await
             .map_err(|_| "cannot delete synced models")?;
         Ok(())

@@ -215,3 +215,54 @@ async fn discovered_models_are_scoped_to_permitted_provider_accounts() {
     upstream_task.abort();
     gateway_task.abort();
 }
+
+#[tokio::test]
+async fn local_model_requests_choose_only_hosts_that_advertise_the_model() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("local-model-routing.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let upstream = Router::new()
+        .route("/v1/models", get(|headers: HeaderMap| async move {
+            let id = match headers["authorization"].to_str().unwrap() {
+                "Bearer host-a-secret" => "model-a",
+                "Bearer host-b-secret" => "model-b",
+                _ => panic!("unexpected credential"),
+            };
+            Json(serde_json::json!({"data":[{"id":id}]}))
+        }))
+        .route("/v1/chat/completions", post(move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+            let seen = seen.clone();
+            async move {
+                let credential = headers["authorization"].to_str().unwrap();
+                let expected = if credential == "Bearer host-a-secret" { "model-a" } else { "model-b" };
+                seen.lock().unwrap().push(format!("{credential}:{}", body["model"].as_str().unwrap()));
+                if body["model"] != expected { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"model unavailable"}))); }
+                (StatusCode::OK, Json(serde_json::json!({"id":"local-chat","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})))
+            }
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1/chat/completions", listener.local_addr().unwrap());
+    let upstream_task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap(); });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (account, secret) in [("host-a", "host-a-secret"), ("host-b", "host-b-secret")] {
+        let endpoint = format!("{base}/api/admin/providers/{account}");
+        assert_eq!(client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"provider":"vllm","upstream_url":url,"api_key":secret})).send().await.unwrap().status(), StatusCode::OK);
+        assert_eq!(client.post(format!("{endpoint}/discovery")).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::OK);
+    }
+    let key = "local-inventory-client-key-123456789";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/local-routing")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Local routing","api_key":key,"scopes":["inference:chat"],"allowed_models":["vllm/*"],"allowed_provider_ids":["host-a","host-b"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    for model in ["model-a", "model-b"] {
+        assert_eq!(chat_model(&client, &base, key, &format!("vllm/{model}")).await.status(), StatusCode::OK);
+    }
+    assert_eq!(chat_model(&client, &base, key, "vllm/model-c").await.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(*calls.lock().unwrap(), vec!["Bearer host-a-secret:model-a", "Bearer host-b-secret:model-b"]);
+    upstream_task.abort();
+    gateway_task.abort();
+}

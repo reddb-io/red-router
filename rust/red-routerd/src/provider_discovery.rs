@@ -1311,7 +1311,25 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(saved.models_json.contains("model-a"));
+        assert!(
+            !saved.source_verified,
+            "restoration must not pretend a live discovery occurred"
+        );
         assert!(!saved.models_json.contains("provider-secret"));
+        database
+            .begin_synced_model_probe("account", "red")
+            .await
+            .unwrap()
+            .unwrap();
+        let pending = database
+            .synced_models("account", "red", unix_time_ms().unwrap(), 60_000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !pending.source_verified,
+            "an unfinished probe must not verify restored data"
+        );
         assert!(
             !control
                 .discovery_view(&provider)
@@ -1363,6 +1381,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(saved.models_json.contains("new-model"));
+        assert!(
+            saved.source_verified,
+            "a successfully published live probe verifies the origin"
+        );
     }
     #[tokio::test]
     async fn inventory_refresh_reuses_clients_without_waiting_for_credential_workers() {

@@ -2,8 +2,96 @@ use red_routerd::storage::{
     Backend, Database, StoredProvider, StoredProviderDiscovery, StoredProviderHeaders,
     StoredProviderNode,
 };
+use sqlx::{sqlite::SqliteConnectOptions, Connection};
 use tempfile::TempDir;
 use url::Url;
+
+#[tokio::test]
+async fn upgrade_marks_prior_migrated_inventory_unknown_until_a_live_probe() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("origin-upgrade.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    db.upsert_provider(&StoredProvider {
+        id: "account".into(),
+        tenant_id: "red".into(),
+        provider: "vllm".into(),
+        upstream_url: "https://example.test/v1/chat/completions".into(),
+        credential_ciphertext: "fixture".into(),
+        enabled: true,
+        updated_at: 10,
+        node_id: None,
+        protocol: "openai".into(),
+        priority: 0,
+        default_model: None,
+    })
+    .await
+    .unwrap();
+    let ticket = db
+        .begin_synced_model_probe("account", "red")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(db
+        .publish_synced_models(&ticket, r#"[{"id":"old"}]"#, 1_000)
+        .await
+        .unwrap());
+    db.close().await.unwrap();
+    let mut legacy =
+        sqlx::SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&path))
+            .await
+            .unwrap();
+    for query in [
+        "DROP TABLE redrouter_synced_model_legacy_origin",
+        "CREATE TABLE redrouter_legacy_provider_records(provider_id TEXT PRIMARY KEY, encrypted_record TEXT NOT NULL)",
+        "CREATE TABLE redrouter_legacy_provider_migration(provider_id TEXT PRIMARY KEY, source_enabled BIGINT NOT NULL)",
+        "INSERT INTO redrouter_legacy_provider_records VALUES ('account','fixture')",
+        "INSERT INTO redrouter_legacy_provider_migration VALUES ('account',1)",
+    ] { sqlx::query(query).execute(&mut legacy).await.unwrap(); }
+    legacy.close().await.unwrap();
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let old = db
+        .synced_models("account", "red", 1_100, 1_000)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!old.source_verified);
+    let ticket = db
+        .begin_synced_model_probe("account", "red")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !db.synced_models("account", "red", 1_100, 1_000)
+            .await
+            .unwrap()
+            .unwrap()
+            .source_verified
+    );
+    assert!(db
+        .publish_synced_models(&ticket, r#"[{"id":"new"}]"#, 1_100)
+        .await
+        .unwrap());
+    assert!(
+        db.synced_models("account", "red", 1_100, 1_000)
+            .await
+            .unwrap()
+            .unwrap()
+            .source_verified
+    );
+    db.close().await.unwrap();
+    let restarted = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(
+        restarted
+            .synced_models("account", "red", 1_100, 1_000)
+            .await
+            .unwrap()
+            .unwrap()
+            .source_verified
+    );
+    restarted.close().await.unwrap();
+}
 
 #[tokio::test]
 async fn synced_inventory_is_tenant_scoped_generation_bound_and_survives_restart() {

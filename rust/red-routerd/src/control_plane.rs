@@ -424,6 +424,7 @@ struct DirectAccount {
 
 struct SyncedModelInventory {
     observed_at_unix_ms: i64,
+    source_verified: bool,
     models: BTreeMap<String, provider_discovery::DiscoveredModel>,
 }
 
@@ -432,6 +433,40 @@ impl SyncedModelInventory {
         self.observed_at_unix_ms <= now.saturating_add(5 * 60 * 1_000)
             && self.observed_at_unix_ms >= now.saturating_sub(SYNCED_MODEL_MAX_AGE_MS)
     }
+
+    fn permits_local_model(&self, requested: &str, model: &str, now: i64) -> bool {
+        if !self.source_verified || !self.fresh(now) || self.models.is_empty() {
+            return true;
+        }
+        let without_context = model.strip_suffix("[1m]").unwrap_or(model);
+        let last_segment = without_context
+            .rsplit('/')
+            .next()
+            .unwrap_or(without_context);
+        [requested, model, without_context, last_segment]
+            .iter()
+            .any(|candidate| self.models.contains_key(*candidate))
+    }
+}
+
+// Legacy credential selection applies account-level inventory filtering only
+// to independent self-hosted hosts, not to hosted provider accounts.
+fn uses_local_account_inventory(provider: &str) -> bool {
+    matches!(
+        provider,
+        "mlx-gemma"
+            | "mlx-qwen"
+            | "ollama-local"
+            | "lm-studio"
+            | "vllm"
+            | "lemonade"
+            | "llamafile"
+            | "llama-cpp"
+            | "triton"
+            | "docker-model-runner"
+            | "xinference"
+            | "oobabooga"
+    )
 }
 
 type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
@@ -4603,6 +4638,19 @@ impl ControlPlane {
         if accounts.is_empty() {
             return Err("provider route forbidden");
         }
+        let now = unix_time_ms()?;
+        let accounts: Vec<_> = accounts
+            .into_iter()
+            .filter(|account| {
+                !uses_local_account_inventory(provider)
+                    || account.synced_models.as_ref().is_none_or(|inventory| {
+                        inventory.permits_local_model(requested, model, now)
+                    })
+            })
+            .collect();
+        if accounts.is_empty() {
+            return Err("provider route has no available accounts");
+        }
         let metadata = self.effective_model(tenant, provider, model).await?;
         let cost = metadata.as_ref().and_then(|entry| entry.cost.as_ref());
         let context = metadata
@@ -4644,7 +4692,6 @@ impl ControlPlane {
             .await;
         initialized.sort_by_key(|(index, _, _, _)| *index);
         let model_quotas = self.0.model_quotas.read().await;
-        let now = unix_time_ms()?;
         let targets = initialized
             .into_iter()
             .map(|(_, account, live, protocol)| {
@@ -9621,6 +9668,7 @@ impl ControlPlane {
                     .map(|snapshot| {
                         Ok::<_, &'static str>(Arc::new(SyncedModelInventory {
                             observed_at_unix_ms: snapshot.observed_at_unix_ms,
+                            source_verified: snapshot.source_verified,
                             models: provider_discovery::parse_inventory(&snapshot.models_json)?,
                         }))
                     })
@@ -9909,6 +9957,7 @@ impl ControlPlane {
                     .map(|snapshot| {
                         Ok::<_, &'static str>(Arc::new(SyncedModelInventory {
                             observed_at_unix_ms: snapshot.observed_at_unix_ms,
+                            source_verified: snapshot.source_verified,
                             models: provider_discovery::parse_inventory(&snapshot.models_json)?,
                         }))
                     })
@@ -16509,6 +16558,35 @@ pub async fn delete_client_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_inventory_filter_is_literal_scoped_and_fails_open_when_unknown() {
+        let models =
+            provider_discovery::parse_inventory(r#"[{"id":"team/model-a"},{"id":"model-b"}]"#)
+                .unwrap();
+        let mut inventory = SyncedModelInventory {
+            observed_at_unix_ms: 1_000,
+            source_verified: true,
+            models,
+        };
+        assert!(uses_local_account_inventory("vllm"));
+        assert!(!uses_local_account_inventory("openrouter"));
+        assert!(inventory.permits_local_model("vllm/team/model-a", "team/model-a", 1_000));
+        assert!(inventory.permits_local_model("vllm/model-b[1m]", "model-b[1m]", 1_000));
+        assert!(inventory.permits_local_model("vllm/vendor/model-b", "vendor/model-b", 1_000));
+        assert!(!inventory.permits_local_model("vllm/model-c", "model-c", 1_000));
+        assert!(!inventory.permits_local_model("vllm/model-*", "model-*", 1_000));
+        inventory.source_verified = false;
+        assert!(inventory.permits_local_model("vllm/model-c", "model-c", 1_000));
+        inventory.source_verified = true;
+        assert!(inventory.permits_local_model(
+            "vllm/model-c",
+            "model-c",
+            1_000 + SYNCED_MODEL_MAX_AGE_MS + 1
+        ));
+        inventory.models.clear();
+        assert!(inventory.permits_local_model("vllm/model-c", "model-c", 1_000));
+    }
 
     #[test]
     fn provider_labels_preserve_legacy_unicode_length_limits() {

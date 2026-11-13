@@ -1131,6 +1131,7 @@ impl Database {
                     for statement in [
                         CREATE_MODEL_CATALOG_REFRESH_LEASE,
                         synced_models_storage::CREATE,
+                        synced_models_storage::CREATE_LEGACY_ORIGIN,
                         provider_models_storage::CREATE_ACTIVATION_DEFAULTS,
                         CREATE_DASHBOARD_KEY_VALUE,
                         CREATE_USAGE_RESERVATIONS,
@@ -1153,6 +1154,7 @@ impl Database {
                             .await
                             .map_err(|_| "cannot initialize usage database")?;
                     }
+                    synced_models_storage::migrate_legacy_origins(&pool).await?;
                     migrate_sqlite_usage_schema(&pool).await?;
                 }
                 sqlx::query(SEED_DEFAULT_TENANT)
