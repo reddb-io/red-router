@@ -564,7 +564,9 @@ definitions fail the whole transaction. Rustify reports that the legacy
 provider-node dependency unit directly unblocks 207 units and 1,824 downstream;
 that is ordering evidence, not a parity claim. The corrected implementation
 passed the complete Rust gate in run 43447240189 and product checks in run
-43450371081. Presets/media variants and full cutover acceptance remain open.
+43450371081. The VibeProxy SPA preset passed UI run 43451909172 and browser run
+43452225388, including legacy-compatible `/v1` normalization. Remaining presets,
+media variants and full cutover acceptance stay open.
 
 ## Public-alias model quotas
 
