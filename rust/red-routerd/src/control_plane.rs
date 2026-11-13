@@ -4579,6 +4579,48 @@ impl ControlPlane {
             .await
     }
 
+    /// Apply the same per-host inventory check to cached aliases and combos.
+    /// The snapshot is refreshed independently of clients and route objects.
+    pub(crate) async fn filter_local_route_targets(
+        &self,
+        tenant: &str,
+        targets: &mut Vec<&crate::ModelTarget>,
+        now: i64,
+    ) -> Result<(), &'static str> {
+        if !targets.iter().any(|target| {
+            target
+                .provider_name
+                .as_deref()
+                .is_some_and(uses_local_account_inventory)
+        }) {
+            return Ok(());
+        }
+        let snapshot = self.0.routes.read().await;
+        let pools = match &*snapshot {
+            RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+            RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+        };
+        targets.retain(|target| {
+            let (Some(provider), Some(id)) = (
+                target.provider_name.as_deref(),
+                target.provider_id.as_deref(),
+            ) else {
+                return true;
+            };
+            if !uses_local_account_inventory(provider) {
+                return true;
+            }
+            pools
+                .get(&(tenant.to_owned(), provider.to_owned()))
+                .and_then(|accounts| accounts.iter().find(|account| account.record.id == id))
+                .and_then(|account| account.synced_models.as_ref())
+                .is_none_or(|inventory| {
+                    inventory.permits_local_model(&target.model, &target.model, now)
+                })
+        });
+        Ok(())
+    }
+
     /// Compile a provider/model request against the current tenant's account
     /// pool. Provider clients are cached per snapshot, not recreated per call.
     pub(crate) async fn direct_provider_route(

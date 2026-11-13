@@ -226,20 +226,28 @@ async fn local_model_requests_choose_only_hosts_that_advertise_the_model() {
     let (base, gateway_task) = gateway(control).await;
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let seen = calls.clone();
+    let generation = Arc::new(AtomicUsize::new(0));
+    let catalog_generation = generation.clone();
+    let chat_generation = generation.clone();
     let upstream = Router::new()
-        .route("/v1/models", get(|headers: HeaderMap| async move {
-            let id = match headers["authorization"].to_str().unwrap() {
-                "Bearer host-a-secret" => "model-a",
-                "Bearer host-b-secret" => "model-b",
+        .route("/v1/models", get(move |headers: HeaderMap| {
+            let generation = catalog_generation.clone();
+            async move {
+            let host_a = match headers["authorization"].to_str().unwrap() {
+                "Bearer host-a-secret" => true,
+                "Bearer host-b-secret" => false,
                 _ => panic!("unexpected credential"),
             };
+            let id = if host_a == (generation.load(Ordering::SeqCst) == 0) { "model-a" } else { "model-b" };
             Json(serde_json::json!({"data":[{"id":id}]}))
-        }))
+        }}))
         .route("/v1/chat/completions", post(move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
             let seen = seen.clone();
+            let generation = chat_generation.clone();
             async move {
                 let credential = headers["authorization"].to_str().unwrap();
-                let expected = if credential == "Bearer host-a-secret" { "model-a" } else { "model-b" };
+                let host_a = credential == "Bearer host-a-secret";
+                let expected = if host_a == (generation.load(Ordering::SeqCst) == 0) { "model-a" } else { "model-b" };
                 seen.lock().unwrap().push(format!("{credential}:{}", body["model"].as_str().unwrap()));
                 if body["model"] != expected { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"model unavailable"}))); }
                 (StatusCode::OK, Json(serde_json::json!({"id":"local-chat","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})))
@@ -256,13 +264,29 @@ async fn local_model_requests_choose_only_hosts_that_advertise_the_model() {
     }
     let key = "local-inventory-client-key-123456789";
     assert_eq!(client.put(format!("{base}/api/admin/client-keys/local-routing")).bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({"label":"Local routing","api_key":key,"scopes":["inference:chat"],"allowed_models":["vllm/*"],"allowed_provider_ids":["host-a","host-b"]}))
+        .json(&serde_json::json!({"label":"Local routing","api_key":key,"scopes":["inference:chat"],"allowed_models":["*"],"allowed_provider_ids":["host-a","host-b"]}))
         .send().await.unwrap().status(), StatusCode::OK);
     for model in ["model-a", "model-b"] {
         assert_eq!(chat_model(&client, &base, key, &format!("vllm/{model}")).await.status(), StatusCode::OK);
     }
     assert_eq!(chat_model(&client, &base, key, "vllm/model-c").await.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(*calls.lock().unwrap(), vec!["Bearer host-a-secret:model-a", "Bearer host-b-secret:model-b"]);
+    assert_eq!(client.post(format!("{base}/api/admin/model-aliases")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"friendly-local","provider":"vllm","model":"model-a"}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(client.put(format!("{base}/api/admin/combos/local-fallback")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"strategy":"priority","fallback":true,"targets":[{"provider_id":"host-b","model":"model-a"},{"provider_id":"host-a","model":"model-a"}]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    for model in ["friendly-local", "local-fallback"] {
+        assert_eq!(chat_model(&client, &base, key, model).await.status(), StatusCode::OK);
+    }
+    generation.store(1, Ordering::SeqCst);
+    for account in ["host-a", "host-b"] {
+        assert_eq!(client.post(format!("{base}/api/admin/providers/{account}/discovery")).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::OK);
+    }
+    for model in ["friendly-local", "local-fallback"] {
+        assert_eq!(chat_model(&client, &base, key, model).await.status(), StatusCode::OK);
+    }
+    assert_eq!(*calls.lock().unwrap(), vec!["Bearer host-a-secret:model-a", "Bearer host-b-secret:model-b", "Bearer host-a-secret:model-a", "Bearer host-a-secret:model-a", "Bearer host-b-secret:model-a", "Bearer host-b-secret:model-a"]);
     upstream_task.abort();
     gateway_task.abort();
 }

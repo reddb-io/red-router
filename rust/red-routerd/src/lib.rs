@@ -6002,6 +6002,26 @@ async fn proxy_request(
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
     }
+    if let (Some(route), Some(control)) = (route, state.control_plane.as_ref()) {
+        if !route.provider_direct && state.product_combo.is_none() {
+            if control
+                .filter_local_route_targets(&route.tenant_id, &mut eligible, unix_time_ms())
+                .await
+                .is_err()
+            {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Provider route unavailable",
+                );
+            }
+            if eligible.is_empty() {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Provider route unavailable",
+                );
+            }
+        }
+    }
     if let Some(threshold_ppm) = match &state.control_plane {
         Some(control) => control.quota_preflight_threshold_ppm().await,
         None => None,
