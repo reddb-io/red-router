@@ -1000,6 +1000,9 @@ async fn run(
         )
         .await?;
         if backend == Backend::Sqlite {
+            if env::var("RED_ROUTER_MODEL_CATALOG_AUTO_REFRESH").as_deref() != Ok("0") {
+                control.spawn_model_catalog_auto_refresh();
+            }
             red_routerd::audit_export::spawn_persisted_usage(
                 &db,
                 encryption_key.as_str(),

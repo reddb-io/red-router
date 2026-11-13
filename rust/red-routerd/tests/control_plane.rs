@@ -2379,6 +2379,27 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
         .finish_model_catalog_refresh_lease("new", 999)
         .await
         .unwrap());
+    first.spawn_model_catalog_auto_refresh_with_delays(
+        Duration::from_millis(10),
+        Duration::from_millis(20),
+    );
+    second.spawn_model_catalog_auto_refresh_with_delays(
+        Duration::from_millis(10),
+        Duration::from_millis(20),
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while requests.load(Ordering::SeqCst) < 4 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("automatic scheduler did not refresh the catalog");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        4,
+        "replicas must share the automatic schedule"
+    );
     pool.close().await;
     drop(first);
     drop(second);

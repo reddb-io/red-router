@@ -44,7 +44,7 @@ accounts, but does not yet synchronize per-connection inventory, migrate
 activation rules, honor the key's flat model-ID format, or reproduce those
 post-filters. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
-schedule refreshes after a 15-minute startup delay, with a shared daily lease,
+schedule refreshes after a 30-second startup delay, with a shared daily lease,
 five-minute failure backoff and the existing last-good snapshot (CI pending).
 The authenticated manual refresh remains available. Shared scheduling for the
 other database backends remains open.

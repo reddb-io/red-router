@@ -61,7 +61,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 type ControlCipher = AesGcm<Aes256, U16>;
 const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
-const MODEL_CATALOG_AUTO_INITIAL_DELAY: Duration = Duration::from_secs(15 * 60);
+const MODEL_CATALOG_AUTO_INITIAL_DELAY: Duration = Duration::from_secs(30);
 const MODEL_CATALOG_AUTO_RETRY: Duration = Duration::from_secs(5 * 60);
 const MODEL_CATALOG_AUTO_TIMEOUT: Duration = Duration::from_secs(90);
 const MODEL_CATALOG_AUTO_LEASE_MS: i64 = 120_000;
@@ -2255,7 +2255,6 @@ impl ControlPlane {
         plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
         plane.spawn_control_snapshot_sync(snapshot_cadence);
         if sqlite {
-            plane.spawn_model_catalog_auto_refresh();
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
             plane.spawn_provider_quota_sync(quota_cadence);
             plane.spawn_usage_maintenance(USAGE_MAINTENANCE_INTERVAL);
@@ -3562,12 +3561,24 @@ impl ControlPlane {
         });
     }
 
-    fn spawn_model_catalog_auto_refresh(&self) {
+    pub fn spawn_model_catalog_auto_refresh(&self) {
+        self.spawn_model_catalog_auto_refresh_with_delays(
+            MODEL_CATALOG_AUTO_INITIAL_DELAY,
+            MODEL_CATALOG_AUTO_RETRY,
+        );
+    }
+
+    #[doc(hidden)]
+    pub fn spawn_model_catalog_auto_refresh_with_delays(
+        &self,
+        initial: Duration,
+        cadence: Duration,
+    ) {
         let weak = Arc::downgrade(&self.0);
+        let cadence = cadence.max(Duration::from_millis(1));
         tokio::spawn(async move {
-            // Avoid delaying startup or triggering network I/O in short-lived
-            // command invocations. Every SQLite replica shares one schedule.
-            tokio::time::sleep(MODEL_CATALOG_AUTO_INITIAL_DELAY).await;
+            // Avoid delaying startup. Every SQLite replica shares one schedule.
+            tokio::time::sleep(initial).await;
             loop {
                 let Some(inner) = weak.upgrade() else { return };
                 let control = ControlPlane(inner);
@@ -3575,7 +3586,7 @@ impl ControlPlane {
                     eprintln!("Automatic model catalog refresh failed: {error}");
                 }
                 drop(control);
-                tokio::time::sleep(MODEL_CATALOG_AUTO_RETRY).await;
+                tokio::time::sleep(cadence).await;
             }
         });
     }
