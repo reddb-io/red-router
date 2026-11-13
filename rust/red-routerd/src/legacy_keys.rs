@@ -200,13 +200,14 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if number("compression_enabled")? != Some(1) || number("allow_auto_combos")? != Some(1) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
-            for field in ["allowed_connections", "ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
+            for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             let raw_combos = get("allowed_combos")?;
+            let allowed_connections = import_connection_grants(get("allowed_connections")?.as_deref())?;
             let allowed_models = import_model_patterns(get("allowed_models")?.as_deref())?;
             let blocked_models = import_model_patterns(get("blocked_models")?.as_deref())?;
             let has_model_patterns = !allowed_models.is_empty() || !blocked_models.is_empty();
@@ -251,8 +252,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if get("key_hash")?.is_some_and(|existing| !existing.is_empty() && existing != hash) || !hashes.insert(hash.clone()) {
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
-            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,'[]',0,0,0,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,?,0,0,0,1)")
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).bind(allowed_connections).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
@@ -306,6 +307,26 @@ fn import_model_patterns(raw: Option<&str>) -> Result<Vec<String>, &'static str>
     }
     .validate(&patterns)?;
     Ok(patterns)
+}
+
+fn import_connection_grants(raw: Option<&str>) -> Result<String, &'static str> {
+    if raw.is_some_and(|value| value.len() > 65_536) {
+        return Err("legacy provider connection grants are too large");
+    }
+    let grants: Option<Vec<String>> = match raw.filter(|value| !value.trim().is_empty()) {
+        Some(value) => {
+            serde_json::from_str(value).map_err(|_| "invalid legacy provider connection grants")?
+        }
+        None => None,
+    };
+    let grants = grants.unwrap_or_default();
+    if grants.len() > 128 || grants.iter().any(|id| !valid_id(id)) {
+        return Err("invalid legacy provider connection grants");
+    }
+    // Provider adoption preserves connection IDs. Keep even dangling grants:
+    // dropping them could turn a restricted key into an unrestricted empty list.
+    // These are connection IDs, never provider family names or wildcard scopes.
+    serde_json::to_string(&grants).map_err(|_| "invalid legacy provider connection grants")
 }
 
 fn import_schedule(raw: Option<&str>) -> Result<String, &'static str> {

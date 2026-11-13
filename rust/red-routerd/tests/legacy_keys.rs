@@ -20,7 +20,8 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
         .unwrap();
     sqlx::raw_sql(r#"
         UPDATE api_keys SET allowed_models='["openai/gpt-*","team"]',
-          blocked_models='["openai/gpt-secret*"]', allowed_combos=NULL WHERE id='first';
+          blocked_models='["openai/gpt-secret*"]', allowed_combos=NULL,
+          allowed_connections='["models"]' WHERE id='first';
         INSERT INTO key_value VALUES ('settings','preferClaudeCodeForUnprefixedClaudeModels','true');
     "#).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
@@ -37,6 +38,7 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
         .unwrap();
     assert!(!key.enabled);
     assert_eq!(key.allowed_combos_json, "null");
+    assert_eq!(key.allowed_provider_ids_json, r#"["models"]"#);
     let grants: serde_json::Value = serde_json::from_str(&key.allowed_models_json).unwrap();
     assert_eq!(grants["schema"], "redrouter-model-permissions-v1");
     assert_eq!(grants["prefer_claude_code"], true);
@@ -82,25 +84,28 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
     let base = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let response = client.put(format!("{base}/api/admin/providers/models"))
+    for id in ["models", "other-connection"] {
+        let response = client.put(format!("{base}/api/admin/providers/{id}"))
         .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type", "application/json")
         .body(serde_json::json!({"provider":"openai","upstream_url":format!("http://{upstream_address}/v1/chat/completions"),"api_key":"fixture-provider-key"}).to_string())
         .send().await.unwrap();
-    assert_eq!(
-        response.status().as_u16(),
-        200,
-        "{}",
-        response.text().await.unwrap()
-    );
-    for (combo, model) in [
-        ("allowed", "gpt-4o"),
-        ("denied", "gpt-secret-mini"),
-        ("team", "other"),
-        ("unlisted", "other"),
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "{}",
+            response.text().await.unwrap()
+        );
+    }
+    for (combo, model, connection) in [
+        ("allowed", "gpt-4o", "models"),
+        ("denied", "gpt-secret-mini", "models"),
+        ("team", "other", "models"),
+        ("unlisted", "other", "models"),
+        ("wrong-connection", "gpt-4o", "other-connection"),
     ] {
         let response = client.put(format!("{base}/api/admin/combos/{combo}"))
             .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type", "application/json")
-            .body(serde_json::json!({"protocol":"openai","strategy":"priority","fallback":true,"targets":[{"provider_id":"models","model":model}]}).to_string())
+            .body(serde_json::json!({"protocol":"openai","strategy":"priority","fallback":true,"targets":[{"provider_id":connection,"model":model}]}).to_string())
             .send().await.unwrap();
         assert_eq!(
             response.status().as_u16(),
@@ -114,6 +119,7 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
         ("denied", 403),
         ("team", 200),
         ("unlisted", 403),
+        ("wrong-connection", 403),
     ] {
         let response = client.post(format!("{base}/v1/chat/completions"))
             .bearer_auth("secret-credential-123456").header("content-type","application/json")
@@ -152,7 +158,7 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
     let response = client.put(format!("{base}/api/admin/client-keys/first"))
         .bearer_auth("legacy-schedule-admin-key-00000001").header("content-type","application/json")
         .body(serde_json::json!({"label":"Renamed","enabled":false,"expires_at_unix":1893456000_u64,
-            "model_access_mode":"restricted","allowed_models":["openai/gpt-*","team"],"blocked_models":["openai/gpt-secret*"],"allowed_combos":null}).to_string())
+            "model_access_mode":"restricted","allowed_models":["openai/gpt-*","team"],"blocked_models":["openai/gpt-secret*"],"allowed_combos":null,"allowed_provider_ids":["models"]}).to_string())
         .send().await.unwrap();
     assert_eq!(
         response.status().as_u16(),
@@ -177,6 +183,10 @@ async fn imported_model_patterns_gate_catalog_and_dispatch_and_survive_dashboard
     assert_eq!(saved.allowed_models_json, key.allowed_models_json);
     assert_eq!(saved.blocked_models_json, key.blocked_models_json);
     assert_eq!(saved.allowed_combos_json, "null");
+    assert_eq!(
+        saved.allowed_provider_ids_json,
+        key.allowed_provider_ids_json
+    );
     db.close().await.unwrap();
 }
 
@@ -239,6 +249,51 @@ pub async fn fixture() -> (TempDir, std::path::PathBuf, std::path::PathBuf, Stri
         .await
         .unwrap();
     (dir, source, dest, url)
+}
+
+#[tokio::test]
+async fn connection_grants_preserve_dangling_ids_and_invalid_later_keys_roll_back() {
+    for (raw, expected) in [
+        (
+            r#"["missing-connection","noauth"]"#,
+            Some(r#"["missing-connection","noauth"]"#),
+        ),
+        ("null", Some("[]")),
+        ("[]", Some("[]")),
+        (r#"["*"]"#, None),
+        (r#"["connection",42]"#, None),
+        (r#"{"connection":true}"#, None),
+    ] {
+        let (_dir, source, dest, url) = fixture().await;
+        let mut input =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE api_keys SET allowed_connections=? WHERE id='second'")
+            .bind(raw)
+            .execute(&mut input)
+            .await
+            .unwrap();
+        input.close().await.unwrap();
+        let before = tokio::fs::read(&source).await.unwrap();
+        let result = legacy_keys::import(&source, &dest).await;
+        assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let keys = db.client_keys().await.unwrap();
+        if let Some(expected) = expected {
+            result.unwrap();
+            let key = keys.iter().find(|key| key.id == "second").unwrap();
+            assert_eq!(key.allowed_provider_ids_json, expected);
+            assert!(!key.enabled);
+        } else {
+            assert!(result.is_err());
+            assert!(
+                keys.is_empty(),
+                "later invalid restriction must roll back earlier keys"
+            );
+        }
+        db.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

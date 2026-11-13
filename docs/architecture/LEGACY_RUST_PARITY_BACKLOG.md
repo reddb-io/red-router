@@ -228,8 +228,8 @@ without exposing backend implementation labels.
   key; a future routing-settings UI must explicitly migrate it rather than silently
   reinterpret saved grants. Invalid settings or lists roll back all keys.
 - Existing limits (128 patterns, 256 bytes each) remain explicit import blockers for
-  larger source lists. Groups, non-public visibility, disabled-model settings, provider
-  connection restrictions and other unsupported fields remain blocked. Keys still
+  larger source lists. Groups, non-public visibility, disabled-model settings and
+  other unsupported fields remain blocked. Keys still
   require quota adoption before activation. This is not complete key migration.
 - Added matcher tests, source-preserving import/reload, catalog/dispatch denial with
   provider-call counting, policy-edit round trips and browser form regressions.
@@ -243,3 +243,16 @@ normal transactions. A pinned-reader regression verifies that a writer commits w
 the reader retains its original snapshot; the independent-writer regression remains
 unchanged. No constraint/IO/commit error is blindly retried and no durability pragma
 is weakened. The failed run is `43382264010`; replacement CI must verify the fix.
+
+2026-11-13 — CORE-05/09: migrate legacy `allowed_connections` to native
+`allowed_provider_ids`. `src/sse/services/auth.ts` applies an exact connection-ID
+allow-list, with null/empty meaning unrestricted; the native provider gate has the
+same semantics and provider adoption preserves IDs. Keep dangling identifiers
+instead of dropping the list and widening access. Invalid/mixed-type/wildcard lists
+and lists exceeding 128 entries roll back the import. The synthetic `noauth` ID is
+preserved as an ID, not expanded into a wildcard or treated as a configured transport.
+
+The migration regression now configures two accounts of the same provider and proves
+that the imported key only dispatches through its permitted account; the other account
+is also absent from the client model catalog. Edits/reload retain the grants. This
+does not port exclusive account leases or the separate scopes controlling those leases.
