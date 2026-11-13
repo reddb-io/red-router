@@ -61,7 +61,7 @@ async fn provider_custom_headers_persist_dispatch_and_never_expose_values() {
             StatusCode::BAD_REQUEST
         );
     }
-    let response = client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"headers":{"X-Title":"private-project-title","Accept":"application/json"}})).send().await.unwrap();
+    let response = client.put(&endpoint).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"headers":{"X-Title":"private-project-title","Accept":"application/json","Content-Type":"application/x-fixture+json"}})).send().await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let text = response.text().await.unwrap();
     assert!(!text.contains("private-project-title"));
@@ -78,6 +78,19 @@ async fn provider_custom_headers_persist_dispatch_and_never_expose_values() {
     {
         let requests = seen.lock().unwrap();
         assert_eq!(requests.last().unwrap()["x-title"], "private-project-title");
+        assert_eq!(
+            requests.last().unwrap()["content-type"],
+            "application/x-fixture+json"
+        );
+        assert_eq!(
+            requests
+                .last()
+                .unwrap()
+                .get_all("content-type")
+                .iter()
+                .count(),
+            1
+        );
         assert_eq!(
             requests.last().unwrap()["authorization"],
             "Bearer provider-secret"
