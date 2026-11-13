@@ -154,7 +154,7 @@ test("the SPA creates a local API connection without a provider credential", asy
   await page
     .getByLabel("Upstream URL", { exact: true })
     .fill("http://127.0.0.1:1/v1/chat/completions");
-  await page.getByLabel("Credential authentication", { exact: true }).selectOption("none");
+  await page.getByLabel(/^Credential authentication/).selectOption("none");
   await expect(page.getByLabel("API key or provider credential", { exact: false })).toBeDisabled();
   const saved = page.waitForResponse(
     (response) =>
