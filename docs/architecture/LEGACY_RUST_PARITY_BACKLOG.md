@@ -412,3 +412,17 @@ custom models or model-prefix routing aliases. Distributed binding/create/delete
 races and non-SQL namespace uniqueness remain explicit acceptance gaps. A binding
 whose definition disappears fails closed rather than sending credentials to a
 fallback destination. The 71-front backlog remains open.
+
+
+Provider-definition slice `6fa261d6d`: product checks **43410126192** and all
+**227 UI tests** (**43410130312**) passed. Rust run **43410122205** and real-SPA
+browser run **43410984355** are pending. The browser regression creates a definition,
+binds an account, reloads durable settings, rejects an unconfirmed shared endpoint
+change and verifies an approved change after reload. The local preview now runs
+backend and dashboard `6fa261d6d`, with a SQLite/executable backup, HTTP 200 for SPA
+and health, authenticated definition listing, and 401 without authentication.
+
+Packaging review corrected both source Dockerfiles to copy compile-time catalog
+and provider-namespace JSON inputs and invalidate the temporary dependency-cache
+targets before compiling real sources. A full source Docker image build has not yet
+been established by the current checks; native build/browser evidence is narrower.
