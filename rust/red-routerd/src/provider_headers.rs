@@ -198,6 +198,27 @@ fn definition_subject(node: &StoredProviderNode) -> StoredProvider {
         node_id: None,
     }
 }
+
+pub(crate) async fn encrypt_definition_headers(
+    node: &StoredProviderNode,
+    values: &BTreeMap<String, String>,
+    encryption_key: &str,
+) -> Result<Option<StoredProviderNodeHeaders>, &'static str> {
+    validate(values)?;
+    if values.is_empty() {
+        return Ok(None);
+    }
+    let subject = definition_subject(node);
+    let upstream_identity = identity(&subject);
+    let aad = format!("{}:request-headers:{upstream_identity}", subject.id);
+    let plaintext =
+        Zeroizing::new(serde_json::to_string(values).map_err(|_| "invalid provider headers")?);
+    Ok(Some(StoredProviderNodeHeaders {
+        upstream_identity,
+        ciphertext: encrypt_async(&plaintext, &aad, encryption_key).await?,
+        revision: node.revision,
+    }))
+}
 fn account_definition_subject(provider: &StoredProvider, node_id: &str) -> StoredProvider {
     StoredProvider {
         id: format!("node:{}:{node_id}", provider.tenant_id),
@@ -387,21 +408,9 @@ pub async fn put_node_headers(
         let subject = definition_subject(&node);
         let expected_revision = node.revision;
         node.revision = revision()?;
-        node.header_config = if input.headers.is_empty() {
-            None
-        } else {
-            let upstream_identity = identity(&subject);
-            let aad = format!("{}:request-headers:{upstream_identity}", subject.id);
-            let plaintext = Zeroizing::new(
-                serde_json::to_string(&input.headers).map_err(|_| "invalid provider headers")?,
-            );
-            Some(StoredProviderNodeHeaders {
-                upstream_identity,
-                ciphertext: encrypt_async(&plaintext, &aad, control.0.encryption_key.as_str())
-                    .await?,
-                revision: node.revision,
-            })
-        };
+        node.header_config =
+            encrypt_definition_headers(&node, &input.headers, control.0.encryption_key.as_str())
+                .await?;
         control
             .0
             .database

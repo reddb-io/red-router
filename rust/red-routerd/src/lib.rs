@@ -15,6 +15,7 @@ pub mod legacy_archive;
 pub mod legacy_cutover;
 pub mod legacy_keys;
 pub mod legacy_preflight;
+pub mod legacy_provider_nodes;
 pub mod legacy_providers;
 pub mod legacy_quota;
 mod model_alias_response;

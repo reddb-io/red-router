@@ -3,7 +3,9 @@
 //! The individual importers remain deliberately strict. This coordinator adds
 //! a durable rollback boundary around them so a later unsupported slice cannot
 //! leave an operator with a partially migrated Rust database.
-use crate::{legacy_archive, legacy_keys, legacy_preflight, legacy_providers};
+use crate::{
+    legacy_archive, legacy_keys, legacy_preflight, legacy_provider_nodes, legacy_providers,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -16,6 +18,7 @@ pub struct CutoverReport {
     pub preflight: legacy_preflight::LegacyPreflight,
     pub pricing: legacy_preflight::PricingImport,
     pub keys: legacy_keys::KeyImport,
+    pub provider_nodes: legacy_provider_nodes::ProviderNodeImport,
     pub providers: legacy_providers::ProviderStage,
     pub usage_archive: legacy_archive::ArchiveReport,
     pub activation_required: bool,
@@ -117,6 +120,18 @@ pub async fn migrate(
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "client keys", error)),
     };
+    let provider_nodes =
+        match legacy_provider_nodes::import(&source, &destination, storage_key).await {
+            Ok(report) => report,
+            Err(error) => {
+                return Err(restore(
+                    &destination,
+                    &rollback,
+                    "provider definitions",
+                    error,
+                ))
+            }
+        };
     let providers = match legacy_providers::stage(&source, &destination, storage_key).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "providers", error)),
@@ -130,18 +145,20 @@ pub async fn migrate(
         .map_err(|error| restore(&destination, &rollback, "final verification", &error))?;
 
     Ok(CutoverReport {
-        version: 1,
+        version: 2,
         source: source.to_string_lossy().into_owned(),
         destination: destination.to_string_lossy().into_owned(),
         rollback_copy: rollback.to_string_lossy().into_owned(),
         preflight,
         pricing,
         keys,
+        provider_nodes,
         providers,
         usage_archive,
         activation_required: true,
         follow_up: vec![
             "adopt staged OAuth providers with their provider-specific command",
+            "bind imported compatible-provider accounts to their reusable definitions",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

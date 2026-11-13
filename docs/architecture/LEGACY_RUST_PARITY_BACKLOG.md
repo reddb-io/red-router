@@ -544,3 +544,20 @@ relaxing operator combo validation. `453d83e6e` indexes account lookup while
 compiling routes. Corrected native/browser suites are running; no alias acceptance
 claim is made yet. The local preview remains on the validated custom-metadata
 slice pending those results.
+
+## Reusable legacy provider definitions (validation pending)
+
+PV-17/18 now have a strict offline importer for the historical `provider_nodes`
+table. Supported OpenAI-compatible and Anthropic-compatible definitions retain
+their tenant/name/prefix/protocol/base URL, custom chat/model paths (including
+query strings) and write-only custom headers. Header values are re-encrypted with
+the Rust definition identity; the source stays read-only and any unsupported or
+conflicting row rolls back the complete destination transaction. Icon branding,
+node reset clocks, presets, media protocols and Claude Code compatibility remain
+explicit blockers rather than being silently discarded.
+
+This slice does not yet adopt or bind the matching `provider_connections` rows,
+so it does not complete PV-17/18 or the cutover. Rustify reports that the legacy
+provider-node dependency unit directly unblocks 207 units and 1,824 downstream;
+that is ordering evidence, not a parity claim. Native and migration tests are
+pending repository CI.

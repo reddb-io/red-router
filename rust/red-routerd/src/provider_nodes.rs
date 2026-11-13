@@ -22,7 +22,7 @@ pub(super) fn present_node_id<'de, D: serde::Deserializer<'de>>(
     Option::<String>::deserialize(d).map(Some)
 }
 
-fn default_chat_path(protocol: &str) -> Result<&'static str, &'static str> {
+pub(crate) fn default_chat_path(protocol: &str) -> Result<&'static str, &'static str> {
     match protocol {
         "openai" => Ok("/chat/completions"),
         "openai-responses" => Ok("/responses"),
@@ -34,14 +34,14 @@ fn default_chat_path(protocol: &str) -> Result<&'static str, &'static str> {
     }
 }
 
-fn endpoint(base: &str, path: &str) -> Result<String, &'static str> {
+pub(crate) fn endpoint(base: &str, path: &str) -> Result<String, &'static str> {
     if path.len() > 500
         || !path.starts_with('/')
         || path.starts_with("//")
-        || path.contains(['\\', '?', '#'])
+        || path.contains(['\\', '#'])
         || path.chars().any(char::is_control)
     {
-        return Err("Endpoint path must start with / and contain no query or fragment");
+        return Err("Endpoint path must start with / and contain no fragment");
     }
     let url = reqwest::Url::parse(base).map_err(|_| "Invalid base URL")?;
     if !matches!(url.scheme(), "https" | "http")
@@ -60,15 +60,18 @@ fn endpoint(base: &str, path: &str) -> Result<String, &'static str> {
     Ok(parsed.to_string())
 }
 
-pub(super) fn models_path(node: &StoredProviderNode) -> Result<String, &'static str> {
+pub(crate) fn models_path(node: &StoredProviderNode) -> Result<String, &'static str> {
     let url = endpoint(
         &node.base_url,
         node.models_path.as_deref().unwrap_or("/models"),
     )?;
-    Ok(reqwest::Url::parse(&url)
-        .map_err(|_| "Invalid model discovery URL")?
-        .path()
-        .to_owned())
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "Invalid model discovery URL")?;
+    let mut relative = parsed.path().to_owned();
+    if let Some(query) = parsed.query() {
+        relative.push('?');
+        relative.push_str(query);
+    }
+    Ok(relative)
 }
 
 impl ControlPlane {
@@ -464,5 +467,23 @@ mod tests {
         let node = control.provider_node("team", "red").await.unwrap();
         assert_eq!(node.upstream_url, "http://127.0.0.1:1/v1/chat/completions");
         assert_eq!(models_path(&node).unwrap(), "/v1/models");
+
+        let mut queried = input();
+        queried.prefix = "query-api".into();
+        queried.chat_path = Some("/responses?api-version=2026-11-01".into());
+        queried.models_path = Some("/models?api-version=2026-11-01".into());
+        control
+            .save_provider_node("query-api", queried, "test", Some("red"))
+            .await
+            .unwrap();
+        let queried = control.provider_node("query-api", "red").await.unwrap();
+        assert_eq!(
+            queried.upstream_url,
+            "http://127.0.0.1:1/v1/responses?api-version=2026-11-01"
+        );
+        assert_eq!(
+            models_path(&queried).unwrap(),
+            "/v1/models?api-version=2026-11-01"
+        );
     }
 }

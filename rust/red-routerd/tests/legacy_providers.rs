@@ -4,9 +4,10 @@ use aes_gcm::{
     AesGcm, Nonce,
 };
 use red_routerd::{
-    legacy_providers,
+    legacy_provider_nodes, legacy_providers,
     storage::{Backend, Database},
 };
+use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
 use url::Url;
@@ -66,6 +67,143 @@ fn decrypt_rust_ciphertext(value: &str, id: &str) -> String {
             .unwrap(),
     )
     .unwrap()
+}
+
+fn node_header_aad(
+    id: &str,
+    tenant: &str,
+    prefix: &str,
+    protocol: &str,
+    upstream_url: &str,
+) -> String {
+    let subject = format!("node:{tenant}:{id}");
+    let mut digest = Sha256::new();
+    for value in [&subject, tenant, prefix, upstream_url] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    if protocol != "auto" {
+        for value in ["protocol", protocol] {
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value.as_bytes());
+        }
+    }
+    format!(
+        "{subject}:request-headers:{}",
+        hex::encode(digest.finalize())
+    )
+}
+
+#[tokio::test]
+async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-nodes.sqlite");
+    let dest = dir.path().join("rust-nodes.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql(
+        "CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,chat_path TEXT,models_path TEXT,custom_headers_json TEXT,icon_url TEXT,daily_quota_reset_timezone TEXT,daily_quota_reset_hour INTEGER,created_at TEXT,updated_at TEXT);",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    let id = "openai-compatible-responses-12345678-1234-1234-1234-123456789abc";
+    sqlx::query("INSERT INTO provider_nodes (id,type,name,prefix,api_type,base_url,chat_path,models_path,custom_headers_json,created_at,updated_at) VALUES (?,'openai-compatible','Internal Gateway','internal-gateway','responses','https://gateway.example/v1','/responses?api-version=2026-11-01','/models?api-version=2026-11-01','{\"x-team\":\"red\"}','now','now')")
+        .bind(id)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    let report = legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.imported, 1);
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let nodes = db.provider_nodes().await.unwrap();
+    assert_eq!(nodes.len(), 1);
+    let node = &nodes[0];
+    assert_eq!(node.id, id);
+    assert_eq!(node.tenant_id, "red");
+    assert_eq!(node.prefix, "internal-gateway");
+    assert_eq!(node.protocol, "openai-responses");
+    assert_eq!(
+        node.upstream_url,
+        "https://gateway.example/v1/responses?api-version=2026-11-01"
+    );
+    assert_eq!(
+        node.models_path.as_deref(),
+        Some("/models?api-version=2026-11-01")
+    );
+    let headers = node.header_config.as_ref().unwrap();
+    assert!(!headers.ciphertext.contains(r#"{"x-team":"red"}"#));
+    let aad = node_header_aad(
+        &node.id,
+        &node.tenant_id,
+        &node.prefix,
+        &node.protocol,
+        &node.upstream_url,
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&headers.ciphertext, &aad),
+        r#"{"x-team":"red"}"#
+    );
+    db.close().await.unwrap();
+    assert!(legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-nodes-unsupported.sqlite");
+    let dest = dir.path().join("rust-nodes-unsupported.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,icon_url TEXT,created_at TEXT,updated_at TEXT); INSERT INTO provider_nodes VALUES ('node-one','openai-compatible','One','node-one','chat','https://one.example/v1',NULL,'now','now'); INSERT INTO provider_nodes VALUES ('node-two','openai-compatible','Two','node-two','chat','https://two.example/v1','https://icons.example/two.png','now','now');")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy provider node icon requires migration")
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(db.provider_nodes().await.unwrap().is_empty());
+    db.close().await.unwrap();
 }
 
 #[tokio::test]

@@ -1,6 +1,8 @@
 # Rustify legacy-to-Rust audit
 
-Feature implementation remains paused. This is an analysis deliverable, not release acceptance.
+Feature implementation resumed after this audit. This document remains analysis
+evidence, not release acceptance; live execution state is tracked in
+[RUSTIFY_MIGRATION_QUEUE.md](RUSTIFY_MIGRATION_QUEUE.md).
 
 - Legacy: `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`
 - Current source: `8ccd4a21c949fb6b502ec8f412b4f0af66d6fbd5` (also record exact Rust hashes in JSON)
