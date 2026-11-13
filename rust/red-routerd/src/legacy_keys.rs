@@ -1,4 +1,4 @@
-//! Deliberately narrow offline import of unrestricted legacy client keys.
+//! Offline import of legacy client keys and supported access schedules.
 //! Any policy we cannot faithfully translate makes the whole import fail.
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
@@ -81,7 +81,8 @@ pub struct KeyImport {
 }
 
 /// Source and destination must be offline for cutover. Only current-schema keys
-/// without restrictions or quotas are supported; this does not migrate history.
+/// with supported schedules are accepted. Other restrictions still require a
+/// faithful translation; quotas/history use the separate adoption pipeline.
 pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'static str> {
     let source = std::fs::canonicalize(source).map_err(|_| "legacy database does not exist")?;
     let destination =
@@ -200,9 +201,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if combos.as_deref().is_some_and(|raw| serde_json::from_str::<Vec<String>>(raw).ok().as_deref() != Some(&["combo/*".to_owned()][..])) {
                 return Err("legacy combo policy is unsupported; no keys imported");
             }
-            for field in ["access_schedule", "proxy_id"] {
-                if get(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy key policy is unsupported; no keys imported"); }
-            }
+            let schedule = import_schedule(get("access_schedule")?.as_deref())?;
+            if get("proxy_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy key policy is unsupported; no keys imported"); }
             if get("__attributes")?.is_some_and(|value| serde_json::from_str::<serde_json::Value>(&value).ok() != Some(serde_json::json!({}))) {
                 return Err("legacy usage attributes require migration; no keys imported");
             }
@@ -230,7 +230,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
-            sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,'',1)").bind(&id).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
+            sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,?,1)").bind(&id).bind(schedule).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_ownership (key_id,tenant_id,created_by,revision) VALUES (?,?,'legacy-migration',1)").bind(&id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write key ownership")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_quotas (key_id,max_tokens_per_minute,max_tokens_per_day,max_monthly_microusd,reservation_tokens,reservation_microusd,revision) VALUES (?,0,0,0,0,0,1)").bind(&id).execute(&mut *target).await.map_err(|_| "cannot write key quota")?;
         }
@@ -262,6 +262,22 @@ fn valid_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+fn import_schedule(raw: Option<&str>) -> Result<String, &'static str> {
+    let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
+        return Ok(String::new());
+    };
+    if raw.len() > 4096 {
+        return Err("legacy access schedule is too large; no keys imported");
+    }
+    let schedule: Option<crate::policy::AccessScheduleConfig> = serde_json::from_str(raw)
+        .map_err(|_| "invalid legacy access schedule; no keys imported")?;
+    let Some(schedule) = schedule else {
+        return Ok(String::new());
+    };
+    schedule.validate()?;
+    serde_json::to_string(&schedule).map_err(|_| "cannot encode legacy access schedule")
 }
 fn empty_list(value: Option<&str>) -> Result<bool, &'static str> {
     match value {

@@ -124,8 +124,7 @@ function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
   const scheduleDays = list(draft.scheduleDays).map(Number);
   if (
     draft.scheduleEnabled &&
-    (scheduleDays.length === 0 ||
-      scheduleDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6))
+    scheduleDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
   ) {
     throw new Error("Schedule days must use 0-6, where Sunday is 0");
   }
@@ -284,6 +283,9 @@ function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draf
                 onChange={(e) => set("scheduleDays", e.target.value)}
                 placeholder="1,2,3,4,5"
               />
+              <span className="text-xs text-text-muted">
+                An empty list blocks access on every day.
+              </span>
             </label>
             <label className={labelClass}>
               IANA timezone
@@ -761,8 +763,8 @@ export default function RustApiManagerPageClient() {
               </h2>
               <p className="mt-1 max-w-3xl text-xs text-text-muted">
                 The key must stay disabled while a model quota is changed. A global token or spend
-                quota and a conservative token reservation are required before the server
-                accepts a model limit.
+                quota and a conservative token reservation are required before the server accepts a
+                model limit.
               </p>
             </div>
             <button

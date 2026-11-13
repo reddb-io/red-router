@@ -154,3 +154,116 @@ async fn any_unsupported_policy_rolls_back_all_keys_and_unknown_schema_fails_clo
     assert!(db.client_keys().await.unwrap().is_empty());
     db.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn imported_schedules_survive_storage_reload_and_gate_native_authentication() {
+    use red_routerd::{control_plane::ControlPlane, router, ProxyState};
+    use std::sync::Arc;
+    for enabled in [true, false] {
+        let (_dir, source, dest, url) = fixture().await;
+        // Empty days is a valid legacy deny-all schedule, not an absent policy.
+        let schedule = serde_json::json!({"enabled":enabled,"from":"22:00","until":"06:00","days":[],"tz":"America/Sao_Paulo"});
+        let mut input =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE api_keys SET access_schedule=? WHERE id='first'")
+            .bind(schedule.to_string())
+            .execute(&mut input)
+            .await
+            .unwrap();
+        input.close().await.unwrap();
+        let before = tokio::fs::read(&source).await.unwrap();
+        legacy_keys::import(&source, &dest).await.unwrap();
+        assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let keys = db.client_keys().await.unwrap();
+        let first = keys.iter().find(|key| key.id == "first").unwrap();
+        assert!(
+            !first.enabled,
+            "import does not activate a key before quota adoption"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&first.access_schedule_json).unwrap(),
+            schedule
+        );
+        db.close().await.unwrap();
+        // Isolate schedule enforcement after activation. Quota adoption is
+        // covered by legacy_quota tests and is not bypassed by the importer.
+        let mut target =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE redrouter_control_client_keys SET enabled=1 WHERE id='first'")
+            .execute(&mut target)
+            .await
+            .unwrap();
+        target.close().await.unwrap();
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let control = ControlPlane::new(
+            database.clone(),
+            "legacy-schedule-admin-00000001",
+            "0123456789abcdef0123456789abcdef",
+            true,
+        )
+        .await
+        .unwrap();
+        let state = ProxyState::new(
+            "http://127.0.0.1:1/v1/chat/completions",
+            "fallback-client-00000001",
+            "placeholder",
+            true,
+        )
+        .await
+        .unwrap()
+        .with_control_plane(control);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/v1/models"))
+            .bearer_auth("secret-credential-123456")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), if enabled { 401 } else { 200 });
+        task.abort();
+        let _ = task.await;
+        database.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn malformed_schedule_rolls_back_preceding_keys_instead_of_dropping_the_restriction() {
+    let valid = serde_json::json!({"enabled":true,"from":"08:00","until":"18:00","days":[1,2,3],"tz":"UTC"});
+    for patch in [
+        serde_json::json!({"tz":"Mars/Olympus"}),
+        serde_json::json!({"from":"25:00"}),
+        serde_json::json!({"days":[1,1]}),
+        serde_json::json!({"days":[7]}),
+        serde_json::json!({"enabled":"true"}),
+        serde_json::json!({"futurePolicy":true}),
+    ] {
+        let (_dir, source, dest, url) = fixture().await;
+        let mut invalid = valid.clone();
+        invalid
+            .as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        let mut input =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE api_keys SET access_schedule=CASE id WHEN 'first' THEN ? ELSE ? END")
+            .bind(valid.to_string())
+            .bind(invalid.to_string())
+            .execute(&mut input)
+            .await
+            .unwrap();
+        input.close().await.unwrap();
+        assert!(legacy_keys::import(&source, &dest).await.is_err());
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        assert!(db.client_keys().await.unwrap().is_empty());
+        db.close().await.unwrap();
+    }
+}

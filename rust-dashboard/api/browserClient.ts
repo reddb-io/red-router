@@ -997,7 +997,6 @@ function isRustClientAccessSchedule(value: unknown): value is RustClientAccessSc
     typeof schedule.until === "string" &&
     /^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.until) &&
     Array.isArray(schedule.days) &&
-    schedule.days.length > 0 &&
     schedule.days.length <= 7 &&
     schedule.days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) &&
     new Set(schedule.days).size === schedule.days.length &&

@@ -90,7 +90,6 @@ impl AccessScheduleConfig {
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
         if parse_schedule_time(&self.from).is_none()
             || parse_schedule_time(&self.until).is_none()
-            || self.days.is_empty()
             || self.days.len() > 7
             || self.days.iter().any(|day| *day > 6)
             || self
@@ -675,6 +674,29 @@ mod tests {
         assert!(schedule.allows(at(1_710_145_800)));
         // 2024-03-11 12:00 in Sao Paulo.
         assert!(!schedule.allows(at(1_710_169_200)));
+    }
+
+    #[test]
+    fn empty_schedule_days_remain_deny_all_and_disabled_schedule_is_inert() {
+        let config = AccessScheduleConfig {
+            enabled: true,
+            from: "00:00".to_owned(),
+            until: "23:59".to_owned(),
+            days: vec![],
+            tz: "UTC".to_owned(),
+        };
+        let schedule = config.compile().unwrap().unwrap();
+        for day in 0..7 {
+            assert!(!schedule
+                .allows(std::time::UNIX_EPOCH + Duration::from_secs(1_710_169_200 + day * 86_400)));
+        }
+        assert!(AccessScheduleConfig {
+            enabled: false,
+            ..config
+        }
+        .compile()
+        .unwrap()
+        .is_none());
     }
 
     #[test]

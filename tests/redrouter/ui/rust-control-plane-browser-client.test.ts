@@ -712,9 +712,7 @@ describe("Rust control-plane browser client", () => {
     vi.stubGlobal("fetch", fetch);
 
     await expect(listRustTenants()).rejects.toThrow("Invalid tenant response");
-    await expect(listRustIdentityBindings()).rejects.toThrow(
-      "Invalid identity-binding response"
-    );
+    await expect(listRustIdentityBindings()).rejects.toThrow("Invalid identity-binding response");
   });
 
   it("reads a bounded, filterable Rust audit page and validates its total", async () => {
@@ -805,6 +803,23 @@ describe("Rust control-plane browser client", () => {
     vi.stubGlobal("fetch", fetch);
 
     await expect(listRustClientKeys()).rejects.toThrow("Invalid client-key response");
+  });
+
+  it("preserves an imported schedule with no permitted days", async () => {
+    document.cookie = "redrouter_admin_csrf=fixture-token; Path=/";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          client_keys: [
+            { ...clientKey, access_schedule: { ...clientKey.access_schedule!, days: [] } },
+          ],
+        })
+      )
+    );
+    const [key] = await listRustClientKeys();
+    expect(key.access_schedule?.days).toEqual([]);
+    expect(key.access_schedule?.enabled).toBe(clientKey.access_schedule!.enabled);
   });
 
   it("uses the Rust provider authority without accepting returned credentials", async () => {

@@ -137,6 +137,21 @@ Missing surface is based on the registered production router, not a claim that n
 
 ## Slice started from this audit
 
+2026-11-13 — CORE-05/09: legacy key import now translates access schedules into
+the native schedule table, retaining enabled/disabled state, IANA timezone,
+overnight windows and empty-day deny-all schedules. The native validator and SPA
+accept the latter without turning an empty day list into unrestricted access.
+Malformed/unknown schedule fields still roll back the complete key import.
+Keys remain disabled pending quota adoption/activation. Added storage-reload and
+HTTP authentication regressions plus invalid-schedule rollback cases; CI evidence
+must be checked for the feature commit before accepting this slice.
+
+Field review found another migration dependency: legacy model permissions expand
+provider aliases and distinguish `restricted + []` from allow-all, whereas native
+empty `allowed_models` means allow-all. Legacy `*` glob behavior also differs from
+the native universal wildcard. Keep these fields blocked in the importer until
+their behavior has been translated and tested; copying their JSON would be unsafe.
+
 CORE-02: restore model-catalog filtering, sorting, bounded pagination and detailed
 metadata through the existing authenticated Rust catalog API. This closes an
 identified UI gap without creating another backend. Global cross-provider search,
