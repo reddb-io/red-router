@@ -10,7 +10,7 @@ async fn inspection_counts_known_tables_without_exposing_or_modifying_records() 
         .filename(&path)
         .create_if_missing(true);
     let mut db = SqliteConnection::connect_with(&options).await.unwrap();
-    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT, api_key TEXT); INSERT INTO provider_connections VALUES ('private-id','secret-provider'); CREATE TABLE api_keys (id TEXT, key TEXT); INSERT INTO api_keys VALUES ('private-key','secret-client'); CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT); INSERT INTO key_value VALUES ('pricing','cohere','secret-pricing'),('settings','unrelated','secret-setting');")
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT, api_key TEXT); INSERT INTO provider_connections VALUES ('private-id','secret-provider'); CREATE TABLE api_keys (id TEXT, key TEXT); INSERT INTO api_keys VALUES ('private-key','secret-client'); CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT); INSERT INTO key_value VALUES ('pricing','cohere','secret-pricing'),('settings','unrelated','secret-setting'),('customModels','private-provider','secret-model'),('modelAliases','private-alias','secret-target');")
         .execute(&mut db).await.unwrap();
     db.close().await.unwrap();
     let before = tokio::fs::read(&path).await.unwrap();
@@ -18,6 +18,34 @@ async fn inspection_counts_known_tables_without_exposing_or_modifying_records() 
     let encoded = serde_json::to_string(&report).unwrap();
     assert!(!report.migration_ready);
     assert_eq!(report.pricing_rows, Some(1));
+    assert_eq!(report.version, 2);
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "customModels")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "modelAliases")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "providerAliases")
+            .unwrap()
+            .rows,
+        Some(0)
+    );
     assert_eq!(
         report
             .tables
@@ -48,6 +76,22 @@ async fn inspection_counts_known_tables_without_exposing_or_modifying_records() 
     assert!(!encoded.contains("secret-"));
     assert!(!encoded.contains("private-"));
     assert_eq!(before, tokio::fs::read(&path).await.unwrap());
+}
+
+#[tokio::test]
+async fn inspection_distinguishes_missing_model_storage_from_empty_namespaces() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let db = SqliteConnection::connect_with(&options).await.unwrap();
+    db.close().await.unwrap();
+    let report = legacy_preflight::inspect(&path).await.unwrap();
+    assert!(report
+        .model_namespaces
+        .iter()
+        .all(|item| item.rows.is_none()));
 }
 
 #[tokio::test]

@@ -25,6 +25,16 @@ const TABLES: &[&str] = &[
     "key_group_members",
 ];
 
+// Each row can contain a JSON array or map, so these are namespace row counts,
+// not counts of individual models or a claim that they can already be migrated.
+const MODEL_NAMESPACES: &[&str] = &[
+    "customModels",
+    "modelAliases",
+    "providerAliases",
+    "managedModelAliasNames",
+    "modelCompatOverrides",
+];
+
 #[derive(Debug, serde::Serialize)]
 pub struct LegacyTableCount {
     pub table: &'static str,
@@ -36,7 +46,14 @@ pub struct LegacyPreflight {
     pub version: u8,
     pub migration_ready: bool,
     pub pricing_rows: Option<i64>,
+    pub model_namespaces: Vec<LegacyNamespaceCount>,
     pub tables: Vec<LegacyTableCount>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LegacyNamespaceCount {
+    pub namespace: &'static str,
+    pub rows: Option<i64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -210,14 +227,30 @@ pub async fn inspect(path: &Path) -> Result<LegacyPreflight, &'static str> {
     } else {
         None
     };
+    let mut model_namespaces = Vec::with_capacity(MODEL_NAMESPACES.len());
+    for &namespace in MODEL_NAMESPACES {
+        let rows = if has_key_value == 1 {
+            Some(
+                sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE namespace = ?")
+                    .bind(namespace)
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot inspect legacy model configuration")?,
+            )
+        } else {
+            None
+        };
+        model_namespaces.push(LegacyNamespaceCount { namespace, rows });
+    }
     transaction
         .commit()
         .await
         .map_err(|_| "cannot finish legacy inspection")?;
     Ok(LegacyPreflight {
-        version: 1,
+        version: 2,
         migration_ready: false,
         pricing_rows,
+        model_namespaces,
         tables,
     })
 }
