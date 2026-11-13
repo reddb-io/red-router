@@ -113,6 +113,69 @@ async fn inspection_refuses_missing_database_without_creating_it() {
 }
 
 #[tokio::test]
+async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT); INSERT INTO key_value VALUES('syncedAvailableModels','provider:z','[{\"id\":\"old\",\"future\":true}]');").execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&destination)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap()
+    .close()
+    .await
+    .unwrap();
+    let original = tokio::fs::read(&source).await.unwrap();
+    let first = legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((first.staged, first.already_present), (1, 0));
+    let repeat = legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((repeat.staged, repeat.already_present), (0, 1));
+    assert_eq!(tokio::fs::read(&source).await.unwrap(), original);
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("INSERT INTO key_value VALUES('syncedAvailableModels','provider:a','[]'); UPDATE key_value SET value='[{\"id\":\"changed\"}]' WHERE key='provider:z';").execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    assert!(legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap_err()
+        .contains("conflicting"));
+    let mut result =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT legacy_key,value FROM redrouter_legacy_synced_model_records ORDER BY legacy_key",
+    )
+    .fetch_all(&mut result)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![(
+            "provider:z".to_owned(),
+            "[{\"id\":\"old\",\"future\":true}]".to_owned()
+        )]
+    );
+    result.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
     let directory = TempDir::new().unwrap();
     let source = directory.path().join("legacy.sqlite");

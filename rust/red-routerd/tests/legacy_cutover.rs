@@ -70,6 +70,19 @@ async fn model_fixture(model: &str) -> (TempDir, std::path::PathBuf, std::path::
 async fn cutover_imports_models_after_their_provider_definitions() {
     let (dir, source, destination, url) =
         model_fixture(r#"[{"id":"custom-model","source":"manual","inputTokenLimit":16000}]"#).await;
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    let original_inventory =
+        r#"[{"id":"private-model","supportsVision":true,"futureMetadata":{"keep":"exactly"}}]"#;
+    sqlx::query("INSERT INTO key_value VALUES ('syncedAvailableModels',?,?)")
+        .bind("openrouter:account-123")
+        .bind(original_inventory)
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
     let backup = dir.path().join("rollback.sqlite");
     let report = legacy_cutover::migrate(&source, &destination, &backup, STORAGE_KEY)
@@ -79,6 +92,8 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     assert_eq!(report.provider_nodes.imported, 1);
     assert_eq!(report.custom_models.imported, 1);
     assert_eq!(report.model_aliases.imported, 1);
+    assert_eq!(report.synced_models.staged, 1);
+    assert_eq!(report.synced_models.already_present, 0);
     assert!(report.activation_required);
     assert!(report.follow_up.iter().any(|item| item.contains("aliases")));
     assert!(report
@@ -98,6 +113,19 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     assert_eq!(aliases[0].provider, "openrouter");
     assert_eq!(aliases[0].model, "vendor/model");
     db.close().await.unwrap();
+    let mut saved =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let staged: String = sqlx::query_scalar(
+        "SELECT value FROM redrouter_legacy_synced_model_records WHERE legacy_key=?",
+    )
+    .bind("openrouter:account-123")
+    .fetch_one(&mut saved)
+    .await
+    .unwrap();
+    assert_eq!(staged, original_inventory);
+    saved.close().await.unwrap();
     assert_eq!(before, tokio::fs::read(&source).await.unwrap());
     assert!(backup.exists());
 }

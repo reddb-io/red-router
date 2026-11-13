@@ -23,6 +23,7 @@ pub struct CutoverReport {
     pub custom_models: legacy_models::ModelImport,
     pub model_aliases: legacy_aliases::AliasImport,
     pub providers: legacy_providers::ProviderStage,
+    pub synced_models: legacy_preflight::SyncedModelStage,
     pub usage_archive: legacy_archive::ArchiveReport,
     pub activation_required: bool,
     pub follow_up: Vec<&'static str>,
@@ -149,6 +150,10 @@ pub async fn migrate(
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "providers", error)),
     };
+    let synced_models = match legacy_preflight::stage_synced_models(&source, &destination).await {
+        Ok(report) => report,
+        Err(error) => return Err(restore(&destination, &rollback, "synced models", error)),
+    };
     let usage_archive = match legacy_archive::archive(&source, &destination).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "usage archive", error)),
@@ -169,13 +174,14 @@ pub async fn migrate(
         custom_models,
         model_aliases,
         providers,
+        synced_models,
         usage_archive,
         activation_required: true,
         follow_up: vec![
             "adopt staged OAuth providers with their provider-specific command",
             "import compatible-provider accounts by id to bind their reusable definitions",
             "migrate and verify legacy aliases and remaining model compatibility settings",
-            "migrate and verify legacy per-connection synced model inventories",
+            "adopt and verify staged per-connection synced model inventories after provider migration",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

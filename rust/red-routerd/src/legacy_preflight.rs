@@ -63,6 +63,104 @@ pub struct PricingImport {
     pub already_present: u64,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct SyncedModelStage {
+    pub staged: u64,
+    pub already_present: u64,
+}
+
+/// Preserve the original connection-keyed model inventories without activating
+/// them. Provider adoption and enablement change account revisions, so a live
+/// snapshot cannot safely be bound at this stage. Values remain byte-for-byte
+/// intact for later adoption, including metadata the new router cannot yet use.
+pub async fn stage_synced_models(
+    source: &Path,
+    destination: &Path,
+) -> Result<SyncedModelStage, &'static str> {
+    let source = std::fs::canonicalize(source).map_err(|_| "legacy database does not exist")?;
+    let destination =
+        std::fs::canonicalize(destination).map_err(|_| "destination database does not exist")?;
+    if source == destination {
+        return Err("legacy and destination databases must be different files");
+    }
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new().filename(source).read_only(true),
+    )
+    .await
+    .map_err(|_| "cannot open legacy SQLite database read-only")?;
+    for statement in ["PRAGMA query_only = ON", "PRAGMA trusted_schema = OFF"] {
+        sqlx::query(statement)
+            .execute(&mut input)
+            .await
+            .map_err(|_| "cannot initialize legacy inspection")?;
+    }
+    let mut output = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(destination)
+            .busy_timeout(std::time::Duration::from_secs(5)),
+    )
+    .await
+    .map_err(|_| "cannot open destination SQLite database")?;
+    let result = async {
+        let mut snapshot = input.begin().await.map_err(|_| "cannot inspect legacy synced models")?;
+        let mut target = output.begin_with("BEGIN IMMEDIATE").await.map_err(|_| "cannot start synced model staging")?;
+        let result: Result<SyncedModelStage, &'static str> = async {
+            let mixed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='provider_connections'")
+                .fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination schema")?;
+            if mixed != 0 { return Err("destination contains legacy tables; use a separate Rust database"); }
+            sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_synced_model_records (legacy_key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                .execute(&mut *target).await.map_err(|_| "cannot initialize synced model staging")?;
+            let mut rows = sqlx::query("SELECT key,value FROM key_value WHERE namespace='syncedAvailableModels' ORDER BY key")
+                .fetch(&mut *snapshot);
+            let mut staged = 0_u64;
+            let mut already_present = 0_u64;
+            let mut total_bytes = 0_usize;
+            while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy synced models")? {
+                if staged + already_present >= 10_000 { return Err("too many legacy synced model inventories"); }
+                let key: String = row.try_get("key").map_err(|_| "invalid legacy synced model inventory")?;
+                let value: String = row.try_get("value").map_err(|_| "invalid legacy synced model inventory")?;
+                if key.is_empty() || key.len() > 512 || key.chars().any(char::is_control) || value.len() > 16 * 1024 * 1024 {
+                    return Err("invalid legacy synced model inventory");
+                }
+                total_bytes = total_bytes.checked_add(value.len()).ok_or("legacy synced models are too large")?;
+                if total_bytes > 64 * 1024 * 1024 { return Err("legacy synced models are too large"); }
+                let inserted = sqlx::query("INSERT INTO redrouter_legacy_synced_model_records (legacy_key,value) VALUES (?,?) ON CONFLICT(legacy_key) DO NOTHING")
+                    .bind(&key).bind(&value).execute(&mut *target).await.map_err(|_| "cannot stage legacy synced models")?.rows_affected();
+                if inserted == 1 {
+                    staged += 1;
+                } else {
+                    let existing: String = sqlx::query_scalar("SELECT value FROM redrouter_legacy_synced_model_records WHERE legacy_key=?")
+                        .bind(&key).fetch_one(&mut *target).await.map_err(|_| "cannot verify staged synced models")?;
+                    if existing != value { return Err("destination contains conflicting synced models; no rows staged"); }
+                    already_present += 1;
+                }
+            }
+            Ok(SyncedModelStage { staged, already_present })
+        }.await;
+        match result {
+            Ok(report) => {
+                if snapshot.commit().await.is_err() {
+                    let _ = target.rollback().await;
+                    return Err("cannot finish legacy inspection");
+                }
+                target.commit().await.map_err(|_| "cannot commit synced model staging")?;
+                Ok(report)
+            }
+            Err(error) => {
+                let _ = target.rollback().await;
+                let _ = snapshot.rollback().await;
+                Err(error)
+            }
+        }
+    }.await;
+    let output_close = output.close().await;
+    let input_close = input.close().await;
+    if output_close.is_err() || input_close.is_err() {
+        return Err("cannot close migration database");
+    }
+    result
+}
+
 /// Copy only the three legacy pricing namespaces. Existing values are never
 /// overwritten; any conflicting value rolls back the entire destination write.
 pub async fn import_pricing(
