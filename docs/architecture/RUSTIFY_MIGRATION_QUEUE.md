@@ -55,8 +55,11 @@ client catalog consumes a shared in-memory snapshot scoped to the accounts
 allowed by the client key; integration and account-isolation tests await CI.
 Account selection does not yet use this inventory: port the legacy authoritative
 catalog rules without treating incomplete or expired lists as entitlements.
-Migration of legacy `syncedAvailableModels` and further failure/restart
-validation also remain.
+The offline cutover now preserves legacy `syncedAvailableModels` records in a
+separate staging table, including fields not yet supported by Rust (CI pending).
+Those records are not active: adoption must verify the migrated account and its
+tenant, preserve its metadata and visibility rules, and avoid replacing a newer
+discovery. Adoption and further failure/restart validation remain open.
 
 ## Current execution order
 
