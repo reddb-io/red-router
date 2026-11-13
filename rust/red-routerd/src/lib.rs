@@ -1279,6 +1279,12 @@ fn strict_random_order(
     order
 }
 
+#[derive(Clone, Copy)]
+struct EndpointPolicy {
+    custom_path: bool,
+    allow_public_query: bool,
+}
+
 impl ProxyState {
     pub fn with_antigravity_credits_mode(mut self, mode: &str) -> Result<Self, &'static str> {
         self.antigravity_credits_mode = match mode.trim().to_ascii_lowercase().as_str() {
@@ -1357,8 +1363,10 @@ impl ProxyState {
             allow_private,
             protocol,
             auth_scheme,
-            false,
-            false,
+            EndpointPolicy {
+                custom_path: false,
+                allow_public_query: false,
+            },
         )
         .await
     }
@@ -1370,8 +1378,7 @@ impl ProxyState {
         allow_private: bool,
         protocol: ProviderProtocol,
         auth_scheme: ProviderAuthScheme,
-        custom_path: bool,
-        allow_public_query: bool,
+        endpoint_policy: EndpointPolicy,
     ) -> Result<Self, &'static str> {
         let upstream = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
         let loopback = match upstream.host() {
@@ -1383,9 +1390,9 @@ impl ProxyState {
             || !upstream.username().is_empty()
             || upstream.password().is_some()
             || (upstream.query().is_some()
-                && (!allow_public_query || !public_endpoint_query(&upstream)))
+                && (!endpoint_policy.allow_public_query || !public_endpoint_query(&upstream)))
             || upstream.fragment().is_some()
-            || (!custom_path
+            || (!endpoint_policy.custom_path
                 && !upstream.path().ends_with(match protocol {
                     ProviderProtocol::OpenAi => "/chat/completions",
                     ProviderProtocol::OpenAiResponses => "/responses",
@@ -1492,8 +1499,10 @@ impl ProxyState {
             allow_private,
             protocol,
             auth_scheme,
-            configured_protocol != "auto",
-            allow_public_query,
+            EndpointPolicy {
+                custom_path: configured_protocol != "auto",
+                allow_public_query,
+            },
         )
         .await?;
         Ok(LiveProvider {
@@ -4584,6 +4593,7 @@ async fn execute_fusion_panel_target(
                     &identity,
                     &target.provider_name,
                     &target.model,
+                    None,
                     &attribution,
                 )
                 .await
@@ -6267,7 +6277,13 @@ async fn proxy_request(
                 })
             } else {
                 let (event_id, prices) = match control
-                    .begin_native_usage(identity, provider, target_model, &native_usage_attribution)
+                    .begin_native_usage(
+                        identity,
+                        provider,
+                        target_model,
+                        (requested_model != target_model).then_some(requested_model.as_str()),
+                        &native_usage_attribution,
+                    )
                     .await
                 {
                     Ok(attempt) => attempt,

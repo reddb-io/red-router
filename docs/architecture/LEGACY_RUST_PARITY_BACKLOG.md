@@ -564,3 +564,20 @@ definitions fail the whole transaction. Rustify reports that the legacy
 provider-node dependency unit directly unblocks 207 units and 1,824 downstream;
 that is ordering evidence, not a parity claim. Presets/media variants and full
 cutover acceptance remain open; native and migration tests are pending CI.
+
+## Public-alias model quotas (validation pending)
+
+Native SQLite admission now checks a client key's configured model windows for
+both the actual upstream model and the public model name requested by the client.
+Reservations persist the public quota scope beside the actual model under the
+same `BEGIN IMMEDIATE` transaction; settlement copies that scope to the durable
+ledger. This keeps provider/model attribution truthful while preventing alias or
+combo resolution from bypassing a quota. The dashboard counter reads both direct
+actual-model usage and public-name usage without double counting the normal case.
+
+The schema migration adds defaulted `quota_model` columns and indexes, so existing
+reservations and ledger rows retain their prior actual-model semantics. A focused
+test covers two different upstream models sharing one public alias, denial while
+the first hold is pending, settlement, persisted attribution and denial from the
+completed ledger. This slice is not accepted until the full Rust CI passes;
+legacy custom-model/alias import and parameter-policy parity remain open.

@@ -670,6 +670,7 @@ async fn sqlite_usage_paths_have_bounded_report_and_quota_indexes() {
         indexes,
         vec![
             "redrouter_usage_ledger_key_time",
+            "redrouter_usage_ledger_quota_model_time",
             "redrouter_usage_ledger_tenant_key_time",
             "redrouter_usage_ledger_tenant_time",
             "redrouter_usage_reservations_key_time",

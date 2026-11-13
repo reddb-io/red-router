@@ -14,12 +14,12 @@ Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 | Order | Requested capability | Complexity | State | Current acceptance gap |
 | ---: | --- | --- | --- | --- |
 | 1 | Reusable compatible providers, custom paths and model discovery | Medium-high | **In progress** | Native definitions, account bindings, encrypted headers and authenticated discovery exist. Strict legacy import now preserves definitions, custom paths (including query strings), headers and disabled compatible-account bindings transactionally, pending CI. Still implement presets/media variants and prove full cutover. |
-| 2 | Custom models, aliases, context limits, capabilities and parameters | Medium-high | **Partial / P0 blocker** | Custom metadata and aliases exist. Fix quotas keyed by the public alias, import legacy model/alias rows, add parameter policies and prove routing/accounting semantics. |
+| 2 | Custom models, aliases, context limits, capabilities and parameters | Medium-high | **In progress** | Custom metadata and aliases exist. Alias-aware reservations now retain both the public name and actual upstream model transactionally, pending CI. Import legacy model/alias rows, add parameter policies and finish routing/accounting proof. |
 | 3 | Account priorities, groups, default model and provider queues/limits | High | **Open** | Implement the PV-02..09 selection/admission contracts without adding an arbitrary global agent cap; migrate and concurrency-test them. |
 | 4 | OAuth/CLI per executor | High | **Partial** | A small native OAuth set and strict staged adoption exist. Port and verify every supported legacy executor independently, including refresh/revoke and terminal account state. |
 | 5 | Faithful migration of credentials, policies, configuration and counters | High | **Partial / cutover blocker** | Strict transactional importers exist but deliberately refuse unsupported populated fields. Close each refusal, rehearse backup/import/restart/rollback and preserve ciphertext, ownership and counters. |
 | 6 | Organizations, permissions, OIDC and key provisioning | High | **Partial** | Tenant/OIDC/key primitives exist. Complete roles/memberships, external identity provisioning and two-tenant denial/expiry/revocation coverage. |
-| 7 | Quotas, concurrent reservations, combos, fallback and resilience | High | **Partial** | Native accounting/reservations/combos/breakers exist. Close per-model alias quota, legacy strategy/config import, disconnect/retry/reconciliation and two-process SQLite races. |
+| 7 | Quotas, concurrent reservations, combos, fallback and resilience | High | **Partial** | Native accounting/reservations/combos/breakers exist. Alias-model admission and settlement are implemented without replacing actual-model attribution, pending CI. Close legacy strategy/config import, disconnect/retry/reconciliation and remaining two-process SQLite races. |
 | 8 | Full navigation, onboarding and settings | Medium-high | **Partial** | SPA shell exists; Rustify found 106 legacy navigation surfaces, with 69 missing routes and 35 partial routes. Restore only real, backed features and verify deep links/mobile/keyboard behavior. |
 | 9 | Analytics, pricing, logs, timeline and route diagnosis | Medium-high | **Partial** | Pricing and aggregate usage are present. Add bounded detailed records, filters/drill-down/correlation, retention and decision/fallback traces. |
 | 10 | Webhooks, exports and reports | Medium-high | **Partial** | Usage/audit sinks are narrower than the legacy surface. Add signed event webhooks, durable outbox/retry/replay and destination-specific reports including BigQuery dimensions. |
@@ -33,7 +33,8 @@ Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 
 1. Finish item 1 by validating imported compatible-account bindings, then port
    the remaining presets/media variants and prove the complete cutover path.
-2. Fix the item 2 public-alias quota/accounting blocker before enabling aliases.
+2. Validate the item 2 public-alias quota/accounting fix, then import legacy
+   custom model and alias rows.
 3. Implement item 3 selection and admission fields because items 4 and 7 depend
    on their account ordering and queue semantics.
 4. Continue down the table in vertical slices: runtime behavior, persistence,

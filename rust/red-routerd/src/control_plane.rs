@@ -3817,6 +3817,7 @@ impl ControlPlane {
         identity: &crate::policy::ClientIdentity,
         provider: &str,
         model: &str,
+        quota_model: Option<&str>,
         attribution: &crate::native_usage::UsageAttribution,
     ) -> Result<(String, Option<crate::accounting::TokenPrices>), &'static str> {
         let usage = self
@@ -3852,7 +3853,7 @@ impl ControlPlane {
                     reservation_microusd: 0,
                 });
             let allowed = usage
-                .reserve_attributed(
+                .reserve_attributed_for_model(
                     &crate::native_usage::Reservation {
                         event_id: &event_id,
                         key_id: &identity.id,
@@ -3867,6 +3868,7 @@ impl ControlPlane {
                         now_ms: unix_time_ms()?,
                     },
                     attribution,
+                    quota_model,
                 )
                 .await?;
             if !allowed {
@@ -9820,7 +9822,7 @@ impl ControlPlane {
                 .try_get("token_limit")
                 .map_err(|_| "invalid token limit")?;
             let start = crate::native_usage::model_window_start(now, &interval, reset)?;
-            let mut used: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input+tokens_output+tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+            let mut used: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input+tokens_output+tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND (model=$2 OR quota_model=$2) AND created_at_unix_ms >= $3")
                 .bind(key_id).bind(&model).bind(start).fetch_one(pool).await.map_err(|_| "token limit ledger unavailable")?;
             if let Some(baseline) = sqlx::query("SELECT window_start_unix_ms,tokens_used FROM redrouter_legacy_model_token_baselines WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
                 .bind(key_id).bind(&model).bind(&interval).fetch_optional(pool).await.map_err(|_| "legacy model quota baseline unavailable")?

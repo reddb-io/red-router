@@ -219,7 +219,7 @@ pub async fn configure_native_model_limit(
 /// Inspect native Rust reservations without exposing credentials.
 pub async fn list_native(path: &Path) -> Result<Value, &'static str> {
     let pool = database(path, true).await?;
-    let rows = sqlx::query("SELECT event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state FROM redrouter_usage_reservations ORDER BY created_at_unix_ms,event_id LIMIT 1000")
+    let rows = sqlx::query("SELECT event_id,key_id,tenant_id,provider,model,quota_model,reserved_tokens,reserved_microusd,created_at_unix_ms,state FROM redrouter_usage_reservations ORDER BY created_at_unix_ms,event_id LIMIT 1000")
         .fetch_all(&pool).await.map_err(|_| "native reservation schema unavailable")?;
     let mut reservations = Vec::with_capacity(rows.len());
     for row in rows {
@@ -229,6 +229,7 @@ pub async fn list_native(path: &Path) -> Result<Value, &'static str> {
             "tenant_id": row.try_get::<String, _>("tenant_id").map_err(|_| "invalid reservation")?,
             "provider": row.try_get::<String, _>("provider").map_err(|_| "invalid reservation")?,
             "model": row.try_get::<String, _>("model").map_err(|_| "invalid reservation")?,
+            "quota_model": row.try_get::<String, _>("quota_model").map_err(|_| "invalid reservation")?,
             "reserved_tokens": row.try_get::<i64, _>("reserved_tokens").map_err(|_| "invalid reservation")?,
             "reserved_microusd": row.try_get::<i64, _>("reserved_microusd").map_err(|_| "invalid reservation")?,
             "created_at_ms": row.try_get::<i64, _>("created_at_unix_ms").map_err(|_| "invalid reservation")?,
@@ -288,19 +289,23 @@ pub async fn reconcile_native(path: &Path, id: &str, response: &Value) -> Result
         .await
         .map_err(|_| "cannot lock native reservations")?;
     let result: Result<(), &'static str> = async {
-        let row = sqlx::query("SELECT r.key_id,r.tenant_id,r.provider,r.model,r.state,r.created_at_unix_ms,k.label FROM redrouter_usage_reservations r JOIN redrouter_control_client_keys k ON k.id=r.key_id JOIN redrouter_control_client_key_ownership o ON o.key_id=k.id AND o.tenant_id=r.tenant_id WHERE r.event_id=?")
+        let row = sqlx::query("SELECT r.key_id,r.tenant_id,r.provider,r.model,r.quota_model,r.state,r.created_at_unix_ms,k.label FROM redrouter_usage_reservations r JOIN redrouter_control_client_keys k ON k.id=r.key_id JOIN redrouter_control_client_key_ownership o ON o.key_id=k.id AND o.tenant_id=r.tenant_id WHERE r.event_id=?")
             .bind(id).fetch_optional(&mut *db).await.map_err(|_| "native reservation unavailable")?.ok_or("native reservation not found")?;
         let key: String = row.try_get("key_id").map_err(|_| "invalid native reservation")?;
         let tenant: String = row.try_get("tenant_id").map_err(|_| "invalid native reservation")?;
         let provider: String = row.try_get("provider").map_err(|_| "invalid native reservation")?;
         let model: String = row.try_get("model").map_err(|_| "invalid native reservation")?;
+        let quota_model: String = row.try_get("quota_model").map_err(|_| "invalid native reservation")?;
         let label: String = row.try_get("label").map_err(|_| "invalid native reservation")?;
         let state: String = row.try_get("state").map_err(|_| "invalid native reservation")?;
         let created: i64 = row.try_get("created_at_unix_ms").map_err(|_| "invalid native reservation")?;
         if state != "dispatched" || timestamp < created { return Err("reservation is not dispatched or timestamp predates it"); }
+        if quota_model.len() > 256 || quota_model.chars().any(char::is_control) {
+            return Err("invalid native reservation");
+        }
         let snapshot = json!({"currency":"USD","source":"operator-reconciliation","evidence":evidence}).to_string();
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES (?,?,?,?,?,?,'tokens',0,?,?,?,?,?,?,1,?,?)")
-            .bind(id).bind(&key).bind(label).bind(tenant).bind(provider).bind(model)
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,quota_model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms) VALUES (?,?,?,?,?,?,?,'tokens',0,?,?,?,?,?,?,1,?,?)")
+            .bind(id).bind(&key).bind(label).bind(tenant).bind(provider).bind(model).bind(quota_model)
             .bind(usage.input as i64).bind(usage.output as i64).bind(usage.cache_read as i64).bind(usage.cache_creation as i64).bind(usage.reasoning as i64).bind(amount).bind(snapshot).bind(timestamp)
             .execute(&mut *db).await.map_err(|_| "cannot record reconciled usage")?;
         if tokens > 0 {

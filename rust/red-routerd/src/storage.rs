@@ -148,9 +148,9 @@ const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_
 const CREATE_CLIENT_KEY_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_quotas (key_id TEXT PRIMARY KEY, max_tokens_per_minute BIGINT NOT NULL, max_tokens_per_day BIGINT NOT NULL, max_monthly_microusd BIGINT NOT NULL, reservation_tokens BIGINT NOT NULL, reservation_microusd BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_QUOTAS: &str = "SELECT key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision FROM redrouter_control_client_key_quotas ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_QUOTA: &str = "INSERT INTO redrouter_control_client_key_quotas (key_id, max_tokens_per_minute, max_tokens_per_day, max_monthly_microusd, reservation_tokens, reservation_microusd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (key_id) DO UPDATE SET max_tokens_per_minute = $2, max_tokens_per_day = $3, max_monthly_microusd = $4, reservation_tokens = $5, reservation_microusd = $6, revision = $7";
-const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
+const CREATE_USAGE_RESERVATIONS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_reservations (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, quota_model TEXT NOT NULL DEFAULT '', reserved_tokens BIGINT NOT NULL, reserved_microusd BIGINT NOT NULL, created_at_unix_ms BIGINT NOT NULL, state TEXT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
 const CREATE_DASHBOARD_KEY_VALUE: &str = "CREATE TABLE IF NOT EXISTS key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (namespace,key))";
-const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
+const CREATE_USAGE_LEDGER: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_ledger (event_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, key_name TEXT NOT NULL DEFAULT '', tenant_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, quota_model TEXT NOT NULL DEFAULT '', usage_kind TEXT NOT NULL DEFAULT 'tokens', search_units BIGINT NOT NULL DEFAULT 0, tokens_input BIGINT NOT NULL, tokens_output BIGINT NOT NULL, tokens_cache_read BIGINT NOT NULL, tokens_cache_creation BIGINT NOT NULL, tokens_reasoning BIGINT NOT NULL, amount_microusd BIGINT NOT NULL, pricing_known BIGINT NOT NULL, pricing_snapshot TEXT, created_at_unix_ms BIGINT NOT NULL, end_user TEXT, tags_json TEXT NOT NULL DEFAULT '[]')";
 const CREATE_USAGE_COUNTERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_usage_counters (key_id TEXT NOT NULL, minute_bucket BIGINT NOT NULL, consumed_tokens BIGINT NOT NULL, updated_at_unix_ms BIGINT NOT NULL, PRIMARY KEY (key_id, minute_bucket))";
 const CREATE_LEGACY_QUOTA_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_quota_baselines (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, day_start_unix_ms BIGINT NOT NULL, daily_tokens BIGINT NOT NULL, month_start_unix_ms BIGINT NOT NULL, monthly_microusd BIGINT NOT NULL)";
 const CREATE_LEGACY_MODEL_TOKEN_BASELINES: &str = "CREATE TABLE IF NOT EXISTS redrouter_legacy_model_token_baselines (key_id TEXT NOT NULL, model TEXT NOT NULL, reset_interval TEXT NOT NULL, window_start_unix_ms BIGINT NOT NULL, tokens_used BIGINT NOT NULL, PRIMARY KEY (key_id, model, reset_interval))";
@@ -4934,11 +4934,21 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
             .map_err(|_| "cannot migrate usage database")?;
         }
         for (table, column, definition) in [
+            (
+                "redrouter_usage_ledger",
+                "quota_model",
+                "quota_model TEXT NOT NULL DEFAULT ''",
+            ),
             ("redrouter_usage_ledger", "end_user", "end_user TEXT"),
             (
                 "redrouter_usage_ledger",
                 "tags_json",
                 "tags_json TEXT NOT NULL DEFAULT '[]'",
+            ),
+            (
+                "redrouter_usage_reservations",
+                "quota_model",
+                "quota_model TEXT NOT NULL DEFAULT ''",
             ),
             (
                 "redrouter_usage_reservations",
@@ -5011,6 +5021,15 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
             .execute(&mut *connection)
             .await
             .map_err(|_| "cannot migrate usage database")?;
+        for statement in [
+            "CREATE INDEX IF NOT EXISTS redrouter_usage_reservations_quota_model ON redrouter_usage_reservations (key_id, quota_model)",
+            "CREATE INDEX IF NOT EXISTS redrouter_usage_ledger_quota_model_time ON redrouter_usage_ledger (key_id, quota_model, created_at_unix_ms)",
+        ] {
+            sqlx::query(statement)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| "cannot migrate usage database")?;
+        }
         Ok::<_, &'static str>(())
     }
     .await;

@@ -77,8 +77,20 @@ async fn native_reconciliation_is_atomic_audited_and_only_records_usage_once() {
     legacy_quota::adopt(&destination, "key-a", 50, 10)
         .await
         .unwrap();
+    let mut db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query(
+        "UPDATE redrouter_usage_reservations SET quota_model='public-fast' WHERE event_id='hold-a'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    db.close().await.unwrap();
     let pending = reconcile::list_native(&destination).await.unwrap();
     assert_eq!(pending["reservations"][0]["id"], "hold-a");
+    assert_eq!(pending["reservations"][0]["quota_model"], "public-fast");
     let now_ms = (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
     let mut report = serde_json::json!({
         "timestamp_ms": now_ms,
@@ -101,13 +113,14 @@ async fn native_reconciliation_is_atomic_audited_and_only_records_usage_once() {
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
             .await
             .unwrap();
-    let ledger: (i64, i64, i64, i64, String) = sqlx::query_as("SELECT tokens_input,tokens_output,tokens_reasoning,amount_microusd,pricing_snapshot FROM redrouter_usage_ledger WHERE event_id='hold-a'")
+    let ledger: (i64, i64, i64, i64, String, String) = sqlx::query_as("SELECT tokens_input,tokens_output,tokens_reasoning,amount_microusd,pricing_snapshot,quota_model FROM redrouter_usage_ledger WHERE event_id='hold-a'")
         .fetch_one(&mut db).await.unwrap();
     assert_eq!((ledger.0, ledger.1, ledger.2, ledger.3), (12, 8, 2, 25));
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&ledger.4).unwrap()["source"],
         "operator-reconciliation"
     );
+    assert_eq!(ledger.5, "public-fast");
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM redrouter_usage_reservations WHERE event_id='hold-a'",
     )

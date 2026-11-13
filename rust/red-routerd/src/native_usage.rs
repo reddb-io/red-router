@@ -584,12 +584,25 @@ impl NativeUsage {
         reservation: &Reservation<'_>,
         attribution: &UsageAttribution,
     ) -> Result<bool, &'static str> {
+        self.reserve_attributed_for_model(reservation, attribution, None)
+            .await
+    }
+
+    pub(crate) async fn reserve_attributed_for_model(
+        &self,
+        reservation: &Reservation<'_>,
+        attribution: &UsageAttribution,
+        quota_model: Option<&str>,
+    ) -> Result<bool, &'static str> {
         validate_identity(
             reservation.event_id,
             reservation.key_id,
             reservation.tenant_id,
         )?;
         validate_route(reservation.provider, reservation.model)?;
+        if let Some(quota_model) = quota_model {
+            validate_route(reservation.provider, quota_model)?;
+        }
         attribution.validate()?;
         let quota = reservation.quota.validate()?;
         if !(0..=MAX_SAFE_INTEGER).contains(&reservation.reserved_tokens)
@@ -617,7 +630,13 @@ impl NativeUsage {
             .max(reservation.reserved_microusd);
         let mut connection = self.begin().await?;
         let result = self
-            .reserve_in(&mut connection, reservation, attribution, reserved_microusd)
+            .reserve_in(
+                &mut connection,
+                reservation,
+                attribution,
+                reserved_microusd,
+                quota_model.filter(|model| *model != reservation.model),
+            )
             .await;
         match result {
             Ok(allowed) => {
@@ -640,6 +659,7 @@ impl NativeUsage {
         reservation: &Reservation<'_>,
         attribution: &UsageAttribution,
         reserved_microusd: i64,
+        quota_model: Option<&str>,
     ) -> Result<bool, &'static str> {
         let quota = reservation.quota;
         if !crate::shared_budget::admit_in(
@@ -738,10 +758,54 @@ impl NativeUsage {
         if denied {
             return Ok(false);
         }
+        // Enforce both the actual upstream model and the public alias used by
+        // the client. Keeping them separate preserves truthful accounting while
+        // preventing an alias-specific quota from being bypassed by resolution.
+        for (model, public_scope) in std::iter::once((reservation.model, false))
+            .chain(quota_model.map(|model| (model, true)))
+        {
+            if !self
+                .model_quota_allows(connection, reservation, model, public_scope)
+                .await?
+            {
+                return Ok(false);
+            }
+        }
+        let tags_json =
+            serde_json::to_string(&attribution.tags).map_err(|_| "invalid usage attribution")?;
+        let inserted = sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,quota_model,reserved_tokens,reserved_microusd,created_at_unix_ms,state,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'dispatched',$10,$11) ON CONFLICT (event_id) DO NOTHING")
+            .bind(reservation.event_id)
+            .bind(reservation.key_id)
+            .bind(reservation.tenant_id)
+            .bind(reservation.provider)
+            .bind(reservation.model)
+            .bind(quota_model.unwrap_or(""))
+            .bind(reservation.reserved_tokens)
+            .bind(reserved_microusd)
+            .bind(reservation.now_ms)
+            .bind(attribution.end_user.as_deref())
+            .bind(tags_json)
+            .execute(&mut **connection)
+            .await
+            .map_err(|_| "cannot create usage reservation")?
+            .rows_affected();
+        if inserted != 1 {
+            return Err("usage reservation collision");
+        }
+        Ok(true)
+    }
+
+    async fn model_quota_allows(
+        &self,
+        connection: &mut PoolConnection<Any>,
+        reservation: &Reservation<'_>,
+        model: &str,
+        public_scope: bool,
+    ) -> Result<bool, &'static str> {
         // Each matching model window is checked while the same SQLite write
         // lock protects both the completed ledger and all outstanding holds.
         let model_limits = sqlx::query("SELECT reset_interval,reset_minutes,token_limit FROM redrouter_client_model_token_limits WHERE key_id=$1 AND model=$2")
-            .bind(reservation.key_id).bind(reservation.model).fetch_all(&mut **connection)
+            .bind(reservation.key_id).bind(model).fetch_all(&mut **connection)
             .await.map_err(|_| "model quota unavailable")?;
         for limit in model_limits {
             let interval: String = limit
@@ -757,11 +821,17 @@ impl NativeUsage {
                 return Err("invalid model quota");
             }
             let window = model_window_start(reservation.now_ms, &interval, reset)?;
-            let mut consumed: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
-                .bind(reservation.key_id).bind(reservation.model).bind(window).fetch_one(&mut **connection)
-                .await.map_err(|_| "model quota ledger unavailable")?;
+            let mut consumed: i64 = if public_scope {
+                sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND quota_model=$2 AND created_at_unix_ms >= $3")
+                    .bind(reservation.key_id).bind(model).bind(window).fetch_one(&mut **connection)
+                    .await.map_err(|_| "model quota ledger unavailable")?
+            } else {
+                sqlx::query_scalar("SELECT COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning),0) FROM redrouter_usage_ledger WHERE key_id=$1 AND model=$2 AND created_at_unix_ms >= $3")
+                    .bind(reservation.key_id).bind(model).bind(window).fetch_one(&mut **connection)
+                    .await.map_err(|_| "model quota ledger unavailable")?
+            };
             if let Some(baseline) = sqlx::query("SELECT window_start_unix_ms,tokens_used FROM redrouter_legacy_model_token_baselines WHERE key_id=$1 AND model=$2 AND reset_interval=$3")
-                .bind(reservation.key_id).bind(reservation.model).bind(&interval).fetch_optional(&mut **connection)
+                .bind(reservation.key_id).bind(model).bind(&interval).fetch_optional(&mut **connection)
                 .await.map_err(|_| "legacy model quota baseline unavailable")?
             {
                 let baseline_window: i64 = baseline.try_get("window_start_unix_ms").map_err(|_| "invalid legacy model quota baseline")?;
@@ -773,9 +843,15 @@ impl NativeUsage {
                     consumed = consumed.checked_add(baseline_tokens).ok_or("usage counter overflow")?;
                 }
             }
-            let held: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(reserved_tokens),0) FROM redrouter_usage_reservations WHERE key_id=$1 AND model=$2")
-                .bind(reservation.key_id).bind(reservation.model).fetch_one(&mut **connection)
-                .await.map_err(|_| "model quota reservations unavailable")?;
+            let held: i64 = if public_scope {
+                sqlx::query_scalar("SELECT COALESCE(SUM(reserved_tokens),0) FROM redrouter_usage_reservations WHERE key_id=$1 AND quota_model=$2")
+                    .bind(reservation.key_id).bind(model).fetch_one(&mut **connection)
+                    .await.map_err(|_| "model quota reservations unavailable")?
+            } else {
+                sqlx::query_scalar("SELECT COALESCE(SUM(reserved_tokens),0) FROM redrouter_usage_reservations WHERE key_id=$1 AND model=$2")
+                    .bind(reservation.key_id).bind(model).fetch_one(&mut **connection)
+                    .await.map_err(|_| "model quota reservations unavailable")?
+            };
             if consumed < 0 || held < 0 {
                 return Err("invalid model quota state");
             }
@@ -786,26 +862,6 @@ impl NativeUsage {
             {
                 return Ok(false);
             }
-        }
-        let tags_json =
-            serde_json::to_string(&attribution.tags).map_err(|_| "invalid usage attribution")?;
-        let inserted = sqlx::query("INSERT INTO redrouter_usage_reservations (event_id,key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,created_at_unix_ms,state,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'dispatched',$9,$10) ON CONFLICT (event_id) DO NOTHING")
-            .bind(reservation.event_id)
-            .bind(reservation.key_id)
-            .bind(reservation.tenant_id)
-            .bind(reservation.provider)
-            .bind(reservation.model)
-            .bind(reservation.reserved_tokens)
-            .bind(reserved_microusd)
-            .bind(reservation.now_ms)
-            .bind(attribution.end_user.as_deref())
-            .bind(tags_json)
-            .execute(&mut **connection)
-            .await
-            .map_err(|_| "cannot create usage reservation")?
-            .rows_affected();
-        if inserted != 1 {
-            return Err("usage reservation collision");
         }
         Ok(true)
     }
@@ -907,12 +963,13 @@ impl NativeUsage {
         // Shared budgets reserve even when this key has no individual quota.
         // Detect the durable hold instead of trusting the caller's legacy
         // per-key `reserved` hint.
-        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,reserved_tokens,reserved_microusd,state,end_user,tags_json FROM redrouter_usage_reservations WHERE event_id = $1")
+        let reservation = sqlx::query("SELECT key_id,tenant_id,provider,model,quota_model,reserved_tokens,reserved_microusd,state,end_user,tags_json FROM redrouter_usage_reservations WHERE event_id = $1")
             .bind(event.event_id)
             .fetch_optional(&mut **connection)
             .await
             .map_err(|_| "usage reservation unavailable")?;
         let had_reservation = reservation.is_some();
+        let mut quota_model = String::new();
         if let Some(reservation) = reservation {
             let text = |name| reservation.try_get::<String, _>(name).ok();
             let reserved_tokens = reservation
@@ -928,6 +985,9 @@ impl NativeUsage {
                 .try_get::<String, _>("tags_json")
                 .ok()
                 .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok());
+            quota_model = reservation
+                .try_get::<String, _>("quota_model")
+                .map_err(|_| "invalid usage reservation")?;
             if text("key_id").as_deref() != Some(event.key_id)
                 || text("tenant_id").as_deref() != Some(event.tenant_id)
                 || text("provider").as_deref() != Some(event.provider)
@@ -935,6 +995,8 @@ impl NativeUsage {
                 || text("state").as_deref() != Some("dispatched")
                 || reserved_end_user != settlement.attribution.end_user
                 || reserved_tags.as_ref() != Some(&settlement.attribution.tags)
+                || (!quota_model.is_empty()
+                    && validate_route(event.provider, &quota_model).is_err())
                 || reserved_tokens < 0
                 || reserved_microusd < 0
             {
@@ -975,13 +1037,14 @@ impl NativeUsage {
         let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
         let tags_json = serde_json::to_string(&settlement.attribution.tags)
             .map_err(|_| "invalid usage attribution")?;
-        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
+        sqlx::query("INSERT INTO redrouter_usage_ledger (event_id,key_id,key_name,tenant_id,provider,model,quota_model,usage_kind,search_units,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,amount_microusd,pricing_known,pricing_snapshot,created_at_unix_ms,end_user,tags_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
             .bind(event.event_id)
             .bind(event.key_id)
             .bind(event.key_name)
             .bind(event.tenant_id)
             .bind(event.provider)
             .bind(event.model)
+            .bind(quota_model)
             .bind(event.kind.as_str())
             .bind(settlement.search_units)
             .bind(input)
@@ -1301,6 +1364,110 @@ mod tests {
             ..reservation
         };
         assert!(one.reserve(&different).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn public_alias_quota_survives_resolution_and_settlement() {
+        let folder = TempDir::new().unwrap();
+        let database = Arc::new(
+            Database::connect(Backend::Sqlite, &sqlite_url(&folder))
+                .await
+                .unwrap(),
+        );
+        let pool = database.sql_pool().unwrap();
+        sqlx::query("INSERT INTO redrouter_client_model_token_limits VALUES ('key','public-fast','daily',0,100)")
+            .execute(pool)
+            .await
+            .unwrap();
+        let usage = NativeUsage::new(database.clone()).unwrap();
+        let quota = NativeQuota {
+            max_tokens_per_minute: 1_000,
+            max_tokens_per_day: 1_000,
+            max_monthly_microusd: 0,
+            reservation_tokens: 60,
+            reservation_microusd: 0,
+        };
+        let first = Reservation {
+            event_id: "alias-one",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "gpt-5.1",
+            quota,
+            reserved_tokens: 60,
+            reserved_microusd: 0,
+            now_ms: 1_700_000_000_000,
+        };
+        assert!(
+            usage
+                .reserve_attributed_for_model(
+                    &first,
+                    &UsageAttribution::default(),
+                    Some("public-fast"),
+                )
+                .await
+                .unwrap()
+        );
+        let competing = Reservation {
+            event_id: "alias-two",
+            key_id: "key",
+            tenant_id: "tenant",
+            provider: "openai",
+            model: "claude-sonnet-4.5",
+            quota,
+            reserved_tokens: 60,
+            reserved_microusd: 0,
+            now_ms: 1_700_000_000_000,
+        };
+        assert!(!usage
+            .reserve_attributed_for_model(
+                &competing,
+                &UsageAttribution::default(),
+                Some("public-fast"),
+            )
+            .await
+            .unwrap());
+
+        let tokens = ChatUsage {
+            input: 50,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        assert!(usage
+            .settle(&UsageEvent {
+                event_id: first.event_id,
+                key_id: first.key_id,
+                key_name: "Alias client",
+                tenant_id: first.tenant_id,
+                provider: first.provider,
+                model: first.model,
+                usage: &tokens,
+                prices: None,
+                kind: UsageKind::Tokens,
+                search_units: 0,
+                rerank_price: None,
+                now_ms: first.now_ms,
+                reserved: true,
+            })
+            .await
+            .unwrap());
+        let stored: (String, String) = sqlx::query_as(
+            "SELECT model,quota_model FROM redrouter_usage_ledger WHERE event_id='alias-one'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(stored, ("gpt-5.1".to_owned(), "public-fast".to_owned()));
+        assert!(!usage
+            .reserve_attributed_for_model(
+                &competing,
+                &UsageAttribution::default(),
+                Some("public-fast"),
+            )
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
