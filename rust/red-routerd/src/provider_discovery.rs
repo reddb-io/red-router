@@ -48,6 +48,14 @@ fn valid_modality(value: &str) -> bool {
     matches!(value, "text" | "image" | "audio" | "video" | "file" | "pdf")
 }
 
+fn first_limit(values: &[Option<&serde_json::Value>]) -> Option<u64> {
+    values
+        .iter()
+        .flatten()
+        .filter_map(|value| value.as_u64())
+        .find(|value| (1..=1_000_000_000).contains(value))
+}
+
 fn modalities(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
     let values = value?.as_array()?;
     if values.is_empty() || values.len() > 16 {
@@ -194,23 +202,30 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
             .and_then(serde_json::Value::as_str)
             .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
             .map(str::to_owned);
-        let context_length = row
-            .get("context_length")
-            .or_else(|| row.get("contextWindow"))
-            .or_else(|| row.get("inputTokenLimit"))
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| (1..=1_000_000_000).contains(value));
-        let max_input_tokens = row
-            .get("inputTokenLimit")
-            .or_else(|| row.get("max_input_tokens"))
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| (1..=1_000_000_000).contains(value));
-        let max_output_tokens = row
-            .get("max_output_tokens")
-            .or_else(|| row.get("outputTokenLimit"))
-            .or_else(|| row.pointer("/top_provider/max_completion_tokens"))
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| (1..=1_000_000_000).contains(value));
+        let context_length = first_limit(&[
+            row.get("context_length"),
+            row.get("contextLength"),
+            row.get("contextWindow"),
+            row.get("max_model_len"),
+            row.get("maxModelLen"),
+            row.get("max_context_window"),
+            row.get("max_input_tokens"),
+            row.get("maxInputTokens"),
+            row.pointer("/top_provider/context_length"),
+            row.get("inputTokenLimit"),
+        ]);
+        let max_input_tokens = first_limit(&[
+            row.get("inputTokenLimit"),
+            row.get("max_input_tokens"),
+            row.get("maxInputTokens"),
+        ]);
+        let max_output_tokens = first_limit(&[
+            row.get("max_output_tokens"),
+            row.get("outputTokenLimit"),
+            row.get("maxOutputTokens"),
+            row.get("max_tokens"),
+            row.pointer("/top_provider/max_completion_tokens"),
+        ]);
         let model_type = row
             .get("modelType")
             .and_then(serde_json::Value::as_str)
@@ -842,6 +857,9 @@ mod tests {
         assert_eq!(vision.supports_tools, Some(true));
         assert_eq!(vision.supports_thinking, Some(true));
         assert_eq!(capabilities.models[0].model_type.as_deref(), Some("image"));
+        let vllm = parse_models(br#"{"data":[{"id":"local-model","context_length":null,"max_model_len":250000,"max_output_tokens":0,"max_tokens":4096}]}"#, ProviderProtocol::OpenAi).unwrap();
+        assert_eq!(vllm.models[0].context_length, Some(250000));
+        assert_eq!(vllm.models[0].max_output_tokens, Some(4096));
         assert_eq!(
             parse_inventory(&serde_json::to_string(&capabilities.models).unwrap())
                 .unwrap()
