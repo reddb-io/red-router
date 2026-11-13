@@ -224,6 +224,7 @@ pub(crate) struct LiveProvider {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
+    custom_headers: HeaderMap,
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
@@ -536,6 +537,7 @@ pub(crate) struct ModelTarget {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
+    custom_headers: HeaderMap,
     model: String,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
@@ -1420,6 +1422,7 @@ impl ProxyState {
             client: state.client,
             upstream: state.upstream,
             provider_key: state.provider_key,
+            custom_headers: HeaderMap::new(),
             provider_id: None,
             provider_name: None,
             antigravity_project: None,
@@ -1445,6 +1448,7 @@ impl ProxyState {
             client: provider.client.clone(),
             upstream: provider.upstream.clone(),
             provider_key: provider.provider_key.clone(),
+            custom_headers: provider.custom_headers.clone(),
             model: config.model,
             protocol: config.protocol,
             auth_scheme: provider.auth_scheme,
@@ -1873,6 +1877,7 @@ impl ProxyState {
                     client: proxy.client,
                     upstream: proxy.upstream,
                     provider_key: proxy.provider_key,
+                    custom_headers: HeaderMap::new(),
                     model: model.to_string(),
                     protocol: target_protocol,
                     auth_scheme,
@@ -2133,6 +2138,11 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/providers/{id}/purge",
             delete(control_plane::purge_provider),
+        )
+        .route(
+            "/api/admin/providers/{id}/headers",
+            get(control_plane::provider_headers::get_headers)
+                .put(control_plane::provider_headers::put_headers),
         )
         .route(
             "/api/admin/providers/{id}/test",
@@ -3403,6 +3413,7 @@ struct ContextRelaySummaryTarget {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
+    custom_headers: HeaderMap,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
     tenant_id: Arc<str>,
@@ -3582,6 +3593,7 @@ fn context_relay_summary_target(
         client: target.client.clone(),
         upstream: target.upstream.clone(),
         provider_key: target.provider_key.clone(),
+        custom_headers: target.custom_headers.clone(),
         protocol: target.protocol,
         auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
         tenant_id: route.tenant_id.clone(),
@@ -3847,7 +3859,7 @@ async fn generate_context_relay_summary(
                 }
             }
         }
-        Some(request)
+        Some(request.headers(target.custom_headers.clone()))
     };
     let Some(request) = build_request(true) else {
         return ContextRelaySummaryOutcome::InvalidSuccess;
@@ -4086,6 +4098,7 @@ fn internal_target_from_model(
         client: target.client.clone(),
         upstream: target.upstream.clone(),
         provider_key: target.provider_key.clone(),
+        custom_headers: target.custom_headers.clone(),
         protocol: target.protocol,
         auth_scheme: target.auth_scheme.resolve(target.protocol).ok()?,
         tenant_id: route.tenant_id.clone(),
@@ -4468,7 +4481,7 @@ async fn execute_fusion_panel_target(
                 }
             }
         }
-        Some(request)
+        Some(request.headers(target.custom_headers.clone()))
     };
     let _load_guard = ProviderLoadGuard::new(target.in_flight.clone());
     let request = build_request(true, &payload).ok_or_else(InternalTargetFailure::internal)?;
@@ -6397,6 +6410,12 @@ async fn proxy_request(
             } else if let Some(accept) = &accept {
                 upstream = upstream.header(header::ACCEPT, accept.clone());
             }
+            if let Some(headers) = target
+                .map(|t| &t.custom_headers)
+                .or_else(|| live_provider.as_ref().map(|p| &p.custom_headers))
+            {
+                upstream = upstream.headers(headers.clone());
+            }
             upstream
         };
         let circuit = target
@@ -7603,6 +7622,7 @@ mod address_tests {
             client: client.clone(),
             upstream: reqwest::Url::parse(&format!("http://{address}/v1beta/models")).unwrap(),
             provider_key: HeaderValue::from_static("gemini-secret"),
+            custom_headers: HeaderMap::new(),
             protocol: ProviderProtocol::Gemini,
             auth_scheme: ProviderAuthScheme::XGoogApiKey,
             tenant_id: Arc::from("red"),
@@ -7648,6 +7668,7 @@ mod address_tests {
             ))
             .unwrap(),
             provider_key: HeaderValue::from_static("Bearer agy-secret"),
+            custom_headers: HeaderMap::new(),
             protocol: ProviderProtocol::Antigravity,
             auth_scheme: ProviderAuthScheme::Bearer,
             tenant_id: Arc::from("red"),
@@ -7784,6 +7805,7 @@ mod address_tests {
             client: reqwest::Client::new(),
             upstream: reqwest::Url::parse("https://example.com/v1/chat/completions").unwrap(),
             provider_key: HeaderValue::from_static("secret"),
+            custom_headers: HeaderMap::new(),
             model: "gemini-3.1-pro".into(),
             protocol: ProviderProtocol::OpenAi,
             auth_scheme: ProviderAuthScheme::Bearer,

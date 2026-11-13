@@ -2300,3 +2300,30 @@ export async function readRustUsageSummary(keyId?: string): Promise<RustUsageSum
   }
   return summary as unknown as RustUsageSummary;
 }
+
+export interface ProviderHeadersView {
+  names: string[];
+  attached: boolean;
+  revision: string | null;
+}
+
+export async function providerRequestHeaders(
+  id: string,
+  headers?: Record<string, string>
+): Promise<ProviderHeadersView> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/headers`,
+    headers === undefined ? undefined : jsonRequest("PUT", { headers })
+  );
+  if (!value || typeof value !== "object") throw new Error("Invalid provider headers response");
+  const view = value as ProviderHeadersView;
+  if (
+    !Array.isArray(view.names) ||
+    !view.names.every((name) => typeof name === "string") ||
+    typeof view.attached !== "boolean" ||
+    (view.revision !== null && typeof view.revision !== "string")
+  ) {
+    throw new Error("Invalid provider headers response");
+  }
+  return view;
+}

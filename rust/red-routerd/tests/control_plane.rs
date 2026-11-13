@@ -11685,3 +11685,5 @@ async fn restricted_empty_model_access_survives_updates_and_restart() {
     gateway_task.abort();
     provider_task.abort();
 }
+
+include!("cases/provider_headers.rs");

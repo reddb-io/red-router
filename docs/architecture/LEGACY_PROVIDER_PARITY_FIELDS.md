@@ -1,0 +1,64 @@
+# Provider configuration: concrete gaps in the port
+
+Baseline: `525a71de4ac25968d0a25e52eeb1b09cc21c6e92` (last first-parent
+`origin/main` commit before 2026-10-29). Read together with the 71-front
+[full backlog](LEGACY_RUST_PARITY_BACKLOG.md) and the generated inventory of
+106 navigation surfaces / 803 API files. This is a field-level expansion of
+CORE-03/04/09 and API-04, not a replacement or a completion percentage.
+
+Evidence: `src/shared/validation/schemas/provider.ts`, `src/app/api/providers/`,
+`src/app/api/provider-nodes/`, `src/lib/db/providers.ts`,
+`open-sse/executors/default.ts`. Native contracts: `control_plane.rs` ProviderInput,
+ProviderView and provider routes; `legacy_providers.rs`; SPA provider page.
+
+**Partial** means something concrete exists but legacy equivalence is unproven.
+**Missing contract** means ProviderInput/SPA lacks that operation; helpers in other
+modules do not establish a port. **Review** requires tracing the actual consumer.
+Every row needs SQLite persistence, request behavior, import and regression evidence.
+
+| ID | Priority / complexity | Legacy feature / fields | Current gap and next acceptance |
+| --- | --- | --- | --- |
+| PV-01 | P0 / M | Connection name, `display_name`, email | Partial label/account_email mapping; legacy names allow 200 vs native label 128. Preserve long existing names without truncation. |
+| PV-02 | P0 / M | `priority` per provider | Missing connection-level contract; combo target order is a different policy. Preserve order across accounts/restart/import. |
+| PV-03 | P0 / M | `globalPriority` | Missing contract; resolve provider/account precedence and null semantics. |
+| PV-04 | P0 / M | `defaultModel` | Missing connection default; route model is not a connection default. Trace omitted-model resolution. |
+| PV-05 | P0 / M | `group` | Missing provider grouping/filter/routing contract and migration. |
+| PV-06 | P0 / L | `maxConcurrent` | Native target in-flight metrics exist; legacy provider admission/queue setting still needs an independent port. No arbitrary global agent cap. |
+| PV-07 | P0 / L | `rateLimitOverrides.rpm/rpd/tpm/tpd` | Missing provider override contract; client key quotas are a different scope. Shared admission/reset/import tests. |
+| PV-08 | P0 / L | `minTime/maxWaitMs/executionMaxWaitMs` | Missing queue controls; distinguish dispatch spacing, queue timeout and execution timeout. |
+| PV-09 | P0 / L | `quotaWindowThresholds` | Native session/weekly quota view is partial; per-window patches, null clearing and arbitrary supported windows need mapping. |
+| PV-10 | P1 / M | `quotaVisible`, auto refresh | Missing display preference; review refresh enablement versus durable quota workers. |
+| PV-11 | P0 / M | `healthCheckInterval` | Diagnostics exist; per-account scheduled health checks/configuration not established. |
+| PV-12 | P0 / M | `testStatus/lastTested/lastError/lastErrorAt/lastErrorType/lastErrorSource/errorCode` | Native diagnostics/availability are partial; durable detailed history/import/SPA still missing. |
+| PV-13 | P0 / L | `rateLimitedUntil` | Native cooldown exists; verify timestamp import, reset semantics and terminal states. |
+| PV-14 | P0 / L | `proxyEnabled/perKeyProxyEnabled` | Missing outbound proxy selection/configuration/transport and migration. |
+| PV-15 | P0 / L | `projectId` / provider-specific region or account identity | Antigravity session metadata is partial; enumerate per-executor required fields before supporting other provider families. |
+| PV-16 | P0 / M | `customHeaders` on compatible nodes | New encrypted write-only native map + SPA editor; dispatch, combo/internal calls and diagnostics wired. CI pending for this slice. Node-to-connection import and shared node inheritance still missing. |
+| PV-17 | P0 / L | Node `name/prefix/type/apiType/baseUrl` | Native connection provider/upstream URL is partial; separate reusable compatible-node definition and namespace collision behavior still absent. |
+| PV-18 | P0 / M | Node `chatPath/modelsPath` | Full inference URL is supported, but separate discovery URL and custom path inheritance are not a port. |
+| PV-19 | P1 / S | Node `iconUrl` | Missing custom branding field/display/migration. Validate remote image source separately from inference URL. |
+| PV-20 | P0 / M | Node `dailyQuotaResetTimezone/dailyQuotaResetHour` | Missing node-specific reset contract; verify DST and exact window boundaries. |
+| PV-21 | P0 / M | Node presets / `compatMode` | Review each preset; a generic compatible URL must not be advertised as native CLI compatibility. |
+| PV-22 | P0 / M | Credential optional providers / `allowOverwrite` | Native create requires a credential; port legitimate no-auth local providers and explicit duplicate-name replacement safely. |
+| PV-23 | P0 / L | Bulk create/import API credentials, validation and batch enable/test | OAuth import subset exists. Preserve partial failure reporting, duplicate policy and account identity for API credentials. |
+| PV-24 | P0 / L | OAuth authorize/device/import/refresh/revoke per executor | Six native OAuth kinds are not all historical flows. Enumerate every legacy executor and prove identity, expiry, concurrency and revocation separately. |
+| PV-25 | P0 / L | Custom provider model add/update/delete | Catalog metadata is read/refresh-oriented; native per-provider model mutation and discovery reconciliation still missing. |
+| PV-26 | P0 / M | Model aliases `from/to` | Legacy permission aliases exist; operator-managed model routing aliases are a separate missing contract. |
+| PV-27 | P0 / L | Model `apiFormat/supportedEndpoints/targetFormat/compatByProtocol` | Protocol translators exist; per-model overrides/configuration and migration not established. |
+| PV-28 | P0 / M | Model `contextWindowOverride/max_input_tokens/max_output_tokens` | Catalog limits and combo context values exist; model-level overrides and import still missing. |
+| PV-29 | P1 / M | Model `supportsVision/dimensions/supportedInputTypes/modelType/isFree` | Catalog metadata exists; custom model capabilities/pricing overrides require durable management. |
+| PV-30 | P0 / L | Model `normalizeToolCallId/preserveOpenAIDeveloperRole/upstreamHeaders/generationConfig` | Translators have fixed behavior; per-model controls and runtime effects need implementation. Provider headers do not close model headers. |
+| PV-31 | P1 / L | Parameter filters `block/allow/models/autoLearn` | Missing operator-facing contract and learning lifecycle; do not silently discard unsupported request parameters. |
+| PV-32 | P1 / L | Search/fetch interception `interceptSearch/interceptFetch/fetchBackend/fetchProxyUrl/models` | Missing endpoint-specific configuration and search transport integration. |
+
+Execution: PV-16 (current) → PV-17/18/25/26 (usable compatible provider/model
+management) → PV-02/03/04/05 and PV-06/07/08/09 (selection/admission) → remaining
+P0 rows, then P1. OAuth and legacy cutover remain separate acceptance requirements.
+
+Header boundary: GET returns names/revision only; PUT replaces the entire map;
+empty map removes it. Metadata/credential edits retain the map. Changing provider,
+tenant or endpoint detaches it, preventing disclosure to a different destination.
+Headers are compiled into runtime snapshots rather than read from SQLite per request.
+OAuth/CLI connections retain their transport-owned identity headers; this slice does
+not enable custom headers there. Invalid persisted values fail closed. It does not
+lift existing legacy importer rejection for provider-specific settings.

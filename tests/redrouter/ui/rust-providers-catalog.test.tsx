@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   listRustProviderHealth: vi.fn(),
   listRustProviderQuotas: vi.fn(),
   listRustProviders: vi.fn(),
+  providerRequestHeaders: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
   refreshRustModelCatalog: vi.fn(),
@@ -69,6 +70,7 @@ const { default: RustProvidersPageClient } =
 const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
+  api.providerRequestHeaders.mockResolvedValue({ names: [], attached: true, revision: null });
   api.listRustProviderHealth.mockResolvedValue([]);
   api.listRustProviderQuotas.mockResolvedValue([]);
 });

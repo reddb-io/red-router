@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ProviderHeaders from "../ProviderHeaders";
 import { Button, Card } from "../components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
 import RustProviderSessionImportModal from "./RustProviderSessionImportModal";
@@ -1024,6 +1025,11 @@ export default function RustProvidersPageClient() {
           )}
         </div>
       </Card>
+
+      {editingId &&
+        providers.find((provider) => provider.id === editingId)?.credential_type === "static" && (
+          <ProviderHeaders key={editingId} id={editingId} />
+        )}
 
       <div className="grid gap-3 lg:grid-cols-2">
         {loading ? (

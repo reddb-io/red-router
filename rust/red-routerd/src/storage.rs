@@ -35,6 +35,11 @@ const LIST_PROVIDER_SESSIONS: &str = "SELECT provider_id, provider, session_ciph
 const UPSERT_PROVIDER_SESSION: &str = "INSERT INTO redrouter_control_provider_sessions (provider_id, provider, session_ciphertext, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (provider_id) DO UPDATE SET provider = $2, session_ciphertext = $3, revision = $4";
 const DELETE_PROVIDER_SESSION: &str =
     "DELETE FROM redrouter_control_provider_sessions WHERE provider_id = $1";
+const CREATE_PROVIDER_HEADERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_headers (provider_id TEXT PRIMARY KEY, upstream_identity TEXT NOT NULL, headers_ciphertext TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_HEADERS: &str = "SELECT provider_id, upstream_identity, headers_ciphertext, revision FROM redrouter_control_provider_headers ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_HEADER: &str = "INSERT INTO redrouter_control_provider_headers (provider_id, upstream_identity, headers_ciphertext, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (provider_id) DO UPDATE SET upstream_identity = $2, headers_ciphertext = $3, revision = $4";
+const DELETE_PROVIDER_HEADER: &str =
+    "DELETE FROM redrouter_control_provider_headers WHERE provider_id = $1";
 const CREATE_PROVIDER_OAUTH_STATUS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_oauth_status (provider_id TEXT PRIMARY KEY, revision BIGINT NOT NULL, generation BIGINT NOT NULL, refresh_state TEXT NOT NULL, error_code TEXT NOT NULL, observed_at_unix BIGINT NOT NULL)";
 const LIST_PROVIDER_OAUTH_STATUS: &str = "SELECT provider_id, revision, generation, refresh_state, error_code, observed_at_unix FROM redrouter_control_provider_oauth_status ORDER BY provider_id ASC";
 const UPSERT_PROVIDER_OAUTH_STATUS: &str = "INSERT INTO redrouter_control_provider_oauth_status (provider_id, revision, generation, refresh_state, error_code, observed_at_unix) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET revision = $2, generation = $3, refresh_state = $4, error_code = $5, observed_at_unix = $6";
@@ -271,6 +276,14 @@ pub struct StoredProviderSession {
     pub provider_id: String,
     pub provider: String,
     pub session_ciphertext: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderHeaders {
+    pub provider_id: String,
+    pub upstream_identity: String,
+    pub headers_ciphertext: String,
     pub revision: i64,
 }
 
@@ -739,6 +752,7 @@ impl Database {
                         CREATE_PROVIDER_AUTH,
                         CREATE_PROVIDER_OAUTH,
                         CREATE_PROVIDER_SESSIONS,
+                        CREATE_PROVIDER_HEADERS,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
@@ -864,6 +878,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_AUTH).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH).await?;
                 db.remote_schema_query(CREATE_PROVIDER_SESSIONS).await?;
+                db.remote_schema_query(CREATE_PROVIDER_HEADERS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
                 db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
@@ -957,6 +972,7 @@ impl Database {
                     CREATE_PROVIDER_AUTH,
                     CREATE_PROVIDER_OAUTH,
                     CREATE_PROVIDER_SESSIONS,
+                    CREATE_PROVIDER_HEADERS,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,
@@ -1532,6 +1548,86 @@ impl Database {
                 db.query_with(DELETE_PROVIDER_SESSION, params())
                     .await
                     .map_err(|_| "cannot delete provider session configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_headers(&self) -> Result<Vec<StoredProviderHeaders>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_HEADERS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider headers configuration")?
+                .iter()
+                .map(read_sql_provider_header)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_HEADERS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_header)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_HEADERS)
+                .await
+                .map_err(|_| "cannot read provider headers configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_header)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_header(
+        &self,
+        entry: &StoredProviderHeaders,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_HEADER)
+                    .bind(&entry.provider_id)
+                    .bind(&entry.upstream_identity)
+                    .bind(&entry.headers_ciphertext)
+                    .bind(entry.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider headers configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_PROVIDER_HEADER, &provider_header_params(entry))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_PROVIDER_HEADER, provider_header_params(entry))
+                    .await
+                    .map_err(|_| "cannot write provider headers configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_header(&self, provider_id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_HEADER)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider headers configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_PROVIDER_HEADER, &params()).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_PROVIDER_HEADER, params())
+                    .await
+                    .map_err(|_| "cannot delete provider headers configuration")?;
             }
         }
         Ok(())
@@ -5092,6 +5188,59 @@ fn provider_session_params(session: &StoredProviderSession) -> Vec<reddb_client:
         reddb_client::Value::Text(session.provider.clone()),
         reddb_client::Value::Text(session.session_ciphertext.clone()),
         reddb_client::Value::Int(session.revision),
+    ]
+}
+
+fn read_sql_provider_header(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredProviderHeaders, &'static str> {
+    Ok(StoredProviderHeaders {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider headers record")?,
+        upstream_identity: row
+            .try_get("upstream_identity")
+            .map_err(|_| "invalid provider headers record")?,
+        headers_ciphertext: row
+            .try_get("headers_ciphertext")
+            .map_err(|_| "invalid provider headers record")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider headers record")?,
+    })
+}
+
+fn read_reddb_provider_header(
+    row: &reddb_client::Row,
+) -> Result<StoredProviderHeaders, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider headers record"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider headers record"),
+    }?;
+    Ok(StoredProviderHeaders {
+        provider_id: text("provider_id")?,
+        upstream_identity: text("upstream_identity")?,
+        headers_ciphertext: text("headers_ciphertext")?,
+        revision,
+    })
+}
+
+fn provider_header_params(entry: &StoredProviderHeaders) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(entry.provider_id.clone()),
+        reddb_client::Value::Text(entry.upstream_identity.clone()),
+        reddb_client::Value::Text(entry.headers_ciphertext.clone()),
+        reddb_client::Value::Int(entry.revision),
     ]
 }
 

@@ -1,5 +1,7 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 pub use crate::policy::AccessScheduleConfig;
+#[path = "provider_headers.rs"]
+pub mod provider_headers;
 
 use crate::{
     availability::{AvailabilityStatus, ConnectionCooldownProfile, ProviderAvailability},
@@ -134,6 +136,7 @@ SELECT 'provider' AS kind, id AS record_id, revision, 0 AS generation FROM redro
 UNION ALL SELECT 'provider-ownership', provider_id, revision, 0 FROM redrouter_control_provider_ownership
 UNION ALL SELECT 'provider-auth', record_id, revision, 0 FROM redrouter_control_provider_auth
 UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrouter_control_provider_oauth
+UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
 UNION ALL SELECT 'provider-session', provider_id, revision, 0 FROM redrouter_control_provider_sessions
 UNION ALL SELECT 'provider-resilience', record_id, revision, 0 FROM redrouter_provider_resilience
 UNION ALL SELECT 'provider-breaker-override', provider_id, revision, 0 FROM redrouter_provider_breaker_overrides
@@ -5921,6 +5924,8 @@ impl ControlPlane {
             auth.expires_at_unix,
         )
         .await?;
+        let mut live = live;
+        live.custom_headers = self.request_headers(&provider).await?;
         probe_provider(&live, provider.id, input.model).await
     }
 
@@ -6534,6 +6539,7 @@ impl ControlPlane {
             self.0.database.delete_route_pin(&pin.combo_id).await?;
         }
 
+        self.0.database.delete_provider_header(id).await?;
         self.0.database.delete_provider_auth(id).await?;
         self.0.database.delete_provider_oauth(id).await?;
         self.0.database.delete_provider_session(id).await?;
@@ -8503,6 +8509,12 @@ impl ControlPlane {
             signature_i64(&mut digest, record.generation);
             signature_i64(&mut digest, record.revision);
         }
+        for record in self.0.database.provider_headers().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.upstream_identity);
+            signature_text(&mut digest, &record.headers_ciphertext);
+            signature_i64(&mut digest, record.revision);
+        }
         for record in self.0.database.provider_sessions().await? {
             signature_text(&mut digest, &record.provider_id);
             signature_text(&mut digest, &record.provider);
@@ -8678,6 +8690,7 @@ impl ControlPlane {
                 live.claude_identity = claude_identities
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
+                live.custom_headers = self.request_headers(&record).await?;
                 live.provider_id = Some(Arc::from(record.id));
                 live.provider_name = Some(Arc::from(record.provider));
                 live.tenant_id = Arc::from(record.tenant_id);
@@ -8794,6 +8807,7 @@ impl ControlPlane {
                         provider_auth.expires_at_unix,
                     )
                     .await?;
+                    runtime.custom_headers = self.request_headers(provider).await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     runtime.provider_name = Some(Arc::from(provider.provider.clone()));
                     runtime.antigravity_project = antigravity_projects
@@ -10473,6 +10487,7 @@ async fn probe_provider(
     if provider.protocol == ProviderProtocol::Anthropic {
         request = request.header("anthropic-version", "2023-06-01");
     }
+    let request = request.headers(provider.custom_headers.clone());
     let response = match tokio::time::timeout_at(deadline, request.send()).await {
         Ok(Ok(response)) => response,
         Ok(Err(_)) => {

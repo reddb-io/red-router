@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-81 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+82 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -26,6 +26,8 @@ Complexity is relative: S = focused existing API/UI integration; M = several con
 L = new durable domain/protocol; XL = cross-cutting pipeline/runtime subsystem.
 Priority is independent: P0 blocks a safe replacement of core operations; P1 restores
 important product capability; P2 restores additional subsystems. All remain in scope.
+
+Provider configuration now has a [32-item field-level expansion](LEGACY_PROVIDER_PARITY_FIELDS.md), covering node definitions, accounts, transport settings, model overrides and migration gaps.
 
 ## Core replacement: first execution wave
 
@@ -288,3 +290,17 @@ snapshots, cache laziness, unknown prices, unauthorized API calls, browser pagin
 and recovery after a failed search. The general CI also found an unescaped apostrophe
 in Playground JSX; it is corrected here. Acceptance still requires the exact commit's
 CI and local deployment verification.
+
+
+2026-11-13 — CORE-03 / PV-16: native API-credential connections now support
+bounded custom request headers via a names-only read API and an encrypted replace
+operation. The SPA exposes the editor when editing a saved API connection. Values
+are not returned or included in audit snapshots. Destination identity binding stops
+an endpoint change from forwarding old values elsewhere. Runtime snapshots carry
+validated sensitive header maps through direct requests, combo attempts, internal
+summary/fusion calls and diagnostics; SQLite is not queried per inference request.
+The canonical legacy auth/framing/forwarding denylist is preserved. New tests cover
+persistence, diagnostic/dispatch use, combo use, secret redaction, clear/reload and
+invalid input. CI must confirm this commit; legacy custom-node import, OAuth custom
+headers and per-model overrides remain open. Also corrected the global catalog E2E
+fixture to establish its admin session rather than timing out on the login screen.

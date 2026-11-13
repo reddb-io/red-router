@@ -695,7 +695,9 @@ test("static dashboard reads staged historical costs from the Rust API", async (
 
 test("global catalog search paginates on the server and keeps provider identity", async ({
   page,
+  context,
 }) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   const hash = "1".repeat(64);
   const queries: URLSearchParams[] = [];
   const models = Array.from({ length: 52 }, (_, index) => ({
