@@ -65,7 +65,9 @@ organization, plus explicit custom-model and compatibility decisions. Entries
 that only control visibility do not create models. For migrated providers, the
 Rust proxy also rejects inactive inference targets, including combo targets; native
 visibility controls remain list-only. These migration and admission changes await
-CI. Other modalities and unsupported compatibility fields still require migration.
+CI. Import refuses to silently change activation defaults on an already configured
+native provider. Other modalities and unsupported compatibility fields still
+require migration.
 Those records are not active: adoption must verify the migrated account and its
 tenant, preserve its metadata and visibility rules, and avoid replacing a newer
 discovery. Adoption and further failure/restart validation remain open.

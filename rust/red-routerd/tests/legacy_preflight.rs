@@ -429,6 +429,48 @@ async fn legacy_activation_is_migrated_for_each_provider_organization() {
 }
 
 #[tokio::test]
+async fn legacy_activation_does_not_change_an_existing_native_provider() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key)); INSERT INTO key_value VALUES('customModels','openai','[{\"id\":\"example\",\"source\":\"manual\"}]');")
+        .execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_providers VALUES ('existing','openai','https://example.test/v1/chat/completions','opaque',1,1)")
+        .execute(&mut target).await.unwrap();
+    target.close().await.unwrap();
+    let before = tokio::fs::read(&destination).await.unwrap();
+    assert!(legacy_models::import(&source, &destination)
+        .await
+        .unwrap_err()
+        .contains("activation reconciliation"));
+    assert_eq!(tokio::fs::read(&destination).await.unwrap(), before);
+}
+
+#[tokio::test]
 async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
     let directory = TempDir::new().unwrap();
     let source = directory.path().join("legacy.sqlite");

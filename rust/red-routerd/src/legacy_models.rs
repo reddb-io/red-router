@@ -107,6 +107,35 @@ async fn preserve_activation_default(
     tenant: &str,
     provider: &str,
 ) -> Result<(), &'static str> {
+    let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_model_activation_defaults WHERE tenant_id=? AND provider=?")
+        .bind(tenant).bind(provider).fetch_one(&mut **target).await.map_err(|_| "cannot inspect model activation defaults")?;
+    if existing != 0 {
+        return Ok(());
+    }
+    // Installing a default-hidden policy into a previously configured Rust
+    // provider would silently change its existing users' behavior.
+    let accounts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_providers p LEFT JOIN redrouter_control_provider_ownership o ON o.provider_id=p.id WHERE p.provider=? AND COALESCE(o.tenant_id,'red')=?")
+        .bind(provider).bind(tenant).fetch_one(&mut **target).await.map_err(|_| "cannot inspect destination providers")?;
+    if accounts != 0 {
+        return Err("existing destination provider requires activation reconciliation");
+    }
+    let documents: Vec<String> = sqlx::query_scalar(
+        "SELECT config_json FROM redrouter_control_provider_models WHERE tenant_id=? LIMIT 10001",
+    )
+    .bind(tenant)
+    .fetch_all(&mut **target)
+    .await
+    .map_err(|_| "cannot inspect destination model settings")?;
+    if documents.len() > 10_000 {
+        return Err("too many destination model settings");
+    }
+    for document in documents {
+        let model: StoredProviderModel =
+            serde_json::from_str(&document).map_err(|_| "invalid destination model settings")?;
+        if model.provider == provider {
+            return Err("existing destination model requires activation reconciliation");
+        }
+    }
     sqlx::query("INSERT INTO redrouter_control_model_activation_defaults (tenant_id,provider,revision) VALUES (?,?,1) ON CONFLICT(tenant_id,provider) DO NOTHING")
         .bind(tenant).bind(provider).execute(&mut **target).await.map_err(|_| "cannot preserve model activation defaults")?;
     Ok(())
