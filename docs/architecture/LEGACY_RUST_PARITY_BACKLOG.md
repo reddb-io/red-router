@@ -77,7 +77,7 @@ Missing surface is based on the registered production router, not a claim that n
 | UI-22 | P2 / XL | Conductor / orchestration | Missing surface | Workflow DAG/task state, recovery after restart, concurrency, logs and permissions. |
 | UI-23 | P2 / L | Agent bridge | Missing surface | Configured bridges, connection lifecycle, protocol mapping, access controls and diagnosis. |
 | UI-24 | P2 / XL | Plugins | Missing surface | Manifest/installation/lifecycle/permissions with extension boundaries; do not execute arbitrary frontend plugins with backend privileges. |
-| UI-25 | P1 / M | Pricing overrides | Missing UI; `/dashboard/costs/pricing` | Read/edit/sync pricing, currency/unit clarity, retained ledger snapshots and conflict-safe import; catalog list prices alone are insufficient. |
+| UI-25 | P1 / M | Pricing overrides | Partial; custom model editor in Models | Tenant-scoped input/output/cache/reasoning/audio token prices now persist and feed native metering. CI pending for backend/browser. Dedicated pricing navigation, sync/source provenance, all legacy pricing rules and conflict-safe import remain open; catalog list prices alone are insufficient. |
 | UI-26 | P1 / M | Provider quota view | Partial; `/dashboard/quota` → Resilience | Restore account/model windows, auto-refresh settings and quota sharing semantics beyond shared monetary budgets. |
 | UI-27 | P1 / L | Request/proxy/console logs | Partial only for usage aggregate | Bounded searchable records, request detail, redaction, retention and live tail. No infinite memory buffers. |
 | UI-28 | P1 / L | Timeline / conversations / activity | Missing UI; activity currently aggregate usage | Reconstruct correlated requests/messages with permission-aware payload retention and deletion. |
@@ -480,3 +480,12 @@ writes, restart, replica refresh, streaming prices and browser persistence. Thes
 changes are not yet accepted until CI passes. Model routing aliases, legacy custom
 model imports and discovery reconciliation remain open; metadata alone grants no
 route or client permission.
+
+Validation update for custom models: product checks and all 231 UI tests passed
+at `e802f95ac`. The Linux Rust run caught an invalid short admin key in the new
+unit-test fixture (130 other unit tests passed, including competing SQLite writes);
+`6bba90b45` corrects that fixture. Native integration, browser and full benchmark
+acceptance remain pending. The local preview serves backend `97590b547` (same
+application Rust code) and SPA `e802f95ac`; `/healthz` and the HTML model deep link
+respond 200, while anonymous model administration returns 401. No live upstream
+provider was exercised.
