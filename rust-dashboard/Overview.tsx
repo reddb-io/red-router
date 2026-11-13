@@ -104,9 +104,7 @@ export default function Overview() {
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
-          setError(
-            cause instanceof Error ? cause.message : "Unable to load the dashboard."
-          );
+          setError(cause instanceof Error ? cause.message : "Unable to load the dashboard.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -120,7 +118,10 @@ export default function Overview() {
     return {
       enabledProviders: providers.filter((item) => item.enabled).length,
       credentialProblems: providers.filter(
-        (item) => !item.has_credential || item.credential_expired || item.reauth_required
+        (item) =>
+          (item.auth_scheme !== "none" && !item.has_credential) ||
+          item.credential_expired ||
+          item.reauth_required
       ).length,
       unhealthyProviders: health.filter((item) => item.state !== "closed" || item.terminal_status)
         .length,

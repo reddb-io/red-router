@@ -142,3 +142,32 @@ test("provider definitions bind accounts and preserve approved shared updates af
     page.getByRole("button", { name: "Remove shared headers", exact: true })
   ).toBeDisabled();
 });
+
+test("the SPA creates a local API connection without a provider credential", async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.getByLabel("Administrator key").fill(ADMIN_KEY);
+  await page.getByRole("button", { name: "Sign in locally" }).click();
+  await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await page.getByRole("link", { name: "Providers", exact: true }).click();
+  await page.getByLabel("Connection ID", { exact: true }).fill("local-no-auth-e2e");
+  await page
+    .getByLabel("Upstream URL", { exact: true })
+    .fill("http://127.0.0.1:1/v1/chat/completions");
+  await page.getByLabel("Credential authentication", { exact: true }).selectOption("none");
+  await expect(page.getByLabel("API key or provider credential", { exact: false })).toBeDisabled();
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/admin/providers/local-no-auth-e2e") &&
+      response.request().method() === "PUT"
+  );
+  await page.getByRole("button", { name: "Add connection", exact: true }).click();
+  const response = await saved;
+  expect(response.ok()).toBe(true);
+  expect(await response.json()).toMatchObject({
+    provider: { auth_scheme: "none", has_credential: false },
+  });
+  await page.reload();
+  await expect(page.getByText("local-no-auth-e2e", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Not required", { exact: true })).toBeVisible();
+});
