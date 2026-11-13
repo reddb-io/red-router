@@ -4262,6 +4262,7 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
     );
 
     gateway_task.abort();
+    let jwks_before_restart = jwks_requests.load(Ordering::SeqCst);
     let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
         .await
         .unwrap();
@@ -4276,7 +4277,10 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .status(),
         StatusCode::OK
     );
-    assert_eq!(jwks_requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        jwks_requests.load(Ordering::SeqCst),
+        jwks_before_restart + 1
+    );
     assert_eq!(
         client
             .delete(format!("{restarted_base}/api/admin/oidc"))
@@ -11719,3 +11723,5 @@ async fn restricted_empty_model_access_survives_updates_and_restart() {
 }
 
 include!("cases/provider_headers.rs");
+
+include!("cases/provider_discovery.rs");

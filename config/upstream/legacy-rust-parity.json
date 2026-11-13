@@ -12,7 +12,7 @@
     "partialSpaRoutes": 35,
     "externalLinks": 2,
     "oldApiRouteFiles": 803,
-    "rustRegisteredPaths": 82,
+    "rustRegisteredPaths": 83,
     "samePathCandidates": 28
   },
   "pages": [
@@ -9029,6 +9029,14 @@
       "path": "/api/admin/providers/{id}/purge",
       "methods": [
         "DELETE"
+      ]
+    },
+    {
+      "path": "/api/admin/providers/{id}/discovery",
+      "methods": [
+        "GET",
+        "PUT",
+        "POST"
       ]
     },
     {

@@ -2327,3 +2327,62 @@ export async function providerRequestHeaders(
   }
   return view;
 }
+
+export interface ProviderDiscoveryConfig {
+  models_path: string | null;
+  effective_models_path: string | null;
+  revision: string | null;
+}
+export interface DiscoveredProviderModel {
+  id: string;
+  name?: string;
+  context_length?: number;
+  max_output_tokens?: number;
+}
+export async function providerDiscoveryConfig(
+  id: string,
+  path?: string | null
+): Promise<ProviderDiscoveryConfig> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/discovery`,
+    path === undefined ? undefined : jsonRequest("PUT", { models_path: path })
+  );
+  if (!value || typeof value !== "object") throw new Error("Invalid discovery configuration");
+  const config = value as ProviderDiscoveryConfig;
+  if (
+    ![config.models_path, config.effective_models_path, config.revision].every(
+      (entry) => entry === null || typeof entry === "string"
+    )
+  ) {
+    throw new Error("Invalid discovery configuration");
+  }
+  return config;
+}
+export async function discoverProviderModels(id: string): Promise<DiscoveredProviderModel[]> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/discovery`,
+    jsonRequest("POST", {})
+  );
+  if (!value || typeof value !== "object") throw new Error("Invalid discovered model list");
+  const { models, provider_id: providerId } = value as { models?: unknown; provider_id?: unknown };
+  if (
+    providerId !== id ||
+    !Array.isArray(models) ||
+    models.length > 10_000 ||
+    !models.every(
+      (model) =>
+        model &&
+        typeof model === "object" &&
+        typeof model.id === "string" &&
+        (model.name === undefined || typeof model.name === "string") &&
+        [model.context_length, model.max_output_tokens].every(
+          (limit) =>
+            limit === undefined ||
+            (typeof limit === "number" && Number.isFinite(limit) && limit >= 0)
+        )
+    )
+  ) {
+    throw new Error("Invalid discovered model list");
+  }
+  return models as DiscoveredProviderModel[];
+}

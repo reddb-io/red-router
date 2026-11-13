@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-82 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+83 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -323,3 +323,19 @@ in native CRUD, SPA editing/session import and API/OAuth data migration. The ear
 fixtures now import full-length names without truncating them; no credential,
 activation or unsupported-setting checks were relaxed. Validation of this slice is
 tracked separately from the broader provider configuration gap.
+
+2026-11-13 — PV-18 / CORE-03: saved API connections now expose native model
+discovery configuration (GET/PUT) and probing (POST) at
+`/api/admin/providers/{id}/discovery`. A custom path is durable in the selected
+storage backend; null restores the path inferred from known inference endpoints.
+The SPA edits it, queries saved credentials/headers, searches/pages the returned
+models and selects a model for the existing connection diagnostic. OAuth/CLI
+connections retain their own discovery contracts and are not guessed here.
+
+Probes reuse DNS pinning, private-address policy and resolved auth headers, prohibit
+redirects, and encode pagination cursors on the original origin. Gemini token and
+Anthropic cursor pagination have cycle/page/total-body/model limits; failures do not
+silently return a partial list. There is no network or storage query added to the
+inference hot path. Catalog metadata is not replaced and discovery does not grant
+model access or create routes. Reusable node definitions, node inheritance/import,
+custom-model mutation and routing aliases remain open. CI must validate this slice.

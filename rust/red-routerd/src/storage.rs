@@ -2,6 +2,10 @@
 //!
 //! Each process selects one database authority; connection errors never fall
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
+#[path = "provider_discovery_storage.rs"]
+mod provider_discovery_storage;
+pub use provider_discovery_storage::StoredProviderDiscovery;
+
 use sqlx::{any::AnyPoolOptions, AnyPool, Row};
 use std::sync::Once;
 
@@ -753,6 +757,7 @@ impl Database {
                         CREATE_PROVIDER_OAUTH,
                         CREATE_PROVIDER_SESSIONS,
                         CREATE_PROVIDER_HEADERS,
+                        provider_discovery_storage::CREATE,
                         CREATE_PROVIDER_OAUTH_STATUS,
                         CREATE_OAUTH_REFRESH_LEASES,
                         CREATE_CLIENT_KEYS,
@@ -879,6 +884,8 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH).await?;
                 db.remote_schema_query(CREATE_PROVIDER_SESSIONS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_HEADERS).await?;
+                db.remote_schema_query(provider_discovery_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_PROVIDER_OAUTH_STATUS).await?;
                 db.remote_schema_query(CREATE_OAUTH_REFRESH_LEASES).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
@@ -943,21 +950,35 @@ impl Database {
                 }
                 static INSTALL: Once = Once::new();
                 INSTALL.call_once(sqlx::any::install_default_drivers);
+                let connect_phase = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+                let observed_phase = connect_phase.clone();
                 let pool = AnyPoolOptions::new()
                     .max_connections(if backend == Backend::Sqlite { 1 } else { 5 })
                     .acquire_timeout(std::time::Duration::from_secs(5))
                     .after_connect(move |connection, _| {
+                        let phase = observed_phase.clone();
                         Box::pin(async move {
+                            phase.store(1, std::sync::atomic::Ordering::Relaxed);
                             if backend == Backend::Sqlite {
                                 sqlx::query("PRAGMA busy_timeout = 5000")
                                     .execute(&mut *connection)
                                     .await?;
-                                // File-backed SQLite readers must not hold up policy
-                                // commits from another proxy. Keep SQLite's durability
-                                // defaults; WAL changes concurrency, not fsync policy.
-                                sqlx::query("PRAGMA journal_mode = WAL")
-                                    .execute(&mut *connection)
+                                phase.store(2, std::sync::atomic::Ordering::Relaxed);
+                                // Read first: existing WAL databases need no mode-setting
+                                // statement competing with another proxy's writer.
+                                let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+                                    .fetch_one(&mut *connection)
                                     .await?;
+                                if !mode.eq_ignore_ascii_case("wal")
+                                    && !mode.eq_ignore_ascii_case("memory")
+                                {
+                                    phase.store(3, std::sync::atomic::Ordering::Relaxed);
+                                    sqlx::query("PRAGMA journal_mode = WAL")
+                                        .execute(&mut *connection)
+                                        .await?;
+                                }
+                                // Preserve SQLite's durability defaults (synchronous/fsync).
+                                phase.store(4, std::sync::atomic::Ordering::Relaxed);
                             }
                             Ok(())
                         })
@@ -974,7 +995,10 @@ impl Database {
                             sqlx::Error::Database(_) => "database",
                             _ => "driver",
                         };
-                        eprintln!("Selected database connection failed: {category}");
+                        eprintln!(
+                            "Selected database connection failed: {category}; setup_phase={}",
+                            connect_phase.load(std::sync::atomic::Ordering::Relaxed)
+                        );
                         "cannot connect to selected database"
                     })?;
                 for statement in [
@@ -985,6 +1009,7 @@ impl Database {
                     CREATE_PROVIDER_OAUTH,
                     CREATE_PROVIDER_SESSIONS,
                     CREATE_PROVIDER_HEADERS,
+                    provider_discovery_storage::CREATE,
                     CREATE_PROVIDER_OAUTH_STATUS,
                     CREATE_OAUTH_REFRESH_LEASES,
                     CREATE_CLIENT_KEYS,

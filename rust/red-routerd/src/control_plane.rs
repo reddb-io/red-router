@@ -1,5 +1,7 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 pub use crate::policy::AccessScheduleConfig;
+#[path = "provider_discovery.rs"]
+pub mod provider_discovery;
 #[path = "provider_headers.rs"]
 pub mod provider_headers;
 
@@ -6560,6 +6562,7 @@ impl ControlPlane {
         }
 
         self.0.database.delete_provider_header(id).await?;
+        self.0.database.delete_provider_discovery(id).await?;
         self.0.database.delete_provider_auth(id).await?;
         self.0.database.delete_provider_oauth(id).await?;
         self.0.database.delete_provider_session(id).await?;

@@ -22,6 +22,8 @@ const api = vi.hoisted(() => ({
   listRustProviderQuotas: vi.fn(),
   listRustProviders: vi.fn(),
   providerRequestHeaders: vi.fn(),
+  providerDiscoveryConfig: vi.fn(),
+  discoverProviderModels: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
   refreshRustModelCatalog: vi.fn(),
@@ -71,6 +73,11 @@ const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElem
 
 beforeEach(() => {
   api.providerRequestHeaders.mockResolvedValue({ names: [], attached: true, revision: null });
+  api.providerDiscoveryConfig.mockResolvedValue({
+    models_path: null,
+    effective_models_path: "/v1/models",
+    revision: null,
+  });
   api.listRustProviderHealth.mockResolvedValue([]);
   api.listRustProviderQuotas.mockResolvedValue([]);
 });

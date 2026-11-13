@@ -2140,6 +2140,12 @@ pub fn router(state: ProxyState) -> Router {
             delete(control_plane::purge_provider),
         )
         .route(
+            "/api/admin/providers/{id}/discovery",
+            get(control_plane::provider_discovery::get_config)
+                .put(control_plane::provider_discovery::put_config)
+                .post(control_plane::provider_discovery::discover),
+        )
+        .route(
             "/api/admin/providers/{id}/headers",
             get(control_plane::provider_headers::get_headers)
                 .put(control_plane::provider_headers::put_headers),
