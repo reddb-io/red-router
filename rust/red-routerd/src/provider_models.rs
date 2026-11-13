@@ -669,8 +669,8 @@ mod tests {
         );
         let control = ControlPlane::new(
             db.clone(),
-            "model-test-admin-1234567890",
-            "model-test-storage-1234567890",
+            "model-test-admin-key-12345678901234567890",
+            "model-test-storage-key-12345678901234567890",
             true,
         )
         .await
