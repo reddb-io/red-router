@@ -665,8 +665,7 @@ export default function RustProvidersPageClient() {
         <div>
           <h1 className="text-2xl font-semibold text-text">Provider connections</h1>
           <p className="mt-1 max-w-3xl text-sm text-text-muted">
-            Credentials are encrypted by the server and are
-            never returned to this page.
+            Credentials are encrypted by the server and are never returned to this page.
           </p>
         </div>
         <div className="rounded-full bg-black/5 px-3 py-1 text-xs text-text-muted dark:bg-white/5">

@@ -202,7 +202,7 @@ async fn imported_schedules_survive_storage_reload_and_gate_native_authenticatio
         let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
         let control = ControlPlane::new(
             database.clone(),
-            "legacy-schedule-admin-00000001",
+            "legacy-schedule-admin-key-00000001",
             "0123456789abcdef0123456789abcdef",
             true,
         )
