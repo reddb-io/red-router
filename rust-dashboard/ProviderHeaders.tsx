@@ -59,7 +59,7 @@ function ProviderHeadersEditor({ id }: { id: string }) {
   return (
     <Card
       title="Custom request headers"
-      description="Additional headers for this API connection, such as HTTP-Referer and X-Title."
+      subtitle="Additional headers for this API connection, such as HTTP-Referer and X-Title."
     >
       <p className="text-sm text-text-muted">
         Values are stored encrypted and are never returned here. Saving replaces the entire map.

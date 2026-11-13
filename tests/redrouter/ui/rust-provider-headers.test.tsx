@@ -31,6 +31,7 @@ it("keeps encrypted values out of the editor and removes only on explicit action
     .mockResolvedValueOnce({ names: [], attached: true, revision: null });
   const container = await render();
   expect(container.textContent).toContain("These headers are inactive");
+  expect(container.textContent).toContain("Additional headers for this API connection");
   expect(container.querySelector("textarea")?.value).toBe("");
   expect(api).toHaveBeenCalledTimes(1);
   const remove = [...container.querySelectorAll("button")].find(
