@@ -8,6 +8,7 @@ export interface ProviderModel {
   metadata: CatalogModel;
   effective: CatalogModel;
   hidden?: boolean;
+  visibility_only?: boolean;
   revision: string;
 }
 export interface ProviderModelPage {
@@ -21,6 +22,7 @@ export interface ProviderModelInput {
   provider: string;
   metadata: CatalogModel;
   hidden?: boolean;
+  visibility_only?: boolean;
   revision?: string;
 }
 
@@ -41,7 +43,8 @@ function model(value: unknown): value is ProviderModel {
     typeof value.metadata.id === "string" &&
     record(value.effective) &&
     typeof value.effective.id === "string" &&
-    (value.hidden === undefined || typeof value.hidden === "boolean")
+    (value.hidden === undefined || typeof value.hidden === "boolean") &&
+    (value.visibility_only === undefined || typeof value.visibility_only === "boolean")
   );
 }
 export async function listProviderModels(

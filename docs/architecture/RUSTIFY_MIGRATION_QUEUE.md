@@ -60,14 +60,12 @@ catalog rules without treating incomplete or expired lists as entitlements.
 The offline cutover now preserves legacy `syncedAvailableModels`, `customModels`
 and `modelCompatOverrides` records in separate staging tables, including hidden
 decisions and fields not yet supported by Rust (CI pending).
-Manual custom-model visibility imports into the Rust catalog, including the
-legacy default-hidden rule and compatible chat-scoped decisions. The dashboard
-can edit it and client model lists omit hidden entries without changing inference
-grants. UI tests passed in run 43518209394; the Rust and browser gates remain
-pending. Visibility-only hidden decisions now import as hidden overrides, including
-canonical provider aliases (CI pending). Explicit activation without a matching
-custom model, default-hidden policy for the rest of the catalog and other
-modalities still require migration.
+The SQLite cutover now imports chat activation defaults per provider and owning
+organization, plus explicit custom-model and compatibility decisions. Entries
+that only control visibility do not create models. For migrated providers, the
+Rust proxy also rejects inactive inference targets, including combo targets; native
+visibility controls remain list-only. These migration and admission changes await
+CI. Other modalities and unsupported compatibility fields still require migration.
 Those records are not active: adoption must verify the migrated account and its
 tenant, preserve its metadata and visibility rules, and avoid replacing a newer
 discovery. Adoption and further failure/restart validation remain open.

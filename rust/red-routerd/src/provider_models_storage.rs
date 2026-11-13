@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_provider_models (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, namespace TEXT NOT NULL, config_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 pub(super) const INDEX: &str = "CREATE UNIQUE INDEX IF NOT EXISTS redrouter_provider_model_namespace ON redrouter_control_provider_models(namespace)";
+pub(crate) const CREATE_ACTIVATION_DEFAULTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_model_activation_defaults (tenant_id TEXT NOT NULL, provider TEXT NOT NULL, revision BIGINT NOT NULL, PRIMARY KEY(tenant_id,provider))";
 const SELECT: &str = "SELECT config_json FROM redrouter_control_provider_models ORDER BY id";
 const INSERT: &str = "INSERT INTO redrouter_control_provider_models (id,namespace,config_json,revision,tenant_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING";
 const UPDATE: &str = "UPDATE redrouter_control_provider_models SET namespace=$2,config_json=$3,revision=$4 WHERE id=$1 AND tenant_id=$5 AND revision=$6";
@@ -22,10 +23,23 @@ pub struct StoredProviderModel {
     pub metadata: crate::catalog::ModelMetadata,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub visibility_only: bool,
     pub revision: i64,
 }
 
 impl Database {
+    pub(crate) async fn model_activation_defaults(
+        &self,
+    ) -> Result<Vec<(String, String, i64)>, &'static str> {
+        if !self.is_sqlite().await {
+            return Ok(Vec::new());
+        }
+        let pool = self.sql_pool().ok_or("model activation requires SQLite")?;
+        sqlx::query_as("SELECT tenant_id,provider,revision FROM redrouter_control_model_activation_defaults ORDER BY tenant_id,provider")
+            .fetch_all(pool).await.map_err(|_| "cannot read model activation defaults")
+    }
+
     pub async fn provider_models(&self) -> Result<Vec<StoredProviderModel>, &'static str> {
         let documents: Vec<String> = match self {
             Self::Sql(pool) => sqlx::query_scalar(SELECT)
@@ -200,6 +214,7 @@ mod tests {
             metadata: serde_json::from_value(serde_json::json!({"id":"model","cost":{"input":1}}))
                 .unwrap(),
             hidden: false,
+            visibility_only: false,
             revision: 1,
         };
         first.upsert_provider_model(&original, None).await.unwrap();

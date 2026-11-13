@@ -188,6 +188,7 @@ export default function CustomModels({
           tenant_id: draft.tenant.trim() || undefined,
           metadata,
           hidden: draft.hidden,
+          visibility_only: false,
           revision: editing?.revision,
         },
         editing?.id
@@ -412,7 +413,7 @@ export default function CustomModels({
             <span>
               Hide from client model lists
               <span className="block text-text-muted">
-                Clients with permission can still request this model directly.
+                Migrated activation rules may also block requests for hidden models.
               </span>
             </span>
           </label>

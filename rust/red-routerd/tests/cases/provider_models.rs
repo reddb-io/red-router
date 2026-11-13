@@ -1,4 +1,43 @@
 #[tokio::test]
+async fn migrated_activation_lists_only_selected_existing_connection_models() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("activation-policy.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+    sqlx::query("INSERT INTO redrouter_control_model_activation_defaults VALUES ('red','private-api',1)").execute(&pool).await.unwrap();
+    pool.close().await;
+    let control = ControlPlane::new(db, ADMIN_KEY, STORAGE_KEY, true).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let upstream_app = Router::new()
+        .route("/v1/models", get(|| async { Json(serde_json::json!({"data":[{"id":"selected"},{"id":"unselected"}]})) }))
+        .route("/v1/chat/completions", post(|| async { Json(serde_json::json!({"id":"chat-1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]})) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}/v1/chat/completions", listener.local_addr().unwrap());
+    let upstream_task = tokio::spawn(async move { axum::serve(listener, upstream_app).await.unwrap(); });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(client.put(format!("{base}/api/admin/providers/activation-provider")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":"activation-provider-secret"}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    let key = "activation-client-key-123456789012";
+    assert_eq!(client.put(format!("{base}/api/admin/client-keys/activation-client")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"Activation","api_key":key,"scopes":["inference:chat"],"allowed_models":["private-api/selected","private-api/unselected","private-api/phantom"]}))
+        .send().await.unwrap().status(), StatusCode::OK);
+    for id in ["selected", "phantom"] {
+        assert_eq!(client.post(format!("{base}/api/admin/provider-models")).bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"provider":"private-api","metadata":{"id":id},"hidden":false,"visibility_only":true}))
+            .send().await.unwrap().status(), StatusCode::OK);
+    }
+    assert_eq!(client.post(format!("{base}/api/admin/providers/activation-provider/discovery")).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::OK);
+    let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(key).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed["data"].as_array().unwrap().len(), 1, "{listed}");
+    assert_eq!(listed["data"][0]["id"], "private-api/selected");
+    assert_eq!(chat_model(&client, &base, key, "private-api/selected").await.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, key, "private-api/unselected").await.status(), StatusCode::FORBIDDEN);
+    upstream_task.abort(); gateway_task.abort();
+}
+
+#[tokio::test]
 async fn hidden_provider_models_remain_routable_and_visibility_survives_edits_and_restart() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("hidden-model.sqlite")).unwrap();
@@ -11,9 +50,12 @@ async fn hidden_provider_models_remain_routable_and_visibility_survives_edits_an
     assert_eq!(client.put(format!("{base}/api/admin/providers/hidden-provider")).bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":"hidden-model-secret"}))
         .send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(client.put(format!("{base}/api/admin/combos/hidden-combo")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"protocol":"openai","strategy":"priority","targets":[{"provider_id":"hidden-provider","model":"hidden-model"}]}))
+        .send().await.unwrap().status(), StatusCode::OK);
     let key = "hidden-model-client-key-1234567890";
     assert_eq!(client.put(format!("{base}/api/admin/client-keys/hidden-client")).bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({"label":"Visibility","api_key":key,"scopes":["inference:chat"],"allowed_models":["private-api/hidden-model"]}))
+        .json(&serde_json::json!({"label":"Visibility","api_key":key,"scopes":["inference:chat"],"allowed_models":["private-api/hidden-model","hidden-model","hidden-combo"]}))
         .send().await.unwrap().status(), StatusCode::OK);
     let endpoint = format!("{base}/api/admin/provider-models");
     let mut input = serde_json::json!({"provider":"private-api","metadata":{"id":"hidden-model","name":"Hidden model"},"hidden":true});
@@ -26,6 +68,7 @@ async fn hidden_provider_models_remain_routable_and_visibility_survives_edits_an
     let listed: serde_json::Value = client.get(format!("{base}/v1/models")).bearer_auth(key).send().await.unwrap().json().await.unwrap();
     assert!(listed["data"].as_array().unwrap().is_empty());
     assert_eq!(chat_model(&client, &base, key, "private-api/hidden-model").await.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, key, "hidden-combo").await.status(), StatusCode::OK);
     input.as_object_mut().unwrap().remove("hidden");
     input["revision"] = created["model"]["revision"].clone();
     input["metadata"]["name"] = "Updated name".into();

@@ -2786,6 +2786,11 @@ fn listed_models(
             .filter(|target| {
                 route.target_allowed(policy, id, target)
                     && policy.provider_allowed(target.provider_id.as_deref())
+                    && target.provider_name.as_deref().is_none_or(|provider| {
+                        overrides.is_none_or(|models| {
+                            !models.is_hidden(&route.tenant_id, provider, &target.model)
+                        })
+                    })
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
@@ -5942,6 +5947,33 @@ async fn proxy_request(
             "Provider does not support this protocol",
         );
     }
+    let activation = if state.product_combo.is_none() && !state.product_client_keys {
+        match &state.control_plane {
+            Some(control) => match control.provider_model_overrides().await {
+                Ok(snapshot) => Some(snapshot),
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Model activation unavailable",
+                    )
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+    if route.is_none()
+        && live_provider.as_ref().is_some_and(|provider| {
+            provider.provider_name.as_deref().is_some_and(|name| {
+                activation
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.is_inactive(&provider.tenant_id, name, &model))
+            })
+        })
+    {
+        return error(StatusCode::FORBIDDEN, "Model is inactive");
+    }
     let mut eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
         route
             .targets
@@ -5952,6 +5984,11 @@ async fn proxy_request(
                 } else {
                     route.target_allowed(policy, &requested_model, target)
                 }) && policy.provider_allowed(target.provider_id.as_deref())
+                    && target.provider_name.as_deref().is_none_or(|provider| {
+                        activation.as_ref().is_none_or(|snapshot| {
+                            !snapshot.is_inactive(&route.tenant_id, provider, &target.model)
+                        })
+                    })
             })
             .collect()
     });
@@ -6215,6 +6252,26 @@ async fn proxy_request(
         } else {
             attempt_order.map(|order| eligible[order[offset]])
         };
+        if offset > 0 && activation.is_some() {
+            if let (Some(control), Some(route), Some(target)) =
+                (&state.control_plane, route, target)
+            {
+                let latest = match control.provider_model_overrides().await {
+                    Ok(snapshot) => snapshot,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Model activation unavailable",
+                        )
+                    }
+                };
+                if target.provider_name.as_deref().is_some_and(|provider| {
+                    latest.is_inactive(&route.tenant_id, provider, &target.model)
+                }) {
+                    continue;
+                }
+            }
+        }
         if let Some(combo) = &state.product_combo {
             let Some(target) = target else { break };
             let Some(connection) = &target.product_connection else {

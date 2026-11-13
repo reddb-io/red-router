@@ -9,7 +9,8 @@ type ProviderModels = HashMap<String, HashMap<String, ModelMetadata>>;
 #[derive(Default)]
 pub(crate) struct ModelOverrides {
     tenants: HashMap<String, ProviderModels>,
-    hidden: HashMap<String, HashMap<String, HashSet<String>>>,
+    visibility: HashMap<String, HashMap<String, HashMap<String, bool>>>,
+    default_hidden: HashMap<String, HashSet<String>>,
 }
 const MAX_MODELS: usize = 10_000;
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
@@ -191,10 +192,33 @@ impl ModelOverrides {
         }
         let mut bytes = 0usize;
         let mut snapshot = Self::default();
+        let defaults = database.model_activation_defaults().await?;
+        if defaults.len() > MAX_MODELS {
+            return Err("Provider activation snapshot exceeds its limit");
+        }
+        for (tenant, provider, revision) in defaults {
+            validate_id(&tenant)?;
+            validate_provider(&provider)?;
+            if revision <= 0 {
+                return Err("Invalid provider activation revision");
+            }
+            snapshot
+                .default_hidden
+                .entry(tenant)
+                .or_default()
+                .insert(provider);
+        }
         for record in records {
             validate_id(&record.tenant_id)?;
             validate_provider(&record.provider)?;
             validate_metadata(&record.metadata)?;
+            if record.visibility_only
+                && serde_json::to_value(&record.metadata)
+                    .map_err(|_| "Invalid provider model storage")?
+                    != serde_json::json!({"id":&record.metadata.id})
+            {
+                return Err("Invalid visibility-only model storage");
+            }
             if record.id != record_id(&record.tenant_id, &record.provider, &record.metadata.id) {
                 return Err("Invalid provider model identity");
             }
@@ -204,31 +228,46 @@ impl ModelOverrides {
             if bytes > MAX_SNAPSHOT_BYTES {
                 return Err("Provider model snapshot exceeds its limit");
             }
-            if record.hidden {
-                snapshot
-                    .hidden
-                    .entry(record.tenant_id.clone())
-                    .or_default()
-                    .entry(record.provider.clone())
-                    .or_default()
-                    .insert(record.metadata.id.clone());
-            }
             snapshot
-                .tenants
-                .entry(record.tenant_id)
+                .visibility
+                .entry(record.tenant_id.clone())
                 .or_default()
-                .entry(record.provider)
+                .entry(record.provider.clone())
                 .or_default()
-                .insert(record.metadata.id.clone(), record.metadata);
+                .insert(record.metadata.id.clone(), record.hidden);
+            if !record.visibility_only {
+                snapshot
+                    .tenants
+                    .entry(record.tenant_id)
+                    .or_default()
+                    .entry(record.provider)
+                    .or_default()
+                    .insert(record.metadata.id.clone(), record.metadata);
+            }
         }
         Ok(snapshot)
     }
 
     pub(crate) fn is_hidden(&self, tenant: &str, provider: &str, model: &str) -> bool {
-        self.hidden
+        self.visibility
             .get(tenant)
             .and_then(|providers| providers.get(provider))
-            .is_some_and(|models| models.contains(model))
+            .and_then(|models| models.get(model))
+            .copied()
+            .unwrap_or_else(|| {
+                self.default_hidden
+                    .get(tenant)
+                    .is_some_and(|providers| providers.contains(provider))
+            })
+    }
+
+    /// Legacy activation is an admission rule as well as a catalog filter.
+    /// Native visibility-only settings retain their existing list-only behavior.
+    pub(crate) fn is_inactive(&self, tenant: &str, provider: &str, model: &str) -> bool {
+        self.default_hidden
+            .get(tenant)
+            .is_some_and(|providers| providers.contains(provider))
+            && self.is_hidden(tenant, provider, model)
     }
 
     pub(crate) fn model(
@@ -264,6 +303,7 @@ pub struct ModelInput {
     provider: String,
     metadata: ModelMetadata,
     hidden: Option<bool>,
+    visibility_only: Option<bool>,
     revision: Option<String>,
 }
 #[derive(Default, Deserialize)]
@@ -286,7 +326,7 @@ fn view(
     );
     Ok(
         serde_json::json!({"id":model.id,"tenant_id":model.tenant_id,"provider":model.provider,
-        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"revision":model.revision.to_string()}),
+        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"visibility_only":model.visibility_only,"revision":model.revision.to_string()}),
     )
 }
 
@@ -395,6 +435,15 @@ impl ControlPlane {
         if existing.map(|row| row.revision) != expected {
             return Err("Provider model changed; reload and retry");
         }
+        let visibility_only = input
+            .visibility_only
+            .unwrap_or_else(|| existing.is_some_and(|model| model.visibility_only));
+        if visibility_only
+            && serde_json::to_value(&input.metadata).map_err(|_| "Invalid model metadata")?
+                != serde_json::json!({"id":&input.metadata.id})
+        {
+            return Err("Visibility-only entries cannot override model metadata");
+        }
         let record = StoredProviderModel {
             id,
             tenant_id: tenant.to_owned(),
@@ -403,6 +452,7 @@ impl ControlPlane {
             hidden: input
                 .hidden
                 .unwrap_or_else(|| existing.is_some_and(|model| model.hidden)),
+            visibility_only,
             revision: revision()?,
         };
         let catalog = self.model_catalog().await;
@@ -665,6 +715,38 @@ pub async fn remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn migrated_activation_defaults_do_not_create_phantom_models_or_cross_tenants() {
+        let db = Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO redrouter_control_model_activation_defaults VALUES ('red','openai',1)",
+        )
+        .execute(db.sql_pool().unwrap())
+        .await
+        .unwrap();
+        let active = StoredProviderModel {
+            id: record_id("red", "openai", "activated"),
+            tenant_id: "red".into(),
+            provider: "openai".into(),
+            metadata: serde_json::from_value(serde_json::json!({"id":"activated"})).unwrap(),
+            hidden: false,
+            visibility_only: true,
+            revision: 1,
+        };
+        db.upsert_provider_model(&active, None).await.unwrap();
+        let snapshot = ModelOverrides::load(&db).await.unwrap();
+        assert!(snapshot.is_hidden("red", "openai", "unselected"));
+        assert!(!snapshot.is_hidden("red", "openai", "activated"));
+        assert!(!snapshot.is_hidden("other", "openai", "unselected"));
+        assert!(!snapshot.is_hidden("red", "other-provider", "unselected"));
+        assert!(snapshot.is_inactive("red", "openai", "unselected"));
+        assert!(!snapshot.is_inactive("red", "openai", "activated"));
+        assert!(!snapshot.is_inactive("other", "openai", "unselected"));
+        assert_eq!(snapshot.configured_models("red", "openai").count(), 0);
+    }
 
     #[test]
     fn partial_overrides_preserve_limits_and_price_components_and_accept_false_and_zero() {

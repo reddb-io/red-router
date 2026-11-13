@@ -159,6 +159,7 @@ UNION ALL SELECT 'synced-models', provider_id, COALESCE(published_generation,0),
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
 UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
+UNION ALL SELECT 'model-activation', tenant_id || ':' || provider, revision, 0 FROM redrouter_control_model_activation_defaults
 UNION ALL SELECT 'model-alias', id, revision, 0 FROM redrouter_control_model_aliases
 UNION ALL SELECT 'model-alias-state', id, 1, 0 FROM redrouter_model_alias_state
 UNION ALL SELECT 'provider-node-binding', record_id, revision, 0 FROM redrouter_control_provider_node_bindings
@@ -4586,6 +4587,13 @@ impl ControlPlane {
             return Err("provider route has no available accounts");
         }
         if !policy.model_alias_target_allowed(requested, model, Some(provider)) {
+            return Err("provider route forbidden");
+        }
+        if self
+            .provider_model_overrides()
+            .await?
+            .is_inactive(tenant, provider, model)
+        {
             return Err("provider route forbidden");
         }
         let accounts: Vec<_> = accounts
@@ -9345,6 +9353,11 @@ impl ControlPlane {
         for model in self.0.database.provider_models().await? {
             signature_text(&mut digest, &model.id);
             signature_i64(&mut digest, model.revision);
+        }
+        for (tenant, provider, revision) in self.0.database.model_activation_defaults().await? {
+            signature_text(&mut digest, &tenant);
+            signature_text(&mut digest, &provider);
+            signature_i64(&mut digest, revision);
         }
         for node in self.0.database.provider_nodes().await? {
             signature_text(&mut digest, &node.id);

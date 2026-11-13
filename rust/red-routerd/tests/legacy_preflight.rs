@@ -324,21 +324,108 @@ async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries
         .await
         .unwrap();
     let first = legacy_models::import(&source, &destination).await.unwrap();
-    assert_eq!((first.imported, first.already_present), (4, 0));
+    assert_eq!((first.imported, first.already_present), (5, 0));
     let second = legacy_models::import(&source, &destination).await.unwrap();
-    assert_eq!((second.imported, second.already_present), (0, 4));
+    assert_eq!((second.imported, second.already_present), (0, 5));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     let models = db.provider_models().await.unwrap();
-    assert_eq!(models.len(), 4);
+    assert_eq!(models.len(), 5);
     assert!(models.iter().any(|model| model.provider == "codex"
         && model.metadata.id == "private-model"
         && model.hidden));
+    assert!(models.iter().any(|model| model.provider == "codex"
+        && model.metadata.id == "only-active"
+        && !model.hidden
+        && model.visibility_only));
     for provider in ["opencode", "opencode-zen", "opencode-go"] {
         assert!(models.iter().any(|model| model.provider == provider
             && model.metadata.id == "shared-model"
             && model.hidden));
     }
     db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_activation_is_migrated_for_each_provider_organization() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key)); CREATE TABLE provider_connections(provider TEXT,tenant_id TEXT); INSERT INTO provider_connections VALUES('openai','red'),('openai','acme');")
+        .execute(&mut legacy).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)")
+        .bind(r#"[{"id":"custom","source":"manual","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"synced","isHidden":false},{"id":"hidden","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::raw_sql("INSERT INTO key_value VALUES('customModels','cohere',NULL),('modelCompatOverrides','anthropic',NULL);")
+        .execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_tenants VALUES ('acme','acme','Acme',1,1)")
+        .execute(&mut target)
+        .await
+        .unwrap();
+    target.close().await.unwrap();
+    let result = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!(result.imported, 6);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    for tenant in ["red", "acme"] {
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "custom"
+            && !model.hidden
+            && !model.visibility_only));
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "synced"
+            && !model.hidden
+            && model.visibility_only));
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "hidden"
+            && model.hidden
+            && model.visibility_only));
+    }
+    db.close().await.unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let defaults: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM redrouter_control_model_activation_defaults WHERE provider='openai'",
+    )
+    .fetch_one(&mut target)
+    .await
+    .unwrap();
+    assert_eq!(defaults, 2);
+    let empty_defaults: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_model_activation_defaults WHERE tenant_id='red' AND provider IN ('cohere','anthropic')").fetch_one(&mut target).await.unwrap();
+    assert_eq!(empty_defaults, 2);
+    target.close().await.unwrap();
 }
 
 #[tokio::test]

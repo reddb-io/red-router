@@ -5,6 +5,7 @@
 #[path = "provider_models_storage.rs"]
 mod provider_models_storage;
 pub use provider_models_storage::StoredProviderModel;
+pub(crate) use provider_models_storage::CREATE_ACTIVATION_DEFAULTS;
 #[path = "model_aliases_storage.rs"]
 mod model_aliases_storage;
 pub use model_aliases_storage::StoredModelAlias;
@@ -1129,6 +1130,7 @@ impl Database {
                     for statement in [
                         CREATE_MODEL_CATALOG_REFRESH_LEASE,
                         synced_models_storage::CREATE,
+                        provider_models_storage::CREATE_ACTIVATION_DEFAULTS,
                         CREATE_DASHBOARD_KEY_VALUE,
                         CREATE_USAGE_RESERVATIONS,
                         CREATE_USAGE_LEDGER,
