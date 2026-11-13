@@ -35,6 +35,15 @@ custom-model, global/provider alias, managed-alias and compatibility namespaces
 without disclosing contents; these are row counts, not imported models. Neither
 change by itself completes the legacy model/alias migration.
 
+The baseline `src/app/api/v1/models/catalog.ts` also combines static registry
+entries, synchronized per-connection models, custom models, aliases, modality
+registries and activation/connection rules. Its `catalogResponse.ts` adds
+variants, post-filters, pagination and client formatting. Current direct
+discovery covers explicitly configured chat models only: it does not yet list
+the catalog or synchronized inventory automatically, migrate activation rules,
+honor the key's flat model-ID format, or reproduce those post-filters. Provider
+metadata is descriptive and must not itself grant access to inference.
+
 ## Current execution order
 
 1. Finish item 1 by validating imported compatible-account bindings, then port
