@@ -317,9 +317,10 @@ the small revision column every five seconds; it downloads and validates the ful
 generation change, rechecks the revision after validation to prevent stale publication, and then
 performs the same local `Arc` swap. Invalid generations are remembered and are not reparsed on every
 poll. SQLite servers also schedule automatic refreshes after a 30-second startup delay. A
-shared SQLite lease admits one refresh per day across instances; failures keep the last good
-snapshot and retry after five minutes. Set `RED_ROUTER_MODEL_CATALOG_AUTO_REFRESH=0` to disable
-automatic refresh. Manual refresh remains available. Other backends do not
+shared SQLite lease admits one scheduled refresh per day across instances; failures keep the last
+good snapshot and retry after five minutes. Manual refresh bypasses the daily delay but shares the
+same lease and reports a conflict if another instance is refreshing. Set
+`RED_ROUTER_MODEL_CATALOG_AUTO_REFRESH=0` to disable automatic refresh. Other backends do not
 yet share the automatic schedule.
 
 Available input/output cost and context-window metadata is frozen into the durable combo record

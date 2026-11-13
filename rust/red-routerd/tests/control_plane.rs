@@ -2317,6 +2317,32 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
     )
     .await
     .unwrap();
+    let (base, gateway_task) = gateway(first.clone()).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    assert!(first_db
+        .acquire_model_catalog_refresh_lease("other", now, now + 60_000)
+        .await
+        .unwrap());
+    assert!(!second.refresh_model_catalog_if_due().await.unwrap());
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/model-catalog/refresh"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+    assert!(first_db
+        .finish_model_catalog_refresh_lease("other", 0)
+        .await
+        .unwrap());
     let (one, two) = tokio::join!(
         first.refresh_model_catalog_if_due(),
         second.refresh_model_catalog_if_due()
@@ -2324,10 +2350,14 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
     let (one, two) = (one.unwrap(), two.unwrap());
     assert_ne!(one, two, "exactly one instance should refresh");
     assert_eq!(requests.load(Ordering::SeqCst), 1);
-    let saved = first_db.model_catalog_snapshot().await.unwrap().unwrap();
+    assert!(first_db.model_catalog_snapshot().await.unwrap().is_some());
     assert!(!first.refresh_model_catalog_if_due().await.unwrap());
     assert!(!second.refresh_model_catalog_if_due().await.unwrap());
     assert_eq!(requests.load(Ordering::SeqCst), 1);
+    // An explicit refresh bypasses the daily delay, but uses the same lease.
+    first.refresh_model_catalog().await.unwrap();
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    let saved = first_db.model_catalog_snapshot().await.unwrap().unwrap();
     let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
     sqlx::query(
         "UPDATE redrouter_model_catalog_refresh_lease SET next_allowed_unix_ms=0 WHERE id=1",
@@ -2337,7 +2367,7 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
     .unwrap();
     mode.store(1, Ordering::SeqCst);
     assert!(first.refresh_model_catalog_if_due().await.is_err());
-    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    assert_eq!(requests.load(Ordering::SeqCst), 3);
     assert_eq!(
         first_db.model_catalog_snapshot().await.unwrap().unwrap(),
         saved
@@ -2354,7 +2384,7 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
     .unwrap();
     mode.store(0, Ordering::SeqCst);
     assert!(second.refresh_model_catalog_if_due().await.unwrap());
-    assert_eq!(requests.load(Ordering::SeqCst), 3);
+    assert_eq!(requests.load(Ordering::SeqCst), 4);
     sqlx::query("DELETE FROM redrouter_model_catalog_refresh_lease WHERE id=1")
         .execute(&pool)
         .await
@@ -2388,7 +2418,7 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
         Duration::from_millis(20),
     );
     tokio::time::timeout(Duration::from_secs(10), async {
-        while requests.load(Ordering::SeqCst) < 4 {
+        while requests.load(Ordering::SeqCst) < 5 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -2397,10 +2427,12 @@ async fn scheduled_catalog_refresh_is_shared_retries_failures_and_preserves_snap
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(
         requests.load(Ordering::SeqCst),
-        4,
+        5,
         "replicas must share the automatic schedule"
     );
     pool.close().await;
+    gateway_task.abort();
+    let _ = gateway_task.await;
     drop(first);
     drop(second);
     first_db.close().await.unwrap();

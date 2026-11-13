@@ -1954,6 +1954,25 @@ impl Database {
         Ok(result.rows_affected() == 1)
     }
 
+    /// Manual refreshes may bypass the daily schedule, but never an active lease.
+    pub async fn acquire_model_catalog_manual_lease(
+        &self,
+        owner: &str,
+        now_unix_ms: i64,
+        lease_until_unix_ms: i64,
+    ) -> Result<bool, &'static str> {
+        if !self.is_sqlite().await {
+            return Err("catalog refresh coordination requires SQLite");
+        }
+        let pool = self
+            .sql_pool()
+            .ok_or("catalog refresh coordination requires SQLite")?;
+        let result = sqlx::query("INSERT INTO redrouter_model_catalog_refresh_lease (id,owner,lease_until_unix_ms,next_allowed_unix_ms) VALUES (1,$1,$2,0) ON CONFLICT (id) DO UPDATE SET owner=$1,lease_until_unix_ms=$2 WHERE redrouter_model_catalog_refresh_lease.lease_until_unix_ms <= $3")
+            .bind(owner).bind(lease_until_unix_ms).bind(now_unix_ms).execute(pool).await
+            .map_err(|_| "cannot acquire catalog refresh lease")?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn finish_model_catalog_refresh_lease(
         &self,
         owner: &str,

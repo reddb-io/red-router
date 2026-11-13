@@ -3596,22 +3596,42 @@ impl ControlPlane {
     /// the last usable catalog.
     #[doc(hidden)]
     pub async fn refresh_model_catalog_if_due(&self) -> Result<bool, &'static str> {
+        Ok(self
+            .refresh_model_catalog_coordinated(true)
+            .await?
+            .is_some())
+    }
+
+    async fn refresh_model_catalog_coordinated(
+        &self,
+        scheduled: bool,
+    ) -> Result<Option<CatalogRefreshView>, &'static str> {
         let now = unix_time_ms()?;
         let owner = random_token(18)?;
-        if !self
-            .0
-            .database
-            .acquire_model_catalog_refresh_lease(
-                &owner,
-                now,
-                now.saturating_add(MODEL_CATALOG_AUTO_LEASE_MS),
-            )
-            .await?
-        {
-            return Ok(false);
+        let until = now.saturating_add(MODEL_CATALOG_AUTO_LEASE_MS);
+        let acquired = if scheduled {
+            self.0
+                .database
+                .acquire_model_catalog_refresh_lease(&owner, now, until)
+                .await?
+        } else {
+            self.0
+                .database
+                .acquire_model_catalog_manual_lease(&owner, now, until)
+                .await?
+        };
+        if !acquired {
+            return if scheduled {
+                Ok(None)
+            } else {
+                Err("catalog refresh already in progress")
+            };
         }
-        let result =
-            tokio::time::timeout(MODEL_CATALOG_AUTO_TIMEOUT, self.refresh_model_catalog()).await;
+        let result = tokio::time::timeout(
+            MODEL_CATALOG_AUTO_TIMEOUT,
+            self.refresh_model_catalog_uncoordinated(),
+        )
+        .await;
         if result.is_err() {
             self.0.catalog.write().await.last_error =
                 Some("models.dev refresh timed out".to_owned());
@@ -3632,7 +3652,7 @@ impl ControlPlane {
             return Err("catalog refresh lease was lost");
         }
         match result {
-            Ok(Ok(_)) => Ok(true),
+            Ok(Ok(view)) => Ok(Some(view)),
             Ok(Err(error)) => Err(error),
             Err(_) => Err("model catalog refresh timed out"),
         }
@@ -3657,6 +3677,18 @@ impl ControlPlane {
     }
 
     pub async fn refresh_model_catalog(&self) -> Result<CatalogRefreshView, &'static str> {
+        if self.0.database.is_sqlite().await {
+            return self
+                .refresh_model_catalog_coordinated(false)
+                .await?
+                .ok_or("catalog refresh already in progress");
+        }
+        self.refresh_model_catalog_uncoordinated().await
+    }
+
+    async fn refresh_model_catalog_uncoordinated(
+        &self,
+    ) -> Result<CatalogRefreshView, &'static str> {
         let _refresh = self.0.catalog_refresh.lock().await;
         let (etag, schema_ref) = {
             let active = self.0.catalog.read().await;
@@ -14913,14 +14945,22 @@ pub async fn refresh_model_catalog(
     }
     match control.refresh_model_catalog().await {
         Ok(snapshot) => Json(serde_json::json!({"snapshot":snapshot})).into_response(),
+        Err("catalog refresh already in progress") => api_error(
+            StatusCode::CONFLICT,
+            "A catalog refresh is already in progress; retry shortly",
+        ),
         Err(error) if error.contains("request") || error.contains("timed out") => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "models.dev catalog refresh unavailable",
         ),
-        Err(error) if error.contains("write") || error.contains("storage") => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Model catalog storage unavailable",
-        ),
+        Err(error)
+            if error.contains("write") || error.contains("storage") || error.contains("lease") =>
+        {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Model catalog storage unavailable",
+            )
+        }
         Err(_) => api_error(
             StatusCode::BAD_GATEWAY,
             "models.dev returned an invalid catalog",
