@@ -11515,6 +11515,139 @@ async fn restricted_empty_model_access_survives_updates_and_restart() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(database.client_keys().await.unwrap()[0].label, "Policy");
+
+    // Combo grants are independent of direct model grants, as in the legacy product.
+    // Endpoint/provider gates still apply, and catalog visibility must match dispatch.
+    for (grants, providers, endpoints, expected) in [
+        (
+            serde_json::json!(["combo/access-combo"]),
+            vec![],
+            vec![],
+            StatusCode::OK,
+        ),
+        (
+            serde_json::json!(["combo/*"]),
+            vec!["other-provider"],
+            vec![],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            serde_json::json!(["combo/*"]),
+            vec![],
+            vec!["embeddings"],
+            StatusCode::FORBIDDEN,
+        ),
+        (serde_json::json!([]), vec![], vec![], StatusCode::FORBIDDEN),
+        (
+            serde_json::json!(["another-combo"]),
+            vec![],
+            vec![],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            serde_json::Value::Null,
+            vec![],
+            vec![],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            serde_json::json!(["access-combo"]),
+            vec![],
+            vec![],
+            StatusCode::OK,
+        ),
+    ] {
+        let body = serde_json::json!({"label":"Combo access", "model_access_mode":"restricted",
+            "allowed_models":[], "blocked_models":["gpt-4o","access-combo"], "allowed_combos":grants,
+            "allowed_provider_ids":providers, "allowed_endpoints":endpoints });
+        let response = client
+            .put(format!("{base}/api/admin/client-keys/access-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        for name in ["access-combo", "combo/access-combo"] {
+            assert_eq!(
+                chat_model(&client, &base, RUST_CLIENT_KEY, name)
+                    .await
+                    .status(),
+                expected,
+                "{body} / {name}"
+            );
+        }
+        let response = client
+            .get(format!("{base}/v1/models"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let catalog: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(
+            catalog["data"].as_array().unwrap().len(),
+            usize::from(expected == StatusCode::OK)
+        );
+    }
+    // An older caller renaming a key must not drop its explicit combo grants.
+    let response = client
+        .put(format!("{base}/api/admin/client-keys/access-client"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"label":"Keep combos"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(
+        body["client_key"]["allowed_combos"],
+        serde_json::json!(["access-combo"])
+    );
+    let saved = database.client_keys().await.unwrap().remove(0);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&saved.allowed_combos_json).unwrap(),
+        serde_json::json!(["access-combo"])
+    );
+    let response = client.put(format!("{base}/api/admin/client-keys/limited-combos")).bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"label":"Limited combos","api_key":"combo-rate-limited-client-000001","allowed_combos":["combo/*"],"model_access_mode":"restricted","max_requests_per_minute":1}).to_string())
+        .send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        chat_model(
+            &client,
+            &base,
+            "combo-rate-limited-client-000001",
+            "access-combo"
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        chat_model(
+            &client,
+            &base,
+            "combo-rate-limited-client-000001",
+            "access-combo"
+        )
+        .await
+        .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let response = client
+        .put(format!("{base}/api/admin/client-keys/access-client"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"label":"Bad combos","allowed_combos":["*"]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     gateway_task.abort();
     provider_task.abort();
 }

@@ -66,6 +66,7 @@ const clientKey: RustClientKey = {
   created_by: "oidc:owner@example.com",
   model_id_format: "prefixed",
   model_access_mode: "restricted",
+  allowed_combos: null,
   enabled: true,
   expires_at_unix: null,
   access_schedule: {

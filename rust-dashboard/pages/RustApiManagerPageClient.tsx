@@ -22,6 +22,8 @@ type Draft = {
   enabled: boolean;
   modelIdFormat: "prefixed" | "flat";
   modelAccessMode: "all" | "restricted";
+  comboAccessMode: "models" | "all" | "restricted";
+  allowedCombos: string;
   expiresAt: string;
   scheduleEnabled: boolean;
   scheduleConfigured: boolean;
@@ -64,6 +66,8 @@ const EMPTY_DRAFT: Draft = {
   enabled: true,
   modelIdFormat: "prefixed",
   modelAccessMode: "all",
+  comboAccessMode: "all",
+  allowedCombos: "",
   expiresAt: "",
   scheduleEnabled: false,
   scheduleConfigured: false,
@@ -141,6 +145,12 @@ function draftInput(draft: Draft, tenantId?: string): RustClientKeyInput {
     ...(tenantId ? { tenant_id: tenantId } : {}),
     model_id_format: draft.modelIdFormat,
     model_access_mode: draft.modelAccessMode,
+    allowed_combos:
+      draft.comboAccessMode === "models"
+        ? null
+        : draft.comboAccessMode === "all"
+          ? ["combo/*"]
+          : list(draft.allowedCombos),
     enabled: draft.enabled,
     expires_at_unix: expiresAtUnix(draft.expiresAt),
     access_schedule:
@@ -188,6 +198,13 @@ function keyDraft(key: RustClientKey): Draft {
     enabled: key.enabled,
     modelIdFormat: key.model_id_format,
     modelAccessMode: key.allowed_models.length ? "restricted" : key.model_access_mode,
+    comboAccessMode:
+      key.allowed_combos === null
+        ? "models"
+        : key.allowed_combos.includes("combo/*")
+          ? "all"
+          : "restricted",
+    allowedCombos: key.allowed_combos?.filter((name) => name !== "combo/*").join("\n") ?? "",
     expiresAt: localExpiry(key.expires_at_unix),
     scheduleEnabled: key.access_schedule?.enabled ?? false,
     scheduleConfigured: key.access_schedule !== null,
@@ -356,10 +373,38 @@ function PolicyFields({ draft, onChange }: { draft: Draft; onChange: (next: Draf
           onChange={(e) => set("allowedModels", e.target.value)}
         />
         <span>
-          In restricted mode, an empty list blocks every model. Blocked models always take
-          precedence.
+          An empty restricted list blocks direct model access. Blocked models take precedence for
+          direct requests. Explicit combo grants authorize the targets of those combos.
         </span>
       </label>
+      <label className={labelClass}>
+        Combo access
+        <select
+          aria-label="Combo access"
+          className={inputClass}
+          value={draft.comboAccessMode}
+          onChange={(e) => set("comboAccessMode", e.target.value as Draft["comboAccessMode"])}
+        >
+          <option value="all">All combos</option>
+          <option value="restricted">Only selected combos</option>
+          <option value="models">Apply model permissions to combo targets</option>
+        </select>
+        <span>Combo grants do not bypass provider, organization, endpoint or usage limits.</span>
+      </label>
+      {draft.comboAccessMode === "restricted" && (
+        <label className={labelClass}>
+          Allowed combos
+          <textarea
+            aria-label="Allowed combos"
+            className={inputClass}
+            rows={3}
+            value={draft.allowedCombos}
+            onChange={(e) => set("allowedCombos", e.target.value)}
+            placeholder="team-agents"
+          />
+          <span>One combo name per line. An empty list blocks all combos.</span>
+        </label>
+      )}
       <label className={labelClass}>
         Blocked models
         <textarea
@@ -745,6 +790,12 @@ export default function RustApiManagerPageClient() {
                   {key.access_schedule?.enabled
                     ? `${key.access_schedule.from}-${key.access_schedule.until} ${key.access_schedule.tz}`
                     : "always available"}{" "}
+                  ·{" "}
+                  {key.allowed_combos === null
+                    ? "combos follow model permissions"
+                    : key.allowed_combos.includes("combo/*")
+                      ? "all combos"
+                      : `${key.allowed_combos.length} combo grants`}
                   · created by {key.created_by}
                 </p>
               </div>

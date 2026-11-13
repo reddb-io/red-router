@@ -303,3 +303,44 @@ async fn restricted_empty_models_are_imported_without_granting_access() {
         db.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn combo_grants_migrate_independently_of_direct_model_access() {
+    for (raw, expected) in [
+        (None, serde_json::json!(["combo/*"])),
+        (Some("[]"), serde_json::json!([])),
+        (
+            Some(r#"["combo/team","agents"]"#),
+            serde_json::json!(["combo/team", "agents"]),
+        ),
+        (Some(r#"["*"]"#), serde_json::Value::Null),
+    ] {
+        let (_dir, source, dest, url) = fixture().await;
+        let mut input =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+                .await
+                .unwrap();
+        sqlx::query("UPDATE api_keys SET model_access_mode='restricted', allowed_combos=? WHERE id='second'")
+            .bind(raw).execute(&mut input).await.unwrap();
+        input.close().await.unwrap();
+        let before = tokio::fs::read(&source).await.unwrap();
+        let result = legacy_keys::import(&source, &dest).await;
+        assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let keys = db.client_keys().await.unwrap();
+        if expected.is_null() {
+            assert!(result.is_err());
+            assert!(keys.is_empty());
+        } else {
+            result.unwrap();
+            let key = keys.iter().find(|key| key.id == "second").unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&key.allowed_combos_json).unwrap(),
+                expected
+            );
+            assert_eq!(key.model_access_mode, "restricted");
+            assert!(!key.enabled);
+        }
+        db.close().await.unwrap();
+    }
+}

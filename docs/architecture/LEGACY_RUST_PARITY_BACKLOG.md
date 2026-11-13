@@ -163,3 +163,28 @@ identified UI gap without creating another backend. Global cross-provider search
 configuration/entitlement links and the rest of the row remain open until separately
 implemented and validated. CI results belong in the delivery report; a source change
 or a mock UI test alone does not certify the whole catalog or a live provider.
+
+
+2026-11-13 — CORE-05/07/09: separate per-key combo grants from direct model
+permissions. Legacy `apiKeyPolicy.ts` and `chat/comboTargetKeyPolicy.ts` explicitly
+permit named combos independently of direct model lists, including `restricted + []`.
+This is a distinct permission domain, not proof that the model wildcard engine is ported.
+
+- Native storage/API/SPA now preserve null (existing model-based behavior), an empty
+  explicit list (deny all combos), named grants and `combo/*` (all combos).
+- Explicit grants authorize curated combo targets independently of model allow/deny
+  lists, matching the old product. Provider, organization, endpoint, schedule, key
+  activation and quota restrictions still apply. `auto/` targets retain model checks
+  when there are actual model allow/deny entries.
+- Catalog filtering uses the same combo/target decision as dispatch. Historical
+  `combo/name` requests resolve to the durable combo ID before routing state is used.
+- Import preserves named/empty/all combo lists. With the currently supported empty
+  legacy model policies, an absent legacy combo list becomes `combo/*`; simply
+  treating it as native inheritance would incorrectly deny restricted-empty keys.
+- Tests cover grants versus blocked models, metadata edits, explicit reset, provider
+  and endpoint denial, RPM limits, catalog/dispatch agreement, source preservation
+  and complete rollback on an invalid later key. Browser edits exercise separate
+  model/combo selectors and preserve disabled schedules. Final CI remains required.
+
+Nonempty legacy model allow/deny lists, group policies and auto-combo controls still
+need translation. These rows remain partial; no full key/combination parity claim.

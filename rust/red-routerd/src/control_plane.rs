@@ -705,6 +705,8 @@ pub struct ClientKeyInput {
     pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
     pub model_access_mode: Option<String>,
+    #[serde(default, deserialize_with = "present_combo_grants")]
+    pub allowed_combos: Option<Option<Vec<String>>>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -736,6 +738,8 @@ pub struct ClientKeyIssueInput {
     pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
     pub model_access_mode: Option<String>,
+    #[serde(default, deserialize_with = "present_combo_grants")]
+    pub allowed_combos: Option<Option<Vec<String>>>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -886,6 +890,7 @@ impl ClientKeyIssueInput {
             tenant_id: self.tenant_id,
             model_id_format: self.model_id_format,
             model_access_mode: self.model_access_mode,
+            allowed_combos: self.allowed_combos,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
             access_schedule: self.access_schedule,
@@ -914,6 +919,7 @@ pub struct ClientKeyView {
     pub created_by: String,
     pub model_id_format: String,
     pub model_access_mode: String,
+    pub allowed_combos: Option<Vec<String>>,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub access_schedule: Option<AccessScheduleConfig>,
@@ -7105,6 +7111,12 @@ impl ControlPlane {
             scopes_json: json_list(&input.scopes)?,
             allowed_endpoints_json: json_list(&input.allowed_endpoints)?,
             allowed_models_json: json_list(&input.allowed_models)?,
+            allowed_combos_json: match &input.allowed_combos {
+                Some(value) => serde_json::to_string(value).map_err(|_| "invalid combo grants")?,
+                None => existing
+                    .as_ref()
+                    .map_or_else(|| "null".to_owned(), |key| key.allowed_combos_json.clone()),
+            },
             model_access_mode: effective_model_access_mode(
                 input
                     .model_access_mode
@@ -10635,6 +10647,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         scopes: parse_list(&record.scopes_json)?,
         allowed_endpoints: parse_list(&record.allowed_endpoints_json)?,
         allowed_models: parse_list(&record.allowed_models_json)?,
+        allowed_combos: decode_combo_grants(&record.allowed_combos_json)?,
         blocked_models: parse_list(&record.blocked_models_json)?,
         allowed_provider_ids: parse_list(&record.allowed_provider_ids_json)?,
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
@@ -11542,6 +11555,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         tenant_id: record.tenant_id.clone(),
         model_id_format: view.model_id_format,
         model_access_restricted: view.model_access_mode == "restricted",
+        allowed_combos: view.allowed_combos,
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,
@@ -11569,6 +11583,9 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
 }
 
 fn validate_client_lists(input: &ClientKeyInput) -> Result<(), &'static str> {
+    if let Some(Some(grants)) = &input.allowed_combos {
+        crate::policy::validate_combo_grants(grants)?;
+    }
     validate_scope_list(&input.scopes)?;
     validate_endpoint_list(&input.allowed_endpoints)?;
     validate_patterns(&input.allowed_models)?;
@@ -11595,6 +11612,23 @@ fn validate_client_lists(input: &ClientKeyInput) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+// Preserve an omitted field on PUT, but allow explicit null to restore model-based access.
+fn present_combo_grants<'de, D>(deserializer: D) -> Result<Option<Option<Vec<String>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer).map(Some)
+}
+
+fn decode_combo_grants(raw: &str) -> Result<Option<Vec<String>>, &'static str> {
+    let grants: Option<Vec<String>> =
+        serde_json::from_str(raw).map_err(|_| "invalid combo grants")?;
+    if let Some(grants) = &grants {
+        crate::policy::validate_combo_grants(grants)?;
+    }
+    Ok(grants)
 }
 
 // Legacy lists always restrict access, including stale records marked "all".

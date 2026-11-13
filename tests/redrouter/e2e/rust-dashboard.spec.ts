@@ -296,6 +296,7 @@ test("static dashboard uses Rust session and API routes", async ({ page, context
             created_by: "admin",
             model_id_format: "prefixed",
             model_access_mode: "all",
+            allowed_combos: null,
             enabled: true,
             expires_at_unix: null,
             access_schedule: null,
@@ -704,6 +705,7 @@ test("editing a restricted empty key preserves denial until explicitly changed",
     created_by: "admin",
     model_id_format: "prefixed",
     model_access_mode: "restricted",
+    allowed_combos: null,
     enabled: true,
     expires_at_unix: null,
     access_schedule: {
@@ -775,11 +777,15 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   await expect(page.getByText(/no models allowed/)).toBeVisible();
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByLabel("Model access", { exact: true })).toHaveValue("restricted");
+  await expect(page.getByLabel("Combo access", { exact: true })).toHaveValue("models");
+  await page.getByLabel("Combo access", { exact: true }).selectOption("restricted");
+  await page.getByLabel("Allowed combos", { exact: true }).fill("team-agents\ncombo/analysis");
   await page.getByLabel("Label", { exact: true }).fill("Renamed key");
   await page.getByRole("button", { name: "Save policy", exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toMatchObject({
     model_access_mode: "restricted",
+    allowed_combos: ["team-agents", "combo/analysis"],
     allowed_models: [],
     label: "Renamed key",
     access_schedule: {
@@ -794,5 +800,21 @@ test("editing a restricted empty key preserves denial until explicitly changed",
   await page.getByLabel("Model access", { exact: true }).selectOption("all");
   await page.getByRole("button", { name: "Save policy", exact: true }).click();
   await expect.poll(() => writes.length).toBe(2);
-  expect(writes[1]).toMatchObject({ model_access_mode: "all", allowed_models: [] });
+  expect(writes[1]).toMatchObject({
+    model_access_mode: "all",
+    allowed_combos: ["team-agents", "combo/analysis"],
+    allowed_models: [],
+  });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByLabel("Combo access", { exact: true })).toHaveValue("restricted");
+  await page.getByLabel("Allowed combos", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save policy", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(3);
+  expect(writes[2]).toMatchObject({ allowed_combos: [] });
+  await expect(page.getByText(/0 combo grants/)).toBeVisible();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Combo access", { exact: true }).selectOption("models");
+  await page.getByRole("button", { name: "Save policy", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(4);
+  expect(writes[3]).toMatchObject({ allowed_combos: null });
 });

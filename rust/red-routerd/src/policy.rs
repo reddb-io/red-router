@@ -24,6 +24,7 @@ pub(crate) struct ClientPolicy {
     access_schedule: Option<AccessSchedule>,
     scopes: Vec<String>,
     allowed_routes: Option<Vec<String>>,
+    allowed_combos: Option<Vec<String>>,
     allowed_models: Option<Vec<String>>,
     allowed_endpoints: Vec<String>,
     blocked_models: Vec<String>,
@@ -55,6 +56,7 @@ pub(crate) struct StoredPolicy {
     pub tenant_id: String,
     pub model_id_format: String,
     pub model_access_restricted: bool,
+    pub allowed_combos: Option<Vec<String>>,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -213,6 +215,7 @@ impl ClientPolicies {
                 access_schedule: None,
                 scopes: Vec::new(),
                 allowed_routes: None,
+                allowed_combos: None,
                 allowed_models: None,
                 allowed_endpoints: Vec::new(),
                 blocked_models: Vec::new(),
@@ -274,6 +277,7 @@ impl ClientPolicies {
                     scopes: policy.scopes,
                     allowed_routes: None,
                     allowed_models,
+                    allowed_combos: policy.allowed_combos,
                     allowed_endpoints: policy.allowed_endpoints,
                     blocked_models: policy.blocked_models,
                     allowed_provider_ids: policy.allowed_provider_ids,
@@ -420,6 +424,7 @@ impl ClientPolicies {
                 access_schedule: None,
                 scopes: Vec::new(),
                 allowed_routes,
+                allowed_combos: None,
                 allowed_models,
                 allowed_endpoints,
                 blocked_models,
@@ -549,6 +554,30 @@ impl ClientPolicy {
                 .is_none_or(|patterns| patterns.iter().any(|p| matches_pattern(p, model)))
     }
 
+    pub(crate) fn combo_allowed(&self, combo: &str) -> bool {
+        match &self.allowed_combos {
+            None => self.route_allowed(combo) && self.route_allowed(combo_name(combo)),
+            Some(grants) => grants
+                .iter()
+                .any(|rule| rule == "combo/*" || combo_name(rule) == combo_name(combo)),
+        }
+    }
+
+    pub(crate) fn combo_target_allowed(&self, combo: &str, model: &str) -> bool {
+        self.combo_allowed(combo)
+            && if self.allowed_combos.is_some()
+                && (!combo_name(combo).starts_with("auto/")
+                    || (self.allowed_models.as_ref().is_none_or(Vec::is_empty)
+                        && self.blocked_models.is_empty()))
+            {
+                // The legacy product grants curated combos independently of direct model access.
+                // Endpoint, provider, tenant, budget and quota gates still apply at dispatch.
+                true
+            } else {
+                self.target_allowed(model)
+            }
+    }
+
     pub(crate) fn target_allowed(&self, model: &str) -> bool {
         !self.model_blocked(model)
             && self.allowed_models.as_ref().is_none_or(|patterns| {
@@ -584,6 +613,29 @@ impl ClientPolicy {
     pub(crate) fn identity(&self) -> Option<&ClientIdentity> {
         self.identity.as_ref()
     }
+}
+
+fn combo_name(value: &str) -> &str {
+    let value = value.trim();
+    value
+        .strip_prefix("combo/")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(value)
+}
+
+pub(crate) fn validate_combo_grants(grants: &[String]) -> Result<(), &'static str> {
+    if grants.len() > 128
+        || grants.iter().any(|value| {
+            value.trim().is_empty()
+                || value.len() > 256
+                || value.chars().any(char::is_control)
+                || (value.contains('*') && value != "combo/*")
+        })
+    {
+        return Err("invalid client key combo grants");
+    }
+    Ok(())
 }
 
 fn parse_patterns(value: &Value) -> Result<Vec<String>, &'static str> {
@@ -771,5 +823,31 @@ mod tests {
             .filter(|admitted| *admitted)
             .count();
         assert_eq!(admitted, 4);
+    }
+}
+
+#[cfg(test)]
+mod combo_permission_tests {
+    use super::ClientPolicies;
+
+    #[test]
+    fn explicit_combo_grants_do_not_grant_direct_models_or_override_auto_target_checks() {
+        let mut policies = ClientPolicies::single("fixture-client-key-0000001");
+        let policy = &mut policies.entries[0];
+        policy.allowed_models = Some(vec![]);
+        assert!(!policy.target_allowed("gpt-4o"));
+        assert!(!policy.combo_target_allowed("team", "gpt-4o"));
+        policy.allowed_combos = Some(vec!["combo/team".into(), "auto/work".into()]);
+        assert!(policy.combo_allowed("team"));
+        assert!(policy.combo_allowed("combo/team"));
+        assert!(!policy.combo_allowed("another"));
+        assert!(policy.combo_target_allowed("team", "gpt-4o"));
+        assert!(!policy.target_allowed("gpt-4o"));
+        assert!(policy.combo_target_allowed("auto/work", "gpt-4o"));
+        policy.blocked_models.push("gpt-4o".into());
+        assert!(policy.combo_target_allowed("team", "gpt-4o"));
+        assert!(!policy.combo_target_allowed("auto/work", "gpt-4o"));
+        policy.allowed_combos = Some(vec![]);
+        assert!(!policy.combo_allowed("team"));
     }
 }

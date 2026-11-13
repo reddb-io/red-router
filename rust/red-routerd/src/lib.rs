@@ -2600,7 +2600,7 @@ fn listed_models(
     for id in route_ids {
         let route = &routes[id];
         if !policy.tenant_allowed(&route.tenant_id)
-            || !policy.route_allowed(id)
+            || !policy.combo_allowed(id)
             || !policy.endpoint_allowed(route_category(route.protocol))
         {
             continue;
@@ -2609,8 +2609,10 @@ fn listed_models(
             .targets
             .iter()
             .filter(|target| {
-                policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
-                    && policy.provider_allowed(target.provider_id.as_deref())
+                policy.combo_target_allowed(
+                    id,
+                    target.product_model.as_deref().unwrap_or(&target.model),
+                ) && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
@@ -5438,9 +5440,6 @@ async fn proxy_request(
         None
     };
     let direct_product_model = product_target.is_some();
-    if state.product_combo.is_none() && !policy.route_allowed(&model) {
-        return error(StatusCode::FORBIDDEN, "Model is not allowed");
-    }
     let control_routes = if state.product_combo.is_none() && !state.product_client_keys {
         match &state.control_plane {
             Some(control) => match control.routes().await {
@@ -5458,11 +5457,38 @@ async fn proxy_request(
         None
     };
     let control_routes_authoritative = control_routes.is_some();
+    // Resolve the historical combo/name spelling to the durable combo ID before
+    // affinity, relay, quota and accounting use it. Keep the original for policy checks.
+    let requested_model = model.clone();
+    let has_route = |name: &str| {
+        control_routes
+            .as_ref()
+            .is_some_and(|routes| routes.contains_key(name))
+            || state.routes.contains_key(name)
+    };
+    let model = if !has_route(&model) {
+        model
+            .strip_prefix("combo/")
+            .filter(|name| has_route(name))
+            .map(str::to_owned)
+            .unwrap_or(model)
+    } else {
+        model
+    };
     let route = control_routes
         .as_ref()
         .and_then(|routes| routes.get(&model))
         .or_else(|| state.routes.get(&model))
         .filter(|route| policy.tenant_allowed(&route.tenant_id));
+    if state.product_combo.is_none()
+        && !if route.is_some() {
+            policy.combo_allowed(&requested_model)
+        } else {
+            policy.route_allowed(&model)
+        }
+    {
+        return error(StatusCode::FORBIDDEN, "Model or combo is not allowed");
+    }
     let context_relay_config = route
         .filter(|route| route.strategy == RouteStrategy::ContextRelay)
         .map(|route| &route.context_relay);
@@ -5527,8 +5553,14 @@ async fn proxy_request(
             .targets
             .iter()
             .filter(|target| {
-                policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
-                    && policy.provider_allowed(target.provider_id.as_deref())
+                (if state.product_combo.is_some() {
+                    policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
+                } else {
+                    policy.combo_target_allowed(
+                        &model,
+                        target.product_model.as_deref().unwrap_or(&target.model),
+                    )
+                }) && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect()
     });
