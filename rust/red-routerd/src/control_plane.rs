@@ -229,6 +229,17 @@ struct SqliteChangeWatcher {
 }
 
 impl SqliteChangeWatcher {
+    fn supports(pool: &sqlx::AnyPool) -> bool {
+        let options = pool.connect_options();
+        let url = &options.database_url;
+        let path = percent_encoding::percent_decode_str(url.path()).decode_utf8_lossy();
+        !path.trim_matches('/').is_empty()
+            && path.trim_matches('/') != ":memory:"
+            && !url
+                .query_pairs()
+                .any(|(key, value)| key == "mode" && value == "memory")
+    }
+
     async fn new(pool: &sqlx::AnyPool) -> Result<Self, &'static str> {
         // data_version belongs to a physical connection, and does not advance
         // for its own commits. A pool may return the writer (or a different
@@ -2115,7 +2126,14 @@ impl ControlPlane {
             .build()
             .map_err(|_| "cannot initialize OAuth refresh client")?;
         let sqlite = database.is_sqlite().await;
-        let sqlite_changes = if sqlite {
+        // An anonymous/temporary in-memory database cannot be reopened through
+        // another physical connection. It uses the regular signature polling
+        // path instead; durable SQLite files get the dedicated observer.
+        let sqlite_changes = if sqlite
+            && database
+                .sql_pool()
+                .is_some_and(SqliteChangeWatcher::supports)
+        {
             Some(tokio::sync::Mutex::new(
                 SqliteChangeWatcher::new(
                     database
@@ -15452,6 +15470,27 @@ pub async fn delete_client_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn in_memory_control_plane_keeps_signature_polling() {
+        let database = Arc::new(
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap(),
+        );
+        let plane = ControlPlane::new(
+            database,
+            "fixture-admin-key-1234567890-abcdef",
+            "fixture-storage-key-1234567890",
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(plane.0.sqlite_changes.is_none());
+        assert!(plane.control_snapshot_changed().await.unwrap());
+        plane.sync_provider_snapshot().await.unwrap();
+        plane.sync_oidc_snapshot().await.unwrap();
+    }
 
     #[tokio::test]
     async fn sqlite_observer_detects_same_pool_writes_without_reserving_the_writer() {
