@@ -185,6 +185,7 @@ export default function ModelCatalog() {
                 <label>
                   Model type
                   <select
+                    aria-label="Model type"
                     className={fieldClass}
                     value={filters.type}
                     onChange={(event) => filter({ type: event.target.value })}
@@ -198,6 +199,7 @@ export default function ModelCatalog() {
                 <label>
                   Capability
                   <select
+                    aria-label="Capability"
                     className={fieldClass}
                     value={filters.capability}
                     onChange={(event) =>
@@ -215,6 +217,7 @@ export default function ModelCatalog() {
                 <label>
                   Input modality
                   <select
+                    aria-label="Input modality"
                     className={fieldClass}
                     value={filters.inputModality}
                     onChange={(event) => filter({ inputModality: event.target.value })}
@@ -228,6 +231,7 @@ export default function ModelCatalog() {
                 <label>
                   Minimum context
                   <select
+                    aria-label="Minimum context"
                     className={fieldClass}
                     value={filters.minContext}
                     onChange={(event) => filter({ minContext: Number(event.target.value) })}
@@ -243,6 +247,7 @@ export default function ModelCatalog() {
                 <label>
                   Sort by
                   <select
+                    aria-label="Sort by"
                     className={fieldClass}
                     value={sort}
                     onChange={(event) => {
@@ -260,6 +265,7 @@ export default function ModelCatalog() {
                 <label>
                   Sort direction
                   <select
+                    aria-label="Sort direction"
                     className={fieldClass}
                     value={descending ? "desc" : "asc"}
                     onChange={(event) => {

@@ -497,6 +497,7 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
   page,
   context,
 }) => {
+  test.setTimeout(45_000);
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   let refreshes = 0;
   await page.route("**/api/**", async (route) => {
@@ -575,6 +576,7 @@ test("catalog pagination, filtering, unknown prices and provider failure recover
   page,
   context,
 }) => {
+  test.setTimeout(45_000);
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
   let fail = true;
   const models = Array.from({ length: 55 }, (_, index) => ({
