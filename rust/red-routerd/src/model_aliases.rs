@@ -23,6 +23,13 @@ pub(crate) fn valid_model_name(value: &str) -> bool {
         && value.trim() == value
         && !value.chars().any(char::is_control)
 }
+pub(crate) fn compare_accounts(a: &StoredProvider, b: &StoredProvider) -> std::cmp::Ordering {
+    let rank = |priority| if priority == 0 { 999 } else { priority };
+    rank(a.priority)
+        .cmp(&rank(b.priority))
+        .then_with(|| b.updated_at.cmp(&a.updated_at))
+        .then_with(|| a.id.cmp(&b.id))
+}
 pub(crate) fn validate(record: &StoredModelAlias) -> Result<(), &'static str> {
     validate_id(&record.tenant_id)?;
     validate_provider(&record.provider)?;
@@ -87,13 +94,7 @@ impl AliasSnapshot {
         for pool in accounts.values_mut() {
             // The legacy fill-first selector treats zero as unspecified, then
             // prefers the most recently updated connection on equal priority.
-            let rank = |priority| if priority == 0 { 999 } else { priority };
-            pool.sort_by(|a, b| {
-                rank(a.priority)
-                    .cmp(&rank(b.priority))
-                    .then_with(|| b.updated_at.cmp(&a.updated_at))
-                    .then_with(|| a.id.cmp(&b.id))
-            });
+            pool.sort_by(|a, b| compare_accounts(a, b));
         }
         let mut total_targets = 0usize;
         self.records

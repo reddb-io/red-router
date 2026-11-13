@@ -459,3 +459,104 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
     first_task.abort();
     second_task.abort();
 }
+
+#[tokio::test]
+async fn direct_provider_models_use_tenant_pools_priority_fallback_and_policies() {
+    let dir = TempDir::new().unwrap();
+    let file = Url::from_file_path(dir.path().join("direct-routing.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY, STORAGE_KEY, true,
+    ).await.unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (limited_url, limited_seen, limited_task) = alias_test_provider("direct-limited", StatusCode::TOO_MANY_REQUESTS).await;
+    let (healthy_url, healthy_seen, healthy_task) = alias_test_provider("direct-healthy", StatusCode::OK).await;
+    let (blue_url, blue_seen, blue_task) = alias_test_provider("direct-blue", StatusCode::OK).await;
+    assert_eq!(client.put(format!("{base}/api/admin/tenants/blue")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"slug":"blue","name":"Blue"})).send().await.unwrap().status(), StatusCode::OK);
+    for (id, tenant, upstream, credential, priority) in [
+        ("direct-first", "red", &limited_url, "direct-limited", 1),
+        ("direct-second", "red", &healthy_url, "direct-healthy", 2),
+        ("direct-blue", "blue", &blue_url, "direct-blue", 1),
+    ] {
+        let result = client.put(format!("{base}/api/admin/providers/{id}"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"tenant_id":tenant,"provider":"private-api","upstream_url":upstream,"api_key":credential,"priority":priority}))
+            .send().await.unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+    }
+    let red_key = "direct-red-key-1234567890123456789012";
+    let blue_key = "direct-blue-key-123456789012345678901";
+    let restricted_key = "direct-restricted-key-12345678901234";
+    for (id, key, tenant, allowed_provider_ids) in [
+        ("direct-red-key", red_key, "red", Vec::<&str>::new()),
+        ("direct-blue-key", blue_key, "blue", Vec::<&str>::new()),
+        ("direct-restricted-key", restricted_key, "red", vec!["direct-second"]),
+    ] {
+        let result = client.put(format!("{base}/api/admin/client-keys/{id}"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"tenant_id":tenant,"label":id,"api_key":key,"scopes":["inference:chat"],"allowed_models":["private-api/model-1"],"allowed_provider_ids":allowed_provider_ids}))
+            .send().await.unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+    }
+    let result = chat_model(&client, &base, red_key, "private-api/model-1").await;
+    assert_eq!(result.status(), StatusCode::OK);
+    assert_eq!(limited_seen.lock().unwrap().as_slice(), ["model-1"]);
+    assert_eq!(healthy_seen.lock().unwrap().as_slice(), ["model-1"]);
+    assert!(blue_seen.lock().unwrap().is_empty());
+    let result = chat_model(&client, &base, blue_key, "private-api/model-1").await;
+    assert_eq!(result.status(), StatusCode::OK);
+    assert_eq!(blue_seen.lock().unwrap().as_slice(), ["model-1"]);
+    assert_eq!(chat_model(&client, &base, restricted_key, "private-api/model-1").await.status(), StatusCode::OK);
+    assert_eq!(limited_seen.lock().unwrap().len(), 1);
+    assert_eq!(healthy_seen.lock().unwrap().len(), 2);
+    assert_eq!(chat_model(&client, &base, red_key, "private-api/other-model").await.status(), StatusCode::FORBIDDEN);
+    let quota_key = "direct-quota-key-12345678901234567890";
+    let quota = client.put(format!("{base}/api/admin/client-keys/direct-quota"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"tenant_id":"blue","label":"quota","api_key":quota_key,"scopes":["inference:chat"],"allowed_models":["private-api/model-1"],"max_tokens_per_day":5,"reservation_tokens":5}))
+        .send().await.unwrap();
+    assert_eq!(quota.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, quota_key, "private-api/model-1").await.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, quota_key, "private-api/model-1").await.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // An unrelated configured alias must not disable direct provider routing.
+    let alias = client.post(format!("{base}/api/admin/model-aliases")).bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"unrelated","provider":"private-api","model":"model-2"}))
+        .send().await.unwrap();
+    assert_eq!(alias.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, blue_key, "private-api/model-1").await.status(), StatusCode::OK);
+    assert_eq!(blue_seen.lock().unwrap().len(), 3);
+    let stream = chat_model_with_body(&client, &base, blue_key, serde_json::json!({"model":"private-api/model-1","messages":[],"stream":true,"stream_options":{"include_usage":true}})).await;
+    assert_eq!(stream.status(), StatusCode::OK);
+    assert!(stream.text().await.unwrap().contains("[DONE]"));
+    assert_eq!(blue_seen.lock().unwrap().len(), 4);
+    let requests = (0..32).map(|_| chat_model(&client, &base, blue_key, "private-api/model-1"));
+    for response in futures_util::future::join_all(requests).await {
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    assert_eq!(blue_seen.lock().unwrap().len(), 36);
+    // Explicit aliases take precedence over interpreting the same name as
+    // a direct provider/model request.
+    let override_alias = client.post(format!("{base}/api/admin/model-aliases"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"private-api/model-1","provider":"private-api","model":"override-target"}))
+        .send().await.unwrap();
+    assert_eq!(override_alias.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, red_key, "private-api/model-1").await.status(), StatusCode::OK);
+    assert_eq!(healthy_seen.lock().unwrap().last().map(String::as_str), Some("override-target"));
+    let disabled_key = "direct-disabled-key-123456789012345";
+    let created = client.put(format!("{base}/api/admin/client-keys/direct-disabled"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"tenant_id":"red","label":"disabled","api_key":disabled_key,"scopes":["inference:chat"],"allowed_models":["private-api/model-2"]}))
+        .send().await.unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    for id in ["direct-first", "direct-second"] {
+        assert_eq!(client.delete(format!("{base}/api/admin/providers/{id}")).bearer_auth(ADMIN_KEY).send().await.unwrap().status(), StatusCode::NO_CONTENT);
+    }
+    assert_eq!(chat_model(&client, &base, disabled_key, "private-api/model-2").await.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(blue_seen.lock().unwrap().len(), 36);
+    gateway_task.abort(); limited_task.abort(); healthy_task.abort(); blue_task.abort();
+}

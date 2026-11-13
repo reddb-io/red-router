@@ -17,7 +17,7 @@ pub mod provider_headers;
 use crate::{
     availability::{AvailabilityStatus, ConnectionCooldownProfile, ProviderAvailability},
     circuit::{BreakerStatus, CircuitProfile, ProviderCircuit},
-    policy::{ClientPolicies, StoredPolicy},
+    policy::{ClientPolicies, ClientPolicy, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
         StoredAuditEvent, StoredBreakerOverride, StoredClientKey, StoredCombo,
@@ -400,9 +400,21 @@ enum ClientSnapshot {
     Unavailable,
 }
 
+struct DirectAccount {
+    record: StoredProvider,
+    auth: StoredProviderAuth,
+    rate_limit_scope: RateLimitScope,
+    antigravity_project: Option<Arc<str>>,
+    claude_identity: Option<Arc<crate::ClaudeIdentity>>,
+    quota: Arc<TargetQuota>,
+    live: tokio::sync::OnceCell<LiveProvider>,
+}
+
+type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
+
 enum RouteSnapshot {
-    Legacy,
-    Current(Arc<HashMap<String, Arc<ModelRoute>>>),
+    Legacy(Arc<DirectPools>),
+    Current(Arc<HashMap<String, Arc<ModelRoute>>>, Arc<DirectPools>),
     Unavailable,
 }
 
@@ -4154,10 +4166,182 @@ impl ControlPlane {
         &self,
     ) -> Result<Option<Arc<HashMap<String, Arc<ModelRoute>>>>, &'static str> {
         match &*self.0.routes.read().await {
-            RouteSnapshot::Legacy => Ok(None),
-            RouteSnapshot::Current(routes) => Ok(Some(routes.clone())),
+            RouteSnapshot::Legacy(_) => Ok(None),
+            RouteSnapshot::Current(routes, _) => Ok(Some(routes.clone())),
             RouteSnapshot::Unavailable => Err("combo route storage unavailable"),
         }
+    }
+
+    async fn direct_account_live<'a>(
+        &'a self,
+        account: &'a DirectAccount,
+    ) -> Result<&'a LiveProvider, &'static str> {
+        account
+            .live
+            .get_or_try_init(|| async {
+                let provider = &account.record;
+                let auth_scheme = ProviderAuthScheme::parse(&account.auth.auth_scheme)?;
+                let credential = decrypt_async(
+                    &provider.credential_ciphertext,
+                    &provider.id,
+                    self.0.encryption_key.as_str(),
+                )
+                .await?;
+                let mut runtime = ProxyState::live_provider(
+                    &provider.upstream_url,
+                    credential.as_str(),
+                    self.0.allow_private,
+                    auth_scheme,
+                    account.auth.expires_at_unix,
+                    &provider.protocol,
+                    provider.node_id.is_some(),
+                )
+                .await?;
+                runtime.custom_headers = self.request_headers(provider).await?;
+                runtime.provider_id = Some(Arc::from(provider.id.clone()));
+                runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                runtime.tenant_id = Arc::from(provider.tenant_id.clone());
+                runtime.rate_limit_scope = account.rate_limit_scope;
+                runtime.antigravity_project = account.antigravity_project.clone();
+                runtime.claude_identity = account.claude_identity.clone();
+                let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
+                runtime.in_flight = circuit.in_flight();
+                runtime.circuit = Some(circuit);
+                runtime.availability = Some(self.availability_for(&provider.id).await);
+                Ok(runtime)
+            })
+            .await
+    }
+
+    /// Compile a provider/model request against the current tenant's account
+    /// pool. Provider clients are cached per snapshot, not recreated per call.
+    pub(crate) async fn direct_provider_route(
+        &self,
+        tenant: &str,
+        requested: &str,
+        request_protocol: ProviderProtocol,
+        policy: &ClientPolicy,
+    ) -> Result<Option<Arc<ModelRoute>>, &'static str> {
+        let Some((prefix, model)) = requested.split_once('/') else {
+            return Ok(None);
+        };
+        if !crate::valid_model_identifier(requested)
+            || requested.trim() != requested
+            || !model_aliases::valid_model_name(model)
+        {
+            return Err("invalid provider model");
+        }
+        let registered = crate::model_permissions::legacy_provider_id(prefix);
+        let provider = registered.unwrap_or(prefix);
+        if validate_provider(provider).is_err() {
+            return Ok(None);
+        }
+        let accounts = {
+            let snapshot = self.0.routes.read().await;
+            let pools = match &*snapshot {
+                RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+                RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+            };
+            match pools.get(&(tenant.to_owned(), provider.to_owned())) {
+                Some(accounts) => accounts.clone(),
+                None if registered.is_some()
+                    || crate::product_provider::chat_url(provider).is_some() =>
+                {
+                    return Err("provider route has no available accounts");
+                }
+                None => return Ok(None),
+            }
+        };
+        if accounts.is_empty() {
+            return Err("provider route has no available accounts");
+        }
+        if !policy.model_alias_target_allowed(requested, model, Some(provider)) {
+            return Err("provider route forbidden");
+        }
+        let accounts: Vec<_> = accounts
+            .into_iter()
+            .filter(|account| policy.provider_allowed(Some(&account.record.id)))
+            .collect();
+        if accounts.is_empty() {
+            return Err("provider route forbidden");
+        }
+        let metadata = self.effective_model(tenant, provider, model).await?;
+        let cost = metadata.as_ref().and_then(|entry| entry.cost.as_ref());
+        let context = metadata
+            .as_ref()
+            .and_then(|entry| entry.limit.as_ref())
+            .and_then(|limit| limit.context);
+        let mut initialized = futures_util::stream::iter(accounts.into_iter().enumerate())
+            .map(|(index, account)| async move {
+                let live = self.direct_account_live(&account).await.ok()?.clone();
+                let protocol = match (request_protocol, live.protocol) {
+                    (ProviderProtocol::OpenAi, ProviderProtocol::Anthropic) => {
+                        ProviderProtocol::OpenAiToAnthropic
+                    }
+                    (ProviderProtocol::OpenAi, ProviderProtocol::Antigravity) => {
+                        ProviderProtocol::OpenAiToAntigravity
+                    }
+                    (requested, actual) if requested == actual => requested,
+                    _ => return None,
+                };
+                if matches!(
+                    protocol,
+                    ProviderProtocol::Gemini
+                        | ProviderProtocol::Antigravity
+                        | ProviderProtocol::OpenAiToAntigravity
+                ) && !crate::valid_gemini_model(model)
+                {
+                    return None;
+                }
+                Some((index, account, live, protocol))
+            })
+            .buffer_unordered(16)
+            .filter_map(|item| async move { item })
+            .collect::<Vec<_>>()
+            .await;
+        initialized.sort_by_key(|(index, _, _, _)| *index);
+        let model_quotas = self.0.model_quotas.read().await;
+        let targets = initialized
+            .into_iter()
+            .map(|(_, account, live, protocol)| {
+                let model_quota = model_quotas
+                    .get(&(account.record.id.clone(), model.to_owned()))
+                    .cloned();
+                ProxyState::control_target(
+                    &live,
+                    crate::ControlTargetConfig {
+                        protocol,
+                        model: model.to_owned(),
+                        weight: 1,
+                        input_cost_per_million: cost.and_then(|cost| cost.input),
+                        output_cost_per_million: cost.and_then(|cost| cost.output),
+                        context_window_tokens: context,
+                        prompt: None,
+                    },
+                    account.quota.clone(),
+                    model_quota,
+                )
+            })
+            .collect::<Vec<_>>();
+        if targets.is_empty() {
+            return Err("provider route has no available accounts");
+        }
+        Ok(Some(Arc::new(ModelRoute {
+            public_model_alias: None,
+            provider_direct: true,
+            tenant_id: Arc::from(tenant),
+            targets,
+            protocol: request_protocol,
+            strategy: RouteStrategy::Priority,
+            auto_weights: crate::AutoRouteWeights::default(),
+            context_relay: ComboContextRelayConfig::default(),
+            fusion: ComboFusionConfig::default(),
+            pipeline: ComboPipelineConfig::default(),
+            fallback: true,
+            cursor: std::sync::atomic::AtomicUsize::new(0),
+            seed: crate::route_seed(requested),
+            last_good: std::sync::atomic::AtomicUsize::new(crate::NO_ROUTE_TARGET),
+        })))
     }
 
     pub async fn has_active_provider(&self) -> Result<bool, &'static str> {
@@ -4303,8 +4487,10 @@ impl ControlPlane {
             ClientSnapshot::Unavailable => false,
         };
         let routes_ready = match &*self.0.routes.read().await {
-            RouteSnapshot::Legacy => true,
-            RouteSnapshot::Current(routes) => !routes.is_empty(),
+            RouteSnapshot::Legacy(_) => true,
+            RouteSnapshot::Current(routes, pools) => {
+                !routes.is_empty() || pools.values().any(|accounts| !accounts.is_empty())
+            }
             RouteSnapshot::Unavailable => false,
         };
         let breakers_ready = self
@@ -9054,10 +9240,7 @@ impl ControlPlane {
             }
         }
         records.extend(aliases.virtual_combos(&providers)?);
-        if records.is_empty() && !aliases.configured {
-            *self.0.routes.write().await = RouteSnapshot::Legacy;
-            return Ok(());
-        }
+        let legacy_routes = records.is_empty() && !aliases.configured;
         let resilience = self.resilience_settings().await?;
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
@@ -9191,7 +9374,7 @@ impl ControlPlane {
                         prompt: target.prompt,
                     },
                     quota,
-                    model_quota,
+                    Some(model_quota),
                 ));
             }
             if targets.is_empty() {
@@ -9240,6 +9423,7 @@ impl ControlPlane {
                 record.id.clone(),
                 Arc::new(ModelRoute {
                     public_model_alias: aliases.public_name(&record.id).map(Arc::from),
+                    provider_direct: false,
                     tenant_id: Arc::from(record.tenant_id.clone()),
                     targets,
                     protocol,
@@ -9261,12 +9445,47 @@ impl ControlPlane {
                 }),
             );
         }
-        for combo_id in pins.keys() {
-            if !retained_pins.contains(combo_id) {
-                self.0.database.delete_route_pin(combo_id).await?;
+        if !legacy_routes {
+            for combo_id in pins.keys() {
+                if !retained_pins.contains(combo_id) {
+                    self.0.database.delete_route_pin(combo_id).await?;
+                }
             }
         }
-        *self.0.routes.write().await = RouteSnapshot::Current(Arc::new(routes));
+        // Keep encrypted account records in the same immutable snapshot as
+        // configured routes. Unused accounts build their validated client only
+        // on first use; concurrent requests share that initialization.
+        let mut ordered: Vec<_> = providers.iter().collect();
+        ordered.sort_by(|a, b| model_aliases::compare_accounts(a, b));
+        let mut direct_pools: DirectPools = HashMap::new();
+        for provider in ordered {
+            let pool = direct_pools
+                .entry((provider.tenant_id.clone(), provider.provider.clone()))
+                .or_default();
+            if !provider.enabled {
+                continue;
+            }
+            let key = (provider.id.clone(), provider.updated_at);
+            let account = DirectAccount {
+                record: provider.clone(),
+                auth: auth
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| default_provider_auth(provider)),
+                rate_limit_scope: resilience.get(&key).copied().unwrap_or_default(),
+                antigravity_project: antigravity_projects.get(&key).cloned(),
+                claude_identity: claude_identities.get(&key).cloned(),
+                quota: self.quota_state(&provider.id).await,
+                live: tokio::sync::OnceCell::new_with(live.get(&provider.id).cloned()),
+            };
+            pool.push(Arc::new(account));
+        }
+        let direct_pools = Arc::new(direct_pools);
+        *self.0.routes.write().await = if legacy_routes {
+            RouteSnapshot::Legacy(direct_pools)
+        } else {
+            RouteSnapshot::Current(Arc::new(routes), direct_pools)
+        };
         Ok(())
     }
 
@@ -9320,7 +9539,7 @@ impl ControlPlane {
         };
         let _mutation = self.0.mutation.lock().await;
         let route = match &*self.0.routes.read().await {
-            RouteSnapshot::Current(routes) => routes.get(combo_id).cloned(),
+            RouteSnapshot::Current(routes, _) => routes.get(combo_id).cloned(),
             _ => None,
         };
         let Some(route) = route else {
@@ -9353,7 +9572,7 @@ impl ControlPlane {
         };
         let _mutation = self.0.mutation.lock().await;
         let route = match &*self.0.routes.read().await {
-            RouteSnapshot::Current(routes) => routes.get(combo_id).cloned(),
+            RouteSnapshot::Current(routes, _) => routes.get(combo_id).cloned(),
             _ => None,
         };
         let Some(route) = route else {
@@ -9579,7 +9798,7 @@ impl ControlPlane {
         if enforced_tenant.is_some_and(|tenant| tenant != combo.tenant_id) {
             return Err("combo tenant is unavailable");
         }
-        if let RouteSnapshot::Current(routes) = &*self.0.routes.read().await {
+        if let RouteSnapshot::Current(routes, _) = &*self.0.routes.read().await {
             if let Some(route) = routes.get(combo_id) {
                 route.clear_last_good_any();
             }

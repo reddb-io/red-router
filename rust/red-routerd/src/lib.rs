@@ -480,6 +480,7 @@ impl TargetQuota {
 
 pub(crate) struct ModelRoute {
     public_model_alias: Option<Arc<str>>,
+    provider_direct: bool,
     tenant_id: Arc<str>,
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
@@ -637,7 +638,7 @@ impl ModelRoute {
         } else {
             None
         };
-        if self.public_model_alias.is_some() {
+        if self.public_model_alias.is_some() || self.provider_direct {
             policy.model_alias_target_allowed(public_model, model, provider)
         } else {
             policy.combo_provider_target_allowed(public_model, model, provider)
@@ -1531,7 +1532,7 @@ impl ProxyState {
         provider: &LiveProvider,
         config: ControlTargetConfig,
         quota: Arc<TargetQuota>,
-        model_quota: Arc<TargetQuota>,
+        model_quota: Option<Arc<TargetQuota>>,
     ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
@@ -1555,7 +1556,7 @@ impl ProxyState {
             context_window_tokens: config.context_window_tokens,
             prompt: config.prompt,
             quota: Some(quota),
-            model_quota: Some(model_quota),
+            model_quota,
             circuit: provider.circuit.clone(),
             availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
@@ -2000,6 +2001,7 @@ impl ProxyState {
                     alias.to_string(),
                     Arc::new(ModelRoute {
                         public_model_alias: None,
+                        provider_direct: false,
                         tenant_id: Arc::from("red"),
                         targets,
                         protocol,
@@ -4854,7 +4856,7 @@ async fn prepare_fusion(
     if product_usage_accounting {
         return Err(FusionFailure {
             status: StatusCode::SERVICE_UNAVAILABLE,
-            message: "Fusion requires Rust-native usage accounting",
+            message: "Fusion requires usage accounting",
         });
     }
     let mut pending = FuturesUnordered::new();
@@ -4948,7 +4950,7 @@ async fn prepare_pipeline(
     if product_usage_accounting && eligible.len() > 1 {
         return Err(PipelineFailure {
             status: StatusCode::SERVICE_UNAVAILABLE,
-            message: "Pipeline requires Rust-native usage accounting",
+            message: "Pipeline requires usage accounting",
         });
     }
     let final_index = eligible.len() - 1;
@@ -5693,6 +5695,7 @@ async fn proxy_request(
         } else {
             None
         };
+    let alias_was_resolved = alias_route.is_some();
     let model = if let Some(alias) = alias_route {
         alias
     } else if !has_route(&model) {
@@ -5704,11 +5707,51 @@ async fn proxy_request(
     } else {
         model
     };
-    let route = control_routes
+    let configured_route = control_routes
         .as_ref()
         .and_then(|routes| routes.get(&model))
         .or_else(|| state.routes.get(&model))
         .filter(|route| policy.tenant_allowed(&route.tenant_id));
+    let direct_route = if configured_route.is_none()
+        && !alias_was_resolved
+        && state.product_combo.is_none()
+        && !state.product_client_keys
+    {
+        if !policy.route_allowed(&requested_model) {
+            return error(StatusCode::FORBIDDEN, "Model is not allowed");
+        }
+        match &state.control_plane {
+            Some(control) => match control
+                .direct_provider_route(
+                    policy
+                        .identity()
+                        .map_or("red", |identity| identity.tenant_id.as_ref()),
+                    &requested_model,
+                    protocol,
+                    policy,
+                )
+                .await
+            {
+                Ok(route) => route,
+                Err("invalid provider model") => {
+                    return error(StatusCode::BAD_REQUEST, "Invalid provider model");
+                }
+                Err("provider route forbidden") => {
+                    return error(StatusCode::FORBIDDEN, "Provider route is not allowed");
+                }
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Provider route unavailable",
+                    )
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+    let route = configured_route.or(direct_route.as_ref());
     if route.is_some_and(|route| {
         route
             .public_model_alias
@@ -5718,7 +5761,9 @@ async fn proxy_request(
         return error(StatusCode::NOT_FOUND, "Unknown model alias");
     }
     if state.product_combo.is_none()
-        && !if route.is_some_and(|route| route.public_model_alias.is_some()) {
+        && !if route
+            .is_some_and(|route| route.public_model_alias.is_some() || route.provider_direct)
+        {
             policy.route_allowed(&requested_model)
         } else if route.is_some() {
             policy.combo_allowed(&requested_model)
@@ -5946,9 +5991,10 @@ async fn proxy_request(
         .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
         .and_then(|_| prompt_cache_affinity_key(&parsed));
     // Alias pools are direct priority lists, not the fixed-size combo strategy deck.
-    let direct_alias = route.is_some_and(|route| route.public_model_alias.is_some());
+    let direct_alias =
+        route.is_some_and(|route| route.public_model_alias.is_some() || route.provider_direct);
     let mut attempt_order = route
-        .filter(|route| route.public_model_alias.is_none())
+        .filter(|route| route.public_model_alias.is_none() && !route.provider_direct)
         .map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
     if let Some(preparation) = fusion_preparation {
         attempt_order = Some(preparation.attempt_order);
@@ -6024,7 +6070,7 @@ async fn proxy_request(
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "No active Rust provider configuration",
+            "No active provider configuration",
         );
     }
     for offset in 0..attempts {
