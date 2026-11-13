@@ -154,7 +154,10 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
     throw new Error("Connection label must contain between 1 and 200 characters");
   }
   if (accountEmail.length > 320) throw new Error("Provider account email is too long");
-  if ((!editing && !apiKey) || new TextEncoder().encode(apiKey).length > 8192) {
+  if (
+    (!editing && !apiKey && draft.authScheme !== "none") ||
+    new TextEncoder().encode(apiKey).length > 8192
+  ) {
     throw new Error(
       editing
         ? "A replacement provider credential cannot exceed 8192 bytes"
@@ -399,6 +402,7 @@ export default function RustProvidersPageClient() {
       const existing = providers.find((provider) => provider.id === editingId);
       if (
         existing &&
+        input.auth_scheme !== "none" &&
         !input.api_key &&
         ((!input.node_id && input.protocol !== (existing.protocol ?? "auto")) ||
           input.node_id !== (existing.node_id ?? null))
@@ -1003,9 +1007,17 @@ export default function RustProvidersPageClient() {
               className={inputClass}
               value={draft.authScheme}
               disabled={draft.credentialType === "oauth"}
-              onChange={(event) => set("authScheme", event.target.value as RustProviderAuthScheme)}
+              onChange={(event) => {
+                const authScheme = event.target.value as RustProviderAuthScheme;
+                setDraft((current) => ({
+                  ...current,
+                  authScheme,
+                  ...(authScheme === "none" ? { apiKey: "", expiresAt: "" } : {}),
+                }));
+              }}
             >
               <option value="auto">Automatic for endpoint</option>
+              <option value="none">No authentication (local or public API)</option>
               <option value="bearer">Authorization: Bearer</option>
               <option value="x-api-key">x-api-key</option>
               <option value="x-goog-api-key">x-goog-api-key</option>
@@ -1044,8 +1056,13 @@ export default function RustProvidersPageClient() {
               type="password"
               autoComplete="new-password"
               value={draft.apiKey}
+              disabled={draft.authScheme === "none"}
               placeholder={
-                editingId ? "Leave blank to keep current credential" : "Stored encrypted"
+                draft.authScheme === "none"
+                  ? "This provider does not require a credential"
+                  : editingId
+                    ? "Leave blank to keep current credential"
+                    : "Stored encrypted"
               }
               onChange={(event) => set("apiKey", event.target.value)}
             />
@@ -1071,6 +1088,7 @@ export default function RustProvidersPageClient() {
               className={inputClass}
               type="datetime-local"
               value={draft.expiresAt}
+              disabled={draft.authScheme === "none"}
               onChange={(event) => set("expiresAt", event.target.value)}
             />
           </label>
@@ -1187,13 +1205,15 @@ export default function RustProvidersPageClient() {
                   <div>
                     <dt className="font-medium">Credential</dt>
                     <dd>
-                      {provider.credential_expired
-                        ? "Expired"
-                        : provider.has_credential
-                          ? provider.credential_type === "oauth"
-                            ? `${provider.oauth_provider} OAuth · generation ${provider.oauth_generation}`
-                            : "Encrypted and present"
-                          : "Missing"}
+                      {provider.auth_scheme === "none"
+                        ? "Not required"
+                        : provider.credential_expired
+                          ? "Expired"
+                          : provider.has_credential
+                            ? provider.credential_type === "oauth"
+                              ? `${provider.oauth_provider} OAuth · generation ${provider.oauth_generation}`
+                              : "Encrypted and present"
+                            : "Missing"}
                     </dd>
                   </div>
                   <div>

@@ -39,7 +39,7 @@ Every row needs SQLite persistence, request behavior, import and regression evid
 | PV-19 | P1 / S | Node `iconUrl` | Missing custom branding field/display/migration. Validate remote image source separately from inference URL. |
 | PV-20 | P0 / M | Node `dailyQuotaResetTimezone/dailyQuotaResetHour` | Missing node-specific reset contract; verify DST and exact window boundaries. |
 | PV-21 | P0 / M | Node presets / `compatMode` | Review each preset; a generic compatible URL must not be advertised as native CLI compatibility. |
-| PV-22 | P0 / M | Credential optional providers / `allowOverwrite` | Native create requires a credential; port legitimate no-auth local providers and explicit duplicate-name replacement safely. |
+| PV-22 | P0 / M | Credential optional providers / `allowOverwrite` | Explicit native `auth_scheme:none` now supports local/public APIs without fabricated credentials, including dispatch, combos, diagnostics and discovery; client authentication remains mandatory. SPA create/edit and SQLite restart regressions await CI. Legacy no-auth import and explicit duplicate-name replacement remain open. |
 | PV-23 | P0 / L | Bulk create/import API credentials, validation and batch enable/test | OAuth import subset exists. Preserve partial failure reporting, duplicate policy and account identity for API credentials. |
 | PV-24 | P0 / L | OAuth authorize/device/import/refresh/revoke per executor | Six native OAuth kinds are not all historical flows. Enumerate every legacy executor and prove identity, expiry, concurrency and revocation separately. |
 | PV-25 | P0 / L | Custom provider model add/update/delete | Catalog metadata is read/refresh-oriented; native per-provider model mutation and discovery reconciliation still missing. |

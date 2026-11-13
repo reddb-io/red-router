@@ -204,7 +204,7 @@ export interface RustUsageSummary {
 }
 
 export type RustRateLimitScope = "auto" | "connection" | "model";
-export type RustProviderAuthScheme = "auto" | "bearer" | "x-api-key" | "x-goog-api-key";
+export type RustProviderAuthScheme = "auto" | "none" | "bearer" | "x-api-key" | "x-goog-api-key";
 export type RustProviderOAuthKind =
   "codex" | "claude" | "agy" | "github" | "xai-oauth" | "openference";
 export type RustBrowserOAuthKind = Exclude<RustProviderOAuthKind, "github">;
@@ -1067,6 +1067,7 @@ function isRustProvider(value: unknown): value is RustProvider {
     (provider.oauth_error_code === undefined || typeof provider.oauth_error_code === "string") &&
     typeof provider.reauth_required === "boolean" &&
     (provider.auth_scheme === "auto" ||
+      provider.auth_scheme === "none" ||
       provider.auth_scheme === "bearer" ||
       provider.auth_scheme === "x-api-key" ||
       provider.auth_scheme === "x-goog-api-key") &&

@@ -528,6 +528,7 @@ pub(crate) enum ProviderProtocol {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderAuthScheme {
     Auto,
+    None,
     Bearer,
     XApiKey,
     XGoogApiKey,
@@ -1383,11 +1384,16 @@ impl ProxyState {
         {
             return Err("upstream resolved to a forbidden address");
         }
-        if !(16..=512).contains(&client_key.len()) || !(1..=8192).contains(&provider_key.len()) {
+        if !(16..=512).contains(&client_key.len())
+            || (auth_scheme != ProviderAuthScheme::None
+                && !(1..=8192).contains(&provider_key.len()))
+            || (auth_scheme == ProviderAuthScheme::None && !provider_key.is_empty())
+        {
             return Err("client key must be 16-512 bytes and provider credential 1-8192 bytes");
         }
         let auth_scheme = auth_scheme.resolve(protocol)?;
         let provider_credential = match auth_scheme {
+            ProviderAuthScheme::None => String::new(),
             ProviderAuthScheme::Bearer => format!("Bearer {provider_key}"),
             ProviderAuthScheme::XApiKey | ProviderAuthScheme::XGoogApiKey => {
                 provider_key.to_owned()
@@ -2035,6 +2041,7 @@ impl ProviderAuthScheme {
     pub(crate) fn parse(value: &str) -> Result<Self, &'static str> {
         match value {
             "auto" => Ok(Self::Auto),
+            "none" => Ok(Self::None),
             "bearer" => Ok(Self::Bearer),
             "x-api-key" => Ok(Self::XApiKey),
             "x-goog-api-key" => Ok(Self::XGoogApiKey),
@@ -2045,6 +2052,7 @@ impl ProviderAuthScheme {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::None => "none",
             Self::Bearer => "bearer",
             Self::XApiKey => "x-api-key",
             Self::XGoogApiKey => "x-goog-api-key",
@@ -2053,6 +2061,10 @@ impl ProviderAuthScheme {
 
     fn resolve(self, protocol: ProviderProtocol) -> Result<Self, &'static str> {
         match (self, protocol) {
+            (Self::None, ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity) => {
+                Err("Antigravity endpoints require bearer authentication")
+            }
+            (Self::None, _) => Ok(Self::None),
             (Self::Auto, ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic) => {
                 Ok(Self::XApiKey)
             }
@@ -3890,6 +3902,7 @@ async fn generate_context_relay_summary(
             ProviderAuthScheme::XGoogApiKey => {
                 request.header("x-goog-api-key", target.provider_key.clone())
             }
+            ProviderAuthScheme::None => request,
             ProviderAuthScheme::Auto => return None,
         };
         request = github_copilot_headers(
@@ -4529,6 +4542,7 @@ async fn execute_fusion_panel_target(
             ProviderAuthScheme::XGoogApiKey => {
                 request.header("x-goog-api-key", target.provider_key.clone())
             }
+            ProviderAuthScheme::None => request,
             ProviderAuthScheme::Auto => return None,
         };
         if matches!(
@@ -6421,6 +6435,7 @@ async fn proxy_request(
                 ProviderAuthScheme::XGoogApiKey => {
                     upstream.header("x-goog-api-key", provider_key.clone())
                 }
+                ProviderAuthScheme::None => upstream,
                 ProviderAuthScheme::Auto => unreachable!("authentication was resolved"),
             };
             upstream = github_copilot_headers(upstream, attempt_provider_name, attempt_provider_id);

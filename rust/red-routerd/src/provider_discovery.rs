@@ -343,6 +343,7 @@ impl ControlPlane {
             ProviderAuthScheme::XGoogApiKey => {
                 request.header("x-goog-api-key", live.provider_key.clone())
             }
+            ProviderAuthScheme::None => request,
             ProviderAuthScheme::Auto => return Err("unsupported_connection"),
         };
         if live.protocol == ProviderProtocol::Anthropic {

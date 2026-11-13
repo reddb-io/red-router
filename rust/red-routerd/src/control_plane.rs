@@ -5641,8 +5641,19 @@ impl ControlPlane {
         if input.credential_type == "oauth" && protocol != "auto" {
             return Err("OAuth connections own their upstream protocol");
         }
+        let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
+        let unauthenticated = auth_scheme == ProviderAuthScheme::None;
+        if unauthenticated
+            && (input.credential_type != "static"
+                || !input.api_key.is_empty()
+                || input.expires_at_unix.is_some_and(|expiry| expiry != 0))
+        {
+            return Err("Unauthenticated providers require an empty credential and no expiry");
+        }
         let replacing_access_token = !input.api_key.is_empty();
-        let api_key = if replacing_access_token {
+        let api_key = if unauthenticated {
+            Zeroizing::new(String::new())
+        } else if replacing_access_token {
             if input.api_key.len() > 8192 {
                 return Err("provider credential must be 1-8192 bytes");
             }
@@ -5659,8 +5670,7 @@ impl ControlPlane {
             .await?
         };
         let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
-        let auth_scheme = ProviderAuthScheme::parse(&input.auth_scheme)?;
-        if !replacing_access_token {
+        if !replacing_access_token && !unauthenticated {
             let existing = existing
                 .as_ref()
                 .ok_or("provider credential must be 1-8192 bytes")?;
@@ -5950,7 +5960,9 @@ impl ControlPlane {
         }
         self.0.database.delete_provider_oauth_status(id).await?;
         let before = existing.as_ref().map(provider_audit_snapshot);
-        let after = provider_audit_snapshot(&stored);
+        let mut after = provider_audit_snapshot(&stored);
+        after["auth_scheme"] = auth_scheme.as_str().into();
+        after["has_credential"] = (!unauthenticated).into();
         self.record_audit_event(
             AuditContext {
                 action: if before.is_some() {
@@ -10674,6 +10686,7 @@ async fn probe_provider(
         ProviderAuthScheme::XGoogApiKey => {
             request.header("x-goog-api-key", provider.provider_key.clone())
         }
+        ProviderAuthScheme::None => request,
         ProviderAuthScheme::Auto => return Err("provider authentication is unresolved"),
     };
     request = crate::github_copilot_headers(
@@ -10826,7 +10839,7 @@ fn view(
         upstream_url: record.upstream_url.clone(),
         enabled: record.enabled,
         revision: record.updated_at.to_string(),
-        has_credential: !record.credential_ciphertext.is_empty(),
+        has_credential: auth.auth_scheme != "none" && !record.credential_ciphertext.is_empty(),
         rate_limit_scope: rate_limit_scope.as_str().to_owned(),
         auth_scheme: auth.auth_scheme.clone(),
         label: auth.label.clone(),
@@ -11434,7 +11447,7 @@ fn provider_audit_snapshot(record: &StoredProvider) -> serde_json::Value {
         "node_id": record.node_id,
         "enabled": record.enabled,
         "revision": record.updated_at.to_string(),
-        "has_credential": true
+        "has_encrypted_record": !record.credential_ciphertext.is_empty()
     })
 }
 

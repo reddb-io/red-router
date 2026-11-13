@@ -111,6 +111,53 @@ async function mount() {
 }
 
 describe("Rust provider models.dev catalog", () => {
+  it("creates an explicitly unauthenticated provider without fabricating a credential", async () => {
+    api.listRustProviders.mockResolvedValue([]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [],
+      snapshot: { source: "persisted", revision: "1" },
+    });
+    api.replaceRustProvider.mockResolvedValue({});
+    const container = await mount();
+    const inputFor = (label: string) =>
+      [...container.querySelectorAll("label")]
+        .find((entry) => entry.textContent?.trim().startsWith(label))!
+        .querySelector("input")!;
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          input,
+          value
+        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await type(inputFor("Connection ID"), "local-no-auth");
+    await type(inputFor("Upstream URL"), "http://127.0.0.1:11434/v1/chat/completions");
+    await type(inputFor("API key or provider credential"), "discard-this-secret");
+    const select = [...container.querySelectorAll("select")].find((entry) =>
+      entry.querySelector('option[value="none"]')
+    )!;
+    await act(async () => {
+      select.value = "none";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(inputFor("API key or provider credential").value).toBe("");
+    expect(inputFor("API key or provider credential").disabled).toBe(true);
+    expect(inputFor("Credential expires").disabled).toBe(true);
+    const button = [...container.querySelectorAll("button")].find(
+      (entry) => entry.textContent === "Add connection"
+    )!;
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(api.replaceRustProvider).toHaveBeenCalledWith(
+      "local-no-auth",
+      expect.objectContaining({ auth_scheme: "none", api_key: "", credential_type: "static" })
+    );
+  });
+
   it("renders the Rust snapshot and lazily inspects provider models", async () => {
     api.listRustProviders.mockResolvedValue([]);
     api.readRustModelCatalog.mockResolvedValue({

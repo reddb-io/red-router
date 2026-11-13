@@ -1131,3 +1131,15 @@ unavailable or rate-limited.
 
 The next slice needs equivalent routing/authz, accounting, persistence and contract
 tests before considering a cluster deployment.
+
+
+Unauthenticated upstream APIs can be configured through the provider manager with
+`auth_scheme: "none"`, `credential_type: "static"` and an empty or omitted `api_key`.
+This is an explicit per-account choice for local/public APIs; it does not disable
+RedRouter client-key authentication. Upstream requests, combo dispatch, diagnostics
+and model discovery omit authentication headers. Credentials and expiry are rejected
+in this mode; OAuth/CLI providers retain their required authentication. Returning to
+authenticated mode requires a new credential. The SPA clears credential inputs when
+selecting this option. SQLite persistence uses the existing encrypted record format;
+no schema migration or fabricated provider secret is needed. Legacy no-auth import
+and environment-only bootstrap configuration are not covered by this API addition.

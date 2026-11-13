@@ -443,3 +443,14 @@ Revision-checked writes reject stale changes and cannot resurrect deleted nodes.
 Tests extend two-connection precedence, diagnosis/discovery/combos, restart,
 cross-instance removal, corruption, owner isolation and simultaneous writers.
 Validation for shared headers is pending; legacy node import remains open.
+
+
+2026-11-13 — PV-22: explicit no-auth upstream connections now accept an empty
+credential through authenticated management APIs and SPA. Inference (including
+streaming/combos), diagnostics and discovery omit upstream authentication headers;
+client-key checks, destination validation and OAuth requirements remain intact.
+SQLite restart, client-key rejection, mode transitions and credential non-forwarding
+have CI regressions. Audit records distinguish an encrypted envelope from an actual
+credential. Legacy import and duplicate replacement are still open; this is not full
+PV-22 acceptance. Validation pending for this slice. Shared header UI/checks at
+`86d217044` passed; its Rust suite and browser coverage remain in progress.
