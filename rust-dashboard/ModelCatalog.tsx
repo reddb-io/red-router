@@ -13,10 +13,24 @@ import { Button } from "./components";
 
 type Provider = { id: string; name: string | null };
 type Catalog = {
-  manifest: { fetchedAt: string; providers: number; providerModels: number };
+  manifest: {
+    fetchedAt: string;
+    providers: number;
+    providerModels: number;
+    contentSha256?: string;
+  };
   snapshot: { source: string; last_error?: string };
   providers: Provider[];
 };
+type SearchPage = {
+  models: Model[];
+  total: number;
+  offset: number;
+  limit: number;
+  types: string[];
+  input_modalities: string[];
+};
+const ALL_PROVIDERS = "__all__";
 const fieldClass = "w-full rounded border border-border bg-surface px-3 py-2 text-text-main";
 
 async function read(path: string, init?: RequestInit) {
@@ -40,6 +54,11 @@ export default function ModelCatalog() {
   const [requestedPage, setRequestedPage] = useState(0);
   const [retry, setRetry] = useState(0);
   const [modelsError, setModelsError] = useState("");
+  const [searchResult, setSearchResult] = useState<{
+    key: string;
+    catalog: Catalog;
+    page: SearchPage;
+  } | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,7 +67,9 @@ export default function ModelCatalog() {
     if (!Array.isArray(value.providers)) throw new Error("Invalid catalog response.");
     setCatalog(value);
     setProviderId((current) =>
-      value.providers.some((provider) => provider.id === current) ? current : ""
+      current === ALL_PROVIDERS || value.providers.some((provider) => provider.id === current)
+        ? current
+        : ""
     );
   }, []);
   useEffect(() => {
@@ -57,7 +78,7 @@ export default function ModelCatalog() {
       .catch((cause) => setError(cause instanceof Error ? cause.message : "Cannot load catalog."));
   }, [load]);
   useEffect(() => {
-    if (!providerId || !catalog) return;
+    if (!providerId || providerId === ALL_PROVIDERS || !catalog) return;
     const controller = new AbortController();
     void read(`/api/admin/model-catalog/${encodeURIComponent(providerId)}`, {
       signal: controller.signal,
@@ -76,6 +97,57 @@ export default function ModelCatalog() {
     return () => controller.abort();
   }, [providerId, catalog, retry]);
 
+  const globalSearch = providerId === ALL_PROVIDERS;
+  const searchKey = new URLSearchParams({
+    query: filters.query,
+    model_type: filters.type,
+    capability: filters.capability,
+    input_modality: filters.inputModality,
+    min_context: String(filters.minContext),
+    sort,
+    descending: String(descending),
+    offset: String(requestedPage * 50),
+    limit: "50",
+    ...(catalog?.manifest.contentSha256 ? { snapshot: catalog.manifest.contentSha256 } : {}),
+  }).toString();
+  useEffect(() => {
+    if (!globalSearch || !catalog) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void read(`/api/admin/model-catalog/search/models?${searchKey}`, {
+        signal: controller.signal,
+      })
+        .then((page: SearchPage) => {
+          if (
+            !Array.isArray(page.models) ||
+            !Number.isSafeInteger(page.total) ||
+            page.total < 0 ||
+            !Number.isSafeInteger(page.offset) ||
+            page.offset < 0 ||
+            !Number.isSafeInteger(page.limit) ||
+            page.limit < 1 ||
+            page.limit > 100 ||
+            page.models.length > page.limit ||
+            !Array.isArray(page.types) ||
+            !Array.isArray(page.input_modalities)
+          )
+            throw new Error("Invalid catalog search response.");
+          if (!controller.signal.aborted) {
+            setSearchResult({ key: searchKey, catalog, page });
+            setModelsError("");
+          }
+        })
+        .catch((cause) => {
+          if (!controller.signal.aborted)
+            setModelsError(cause instanceof Error ? cause.message : "Cannot search models.");
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [globalSearch, searchKey, catalog, retry]);
+
   async function refresh() {
     setBusy(true);
     setError("");
@@ -91,20 +163,35 @@ export default function ModelCatalog() {
       setBusy(false);
     }
   }
-  const models =
-    result?.providerId === providerId && result.catalog === catalog ? result.models : null;
+  const globalPage =
+    searchResult?.key === searchKey && searchResult.catalog === catalog ? searchResult.page : null;
+  const models = globalSearch
+    ? (globalPage?.models ?? null)
+    : result?.providerId === providerId && result.catalog === catalog
+      ? result.models
+      : null;
   const filtered = useMemo(
     () => selectCatalogModels(models ?? [], filters, sort, descending),
     [models, filters, sort, descending]
   );
-  const pagination = catalogPage(filtered, requestedPage);
-  const types = [
-    ...new Set(models?.flatMap((model) => (model.type ? [model.type] : [])) ?? []),
-  ].sort();
-  const inputModalities = [
-    ...new Set(models?.flatMap((model) => model.modalities?.input ?? []) ?? []),
-  ].sort();
+  const pagination = globalSearch
+    ? {
+        page: Math.floor((globalPage?.offset ?? 0) / (globalPage?.limit ?? 50)),
+        pageCount: Math.max(1, Math.ceil((globalPage?.total ?? 0) / (globalPage?.limit ?? 50))),
+        rows: globalPage?.models ?? [],
+      }
+    : catalogPage(filtered, requestedPage);
+  const matchedCount = globalSearch ? (globalPage?.total ?? 0) : filtered.length;
+  const totalCount = globalSearch ? (catalog?.manifest.providerModels ?? 0) : (models?.length ?? 0);
+  const globalFacets = searchResult?.catalog === catalog ? searchResult?.page : null;
+  const types = globalSearch
+    ? (globalFacets?.types ?? [])
+    : [...new Set(models?.flatMap((model) => (model.type ? [model.type] : [])) ?? [])].sort();
+  const inputModalities = globalSearch
+    ? (globalFacets?.input_modalities ?? [])
+    : [...new Set(models?.flatMap((model) => model.modalities?.input ?? []) ?? [])].sort();
   function filter(next: Partial<CatalogFilters>) {
+    setModelsError("");
     setFilters((current) => ({ ...current, ...next }));
     setRequestedPage(0);
   }
@@ -165,6 +252,7 @@ export default function ModelCatalog() {
             }}
           >
             <option value="">Select a provider</option>
+            <option value={ALL_PROVIDERS}>All providers</option>
             {catalog.providers.map((provider) => (
               <option key={provider.id} value={provider.id}>
                 {provider.name || provider.id} ({provider.id})
@@ -251,6 +339,7 @@ export default function ModelCatalog() {
                     className={fieldClass}
                     value={sort}
                     onChange={(event) => {
+                      setModelsError("");
                       setSort(event.target.value as CatalogSort);
                       setRequestedPage(0);
                     }}
@@ -269,6 +358,7 @@ export default function ModelCatalog() {
                     className={fieldClass}
                     value={descending ? "desc" : "asc"}
                     onChange={(event) => {
+                      setModelsError("");
                       setDescending(event.target.value === "desc");
                       setRequestedPage(0);
                     }}
@@ -281,6 +371,7 @@ export default function ModelCatalog() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  setModelsError("");
                   setFilters(emptyCatalogFilters);
                   setRequestedPage(0);
                 }}
@@ -293,7 +384,13 @@ export default function ModelCatalog() {
                   <Button
                     onClick={() => {
                       setModelsError("");
-                      setRetry((value) => value + 1);
+                      void load()
+                        .then(() => setRetry((value) => value + 1))
+                        .catch((cause) =>
+                          setModelsError(
+                            cause instanceof Error ? cause.message : "Cannot reload catalog."
+                          )
+                        );
                     }}
                   >
                     Retry models
@@ -304,7 +401,7 @@ export default function ModelCatalog() {
               ) : (
                 <div className="overflow-x-auto">
                   <p className="my-3 text-sm text-text-muted">
-                    {filtered.length} of {models.length} models · Page {pagination.page + 1} of{" "}
+                    {matchedCount} of {totalCount} models · Page {pagination.page + 1} of{" "}
                     {pagination.pageCount}
                   </p>
                   <table className="w-full text-left" aria-label="Model catalog">
@@ -321,11 +418,16 @@ export default function ModelCatalog() {
                     </thead>
                     <tbody>
                       {pagination.rows.map((model) => (
-                        <tr key={model.id}>
+                        <tr key={JSON.stringify([model.provider_id, model.id])}>
                           <td>
                             {model.name || model.id}
                             <br />
                             <small>{model.id}</small>
+                            {model.provider_id && (
+                              <p className="text-sm text-text-muted">
+                                {model.provider_name || model.provider_id} · {model.provider_id}
+                              </p>
+                            )}
                             <details className="my-2 max-w-xl">
                               <summary className="cursor-pointer text-sm text-primary">
                                 Details for {model.id}
@@ -354,7 +456,7 @@ export default function ModelCatalog() {
                       ))}
                     </tbody>
                   </table>
-                  {filtered?.length === 0 && <p>No matching models.</p>}
+                  {matchedCount === 0 && <p>No matching models.</p>}
                   <div className="mt-4 flex gap-3">
                     <Button
                       variant="outline"

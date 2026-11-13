@@ -12,7 +12,7 @@
     "partialSpaRoutes": 35,
     "externalLinks": 2,
     "oldApiRouteFiles": 803,
-    "rustRegisteredPaths": 80,
+    "rustRegisteredPaths": 81,
     "samePathCandidates": 28
   },
   "pages": [
@@ -9254,6 +9254,12 @@
     },
     {
       "path": "/api/admin/model-catalog",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/api/admin/model-catalog/search/models",
       "methods": [
         "GET"
       ]

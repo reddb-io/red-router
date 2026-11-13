@@ -1,5 +1,7 @@
 /** models.dev metadata exposed by the authenticated catalog API. Not entitlements. */
 export interface CatalogModel {
+  provider_id?: string;
+  provider_name?: string | null;
   id: string;
   name?: string;
   type?: string;

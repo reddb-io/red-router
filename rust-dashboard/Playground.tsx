@@ -174,7 +174,7 @@ export default function Playground() {
           </Button>
           {modelsMessage && <p role="status" className="text-sm text-text-muted">{modelsMessage}</p>}
         </div>
-        <p className="mt-2 text-sm text-text-muted">The key stays in this page's memory and is sent with each request.</p>
+        <p className="mt-2 text-sm text-text-muted">The key stays in this page&apos;s memory and is sent with each request.</p>
         <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={stream} disabled={busy} onChange={(event) => setStream(event.target.checked)} /> Stream responses</label>
       </Card>
       <Card title="Conversation" action={<Button variant="outline" disabled={busy || messages.length === 0} onClick={() => setMessages([])}>Clear</Button>}>

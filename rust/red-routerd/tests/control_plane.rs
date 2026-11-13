@@ -1999,6 +1999,40 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
     assert_eq!(model["cost"]["output"], 1.5);
     assert_eq!(model["tool_call"], false);
 
+    let search_url = format!("{base}/api/admin/model-catalog/search/models");
+    assert_eq!(
+        client.get(&search_url).send().await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let response = client
+        .get(&search_url)
+        .query(&[("query", "gpt-3.5-turbo"), ("limit", "1")])
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(page["models"].as_array().unwrap().len(), 1);
+    assert!(page["total"].as_u64().unwrap() >= 1);
+    assert!(page["models"][0]["provider_id"].is_string());
+    assert_eq!(page["content_sha256"], index["manifest"]["contentSha256"]);
+    for (query, expected) in [
+        ("limit=101".to_owned(), StatusCode::BAD_REQUEST),
+        (format!("snapshot={}", "0".repeat(64)), StatusCode::CONFLICT),
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{search_url}?{query}"))
+                .bearer_auth(ADMIN_KEY)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            expected
+        );
+    }
+
     assert_eq!(
         client
             .get(format!("{base}/api/admin/model-catalog/not-a-provider"))

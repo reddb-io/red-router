@@ -5,6 +5,9 @@
 //! provider, route or authorization grant.
 
 use serde::{Deserialize, Serialize};
+#[path = "catalog_search.rs"]
+mod search;
+pub use search::{CatalogSearch, CatalogSearchModel, CatalogSearchPage};
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use std::{

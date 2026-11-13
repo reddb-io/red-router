@@ -693,6 +693,97 @@ test("static dashboard reads staged historical costs from the Rust API", async (
   expect(queries.some((query) => new URLSearchParams(query).get("cursor") === "12")).toBe(true);
 });
 
+test("global catalog search paginates on the server and keeps provider identity", async ({
+  page,
+}) => {
+  const hash = "1".repeat(64);
+  const queries: URLSearchParams[] = [];
+  const models = Array.from({ length: 52 }, (_, index) => ({
+    id: `shared-${String(index % 26).padStart(2, "0")}`,
+    provider_id: index < 26 ? "alpha" : "beta",
+    provider_name: index < 26 ? "Alpha" : "Beta",
+    type: "chat",
+    limit: { context: 128000 },
+  }));
+  let failNext = true;
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/auth/config") {
+      await route.fulfill({
+        json: {
+          backend: "rust",
+          control_plane_enabled: true,
+          oidc_browser_login: false,
+          password_login: true,
+        },
+      });
+    } else if (url.pathname === "/api/admin/model-catalog") {
+      await route.fulfill({
+        json: {
+          manifest: {
+            fetchedAt: "2026-11-13",
+            providers: 2,
+            providerModels: 52,
+            contentSha256: hash,
+          },
+          snapshot: { source: "bundled" },
+          providers: [
+            { id: "alpha", name: "Alpha" },
+            { id: "beta", name: "Beta" },
+          ],
+        },
+      });
+    } else if (url.pathname === "/api/admin/model-catalog/search/models") {
+      queries.push(url.searchParams);
+      expect(url.searchParams.get("snapshot")).toBe(hash);
+      expect(url.searchParams.get("limit")).toBe("50");
+      const query = url.searchParams.get("query") || "";
+      if (query === "Beta" && failNext) {
+        failNext = false;
+        await route.fulfill({
+          status: 503,
+          json: { error: { message: "Temporary catalog outage" } },
+        });
+        return;
+      }
+      const selected = models.filter((model) =>
+        `${model.provider_name} ${model.id}`.includes(query)
+      );
+      const offset = Number(url.searchParams.get("offset"));
+      await route.fulfill({
+        json: {
+          models: selected.slice(offset, offset + 50),
+          total: selected.length,
+          offset,
+          limit: 50,
+          content_sha256: hash,
+          types: ["chat"],
+          input_modalities: ["text"],
+        },
+      });
+    } else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/model-catalog`);
+  await page.getByLabel("Provider", { exact: true }).selectOption("__all__");
+  const rows = page.getByRole("table", { name: "Model catalog" }).locator("tbody tr");
+  await expect(rows).toHaveCount(50);
+  await expect(page.getByText("Alpha · alpha").first()).toBeVisible();
+  await expect(page.getByText("Beta · beta").first()).toBeVisible();
+  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(rows).toHaveCount(2);
+  expect(queries.some((query) => query.get("offset") === "50")).toBe(true);
+  await page.getByLabel("Filter models", { exact: true }).fill("Beta");
+  await expect(page.getByRole("alert")).toContainText("Temporary catalog outage");
+  await page.getByRole("button", { name: "Retry models", exact: true }).click();
+  await expect(rows).toHaveCount(26);
+  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
+  expect(
+    queries
+      .filter((query) => query.get("query") === "Beta")
+      .every((query) => query.get("offset") === "0")
+  ).toBe(true);
+});
+
 test("editing a restricted empty key preserves denial until explicitly changed", async ({
   page,
   context,

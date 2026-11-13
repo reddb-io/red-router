@@ -14042,6 +14042,58 @@ pub async fn list_model_catalog(State(state): State<ProxyState>, headers: Header
     }
 }
 
+pub async fn search_model_catalog(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<crate::catalog::CatalogSearch>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Control plane is disabled");
+    };
+    if control.management_scope(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    if query.validate().is_err() {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid catalog search");
+    }
+    let catalog = control.model_catalog().await;
+    if query
+        .snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot != &catalog.manifest().content_sha256)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "Catalog changed; reload the catalog and search again",
+        );
+    }
+    static SEARCH_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let Ok(permit) = SEARCH_SLOTS.try_acquire() else {
+        let mut response = api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Catalog search is busy; retry shortly",
+        );
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+        return response;
+    };
+    // Keep the permit in the worker even if the HTTP client disconnects. Neither
+    // repeated cancellation nor concurrent searches may exhaust the blocking pool.
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        catalog.search(&query)
+    })
+    .await
+    {
+        Ok(Ok(page)) => Json(page).into_response(),
+        _ => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Catalog search unavailable",
+        ),
+    }
+}
+
 pub async fn get_model_catalog_provider(
     State(state): State<ProxyState>,
     Path(provider): Path<String>,

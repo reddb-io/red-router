@@ -9,7 +9,7 @@ capabilities, not a new comparison against today's upstream feature lists.
 surfaces across 33 groups and 8 areas. 69 historical surfaces have no SPA route;
 35 resolve to a page but need behavioral review; 2 are external links. None of those
 counts is a feature-completion percentage. There are 803 legacy API route files and
-80 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
+81 registered Rust paths. Renamed/consolidated APIs must be traced, not automatically
 classified as missing. Full route-by-route evidence and source file paths are in
 [the generated inventory](LEGACY_RUST_PARITY_INVENTORY.md) and
 [the machine-readable inventory](../../config/upstream/legacy-rust-parity.json).
@@ -32,7 +32,7 @@ important product capability; P2 restores additional subsystems. All remain in s
 | ID | Priority / complexity | Capability and current state | Legacy evidence → new implementation | Remaining work and acceptance |
 | --- | --- | --- | --- | --- |
 | CORE-01 | P0 / M | Rail, panel, tabs, deep links — Partial | `src/shared/constants/sidebarNav.ts`, `src/shared/components/shell/` → `rust-dashboard/main.tsx`, `routes.ts` | Restore the original 8-area taxonomy, entry tabs, breadcrumbs, search, visibility and mobile navigation as their features land. Do not expose dummy actions or count aliases as ports. Deep-link and keyboard E2E. |
-| CORE-02 | P0 / M | Model/provider catalog — Partial | `src/app/(dashboard)/dashboard/models/`, `src/lib/catalog/` → `catalog.rs`, `ModelCatalog.tsx` | Port global/provider/type search, sorting, pagination, full capability/context/cache-price metadata, model links and freshness/retry states. Distinguish listed metadata from configured/authorized providers. Bound rendering and avoid stale results after changing provider. |
+| CORE-02 | P0 / M | Model/provider catalog — Partial | `src/app/(dashboard)/dashboard/models/`, `src/lib/catalog/` → `catalog.rs`, `ModelCatalog.tsx` | Global/provider/type search, sorting, pagination and full capability/context/cache-price metadata are implemented; verify CI evidence below. Remaining: model/configuration links and complete freshness/retry parity. Distinguish listed metadata from configured/authorized providers. Bound rendering and avoid stale results after changing provider. |
 | CORE-03 | P0 / L | Provider CRUD and advanced configuration — Partial | `src/app/api/providers/`, `src/app/api/provider-nodes/` → `control_plane.rs`, `RustProvidersPageClient.tsx` | Field-by-field mapping of endpoint/auth/header/model/region/project/proxy settings. Preserve secrets on metadata edits; never return secrets in list responses. Test create/edit/test/disable/delete/reload for every supported transport. |
 | CORE-04 | P0 / L | Provider OAuth accounts and sessions — Partial | `src/app/api/oauth/`, `open-sse/executors/`, provider auth imports → `control_plane.rs`, `RustProviderOAuthModal.tsx`, `RustProviderSessionImportModal.tsx` | Enumerate old provider auth flows separately from API-compatible IDs. Test authorize/callback/device/import/refresh/revoke, expired/banned states and competing refreshes. Keep Gemini CLI retired; preserve Antigravity. Use supported CLI integrations; never disguise clients to bypass provider controls. |
 | CORE-05 | P0 / L | Named client keys and policies — Partial | `src/app/api/api-keys/`, `src/lib/db/apiKeys.ts` → `policy.rs`, `control_plane.rs`, `RustApiManagerPageClient.tsx` | Compare every policy field and route restriction, custom headers, schedules, groups/tags/users, key routing and identity propagation. Preserve tenant ownership and human-readable labels; no RedDB database ID coupling. Test allowed and denied requests, not just CRUD. |
@@ -159,8 +159,8 @@ matcher slice below addresses that dependency. CORE-05/09 stay open.
 
 CORE-02: restore model-catalog filtering, sorting, bounded pagination and detailed
 metadata through the existing authenticated Rust catalog API. This closes an
-identified UI gap without creating another backend. Global cross-provider search,
-configuration/entitlement links and the rest of the row remain open until separately
+identified UI gap without creating another backend. Global cross-provider search is addressed by the later slice below.
+Configuration/entitlement links and the rest of the row remain open until separately
 implemented and validated. CI results belong in the delivery report; a source change
 or a mock UI test alone does not certify the whole catalog or a live provider.
 
@@ -266,3 +266,25 @@ meaning. A regression edits a previously unrestricted imported key and verifies 
 properties. Older imports created by the earlier empty-policy importer cannot be
 unambiguously reinterpreted from destination fields alone; re-import from the preserved
 source is needed to distinguish originally null from explicit `combo/*`.
+
+
+2026-11-13 — CORE-02/UI-38: authenticated global models.dev catalog search now
+uses `GET /api/admin/model-catalog/search/models`. The SPA's All providers option
+submits filters/sorting and pages of 50; provider-qualified row identity keeps the
+same model ID from different commercial deployments distinct. Metadata search is
+not model entitlement and does not create providers, keys or routing grants.
+
+The API bounds page size to 100 and query length to 256 bytes, pins pagination to
+the snapshot hash when supplied, and returns stable provider/model tie-breaks.
+Missing price/context values sort last rather than becoming free/zero. Searches
+run in at most two blocking workers, retaining their permits through client
+cancellation. They retain lightweight candidate references and parse only returned
+metadata again for serialization; they do not fill all lazy provider caches or send
+the entire catalog to the browser. This is bounded concurrency, not a latency or
+memory benchmark claim.
+
+Regressions cover source-wide filtering, duplicate IDs, page boundaries, stale
+snapshots, cache laziness, unknown prices, unauthorized API calls, browser pagination
+and recovery after a failed search. The general CI also found an unescaped apostrophe
+in Playground JSX; it is corrected here. Acceptance still requires the exact commit's
+CI and local deployment verification.

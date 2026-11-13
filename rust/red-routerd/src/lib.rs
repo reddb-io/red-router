@@ -2272,6 +2272,10 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::list_model_catalog),
         )
         .route(
+            "/api/admin/model-catalog/search/models",
+            get(control_plane::search_model_catalog),
+        )
+        .route(
             "/api/admin/model-catalog/{provider}",
             get(control_plane::get_model_catalog_provider),
         )
