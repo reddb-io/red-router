@@ -51,22 +51,41 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-test("playground sends a multi-turn conversation using the supplied client key", async ({ page, context }) => {
+test("playground sends a multi-turn conversation using the supplied client key", async ({
+  page,
+  context,
+}) => {
   await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
-  await page.route("**/api/auth/config", (route) => route.fulfill({ json: {
-    backend: "rust", control_plane_enabled: true, oidc_browser_login: false, password_login: true,
-  } }));
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({
+      json: {
+        backend: "rust",
+        control_plane_enabled: true,
+        oidc_browser_login: false,
+        password_login: true,
+      },
+    })
+  );
   const requests: unknown[] = [];
   await page.route("**/v1/models", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer local-client-key");
-    await route.fulfill({ json: { object: "list", data: [{ id: "openrouter/example" }, { id: "example-combo" }] } });
+    await route.fulfill({
+      json: { object: "list", data: [{ id: "openrouter/example" }, { id: "example-combo" }] },
+    });
   });
   await page.route("**/v1/chat/completions", async (route) => {
     expect(route.request().headers().authorization).toBe("Bearer local-client-key");
     const body = route.request().postDataJSON();
     requests.push(body);
-    if (body.stream) await route.fulfill({ contentType: "text/event-stream", body: 'data: {"choices":[{"delta":{"content":"Streamed "}}]}\n\ndata: {"choices":[{"delta":{"content":"reply"}}]}\n\ndata: [DONE]\n\n' });
-    else await route.fulfill({ json: { choices: [{ message: { content: `Reply ${requests.length}` } }] } });
+    if (body.stream)
+      await route.fulfill({
+        contentType: "text/event-stream",
+        body: 'data: {"choices":[{"delta":{"content":"Streamed "}}]}\n\ndata: {"choices":[{"delta":{"content":"reply"}}]}\n\ndata: [DONE]\n\n',
+      });
+    else
+      await route.fulfill({
+        json: { choices: [{ message: { content: `Reply ${requests.length}` } }] },
+      });
   });
   await page.goto(`${origin}/dashboard/playground`);
   await page.getByLabel("API key", { exact: true }).fill("local-client-key");
@@ -84,17 +103,28 @@ test("playground sends a multi-turn conversation using the supplied client key",
   await page.getByLabel("Message", { exact: true }).fill("Again");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText("Reply 2", { exact: true })).toBeVisible();
-  expect(requests[1]).toMatchObject({ model: "openrouter/example", stream: false, messages: [
-    { role: "user", content: "Hello" }, { role: "assistant", content: "Reply 1" }, { role: "user", content: "Again" },
-  ] });
-  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("local-client-key");
+  expect(requests[1]).toMatchObject({
+    model: "openrouter/example",
+    stream: false,
+    messages: [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Reply 1" },
+      { role: "user", content: "Again" },
+    ],
+  });
+  expect(
+    await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))
+  ).not.toContain("local-client-key");
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(page.getByText("Reply 1", { exact: true })).not.toBeVisible();
   await page.getByLabel("Stream responses").check();
   await page.getByLabel("Message", { exact: true }).fill("Stream this");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText("Streamed reply", { exact: true })).toBeVisible();
-  expect(requests[2]).toMatchObject({ stream: true, messages: [{ role: "user", content: "Stream this" }] });
+  expect(requests[2]).toMatchObject({
+    stream: true,
+    messages: [{ role: "user", content: "Stream this" }],
+  });
 });
 
 test("static dashboard uses Rust session and API routes", async ({ page, context }) => {
@@ -501,10 +531,14 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
             models: [
               {
                 id: "alpha",
+                type: "chat",
+                family: "example-family",
                 limit: { context: 128000, output: 4096 },
-                cost: { input: 1.25, output: 3 },
+                cost: { input: 1.25, output: 3, cache_read: 0.25, cache_write: 0 },
                 modalities: { input: ["text", "image"], output: ["text"] },
                 tool_call: true,
+                structured_output: true,
+                reasoning_options: [{ type: "effort", values: [null, "high"] }],
               },
               { id: "beta" },
             ],
@@ -520,9 +554,83 @@ test("static dashboard browses and refreshes the Rust models.dev catalog", async
   await expect(page.getByText("$1.25")).toBeVisible();
   await page.getByLabel("Filter models").fill("alpha");
   await expect(page.getByText("beta")).not.toBeVisible();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByLabel("Capability", { exact: true }).selectOption("structured_output");
+  await page.getByLabel("Input modality").selectOption("image");
+  await page.getByLabel("Minimum context").selectOption("128000");
+  await expect(page.getByRole("table", { name: "Model catalog" }).locator("tbody tr")).toHaveCount(
+    1
+  );
+  await page.getByText("Details for alpha", { exact: true }).click();
+  await expect(page.getByText("example-family", { exact: true })).toBeVisible();
+  await expect(page.getByText("$0.25", { exact: true })).toBeVisible();
+  await expect(page.getByText("$0", { exact: true })).toBeVisible();
+  await expect(page.getByText("Effort: Default, high", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Refresh catalog" }).click();
   await expect(page.getByRole("status")).toHaveText("Catalog updated.");
   expect(refreshes).toBe(1);
+});
+
+test("catalog pagination, filtering, unknown prices and provider failure recovery", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([{ name: "redrouter_admin_csrf", value: "fixture-csrf", url: origin }]);
+  let fail = true;
+  const models = Array.from({ length: 55 }, (_, index) => ({
+    id: `model-${String(index).padStart(2, "0")}`,
+    type: "chat",
+    cost: { input: index },
+  }));
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/config")
+      await route.fulfill({
+        json: {
+          backend: "rust",
+          control_plane_enabled: true,
+          oidc_browser_login: false,
+          password_login: true,
+        },
+      });
+    else if (path === "/api/admin/model-catalog")
+      await route.fulfill({
+        json: {
+          manifest: { fetchedAt: "2026-01-01", providers: 2, providerModels: 57 },
+          snapshot: { source: "models.dev" },
+          providers: [{ id: "first" }, { id: "second" }],
+        },
+      });
+    else if (path === "/api/admin/model-catalog/first")
+      await route.fulfill({ json: { provider: { models: [...models, { id: "unknown" }] } } });
+    else if (path === "/api/admin/model-catalog/second") {
+      if (fail)
+        await route.fulfill({ status: 503, json: { error: { message: "Catalog unavailable" } } });
+      else await route.fulfill({ json: { provider: { models: [{ id: "second-model" }] } } });
+    } else await route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto(`${origin}/dashboard/models`);
+  await page.getByLabel("Provider", { exact: true }).selectOption("first");
+  const rows = page.getByRole("table", { name: "Model catalog" }).locator("tbody tr");
+  await expect(rows).toHaveCount(50);
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(rows).toHaveCount(6);
+  await page.getByLabel("Filter models").fill("model-00");
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByLabel("Sort by").selectOption("input-price");
+  await page.getByLabel("Sort direction").selectOption("desc");
+  await expect(rows.first()).toContainText("model-54");
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(rows.last()).toContainText("unknown");
+  await page.getByLabel("Provider", { exact: true }).selectOption("second");
+  await expect(page.getByRole("alert")).toContainText("Catalog unavailable");
+  await expect(rows).toHaveCount(0);
+  fail = false;
+  await page.getByRole("button", { name: "Retry models" }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("second-model");
 });
 
 test("static dashboard reads staged historical costs from the Rust API", async ({
