@@ -31,6 +31,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && rm -rf rust/red-routerd/src
 
 COPY rust/red-routerd ./rust/red-routerd
+# Compile-time catalog and reserved provider namespace snapshots.
+COPY src/lib/catalog/modelsDevSeed.json ./src/lib/catalog/modelsDevSeed.json
+COPY config/upstream/legacy-executor-parity.json ./config/upstream/legacy-executor-parity.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
