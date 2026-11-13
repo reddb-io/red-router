@@ -9325,7 +9325,18 @@ async fn rust_oauth_refresh_is_leased_across_replicas_and_persists_terminal_stat
         first_refresh["refresh"]["category"].as_str().unwrap(),
         second_refresh["refresh"]["category"].as_str().unwrap(),
     ];
-    assert!(categories.contains(&"refreshed"));
+    assert!(
+        categories.contains(&"refreshed"),
+        "refresh categories={categories:?}; token requests={}; durable generation={:?}",
+        token_requests.load(Ordering::SeqCst),
+        database
+            .provider_oauth()
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.generation)
+            .collect::<Vec<_>>()
+    );
     assert!(categories.contains(&"refresh_in_progress"));
     assert_eq!(token_requests.load(Ordering::SeqCst), 1);
     assert_eq!(
