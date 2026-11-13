@@ -522,7 +522,7 @@ mod tests {
         );
         let control = ControlPlane::new(
             database.clone(),
-            "fixture-admin-key-1234567890",
+            "fixture-admin-key-1234567890-abcdef",
             "fixture-storage-key-1234567890",
             false,
         )
