@@ -44,6 +44,7 @@ type Draft = {
   nodeId: string;
   protocol: RustProviderProtocol;
   priority: string;
+  defaultModel: string;
   id: string;
   provider: string;
   upstreamUrl: string;
@@ -87,6 +88,7 @@ const EMPTY_DRAFT: Draft = {
   nodeId: "",
   protocol: "auto",
   priority: "0",
+  defaultModel: "",
   id: "",
   provider: "openai-compatible",
   upstreamUrl: "",
@@ -117,6 +119,7 @@ function providerDraft(provider: RustProvider): Draft {
     nodeId: provider.node_id ?? "",
     protocol: provider.protocol ?? "auto",
     priority: String(provider.priority ?? 0),
+    defaultModel: provider.default_model ?? "",
     id: provider.id,
     provider: provider.provider,
     upstreamUrl: provider.upstream_url,
@@ -148,6 +151,10 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   const label = draft.label.trim() || id;
   const accountEmail = draft.accountEmail.trim();
   const priority = Number(draft.priority);
+  const defaultModel = draft.defaultModel.trim();
+  if (new TextEncoder().encode(defaultModel).length > 256) {
+    throw new Error("Default model cannot exceed 256 bytes");
+  }
   if (!/^-?\d+$/.test(draft.priority) || !Number.isSafeInteger(priority)) {
     throw new Error("Account priority must be a safe integer");
   }
@@ -210,6 +217,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
     node_id: draft.credentialType === "oauth" ? null : draft.nodeId || null,
     protocol: draft.credentialType === "oauth" ? "auto" : draft.protocol,
     priority,
+    default_model: defaultModel || null,
     provider,
     upstream_url: upstreamUrl,
     api_key: apiKey,
@@ -897,6 +905,16 @@ export default function RustProvidersPageClient() {
               onChange={(event) => set("priority", event.target.value)}
             />
             <span className="font-normal">For model aliases, lower values are tried first; 0 uses 999.</span>
+          </label>
+          <label className={labelClass}>
+            Default model
+            <input
+              className={inputClass}
+              value={draft.defaultModel}
+              placeholder="Optional"
+              onChange={(event) => set("defaultModel", event.target.value)}
+            />
+            <span className="font-normal">Used when an unqualified model alias selects this account.</span>
           </label>
           <div className={labelClass}>
             <span>Provider type</span>

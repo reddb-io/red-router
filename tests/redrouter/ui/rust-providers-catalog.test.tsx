@@ -135,6 +135,7 @@ describe("Rust provider models.dev catalog", () => {
     };
     await type(inputFor("Connection ID"), "local-no-auth");
     await type(inputFor("Account priority"), "7");
+    await type(inputFor("Default model"), "local-model");
     await type(inputFor("Upstream URL"), "http://127.0.0.1:11434/v1/chat/completions");
     await type(inputFor("API key or provider credential"), "discard-this-secret");
     const select = [...container.querySelectorAll("select")].find((entry) =>
@@ -155,7 +156,7 @@ describe("Rust provider models.dev catalog", () => {
     });
     expect(api.replaceRustProvider).toHaveBeenCalledWith(
       "local-no-auth",
-      expect.objectContaining({ auth_scheme: "none", api_key: "", credential_type: "static", priority: 7 })
+      expect.objectContaining({ auth_scheme: "none", api_key: "", credential_type: "static", priority: 7, default_model: "local-model" })
     );
   });
 
@@ -481,6 +482,7 @@ describe("Rust provider models.dev catalog", () => {
       provider: "openai-compatible",
       protocol: "openai",
       priority: 3,
+      default_model: "my-default",
       upstream_url: "https://api.example.com/custom/infer",
       enabled: true,
       revision: "1",
@@ -518,7 +520,7 @@ describe("Rust provider models.dev catalog", () => {
     await click("Replace connection");
     expect(api.replaceRustProvider).toHaveBeenLastCalledWith(
       "custom-path",
-      expect.objectContaining({ protocol: "openai", api_key: "", priority: 3 })
+      expect.objectContaining({ protocol: "openai", api_key: "", priority: 3, default_model: "my-default" })
     );
     api.replaceRustProvider.mockClear();
     await click("Replace");

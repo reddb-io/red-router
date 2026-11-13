@@ -178,14 +178,16 @@ async fn adopt_oauth(
         for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
         }
-        for field in ["rate_limited_until", "default_model", "group", "api_key", "error_code", "last_error", "last_error_type", "last_error_source"] {
+        let default_model = text("default_model")?.filter(|value| !value.is_empty());
+        if default_model.is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
+        for field in ["rate_limited_until", "group", "api_key", "error_code", "last_error", "last_error_type", "last_error_source"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider configuration requires migration"); }
         }
         if text("test_status")?.is_some_and(|status| !matches!(status, "" | "untested" | "success" | "active")) { return Err("legacy provider health requires migration"); }
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_priorities", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut db).await.map_err(|_| "destination provider schema unavailable")?;
             if count != 0 { return Err("destination provider already exists"); }
@@ -273,6 +275,9 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
+        }
+        if let Some(model) = default_model {
+            sqlx::query("INSERT INTO redrouter_control_provider_defaults (record_id,provider_id,model_name,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(model).execute(&mut db).await.map_err(|_| "cannot write provider default model")?;
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
@@ -475,9 +480,11 @@ pub async fn import(
         let provider = text("provider")?.ok_or("invalid legacy provider")?;
         if text("auth_type")?.as_deref() != Some("apikey") { return Err("legacy OAuth or provider authentication requires migration"); }
         let source_enabled = match number("is_active")? { Some(0) => false, Some(1) => true, _ => return Err("invalid legacy provider status") };
-        for field in ["access_token", "refresh_token", "id_token", "expires_at", "token_expires_at", "scope", "project_id", "rate_limited_until", "default_model", "group"] {
+        for field in ["access_token", "refresh_token", "id_token", "expires_at", "token_expires_at", "scope", "project_id", "rate_limited_until", "group"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider metadata requires migration"); }
         }
+        let default_model = text("default_model")?.filter(|value| !value.is_empty());
+        if default_model.as_deref().is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
         for field in ["provider_specific_data", "quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
         }
@@ -531,7 +538,7 @@ pub async fn import(
         let email = text("email")?.unwrap_or_default();
         let email = email.trim();
         if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_priorities", "redrouter_control_provider_node_bindings"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_node_bindings"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let existing: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut *target).await.map_err(|_| "destination provider schema unavailable")?;
             if existing != 0 { return Err("destination provider already exists"); }
@@ -546,6 +553,9 @@ pub async fn import(
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
+        }
+        if let Some(model) = default_model {
+            sqlx::query("INSERT INTO redrouter_control_provider_defaults (record_id,provider_id,model_name,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(model).execute(&mut *target).await.map_err(|_| "cannot write provider default model")?;
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership (provider_id,tenant_id,revision) VALUES (?,?,1)")
             .bind(id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write provider ownership")?;

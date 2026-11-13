@@ -485,6 +485,8 @@ pub struct ProviderInput {
     pub node_id: Option<Option<String>>,
     pub protocol: Option<String>,
     pub priority: Option<i64>,
+    #[serde(default, deserialize_with = "provider_nodes::present_node_id")]
+    pub default_model: Option<Option<String>>,
     pub tenant_id: Option<String>,
     #[serde(default)]
     pub provider: String,
@@ -512,6 +514,8 @@ pub struct ProviderView {
     pub node_id: Option<String>,
     pub protocol: String,
     pub priority: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -4845,6 +4849,7 @@ impl ControlPlane {
                             node_id: None,
                             protocol: None,
                             priority: None,
+                            default_model: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
                             upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
@@ -4948,6 +4953,7 @@ impl ControlPlane {
                             node_id: None,
                             protocol: None,
                             priority: None,
+                            default_model: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
                             upstream_url: self
@@ -5054,6 +5060,7 @@ impl ControlPlane {
                     node_id: None,
                     protocol: None,
                     priority: None,
+                    default_model: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
                     upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
@@ -5172,6 +5179,7 @@ impl ControlPlane {
                     node_id: None,
                     protocol: None,
                     priority: None,
+                    default_model: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
                     upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
@@ -5292,6 +5300,7 @@ impl ControlPlane {
                     node_id: None,
                     protocol: None,
                     priority: None,
+                    default_model: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
                     upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
@@ -5608,6 +5617,17 @@ impl ControlPlane {
             .await?
             .into_iter()
             .find(|provider| provider.id == id);
+        let default_model = input.default_model.take().unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|provider| provider.default_model.clone())
+        });
+        if default_model
+            .as_ref()
+            .is_some_and(|value| !model_aliases::valid_model_name(value))
+        {
+            return Err("invalid provider default model");
+        }
         let node_id = input.node_id.take().unwrap_or_else(|| {
             existing
                 .as_ref()
@@ -5900,6 +5920,7 @@ impl ControlPlane {
                 .priority
                 .or_else(|| existing.as_ref().map(|record| record.priority))
                 .unwrap_or(0),
+            default_model,
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             provider: input.provider,
@@ -8748,6 +8769,7 @@ impl ControlPlane {
             signature_text(&mut digest, &record.upstream_url);
             signature_text(&mut digest, &record.protocol);
             signature_i64(&mut digest, record.priority);
+            signature_text(&mut digest, record.default_model.as_deref().unwrap_or(""));
             signature_text(&mut digest, record.node_id.as_deref().unwrap_or(""));
             signature_text(&mut digest, &record.credential_ciphertext);
             signature_bool(&mut digest, record.enabled);
@@ -10955,6 +10977,7 @@ fn view(
         node_id: record.node_id.clone(),
         protocol: record.protocol.clone(),
         priority: record.priority,
+        default_model: record.default_model.clone(),
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -16000,6 +16023,7 @@ mod tests {
             node_id: None,
             protocol: "auto".to_owned(),
             priority: 0,
+            default_model: None,
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),

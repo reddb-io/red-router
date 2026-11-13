@@ -228,6 +228,7 @@ export interface RustProvider {
   node_id?: string | null;
   protocol?: RustProviderProtocol;
   priority?: number;
+  default_model?: string | null;
   id: string;
   tenant_id: string;
   provider: string;
@@ -254,6 +255,7 @@ export interface RustProviderInput {
   node_id?: string | null;
   protocol?: RustProviderProtocol;
   priority?: number;
+  default_model?: string | null;
   tenant_id?: string;
   provider: string;
   upstream_url: string;

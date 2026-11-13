@@ -365,13 +365,13 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let (first_url, first_seen, first_task) = alias_test_provider("priority-first", StatusCode::OK).await;
     let (second_url, second_seen, second_task) = alias_test_provider("priority-second", StatusCode::OK).await;
-    for (id, upstream, key, priority) in [
-        ("a-account", &first_url, "priority-first", 20),
-        ("z-account", &second_url, "priority-second", 1),
+    for (id, upstream, key, priority, default_model) in [
+        ("a-account", &first_url, "priority-first", 20, "first-default"),
+        ("z-account", &second_url, "priority-second", 1, "second-default"),
     ] {
         let response = client.put(format!("{base}/api/admin/providers/{id}"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":key,"priority":priority}))
+            .json(&serde_json::json!({"provider":"private-api","upstream_url":upstream,"api_key":key,"priority":priority,"default_model":default_model}))
             .send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.json::<serde_json::Value>().await.unwrap()["provider"]["priority"], priority);
@@ -381,23 +381,40 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
         .json(&serde_json::json!({"alias":"friendly-priority","provider":"private-api","model":"target"}))
         .send().await.unwrap();
     assert_eq!(alias.status(), StatusCode::OK);
+    let qualified = client.post(format!("{base}/api/admin/model-aliases"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"alias":"private-api/friendly-priority","provider":"private-api","model":"target"}))
+        .send().await.unwrap();
+    assert_eq!(qualified.status(), StatusCode::OK);
     let key = "priority-client-key-12345678901234567890";
     let created = client.put(format!("{base}/api/admin/client-keys/priority-key"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({"label":"priority","api_key":key,"scopes":["inference:chat"],"allowed_models":["friendly-priority"]}))
+        .json(&serde_json::json!({"label":"priority","api_key":key,"scopes":["inference:chat"],"allowed_models":["friendly-priority","private-api/friendly-priority"]}))
         .send().await.unwrap();
     assert_eq!(created.status(), StatusCode::OK);
     assert_eq!(chat_model(&client, &base, key, "friendly-priority").await.status(), StatusCode::OK);
     assert_eq!(first_seen.lock().unwrap().len(), 0);
-    assert_eq!(second_seen.lock().unwrap().len(), 1);
+    assert_eq!(second_seen.lock().unwrap().as_slice(), ["second-default"]);
+    assert_eq!(chat_model(&client, &base, key, "private-api/friendly-priority").await.status(), StatusCode::OK);
+    assert_eq!(second_seen.lock().unwrap().as_slice(), ["second-default", "target"]);
+    let restricted_key = "priority-blocked-key-12345678901234567890";
+    let restricted = client.put(format!("{base}/api/admin/client-keys/priority-blocked"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"label":"blocked","api_key":restricted_key,"scopes":["inference:chat"],"allowed_models":["friendly-priority"],"blocked_models":["private-api/second-default","private-api/first-default"]}))
+        .send().await.unwrap();
+    assert_eq!(restricted.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, restricted_key, "friendly-priority").await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(second_seen.lock().unwrap().len(), 2);
 
-    // Updating other connection metadata must retain its configured priority.
+    // Updating other connection metadata must retain priority and default model.
     let update = client.put(format!("{base}/api/admin/providers/z-account"))
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"label":"renamed"}))
         .send().await.unwrap();
     assert_eq!(update.status(), StatusCode::OK);
-    assert_eq!(update.json::<serde_json::Value>().await.unwrap()["provider"]["priority"], 1);
+    let updated = update.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(updated["provider"]["priority"], 1);
+    assert_eq!(updated["provider"]["default_model"], "second-default");
     let invalid = client.put(format!("{base}/api/admin/providers/z-account"))
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({"provider":"private-api","upstream_url":&second_url,"priority":9007199254740992_i64}))
@@ -411,7 +428,7 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
     let (replica_base, replica_task) = gateway(replica).await;
     assert_eq!(chat_model(&client, &replica_base, key, "friendly-priority").await.status(), StatusCode::OK);
     assert_eq!(first_seen.lock().unwrap().len(), 0);
-    assert_eq!(second_seen.lock().unwrap().len(), 2);
+    assert_eq!(second_seen.lock().unwrap().as_slice(), ["second-default", "target", "second-default"]);
     let change = client.put(format!("{base}/api/admin/providers/a-account"))
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({"provider":"private-api","upstream_url":&first_url,"priority":0}))
@@ -429,6 +446,14 @@ async fn model_alias_uses_account_priority_and_preserves_it_after_restart() {
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
     }).await.unwrap();
+    assert_eq!(first_seen.lock().unwrap().last().map(String::as_str), Some("first-default"));
+    let clear = client.put(format!("{base}/api/admin/providers/a-account"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"provider":"private-api","upstream_url":&first_url,"default_model":null}))
+        .send().await.unwrap();
+    assert_eq!(clear.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, key, "friendly-priority").await.status(), StatusCode::OK);
+    assert_eq!(first_seen.lock().unwrap().last().map(String::as_str), Some("target"));
     gateway_task.abort();
     replica_task.abort();
     first_task.abort();

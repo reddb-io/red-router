@@ -325,10 +325,12 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
             .unwrap();
     }
     let legacy_label = "é".repeat(200);
-    sqlx::query("UPDATE provider_connections SET priority=-4")
-        .execute(&mut input)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model'",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
     sqlx::query("UPDATE provider_connections SET display_name=?")
         .bind(&legacy_label)
         .execute(&mut input)
@@ -361,6 +363,10 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     assert_eq!(providers.len(), 1);
     assert!(!providers[0].enabled);
     assert_eq!(providers[0].priority, -4);
+    assert_eq!(
+        providers[0].default_model.as_deref(),
+        Some("legacy-openrouter-model")
+    );
     assert_eq!(providers[0].tenant_id, "red");
     assert_eq!(
         providers[0].upstream_url,
@@ -497,7 +503,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .execute(&mut input)
         .await
         .unwrap();
-    sqlx::query("UPDATE provider_connections SET priority=4 WHERE id='codex-good'")
+    sqlx::query("UPDATE provider_connections SET priority=4, default_model='legacy-codex-model' WHERE id='codex-good'")
         .execute(&mut input)
         .await
         .unwrap();
@@ -570,6 +576,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     assert!(!providers[0].enabled);
     assert_eq!(providers[0].provider, "codex");
     assert_eq!(providers[0].priority, 4);
+    assert_eq!(
+        providers[0].default_model.as_deref(),
+        Some("legacy-codex-model")
+    );
     assert_eq!(
         db.provider_auth().await.unwrap()[0].label,
         legacy_oauth_label

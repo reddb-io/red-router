@@ -11,6 +11,8 @@ pub use model_aliases_storage::StoredModelAlias;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
+#[path = "provider_default_storage.rs"]
+mod provider_default_storage;
 #[path = "provider_discovery_storage.rs"]
 mod provider_discovery_storage;
 #[path = "provider_node_binding_storage.rs"]
@@ -33,7 +35,7 @@ const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciph
 // Read the provider and its matching priority in one database snapshot. This
 // avoids loading historical priority revisions into memory and prevents an
 // update between separate reads from temporarily changing the account order.
-const LIST_PROVIDERS_SQL: &str = "SELECT v.id,v.provider,v.upstream_url,v.credential_ciphertext,v.enabled,v.revision,COALESCE(p.account_rank,0) AS account_rank FROM redrouter_control_providers v LEFT JOIN redrouter_control_provider_priorities p ON p.record_id = v.id || ':' || CAST(v.revision AS TEXT) ORDER BY v.revision DESC,v.id ASC";
+const LIST_PROVIDERS_SQL: &str = "SELECT v.id,v.provider,v.upstream_url,v.credential_ciphertext,v.enabled,v.revision,COALESCE(p.account_rank,0) AS account_rank,d.model_name AS default_model FROM redrouter_control_providers v LEFT JOIN redrouter_control_provider_priorities p ON p.record_id = v.id || ':' || CAST(v.revision AS TEXT) LEFT JOIN redrouter_control_provider_defaults d ON d.record_id = v.id || ':' || CAST(v.revision AS TEXT) ORDER BY v.revision DESC,v.id ASC";
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
@@ -262,6 +264,7 @@ pub struct StoredProvider {
     pub node_id: Option<String>,
     pub protocol: String,
     pub priority: i64,
+    pub default_model: Option<String>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -782,6 +785,7 @@ impl Database {
                         provider_discovery_storage::CREATE,
                         provider_protocol_storage::CREATE,
                         provider_priority_storage::CREATE,
+                        provider_default_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
                         model_aliases_storage::CREATE,
@@ -919,6 +923,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_priority_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_default_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(model_aliases_storage::STATE).await?;
                 db.remote_schema_query(model_aliases_storage::CREATE)
                     .await?;
@@ -1054,6 +1060,7 @@ impl Database {
                     provider_discovery_storage::CREATE,
                     provider_protocol_storage::CREATE,
                     provider_priority_storage::CREATE,
+                    provider_default_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
                     model_aliases_storage::CREATE,
@@ -1206,6 +1213,11 @@ impl Database {
         } else {
             Some(self.provider_priorities().await?)
         };
+        let mut defaults = if matches!(self, Self::Sql(_)) {
+            None
+        } else {
+            Some(self.provider_defaults().await?)
+        };
         let mut bindings = self.provider_node_bindings().await?;
         let nodes = self.provider_nodes().await?;
         for provider in &mut providers {
@@ -1213,6 +1225,17 @@ impl Database {
                 provider.priority = priorities
                     .remove(&(provider.id.clone(), provider.updated_at))
                     .unwrap_or(0);
+            }
+            if let Some(defaults) = &mut defaults {
+                provider.default_model =
+                    defaults.remove(&(provider.id.clone(), provider.updated_at));
+            }
+            if provider
+                .default_model
+                .as_deref()
+                .is_some_and(|name| !crate::control_plane::model_aliases::valid_model_name(name))
+            {
+                return Err("invalid provider default model");
             }
             provider.protocol = protocols
                 .remove(&(provider.id.clone(), provider.updated_at))
@@ -1252,6 +1275,7 @@ impl Database {
         let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
         self.upsert_provider_protocol(provider).await?;
         self.upsert_provider_priority(provider).await?;
+        self.upsert_provider_default(provider).await?;
         self.upsert_provider_node_binding(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
@@ -1294,6 +1318,7 @@ impl Database {
         };
         self.upsert_provider_protocol(&provider).await?;
         self.upsert_provider_priority(&provider).await?;
+        self.upsert_provider_default(&provider).await?;
         self.upsert_provider_node_binding(&provider).await?;
         self.upsert_provider_ownership(&provider).await?;
         match self {
@@ -1338,6 +1363,7 @@ impl Database {
     pub async fn delete_provider(&self, id: &str) -> Result<(), &'static str> {
         self.delete_provider_protocols(id).await?;
         self.delete_provider_priorities(id).await?;
+        self.delete_provider_defaults(id).await?;
         self.delete_provider_node_bindings(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
@@ -5090,6 +5116,9 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
         priority: row
             .try_get("account_rank")
             .map_err(|_| "invalid provider priority")?,
+        default_model: row
+            .try_get("default_model")
+            .map_err(|_| "invalid provider default model")?,
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
         provider: row
@@ -5130,6 +5159,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         node_id: None,
         protocol: "auto".to_owned(),
         priority: 0,
+        default_model: None,
         id: text("id")?,
         tenant_id: "red".to_owned(),
         provider: text("provider")?,

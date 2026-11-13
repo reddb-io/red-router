@@ -17,7 +17,7 @@ pub(crate) fn record_id(tenant: &str, alias: &str) -> String {
     signature_text(&mut digest, alias);
     format!("model-alias-{}", hex::encode(digest.finalize()))
 }
-fn valid_model_name(value: &str) -> bool {
+pub(crate) fn valid_model_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 256
         && value.trim() == value
@@ -96,17 +96,43 @@ impl AliasSnapshot {
             });
         }
         let mut total_targets = 0usize;
-        self.records.iter().map(|alias| {
-            let targets: Vec<_> = accounts.get(&(alias.tenant_id.as_str(), alias.provider.as_str())).into_iter().flatten()
-                .map(|provider|serde_json::json!({"provider_id":provider.id,"model":alias.model})).collect();
-            total_targets = total_targets.checked_add(targets.len()).ok_or("Model alias snapshot exceeds its limit")?;
-            if total_targets > 100_000 { return Err("Model alias snapshot exceeds its limit"); }
-            Ok(StoredCombo {
-                id: alias.id.clone(), tenant_id:alias.tenant_id.clone(), protocol:alias.protocol.clone(),
-                strategy:"priority".to_owned(), fallback:true, enabled:alias.enabled,
-                targets_json:serde_json::to_string(&targets).map_err(|_|"Invalid alias targets")?, revision:alias.revision,
+        self.records
+            .iter()
+            .map(|alias| {
+                let targets: Vec<_> = accounts
+                    .get(&(alias.tenant_id.as_str(), alias.provider.as_str()))
+                    .into_iter()
+                    .flatten()
+                    .map(|provider| {
+                        // The historical account default replaces a bare requested
+                        // alias; an explicitly qualified name keeps its target.
+                        let model = if alias.alias.contains('/') {
+                            alias.model.as_str()
+                        } else {
+                            provider.default_model.as_deref().unwrap_or(&alias.model)
+                        };
+                        serde_json::json!({"provider_id":provider.id,"model":model})
+                    })
+                    .collect();
+                total_targets = total_targets
+                    .checked_add(targets.len())
+                    .ok_or("Model alias snapshot exceeds its limit")?;
+                if total_targets > 100_000 {
+                    return Err("Model alias snapshot exceeds its limit");
+                }
+                Ok(StoredCombo {
+                    id: alias.id.clone(),
+                    tenant_id: alias.tenant_id.clone(),
+                    protocol: alias.protocol.clone(),
+                    strategy: "priority".to_owned(),
+                    fallback: true,
+                    enabled: alias.enabled,
+                    targets_json: serde_json::to_string(&targets)
+                        .map_err(|_| "Invalid alias targets")?,
+                    revision: alias.revision,
+                })
             })
-        }).collect()
+            .collect()
     }
 }
 /// Alias targets are compiled from validated provider records, not operator combo

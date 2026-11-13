@@ -165,6 +165,7 @@ async fn exercise(backend: Backend, url: &str) {
         node_id: None,
         protocol: "auto".to_owned(),
         priority: 30,
+        default_model: Some("first-default".into()),
         id: "first".into(),
         tenant_id: "red".into(),
         provider: "openai".into(),
@@ -177,6 +178,7 @@ async fn exercise(backend: Backend, url: &str) {
         node_id: None,
         protocol: "openai-responses".to_owned(),
         priority: 3,
+        default_model: Some("second-default".into()),
         id: "second".into(),
         tenant_id: "red".into(),
         provider: "openrouter".into(),
@@ -215,6 +217,17 @@ async fn exercise(backend: Backend, url: &str) {
             .iter()
             .find(|row| row.id == "second")
             .unwrap()
+            .default_model
+            .as_deref(),
+        Some("second-default")
+    );
+    assert_eq!(
+        db.providers()
+            .await
+            .unwrap()
+            .iter()
+            .find(|row| row.id == "second")
+            .unwrap()
             .protocol,
         "openai-responses"
     );
@@ -223,6 +236,7 @@ async fn exercise(backend: Backend, url: &str) {
     second.updated_at = 4;
     second.protocol = "auto".into();
     second.priority = 0;
+    second.default_model = None;
     db.upsert_provider(&second).await.unwrap();
     assert_eq!(
         db.providers()
@@ -243,6 +257,16 @@ async fn exercise(backend: Backend, url: &str) {
             .unwrap()
             .priority,
         0
+    );
+    assert_eq!(
+        db.providers()
+            .await
+            .unwrap()
+            .iter()
+            .find(|row| row.id == "second")
+            .unwrap()
+            .default_model,
+        None
     );
     db.delete_provider("second").await.unwrap();
     assert_eq!(db.providers().await.unwrap(), vec![first.clone()]);
