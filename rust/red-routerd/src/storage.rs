@@ -2345,9 +2345,19 @@ impl Database {
                 .map(read_reddb_client_key)
                 .collect::<Result<Vec<_>, _>>(),
         }?;
+        // Sidecars are independently ordered. Index once rather than scanning all
+        // keys for each row during every control-plane refresh (six quadratic joins).
+        let key_indices: std::collections::HashMap<_, _> = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| (key.id.clone(), index))
+            .collect();
         let preferences = self.client_key_preferences().await?;
         for preference in preferences {
-            let Some(key) = keys.iter_mut().find(|key| key.id == preference.key_id) else {
+            let Some(key) = key_indices
+                .get(&preference.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // A preference is committed first. An orphan can therefore be
                 // left by a failed new-key insert and is safe to ignore.
                 continue;
@@ -2358,7 +2368,10 @@ impl Database {
             key.model_id_format = preference.model_id_format;
         }
         for schedule in self.client_key_schedules().await? {
-            let Some(key) = keys.iter_mut().find(|key| key.id == schedule.key_id) else {
+            let Some(key) = key_indices
+                .get(&schedule.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // Sidecars are committed first. An orphan from a failed key
                 // insert is inert and can be ignored.
                 continue;
@@ -2369,7 +2382,10 @@ impl Database {
             key.access_schedule_json = schedule.schedule_json;
         }
         for access in self.client_key_model_access().await? {
-            let Some(key) = keys.iter_mut().find(|key| key.id == access.key_id) else {
+            let Some(key) = key_indices
+                .get(&access.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // Sidecars are committed first. An orphan from a failed key
                 // insert is inert and can be ignored.
                 continue;
@@ -2380,7 +2396,10 @@ impl Database {
             key.model_access_mode = access.model_access_mode;
         }
         for access in self.client_key_combo_access().await? {
-            let Some(key) = keys.iter_mut().find(|key| key.id == access.key_id) else {
+            let Some(key) = key_indices
+                .get(&access.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // Sidecars are committed first. An orphan from a failed key
                 // insert is inert and can be ignored.
                 continue;
@@ -2391,7 +2410,10 @@ impl Database {
             key.allowed_combos_json = access.allowed_combos_json;
         }
         for ownership in self.client_key_ownerships().await? {
-            let Some(key) = keys.iter_mut().find(|key| key.id == ownership.key_id) else {
+            let Some(key) = key_indices
+                .get(&ownership.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // Ownership is committed before a key. An orphan is safe to
                 // ignore after a failed insert.
                 continue;
@@ -2403,7 +2425,10 @@ impl Database {
             key.created_by = ownership.created_by;
         }
         for quota in self.client_key_quotas().await? {
-            let Some(key) = keys.iter_mut().find(|key| key.id == quota.key_id) else {
+            let Some(key) = key_indices
+                .get(&quota.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
                 // Quotas are committed first so a failed new-key insert can
                 // only leave an inert orphan.
                 continue;
