@@ -558,5 +558,18 @@ async fn direct_provider_models_use_tenant_pools_priority_fallback_and_policies(
     }
     assert_eq!(chat_model(&client, &base, disabled_key, "private-api/model-2").await.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(blue_seen.lock().unwrap().len(), 36);
+    let empty_node = client.put(format!("{base}/api/admin/provider-nodes/empty-gateway"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"name":"Empty gateway","prefix":"empty-gateway","protocol":"openai","base_url":healthy_url.strip_suffix("/chat/completions").unwrap(),"chat_path":"/chat/completions"}))
+        .send().await.unwrap();
+    assert_eq!(empty_node.status(), StatusCode::OK);
+    let empty_key = "direct-empty-node-key-123456789012345";
+    let empty_key_response = client.put(format!("{base}/api/admin/client-keys/direct-empty"))
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"tenant_id":"red","label":"empty","api_key":empty_key,"scopes":["inference:chat"],"allowed_models":["empty-gateway/model"]}))
+        .send().await.unwrap();
+    assert_eq!(empty_key_response.status(), StatusCode::OK);
+    assert_eq!(chat_model(&client, &base, empty_key, "empty-gateway/model").await.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(blue_seen.lock().unwrap().len(), 36);
     gateway_task.abort(); limited_task.abort(); healthy_task.abort(); blue_task.abort();
 }

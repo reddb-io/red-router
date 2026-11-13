@@ -9458,6 +9458,14 @@ impl ControlPlane {
         let mut ordered: Vec<_> = providers.iter().collect();
         ordered.sort_by(|a, b| model_aliases::compare_accounts(a, b));
         let mut direct_pools: DirectPools = HashMap::new();
+        // A definition without active accounts must remain distinguishable
+        // from an unknown model prefix; it must never fall through to a
+        // different provider's credentials.
+        for node in self.0.database.provider_nodes().await? {
+            direct_pools
+                .entry((node.tenant_id, node.prefix))
+                .or_default();
+        }
         for provider in ordered {
             let pool = direct_pools
                 .entry((provider.tenant_id.clone(), provider.provider.clone()))
