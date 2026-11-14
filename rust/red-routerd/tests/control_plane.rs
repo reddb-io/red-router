@@ -12011,3 +12011,5 @@ include!("cases/provider_no_auth.rs");
 include!("cases/provider_models.rs");
 
 include!("cases/model_aliases.rs");
+
+include!("cases/provider_rules.rs");

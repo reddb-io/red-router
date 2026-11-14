@@ -16,6 +16,9 @@ pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
 mod provider_default_storage;
 #[path = "provider_discovery_storage.rs"]
 mod provider_discovery_storage;
+#[path = "provider_rules_storage.rs"]
+mod provider_rules_storage;
+pub(crate) use provider_rules_storage::StoredProviderRules;
 #[path = "provider_node_binding_storage.rs"]
 mod provider_node_binding_storage;
 #[path = "synced_models_storage.rs"]
@@ -1132,6 +1135,7 @@ impl Database {
                         CREATE_MODEL_CATALOG_REFRESH_LEASE,
                         synced_models_storage::CREATE,
                         synced_models_storage::CREATE_LEGACY_ORIGIN,
+                        provider_rules_storage::CREATE,
                         provider_models_storage::CREATE_ACTIVATION_DEFAULTS,
                         CREATE_DASHBOARD_KEY_VALUE,
                         CREATE_USAGE_RESERVATIONS,

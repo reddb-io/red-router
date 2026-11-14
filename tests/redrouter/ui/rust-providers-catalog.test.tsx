@@ -29,6 +29,7 @@ const api = vi.hoisted(() => ({
   listRustProviders: vi.fn(),
   providerRequestHeaders: vi.fn(),
   providerDiscoveryConfig: vi.fn(),
+  providerModelRules: vi.fn(),
   discoverProviderModels: vi.fn(),
   readRustCatalogProvider: vi.fn(),
   readRustModelCatalog: vi.fn(),
@@ -80,6 +81,7 @@ const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLDivElem
 beforeEach(() => {
   api.listProviderNodes.mockResolvedValue([]);
   api.providerRequestHeaders.mockResolvedValue({ names: [], attached: true, revision: null });
+  api.providerModelRules.mockResolvedValue({ excluded_models: [], revision: null });
   api.providerDiscoveryConfig.mockResolvedValue({
     models_path: null,
     effective_models_path: "/v1/models",

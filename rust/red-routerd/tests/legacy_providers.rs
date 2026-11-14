@@ -336,7 +336,8 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
-    sqlx::query("UPDATE provider_connections SET provider_specific_data=NULL")
+    sqlx::query("UPDATE provider_connections SET provider_specific_data=?")
+        .bind(r#"{"excludedModels":["private-*","vendor/model"]}"#)
         .execute(&mut input)
         .await
         .unwrap();
@@ -381,6 +382,16 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     let auth = db.provider_auth().await.unwrap();
     assert_eq!(auth[0].label, legacy_label);
     db.close().await.unwrap();
+    let mut migrated = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let rules: String = sqlx::query_scalar("SELECT patterns_json FROM redrouter_provider_model_rules WHERE provider_id='provider-1' AND tenant_id='red'")
+        .fetch_one(&mut migrated).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&rules).unwrap(),
+        serde_json::json!(["private-*", "vendor/model"])
+    );
+    migrated.close().await.unwrap();
     assert!(
         legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
             .await

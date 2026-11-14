@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProviderHeaders from "../ProviderHeaders";
 import ProviderDiscovery from "../ProviderDiscovery";
+import ProviderModelRules from "../ProviderModelRules";
 import ProviderNodes from "../ProviderNodes";
 import { Button, Card } from "../components";
 import RustProviderOAuthModal from "./RustProviderOAuthModal";
@@ -1175,6 +1176,8 @@ export default function RustProvidersPageClient() {
           )}
         </div>
       </Card>
+
+      {editingId && <ProviderModelRules id={editingId} />}
 
       {editingId &&
         providers.find((provider) => provider.id === editingId)?.credential_type === "static" && (

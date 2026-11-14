@@ -10,6 +10,8 @@ pub mod provider_discovery;
 pub mod provider_models;
 #[path = "provider_nodes.rs"]
 pub mod provider_nodes;
+#[path = "provider_rules.rs"]
+pub mod provider_rules;
 pub(crate) use credential_crypto::{decrypt_async, encrypt_async};
 #[path = "provider_headers.rs"]
 pub mod provider_headers;
@@ -157,6 +159,7 @@ UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_con
 UNION ALL SELECT 'provider-discovery', provider_id, revision, 0 FROM redrouter_control_provider_discovery
 UNION ALL SELECT 'synced-models', provider_id, COALESCE(published_generation,0), COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models
 UNION ALL SELECT 'synced-model-legacy-origin', provider_id, published_generation, 0 FROM redrouter_synced_model_legacy_origin WHERE provider_id<>''
+UNION ALL SELECT 'provider-model-rules', provider_id, revision, 0 FROM redrouter_provider_model_rules
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
 UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
@@ -420,6 +423,7 @@ struct DirectAccount {
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
     quota: Arc<TargetQuota>,
     synced_models: Option<Arc<SyncedModelInventory>>,
+    model_rules: Option<Arc<provider_rules::ModelRules>>,
     live: Arc<tokio::sync::OnceCell<LiveProvider>>,
 }
 
@@ -4426,6 +4430,11 @@ impl ControlPlane {
                     .filter(|inventory| inventory.fresh(now))
                 {
                     for (id, model) in &inventory.models {
+                        if account.model_rules.as_ref().is_some_and(|rules| {
+                            rules.excludes(id) || rules.excludes(&format!("{provider}/{id}"))
+                        }) {
+                            continue;
+                        }
                         discovered
                             .entry(id.as_str())
                             .and_modify(|selected| {
@@ -4446,8 +4455,13 @@ impl ControlPlane {
                 if !model_aliases::valid_model_name(id)
                     || overrides.is_hidden(tenant, provider, id)
                     || !policy.model_alias_target_allowed(&public, id, Some(provider))
-                    || !eligible.iter().any(|(_, protocol)| {
-                        *protocol != ProviderProtocol::Antigravity || crate::valid_gemini_model(id)
+                    || !eligible.iter().any(|(account, protocol)| {
+                        (*protocol != ProviderProtocol::Antigravity
+                            || crate::valid_gemini_model(id))
+                            && account
+                                .model_rules
+                                .as_ref()
+                                .is_none_or(|rules| !rules.excludes(id) && !rules.excludes(&public))
                     })
                 {
                     continue;
@@ -4582,6 +4596,27 @@ impl ControlPlane {
 
     /// Apply the same per-host inventory check to cached aliases and combos.
     /// The snapshot is refreshed independently of clients and route objects.
+    pub(crate) async fn provider_permits_model(
+        &self,
+        tenant: &str,
+        provider: &str,
+        id: &str,
+        model: &str,
+    ) -> Result<bool, &'static str> {
+        let snapshot = self.0.routes.read().await;
+        let pools = match &*snapshot {
+            RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+            RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+        };
+        let account = pools
+            .get(&(tenant.to_owned(), provider.to_owned()))
+            .and_then(|accounts| accounts.iter().find(|account| account.record.id == id))
+            .ok_or("provider account unavailable")?;
+        Ok(account.model_rules.as_ref().is_none_or(|rules| {
+            !rules.excludes(model) && !rules.excludes(&format!("{provider}/{model}"))
+        }))
+    }
+
     pub(crate) async fn filter_local_route_targets(
         &self,
         tenant: &str,
@@ -4682,6 +4717,12 @@ impl ControlPlane {
             return Err("provider route forbidden");
         }
         let now = unix_time_ms()?;
+        accounts.retain(|account| {
+            account
+                .model_rules
+                .as_ref()
+                .is_none_or(|rules| !rules.excludes(requested) && !rules.excludes(model))
+        });
         if uses_local_account_inventory(provider) {
             accounts.retain(|account| {
                 account
@@ -4740,7 +4781,7 @@ impl ControlPlane {
                 let model_quota = model_quotas
                     .get(&(account.record.id.clone(), model.to_owned()))
                     .cloned();
-                ProxyState::control_target(
+                let mut target = ProxyState::control_target(
                     &live,
                     crate::ControlTargetConfig {
                         protocol,
@@ -4760,7 +4801,9 @@ impl ControlPlane {
                     },
                     account.quota.clone(),
                     model_quota,
-                )
+                );
+                target.model_rules = account.model_rules.clone();
+                target
             })
             .collect::<Vec<_>>();
         if targets.is_empty() {
@@ -7399,6 +7442,7 @@ impl ControlPlane {
 
         self.0.database.delete_provider_header(id).await?;
         self.0.database.delete_provider_discovery(id).await?;
+        self.0.database.delete_provider_model_rules(id).await?;
         if self.0.database.is_sqlite().await {
             self.0.database.delete_synced_models(id).await?;
         }
@@ -9424,6 +9468,14 @@ impl ControlPlane {
             signature_i64(&mut digest, record.expires_at_unix);
             signature_i64(&mut digest, record.revision);
         }
+        for record in self.0.database.provider_model_rules().await? {
+            signature_text(&mut digest, &record.provider_id);
+            signature_text(&mut digest, &record.tenant_id);
+            signature_i64(&mut digest, record.revision);
+            for pattern in record.patterns {
+                signature_text(&mut digest, &pattern);
+            }
+        }
         for record in self.0.database.provider_oauth().await? {
             signature_text(&mut digest, &record.provider_id);
             signature_text(&mut digest, &record.oauth_provider);
@@ -9735,6 +9787,21 @@ impl ControlPlane {
             .iter()
             .map(|provider| (provider.id.as_str(), provider))
             .collect();
+        let mut model_rules = HashMap::new();
+        for entry in self.0.database.provider_model_rules().await? {
+            if entry.revision <= 0 {
+                return Err("invalid provider model rules");
+            }
+            if let Some(provider) = provider_index.get(entry.provider_id.as_str()) {
+                if provider.tenant_id != entry.tenant_id {
+                    return Err("provider model rules tenant mismatch");
+                }
+                let rules = provider_rules::ModelRules::compile(&entry.patterns)?;
+                if !entry.patterns.is_empty() {
+                    model_rules.insert(entry.provider_id, Arc::new(rules));
+                }
+            }
+        }
         let combo_ids: HashSet<_> = records.iter().map(|record| record.id.as_str()).collect();
         let combo_names: HashSet<_> = records
             .iter()
@@ -9867,7 +9934,7 @@ impl ControlPlane {
                     .as_ref()
                     .and_then(|model| model.limit.as_ref())
                     .and_then(|limit| limit.context);
-                targets.push(ProxyState::control_target(
+                let mut compiled_target = ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     crate::ControlTargetConfig {
                         protocol,
@@ -9884,7 +9951,9 @@ impl ControlPlane {
                     },
                     quota,
                     Some(model_quota),
-                ));
+                );
+                compiled_target.model_rules = model_rules.get(&provider.id).cloned();
+                targets.push(compiled_target);
             }
             if targets.is_empty() {
                 if aliases.public_name(&record.id).is_some() {
@@ -10018,6 +10087,7 @@ impl ControlPlane {
                 claude_identity: claude_identities.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
                 synced_models,
+                model_rules: model_rules.get(&provider.id).cloned(),
                 live: Arc::new(tokio::sync::OnceCell::new_with(
                     live.get(&provider.id).cloned(),
                 )),

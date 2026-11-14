@@ -2332,6 +2332,28 @@ export interface ProviderHeadersView {
   revision: string | null;
 }
 
+export interface ProviderModelRulesView {
+  excluded_models: string[];
+  revision: string | null;
+}
+export async function providerModelRules(
+  id: string,
+  update?: ProviderModelRulesView
+): Promise<ProviderModelRulesView> {
+  const value = await rustAdminJson(
+    `/api/admin/providers/${encodeURIComponent(id)}/model-rules`,
+    update === undefined ? undefined : jsonRequest("PUT", update)
+  );
+  if (!value || typeof value !== "object") throw new Error("Invalid model exclusions response");
+  const view = value as ProviderModelRulesView;
+  if (!Array.isArray(view.excluded_models) || view.excluded_models.length > 128 ||
+      !view.excluded_models.every((pattern) => typeof pattern === "string") ||
+      (view.revision !== null && typeof view.revision !== "string")) {
+    throw new Error("Invalid model exclusions response");
+  }
+  return view;
+}
+
 export function providerRequestHeaders(
   id: string,
   headers?: Record<string, string>

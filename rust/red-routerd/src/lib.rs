@@ -573,6 +573,7 @@ pub(crate) struct ModelTarget {
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
+    model_rules: Option<Arc<control_plane::provider_rules::ModelRules>>,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     rate_limit_scope: resilience::RateLimitScope,
@@ -586,6 +587,18 @@ pub(crate) struct ModelTarget {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+}
+
+impl ModelTarget {
+    fn model_excluded(&self) -> bool {
+        self.model_rules.as_ref().is_some_and(|rules| {
+            rules.excludes(&self.model)
+                || self
+                    .provider_name
+                    .as_deref()
+                    .is_some_and(|provider| rules.excludes(&format!("{provider}/{}", self.model)))
+        })
+    }
 }
 
 pub(crate) struct ControlTargetConfig {
@@ -1547,6 +1560,7 @@ impl ProxyState {
             product_model: None,
             provider_id: provider.provider_id.clone(),
             provider_name: provider.provider_name.clone(),
+            model_rules: None,
             antigravity_project: provider.antigravity_project.clone(),
             claude_identity: provider.claude_identity.clone(),
             rate_limit_scope: provider.rate_limit_scope,
@@ -1976,6 +1990,7 @@ impl ProxyState {
                     product_model: None,
                     provider_id: None,
                     provider_name: None,
+                    model_rules: None,
                     antigravity_project: None,
                     claude_identity: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
@@ -2276,6 +2291,11 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::provider_discovery::get_config)
                 .put(control_plane::provider_discovery::put_config)
                 .post(control_plane::provider_discovery::discover),
+        )
+        .route(
+            "/api/admin/providers/{id}/model-rules",
+            get(control_plane::provider_rules::get_rules)
+                .put(control_plane::provider_rules::put_rules),
         )
         .route(
             "/api/admin/providers/{id}/discovery/adopt-legacy",
@@ -2789,6 +2809,7 @@ fn listed_models(
             .iter()
             .filter(|target| {
                 route.target_allowed(policy, id, target)
+                    && !target.model_excluded()
                     && policy.provider_allowed(target.provider_id.as_deref())
                     && target.provider_name.as_deref().is_none_or(|provider| {
                         overrides.is_none_or(|models| {
@@ -5978,6 +5999,28 @@ async fn proxy_request(
     {
         return error(StatusCode::FORBIDDEN, "Model is inactive");
     }
+    if route.is_none() && state.product_combo.is_none() && !state.product_client_keys {
+        if let (Some(control), Some(provider)) = (&state.control_plane, live_provider.as_ref()) {
+            if let (Some(id), Some(name)) = (
+                provider.provider_id.as_deref(),
+                provider.provider_name.as_deref(),
+            ) {
+                match control
+                    .provider_permits_model(&provider.tenant_id, name, id, &model)
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => return error(StatusCode::FORBIDDEN, "Model is not allowed"),
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Provider route unavailable",
+                        )
+                    }
+                }
+            }
+        }
+    }
     let mut eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
         route
             .targets
@@ -5987,7 +6030,8 @@ async fn proxy_request(
                     policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
                 } else {
                     route.target_allowed(policy, &requested_model, target)
-                }) && policy.provider_allowed(target.provider_id.as_deref())
+                }) && !target.model_excluded()
+                    && policy.provider_allowed(target.provider_id.as_deref())
                     && target.provider_name.as_deref().is_none_or(|provider| {
                         activation.as_ref().is_none_or(|snapshot| {
                             !snapshot.is_inactive(&route.tenant_id, provider, &target.model)
@@ -8284,6 +8328,7 @@ mod address_tests {
             product_model: None,
             provider_id: Some(Arc::from("agy")),
             provider_name: Some(Arc::from("antigravity")),
+            model_rules: None,
             antigravity_project: None,
             claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Model,

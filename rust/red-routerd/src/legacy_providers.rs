@@ -485,7 +485,8 @@ pub async fn import(
         }
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.as_deref().is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
-        for field in ["provider_specific_data", "quota_window_thresholds_json", "rate_limit_overrides_json"] {
+        let model_rules = crate::control_plane::provider_rules::parse_legacy(text("provider_specific_data")?.as_deref())?;
+        for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
         }
         for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent"] {
@@ -538,7 +539,7 @@ pub async fn import(
         let email = text("email")?.unwrap_or_default();
         let email = email.trim();
         if crate::control_plane::validate_provider_label(label).is_err() || email.len() > 320 || email.chars().any(char::is_control) { return Err("invalid legacy provider identity"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_node_bindings"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_protocols", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_node_bindings", "redrouter_provider_model_rules"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let existing: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut *target).await.map_err(|_| "destination provider schema unavailable")?;
             if existing != 0 { return Err("destination provider already exists"); }
@@ -559,6 +560,11 @@ pub async fn import(
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership (provider_id,tenant_id,revision) VALUES (?,?,1)")
             .bind(id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write provider ownership")?;
+        if !model_rules.is_empty() {
+            let json = serde_json::to_string(&model_rules).map_err(|_| "invalid legacy model exclusions")?;
+            sqlx::query("INSERT INTO redrouter_provider_model_rules(provider_id,tenant_id,patterns_json,revision) VALUES (?,?,?,1)")
+                .bind(id).bind(&tenant).bind(json).execute(&mut *target).await.map_err(|_| "cannot preserve legacy model exclusions")?;
+        }
         sqlx::query("INSERT INTO redrouter_control_provider_auth (record_id,provider_id,auth_scheme,label,account_email,expires_at_unix,revision) VALUES (?,?,'auto',?,?,0,1)")
             .bind(format!("{id}:1")).bind(id).bind(label).bind(email).execute(&mut *target).await.map_err(|_| "cannot write provider identity")?;
         if let Some(protocol) = protocol {
