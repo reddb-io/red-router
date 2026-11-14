@@ -7,6 +7,14 @@ static PROBES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 const MAX_BODY: usize = 2 * 1024 * 1024;
 const MAX_MODELS: usize = 10_000;
 
+fn oauth_discovery_endpoint(provider: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    match provider {
+        "github" => Some(("api.githubcopilot.com", "/chat/completions", "/models")),
+        "openference" => Some(("api.openference.com", "/v1/chat/completions", "/v1/models")),
+        _ => None,
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiscoveryInput {
@@ -708,15 +716,16 @@ impl ControlPlane {
         if oauth {
             let url = reqwest::Url::parse(&provider.upstream_url)
                 .map_err(|_| "unsupported_connection")?;
-            let copilot = provider.provider == "github"
-                && provider.node_id.is_none()
+            let (host, upstream_path, _) =
+                oauth_discovery_endpoint(&provider.provider).ok_or("unsupported_connection")?;
+            let supported = provider.node_id.is_none()
                 && url.username().is_empty()
                 && url.password().is_none()
                 && url.query().is_none()
                 && url.fragment().is_none()
-                && url.path() == "/chat/completions"
+                && url.path() == upstream_path
                 && ((url.scheme() == "https"
-                    && url.host_str() == Some("api.githubcopilot.com")
+                    && url.host_str() == Some(host)
                     && url.port_or_known_default() == Some(443))
                     || (self.0.allow_private
                         && url.scheme() == "http"
@@ -724,7 +733,7 @@ impl ControlPlane {
                             .host_str()
                             .and_then(|host| host.parse::<std::net::IpAddr>().ok())
                             .is_some_and(|ip| ip.is_loopback())));
-            if !copilot {
+            if !supported {
                 return Err("unsupported_connection");
             }
         }
@@ -773,7 +782,7 @@ impl ControlPlane {
             let pool = self.0.database.sql_pool().ok_or("legacy_unavailable")?;
             let tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration','redrouter_legacy_synced_model_records')")
                 .fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
-            let copilot_oauth = provider.provider == "github"
+            let fixed_oauth = oauth_discovery_endpoint(&provider.provider).is_some()
                 && self
                     .0
                     .database
@@ -781,7 +790,7 @@ impl ControlPlane {
                     .await?
                     .iter()
                     .any(|row| row.provider_id == provider.id);
-            if tables == 3 && !copilot_oauth {
+            if tables == 3 && !fixed_oauth {
                 let suffix = format!(":{}", provider.id);
                 let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_provider_records r JOIN redrouter_legacy_provider_migration g ON g.provider_id=r.provider_id JOIN redrouter_legacy_synced_model_records m ON 1=1 WHERE r.provider_id=$1 AND substr(m.legacy_key,-length($2))=$2 AND m.value IS NOT NULL AND NOT EXISTS (SELECT 1 FROM redrouter_synced_models s WHERE s.provider_id=$1)")
                     .bind(&provider.id).bind(&suffix).fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
@@ -807,7 +816,7 @@ impl ControlPlane {
             return Err("legacy_unavailable");
         }
         let provider = self.discovery_provider(id, tenant).await?;
-        if provider.provider == "github"
+        if oauth_discovery_endpoint(&provider.provider).is_some()
             && self
                 .0
                 .database
@@ -963,7 +972,8 @@ impl ControlPlane {
         let (provider, auth, headers, target, ticket, copilot) = {
             let _mutation = self.0.mutation.lock().await;
             let provider = self.discovery_provider(id, tenant).await?;
-            let copilot = provider.provider == "github"
+            let fixed_path = oauth_discovery_endpoint(&provider.provider).map(|(_, _, path)| path);
+            let oauth = fixed_path.is_some()
                 && self
                     .0
                     .database
@@ -971,6 +981,7 @@ impl ControlPlane {
                     .await?
                     .iter()
                     .any(|row| row.provider_id == id);
+            let copilot = oauth && provider.provider == "github";
             let ticket = if provider.enabled && self.0.database.is_sqlite().await {
                 let ticket = self
                     .0
@@ -987,7 +998,7 @@ impl ControlPlane {
             };
             let config = self.discovery_view(&provider).await?;
             let path = config.effective_models_path.ok_or("models_path_required")?;
-            if copilot && path != "/models" {
+            if oauth && Some(path.as_str()) != fixed_path {
                 return Err("unsupported_connection");
             }
             let target = models_url(&provider.upstream_url, &path)?;
@@ -1237,7 +1248,7 @@ pub async fn put_config(
             .discovery_provider(&id, scope.tenant_id.as_deref())
             .await?;
         let before = control.discovery_view(&provider).await?;
-        if provider.provider == "github"
+        if oauth_discovery_endpoint(&provider.provider).is_some()
             && control
                 .0
                 .database
@@ -1245,10 +1256,9 @@ pub async fn put_config(
                 .await?
                 .iter()
                 .any(|row| row.provider_id == id)
-            && input
-                .models_path
-                .as_deref()
-                .is_some_and(|path| path != "/models")
+            && input.models_path.as_deref().is_some_and(|path| {
+                Some(path) != oauth_discovery_endpoint(&provider.provider).map(|(_, _, path)| path)
+            })
         {
             return Err("unsupported_connection");
         }

@@ -1215,7 +1215,7 @@ export default function RustProvidersPageClient() {
             <ProviderHeaders key={editingId} id={editingId} />
           </>
         )}
-      {editingId && providers.find((provider) => provider.id === editingId && (provider.credential_type === "static" || (provider.credential_type === "oauth" && provider.oauth_provider === "github"))) && (
+      {editingId && providers.find((provider) => provider.id === editingId && (provider.credential_type === "static" || (provider.credential_type === "oauth" && (provider.oauth_provider === "github" || provider.oauth_provider === "openference")))) && (
         <ProviderDiscovery
           id={editingId}
           fixedPath={providers.find((provider) => provider.id === editingId)?.credential_type === "oauth"}

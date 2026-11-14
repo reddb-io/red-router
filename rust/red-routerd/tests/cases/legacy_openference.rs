@@ -26,7 +26,10 @@ async fn staged_openference_session_refreshes_and_routes_with_exclusions() {
             observed.fetch_add(1, Ordering::SeqCst);
             Json(serde_json::json!({"access_token":"openference-rotated","refresh_token":"openference-new-refresh","expires_in":3600,"token_type":"Bearer"}))
         }
-    })).route("/chat/completions", post(move |headers: HeaderMap| {
+    })).route("/v1/models", get(|headers: HeaderMap| async move {
+        assert_eq!(headers[header::AUTHORIZATION], "Bearer openference-rotated");
+        Json(serde_json::json!({"data":[{"id":"public-model","context_length":32768}]}))
+    })).route("/v1/chat/completions", post(move |headers: HeaderMap| {
         let observed = on_inference.clone(); async move {
             assert_eq!(headers[header::AUTHORIZATION], "Bearer openference-rotated");
             observed.fetch_add(1, Ordering::SeqCst);
@@ -38,7 +41,7 @@ async fn staged_openference_session_refreshes_and_routes_with_exclusions() {
     let fixture_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let output = sqlx::SqlitePool::connect(&dest_url).await.unwrap();
     assert_eq!(sqlx::query("UPDATE redrouter_control_providers SET enabled=1,upstream_url=? WHERE id='openference-staged' AND enabled=0")
-        .bind(format!("http://{address}/chat/completions")).execute(&output).await.unwrap().rows_affected(), 1);
+        .bind(format!("http://{address}/v1/chat/completions")).execute(&output).await.unwrap().rows_affected(), 1);
     output.close().await;
     let db = Arc::new(Database::connect(Backend::Sqlite, &dest_url).await.unwrap());
     let session_before = db.provider_sessions().await.unwrap()[0].session_ciphertext.clone();
@@ -50,6 +53,13 @@ async fn staged_openference_session_refreshes_and_routes_with_exclusions() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
     assert_eq!(db.provider_sessions().await.unwrap()[0].session_ciphertext, session_before);
+    let discovery = format!("{base}/api/admin/providers/openference-staged/discovery");
+    assert!(!client.put(&discovery).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":"/openference-token"})).send().await.unwrap().status().is_success());
+    let response = client.post(&discovery).bearer_auth(ADMIN_KEY).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let discovered: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(discovered["models"][0]["id"], "public-model");
+    assert_eq!(discovered["models"][0]["context_length"], 32768);
     for (id, model) in [("openference-allowed", "public-model"), ("openference-blocked", "private-model")] {
         assert_eq!(client.put(format!("{base}/api/admin/combos/{id}")).bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({"strategy":"priority","targets":[{"provider_id":"openference-staged","model":model}]}))
