@@ -1092,6 +1092,17 @@ async fn github_copilot_fixture() -> (
         .as_secs()
         + 3_600;
     let app = Router::new()
+        .route("/models", get(|headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer github-short-lived-copilot-token");
+            assert_eq!(headers["copilot-integration-id"], "copilot-developer-cli");
+            Json(serde_json::json!({"data":[
+                {"id":"gpt-5.4","name":"GPT 5.4","capabilities":{"type":"chat"}},
+                {"id":"disabled-model","policy":{"state":"disabled"}},
+                {"id":"hidden-model","model_picker_enabled":false},
+                {"id":"embedding-model","capabilities":{"type":"embeddings"}},
+                {"id":"future-model","supported_endpoints":["/v1/messages"]}
+            ]}))
+        }))
         .route(
             "/copilot-token",
             get(move |headers: HeaderMap| {

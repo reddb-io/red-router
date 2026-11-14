@@ -61,6 +61,27 @@ it("restores migrated models for the selected account and explains their unknown
   expect(container.textContent).toContain("Restored models have not been verified");
   expect(container.textContent).not.toContain("Restore migrated models");
 });
+it("discovers a Copilot account using its fixed path without offering path overrides", async () => {
+  api.providerDiscoveryConfig.mockResolvedValue({
+    models_path: null,
+    effective_models_path: "/models",
+    revision: null,
+    legacy_inventory_available: true,
+  });
+  api.discoverProviderModels.mockResolvedValue([{ id: "gpt-5.4" }]);
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  roots.push(root);
+  await act(async () => {
+    root.render(<ProviderDiscovery id="copilot" onSelect={vi.fn()} fixedPath />);
+  });
+  expect(container.textContent).not.toContain("Models path override");
+  expect(container.textContent).not.toContain("Restore migrated models");
+  await click(container, "Discover models");
+  expect(api.discoverProviderModels).toHaveBeenCalledWith("copilot");
+  expect(container.textContent).toContain("gpt-5.4");
+});
 it("saves the override, resets to default and uses persisted settings for discovery", async () => {
   api.providerDiscoveryConfig
     .mockResolvedValueOnce({

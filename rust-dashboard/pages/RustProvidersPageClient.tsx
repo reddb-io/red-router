@@ -1213,14 +1213,15 @@ export default function RustProvidersPageClient() {
         providers.find((provider) => provider.id === editingId)?.credential_type === "static" && (
           <>
             <ProviderHeaders key={editingId} id={editingId} />
-            <ProviderDiscovery
-              id={editingId}
-              onSelect={(model) =>
-                setDiagnosticModels((current) => ({ ...current, [editingId]: model }))
-              }
-            />
           </>
         )}
+      {editingId && providers.find((provider) => provider.id === editingId && (provider.credential_type === "static" || (provider.credential_type === "oauth" && provider.oauth_provider === "github"))) && (
+        <ProviderDiscovery
+          id={editingId}
+          fixedPath={providers.find((provider) => provider.id === editingId)?.credential_type === "oauth"}
+          onSelect={(model) => setDiagnosticModels((current) => ({ ...current, [editingId]: model }))}
+        />
+      )}
 
       <label className="flex max-w-lg flex-col gap-1 text-sm">
         Search connections

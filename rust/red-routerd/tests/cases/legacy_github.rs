@@ -30,6 +30,18 @@ async fn staged_github_session_refreshes_copilot_and_preserves_exclusions() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
     assert_eq!(db.provider_sessions().await.unwrap()[0].session_ciphertext, session_before);
+    let discovery = format!("{base}/api/admin/providers/github-staged/discovery");
+    assert_eq!(client.post(&discovery).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert!(!client.put(&discovery).bearer_auth(ADMIN_KEY).json(&serde_json::json!({"models_path":"/copilot-token"})).send().await.unwrap().status().is_success());
+    let response = client.post(&discovery).bearer_auth(ADMIN_KEY).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let discovered: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(discovered["models"].as_array().unwrap().len(), 2);
+    assert_eq!(discovered["models"][0]["id"], "future-model");
+    assert_eq!(discovered["models"][1]["id"], "gpt-5.4");
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+    assert!(db.synced_models("github-staged", "red", now, 60_000).await.unwrap().is_some());
+    assert!(db.synced_models("github-staged", "other", now, 60_000).await.unwrap().is_none());
     for (id, model) in [("github-allowed", "gpt-5.4"), ("github-blocked", "private-model")] {
         assert_eq!(client.put(format!("{base}/api/admin/combos/{id}")).bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({"strategy":"priority","targets":[{"provider_id":"github-staged","model":model}]}))

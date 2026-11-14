@@ -384,6 +384,84 @@ fn parse_models(body: &[u8], protocol: ProviderProtocol) -> Result<ModelsPage, &
     })
 }
 
+// Copilot's catalog includes disabled, non-chat and hidden entries. Match the
+// legacy account discovery rules rather than advertising the whole response.
+fn parse_copilot_models(body: &[u8]) -> Result<ModelsPage, &'static str> {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "invalid_models_response")?;
+    let key = if value.get("data").is_some_and(serde_json::Value::is_array) {
+        "data"
+    } else {
+        "models"
+    };
+    let Some(serde_json::Value::Array(rows)) = value.get_mut(key) else {
+        return Err("invalid_models_response");
+    };
+    if rows.len() > MAX_MODELS {
+        return Err("too_many_models");
+    }
+    rows.retain_mut(|row| {
+        let Some(id) = row
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                row.get("model")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+            })
+            .map(str::to_owned)
+        else {
+            return false;
+        };
+        if row
+            .pointer("/policy/state")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|state| !state.trim().is_empty() && state.trim() != "enabled")
+            || row.get("model_picker_enabled") == Some(&serde_json::Value::Bool(false))
+        {
+            return false;
+        }
+        let eligible = if let Some(kind) = row
+            .pointer("/capabilities/type")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|kind| !kind.is_empty())
+        {
+            kind == "chat"
+        } else if let Some(endpoints) = row
+            .get("supported_endpoints")
+            .or_else(|| row.pointer("/capabilities/supported_endpoints"))
+            .and_then(serde_json::Value::as_array)
+            .filter(|endpoints| !endpoints.is_empty())
+        {
+            endpoints
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|path| {
+                    path.contains("/chat/completions")
+                        || path.contains("/responses")
+                        || path.contains("/v1/messages")
+                })
+        } else {
+            let normalized = id.to_ascii_lowercase();
+            !normalized.contains("embedding") && normalized != "gpt-41-copilot"
+        };
+        if !eligible {
+            return false;
+        }
+        let Some(object) = row.as_object_mut() else {
+            return false;
+        };
+        object.insert("id".to_owned(), serde_json::Value::String(id));
+        true
+    });
+    let body = serde_json::to_vec(&value).map_err(|_| "invalid_models_response")?;
+    parse_models(&body, ProviderProtocol::OpenAi)
+}
+
 /// Convert only legacy fields whose runtime behavior is represented by the
 /// native inventory. Keep unsupported original records staged for later work.
 fn parse_legacy_inventory(raw: &str) -> Result<Vec<DiscoveredModel>, &'static str> {
@@ -620,15 +698,35 @@ impl ControlPlane {
             .into_iter()
             .find(|p| p.id == id && tenant.is_none_or(|t| t == p.tenant_id))
             .ok_or("provider_not_found")?;
-        if self
+        let oauth = self
             .0
             .database
             .provider_oauth()
             .await?
             .iter()
-            .any(|row| row.provider_id == id)
-        {
-            return Err("unsupported_connection");
+            .any(|row| row.provider_id == id);
+        if oauth {
+            let url = reqwest::Url::parse(&provider.upstream_url)
+                .map_err(|_| "unsupported_connection")?;
+            let copilot = provider.provider == "github"
+                && provider.node_id.is_none()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path() == "/chat/completions"
+                && ((url.scheme() == "https"
+                    && url.host_str() == Some("api.githubcopilot.com")
+                    && url.port_or_known_default() == Some(443))
+                    || (self.0.allow_private
+                        && url.scheme() == "http"
+                        && url
+                            .host_str()
+                            .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+                            .is_some_and(|ip| ip.is_loopback())));
+            if !copilot {
+                return Err("unsupported_connection");
+            }
         }
         Ok(provider)
     }
@@ -675,7 +773,15 @@ impl ControlPlane {
             let pool = self.0.database.sql_pool().ok_or("legacy_unavailable")?;
             let tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration','redrouter_legacy_synced_model_records')")
                 .fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
-            if tables == 3 {
+            let copilot_oauth = provider.provider == "github"
+                && self
+                    .0
+                    .database
+                    .provider_oauth()
+                    .await?
+                    .iter()
+                    .any(|row| row.provider_id == provider.id);
+            if tables == 3 && !copilot_oauth {
                 let suffix = format!(":{}", provider.id);
                 let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_provider_records r JOIN redrouter_legacy_provider_migration g ON g.provider_id=r.provider_id JOIN redrouter_legacy_synced_model_records m ON 1=1 WHERE r.provider_id=$1 AND substr(m.legacy_key,-length($2))=$2 AND m.value IS NOT NULL AND NOT EXISTS (SELECT 1 FROM redrouter_synced_models s WHERE s.provider_id=$1)")
                     .bind(&provider.id).bind(&suffix).fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
@@ -701,6 +807,17 @@ impl ControlPlane {
             return Err("legacy_unavailable");
         }
         let provider = self.discovery_provider(id, tenant).await?;
+        if provider.provider == "github"
+            && self
+                .0
+                .database
+                .provider_oauth()
+                .await?
+                .iter()
+                .any(|row| row.provider_id == id)
+        {
+            return Err("legacy_inventory_unsupported");
+        }
         if !provider.enabled {
             return Err("legacy_config_changed");
         }
@@ -843,9 +960,17 @@ impl ControlPlane {
         tenant: Option<&str>,
     ) -> Result<Vec<DiscoveredModel>, &'static str> {
         // Collect one local configuration snapshot, then release management writes before network I/O.
-        let (provider, auth, headers, target, ticket) = {
+        let (provider, auth, headers, target, ticket, copilot) = {
             let _mutation = self.0.mutation.lock().await;
             let provider = self.discovery_provider(id, tenant).await?;
+            let copilot = provider.provider == "github"
+                && self
+                    .0
+                    .database
+                    .provider_oauth()
+                    .await?
+                    .iter()
+                    .any(|row| row.provider_id == id);
             let ticket = if provider.enabled && self.0.database.is_sqlite().await {
                 let ticket = self
                     .0
@@ -862,6 +987,9 @@ impl ControlPlane {
             };
             let config = self.discovery_view(&provider).await?;
             let path = config.effective_models_path.ok_or("models_path_required")?;
+            if copilot && path != "/models" {
+                return Err("unsupported_connection");
+            }
             let target = models_url(&provider.upstream_url, &path)?;
             let auth = self
                 .auth_settings()
@@ -874,7 +1002,7 @@ impl ControlPlane {
                 return Err("credential_expired");
             }
             let headers = self.request_headers(&provider).await?;
-            (provider, auth, headers, target, ticket)
+            (provider, auth, headers, target, ticket, copilot)
         };
         // Scrypt can wait behind other credential operations. Do not hold the
         // management lock while waiting; revalidate the captured generation
@@ -952,6 +1080,10 @@ impl ControlPlane {
         if live.protocol == ProviderProtocol::Anthropic {
             request = request.header("anthropic-version", "2023-06-01");
         }
+        if copilot {
+            request =
+                crate::github_copilot_headers(request, Some("github"), Some(provider.id.as_str()));
+        }
         let template = request
             .headers(headers)
             .build()
@@ -1001,7 +1133,11 @@ impl ControlPlane {
                 }
                 body.extend_from_slice(&chunk);
             }
-            let page = parse_models(&body, live.protocol)?;
+            let page = if copilot {
+                parse_copilot_models(&body)?
+            } else {
+                parse_models(&body, live.protocol)?
+            };
             for model in page.models {
                 all_models.entry(model.id.clone()).or_insert(model);
             }
@@ -1030,6 +1166,9 @@ impl ControlPlane {
             return Err("too_many_pages");
         }
         let models: Vec<_> = all_models.into_values().collect();
+        if copilot && models.is_empty() {
+            return Err("upstream_unavailable");
+        }
         if let Some(ticket) = &ticket {
             let json = serde_json::to_string(&models).map_err(|_| "invalid_models_response")?;
             if json.len() > MAX_BODY {
@@ -1098,6 +1237,21 @@ pub async fn put_config(
             .discovery_provider(&id, scope.tenant_id.as_deref())
             .await?;
         let before = control.discovery_view(&provider).await?;
+        if provider.provider == "github"
+            && control
+                .0
+                .database
+                .provider_oauth()
+                .await?
+                .iter()
+                .any(|row| row.provider_id == id)
+            && input
+                .models_path
+                .as_deref()
+                .is_some_and(|path| path != "/models")
+        {
+            return Err("unsupported_connection");
+        }
         if let Some(path) = input.models_path {
             models_url(&provider.upstream_url, &path)?;
             control
@@ -1202,6 +1356,14 @@ pub async fn adopt_legacy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copilot_discovery_filters_unavailable_and_non_chat_models() {
+        let page = parse_copilot_models(br#"{"models":[{"id":"model-chat","capabilities":{"type":"chat"}},{"id":"policy-off","policy":{"state":"disabled"}},{"id":"hidden","model_picker_enabled":false},{"id":"completion","capabilities":{"type":"completion"}},{"model":" model-future ","supported_endpoints":["/v1/messages"]},{"id":"text-embedding"},{"id":"gpt-41-copilot"},{"id":"unknown-model"}]}"#).unwrap();
+        let ids: Vec<_> = page.models.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, ["model-chat", "model-future", "unknown-model"]);
+        assert!(parse_copilot_models(br#"{"data":{}}"#).is_err());
+    }
 
     #[test]
     fn legacy_inventory_rejects_untranslated_or_ambiguous_data() {

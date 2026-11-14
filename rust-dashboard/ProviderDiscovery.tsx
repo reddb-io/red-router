@@ -11,14 +11,20 @@ import {
 export default function ProviderDiscovery({
   id,
   onSelect,
+  fixedPath = false,
 }: {
   id: string;
   onSelect: (model: string) => void;
+  fixedPath?: boolean;
 }) {
-  return <DiscoveryEditor key={id} id={id} onSelect={onSelect} />;
+  return <DiscoveryEditor key={id} id={id} onSelect={onSelect} fixedPath={fixedPath} />;
 }
 
-function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: string) => void }) {
+function DiscoveryEditor({ id, onSelect, fixedPath }: {
+  id: string;
+  onSelect: (model: string) => void;
+  fixedPath: boolean;
+}) {
   const [config, setConfig] = useState<ProviderDiscoveryConfig | null>(null);
   const [path, setPath] = useState("");
   const [models, setModels] = useState<DiscoveredProviderModel[] | null>(null);
@@ -106,26 +112,32 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
       subtitle="Query the models available through this account using its saved credential and custom headers."
     >
       <p className="text-sm text-text-muted">
-        Discovery uses the saved models path on the same host as this connection. Results do not
-        create routes or change client permissions.
+        {fixedPath
+          ? "Discovery queries the account's provider for its available models."
+          : "Discovery uses the saved models path on the same host as this connection."}{" "}
+        Results do not create routes or change client permissions.
       </p>
-      <label className="mt-3 flex flex-col gap-1 text-sm">
-        Models path override
-        <input
-          className="rounded-lg border border-border bg-surface p-2"
-          value={path}
-          maxLength={2048}
-          placeholder={config?.effective_models_path ?? "/v1/models"}
-          disabled={busy || !config}
-          onChange={(event) => setPath(event.target.value)}
-        />
-      </label>
-      {config && (
-        <p className="mt-2 text-xs text-text-muted">
-          Saved path: {config.effective_models_path ?? "Not configured"}
-        </p>
+      {!fixedPath && (
+        <>
+          <label className="mt-3 flex flex-col gap-1 text-sm">
+            Models path override
+            <input
+              className="rounded-lg border border-border bg-surface p-2"
+              value={path}
+              maxLength={2048}
+              placeholder={config?.effective_models_path ?? "/v1/models"}
+              disabled={busy || !config}
+              onChange={(event) => setPath(event.target.value)}
+            />
+          </label>
+          {config && (
+            <p className="mt-2 text-xs text-text-muted">
+              Saved path: {config.effective_models_path ?? "Not configured"}
+            </p>
+          )}
+        </>
       )}
-      {config?.legacy_inventory_available && (
+      {!fixedPath && config?.legacy_inventory_available && (
         <p className="mt-2 text-sm text-text-muted">
           Migrated models may be out of date. Discover models to verify current availability.
         </p>
@@ -136,16 +148,20 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button disabled={busy || !config || !path.trim()} onClick={() => void save(false)}>
-          Save models path
-        </Button>
-        <Button
-          variant="secondary"
-          disabled={busy || !config?.models_path}
-          onClick={() => void save(true)}
-        >
-          Use default path
-        </Button>
+        {!fixedPath && (
+          <Button disabled={busy || !config || !path.trim()} onClick={() => void save(false)}>
+            Save models path
+          </Button>
+        )}
+        {!fixedPath && (
+          <Button
+            variant="secondary"
+            disabled={busy || !config?.models_path}
+            onClick={() => void save(true)}
+          >
+            Use default path
+          </Button>
+        )}
         <Button
           variant="secondary"
           disabled={busy || !config?.effective_models_path}
@@ -153,7 +169,7 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
         >
           Discover models
         </Button>
-        {config?.legacy_inventory_available && (
+        {!fixedPath && config?.legacy_inventory_available && (
           <Button variant="secondary" disabled={busy} onClick={() => void restore()}>
             Restore migrated models
           </Button>
