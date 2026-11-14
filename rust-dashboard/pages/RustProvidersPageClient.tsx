@@ -727,7 +727,11 @@ export default function RustProvidersPageClient() {
     <div className="flex flex-col gap-5 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          {providerScope && <a className="text-sm text-primary underline" href="/dashboard/providers">All providers</a>}
+          {providerScope && (
+            // This dashboard is a static SPA and does not use Next.js routing.
+            // eslint-disable-next-line @next/next/no-html-link-for-pages
+            <a className="text-sm text-primary underline" href="/dashboard/providers">All providers</a>
+          )}
           <h1 className="text-2xl font-semibold text-text">
             {providerScope ? `${catalogNames.get(providerScope) ?? providerScope} connections` : "Provider connections"}
           </h1>
