@@ -1503,10 +1503,11 @@ mod tests {
             database.clone(),
             "fixture-admin-key-1234567890-abcdef",
             key,
-            false,
+            true,
         )
         .await
         .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut provider = StoredProvider {
             node_id: None,
             protocol: "auto".into(),
@@ -1515,12 +1516,19 @@ mod tests {
             id: "account".into(),
             tenant_id: "red".into(),
             provider: "openai-compatible".into(),
-            upstream_url: "https://example.test/v1/chat/completions".into(),
+            upstream_url: format!(
+                "http://{}/v1/chat/completions",
+                listener.local_addr().unwrap()
+            ),
             credential_ciphertext: super::super::encrypt("fixture-secret", "account", key).unwrap(),
             enabled: true,
             updated_at: 1,
         };
         database.upsert_provider(&provider).await.unwrap();
+        // Bring the background control snapshot up to date before reserving
+        // all credential workers. Otherwise the poller can hold the mutation
+        // lock while waiting for those same workers and starve this probe.
+        control.sync_provider_snapshot().await.unwrap();
         let workers = super::super::credential_crypto::reserve_workers_for_test().await;
         let task_control = control.clone();
         let task =
@@ -1530,7 +1538,7 @@ mod tests {
                 if !database.synced_model_markers().await.unwrap().is_empty() {
                     break;
                 }
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
         .await
