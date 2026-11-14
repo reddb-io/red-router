@@ -187,7 +187,7 @@ async fn adopt_oauth(
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
-        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability"] {
+        for table in ["redrouter_control_providers", "redrouter_control_provider_ownership", "redrouter_control_provider_auth", "redrouter_control_provider_oauth", "redrouter_control_provider_sessions", "redrouter_control_provider_priorities", "redrouter_control_provider_defaults", "redrouter_control_provider_oauth_status", "redrouter_provider_resilience", "redrouter_provider_quotas", "redrouter_provider_model_quotas", "redrouter_provider_breakers", "redrouter_provider_breaker_overrides", "redrouter_provider_availability", "redrouter_provider_model_rules"] {
             let column = if table == "redrouter_control_providers" { "id" } else { "provider_id" };
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\"=?")).bind(id).fetch_one(&mut db).await.map_err(|_| "destination provider schema unavailable")?;
             if count != 0 { return Err("destination provider already exists"); }
@@ -198,11 +198,12 @@ async fn adopt_oauth(
         };
         let access = token("access_token")?;
         let refresh = token("refresh_token")?;
-        let specific: serde_json::Value = match text("provider_specific_data")? {
+        let mut specific: serde_json::Value = match text("provider_specific_data")? {
             None | Some("") => serde_json::json!({}),
             Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy OAuth metadata")?,
         };
-        let specific = specific.as_object().ok_or("invalid legacy OAuth metadata")?;
+        let specific = specific.as_object_mut().ok_or("invalid legacy OAuth metadata")?;
+        let model_rules = crate::control_plane::provider_rules::take_legacy(specific)?;
         let (access, refresh, session, parsed_expiry, parsed_email, upstream) = if provider == "codex" {
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
@@ -280,6 +281,11 @@ async fn adopt_oauth(
             sqlx::query("INSERT INTO redrouter_control_provider_defaults (record_id,provider_id,model_name,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(model).execute(&mut db).await.map_err(|_| "cannot write provider default model")?;
         }
         sqlx::query("INSERT INTO redrouter_control_provider_ownership VALUES (?,?,1)").bind(id).bind(tenant).execute(&mut db).await.map_err(|_| "cannot write provider ownership")?;
+        if !model_rules.is_empty() {
+            let json = serde_json::to_string(&model_rules).map_err(|_| "invalid legacy model exclusions")?;
+            sqlx::query("INSERT INTO redrouter_provider_model_rules(provider_id,tenant_id,patterns_json,revision) VALUES (?,?,?,1)")
+                .bind(id).bind(tenant).bind(json).execute(&mut db).await.map_err(|_| "cannot preserve legacy model exclusions")?;
+        }
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
         sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,?,?,0,1)").bind(id).bind(provider).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
         sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,?,?,1)").bind(id).bind(provider).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;

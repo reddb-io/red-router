@@ -101,6 +101,25 @@ pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static st
     {
         return Err("legacy provider configuration requires migration");
     }
+    parse_legacy_values(object)
+}
+
+/// Remove supported routing rules before validating provider-specific OAuth metadata.
+pub(crate) fn take_legacy(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<String>, &'static str> {
+    let mut rules = serde_json::Map::new();
+    for key in ["excludedModels", "excluded_models"] {
+        if let Some(value) = object.remove(key) {
+            rules.insert(key.to_owned(), value);
+        }
+    }
+    parse_legacy_values(&rules)
+}
+
+fn parse_legacy_values(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<String>, &'static str> {
     let value = object
         .get("excludedModels")
         .filter(|v| !v.is_null())
@@ -316,5 +335,18 @@ mod tests {
             r#"{"excludedModels":["a"],"baseUrl":"https://example.com"}"#
         ))
         .is_err());
+        let mut metadata = serde_json::json!({
+            "workspaceId":"workspace-1",
+            "excludedModels":null,
+            "excluded_models":"private-*, other",
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        assert_eq!(take_legacy(&mut metadata).unwrap(), ["private-*", "other"]);
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata["workspaceId"], "workspace-1");
+        metadata.insert("excludedModels".into(), serde_json::json!([7]));
+        assert!(take_legacy(&mut metadata).is_err());
     }
 }

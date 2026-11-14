@@ -507,7 +507,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         ("codex-wrong", "workspace-other"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
-            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
         .bind(&legacy_oauth_label)
@@ -520,17 +520,20 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-extra','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-rules','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","excludedModels":[17]}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
     for (id, project) in [("agy-good", "project-1"), ("agy-wrong", "project-other")] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
-            .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli"}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli","excluded_models":"gemini-private,other-*"}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
         .bind(serde_json::json!({
             "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
             "cliUserID":"abababababababababababababababababababababababababababababababab",
             "bootstrapEmail":"claude@example.com",
+            "excludedModels":["claude/private-*"],
             "scopes":["user:inference","user:sessions:claude_code"],
             "subscriptionType":"pro",
             "rateLimitTier":"tier-2"
@@ -549,7 +552,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        7
+        8
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -558,6 +561,11 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-extra", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-invalid-rules", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
     );
@@ -682,4 +690,25 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
     db.close().await.unwrap();
+    let mut connection =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+            .await
+            .unwrap();
+    let rules: Vec<(String, String, String)> = sqlx::query_as("SELECT provider_id,tenant_id,patterns_json FROM redrouter_provider_model_rules ORDER BY provider_id")
+        .fetch_all(&mut connection).await.unwrap();
+    assert_eq!(rules.len(), 3);
+    for (id, tenant, json) in rules {
+        assert_eq!(tenant, "red");
+        let expected = match id.as_str() {
+            "agy-good" => serde_json::json!(["gemini-private", "other-*"]),
+            "claude-good" => serde_json::json!(["claude/private-*"]),
+            "codex-good" => serde_json::json!(["private-*"]),
+            _ => panic!("unexpected provider"),
+        };
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&json).unwrap(),
+            expected
+        );
+    }
+    connection.close().await.unwrap();
 }
