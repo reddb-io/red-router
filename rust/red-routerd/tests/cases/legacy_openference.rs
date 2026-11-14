@@ -30,7 +30,7 @@ async fn staged_openference_session_refreshes_and_routes_with_exclusions() {
         let observed = on_inference.clone(); async move {
             assert_eq!(headers[header::AUTHORIZATION], "Bearer openference-rotated");
             observed.fetch_add(1, Ordering::SeqCst);
-            Json(serde_json::json!({"id":"fixture","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
+            Json(serde_json::json!({"id":"fixture","object":"chat.completion","model":"public-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
         }
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
