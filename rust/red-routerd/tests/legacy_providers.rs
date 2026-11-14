@@ -538,6 +538,14 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'openference','oauth',1,'red','Openference account','openference@example.com','openference-private-access','openference-private-refresh','openference-private-identity',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"scope":"openid model:invoke offline_access","tokenType":token_type,"excluded_models":["private-openference-*"]}).to_string()).execute(&mut input).await.unwrap();
     }
+    for (id, auto_sync, legacy_refresh) in [
+        ("github-good", false, None),
+        ("github-autosync", true, None),
+        ("github-renewal", false, Some("github-legacy-refresh")),
+    ] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data) VALUES (?,'github','oauth',1,'red','GitHub account','github@example.com','github-long-lived',?,?)")
+            .bind(id).bind(legacy_refresh).bind(serde_json::json!({"autoSync":auto_sync,"copilotToken":"copilot-private-token","copilotTokenExpiresAt":2000000000,"githubUserId":123,"githubLogin":"fixture","excludedModels":["private-copilot-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
         .bind(serde_json::json!({
             "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
@@ -562,7 +570,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        13
+        16
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -608,6 +616,18 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     )
     .await
     .is_err());
+    assert_eq!(
+        legacy_providers::adopt_github(&dest, "github-autosync", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy model auto-sync requires migration")
+    );
+    assert_eq!(
+        legacy_providers::adopt_github(&dest, "github-renewal", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy GitHub token renewal requires migration")
+    );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert!(db.providers().await.unwrap().is_empty());
     db.close().await.unwrap();
@@ -775,6 +795,72 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .unwrap();
     assert_eq!(resilience.rate_limit_scope, "model");
     db.close().await.unwrap();
+    let result = legacy_providers::adopt_github(&dest, "github-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "github-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.githubcopilot.com/chat/completions"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "github-good"),
+        "copilot-private-token"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(&oauth.refresh_token_ciphertext, "github-good:oauth-refresh"),
+        "github-long-lived"
+    );
+    let auth = db
+        .provider_auth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(auth.expires_at_unix, 2_000_000_000);
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "github-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["github"]["githubLogin"], "fixture");
+    assert!(metadata["github"].get("copilotToken").is_none());
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
     let result =
         legacy_providers::adopt_openference(&dest, "openference-good", STORAGE_KEY, STORAGE_KEY)
             .await
@@ -843,7 +929,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .unwrap();
     let rules: Vec<(String, String, String)> = sqlx::query_as("SELECT provider_id,tenant_id,patterns_json FROM redrouter_provider_model_rules ORDER BY provider_id")
         .fetch_all(&mut connection).await.unwrap();
-    assert_eq!(rules.len(), 5);
+    assert_eq!(rules.len(), 6);
     for (id, tenant, json) in rules {
         assert_eq!(tenant, "red");
         let expected = match id.as_str() {
@@ -852,6 +938,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             "codex-good" => serde_json::json!(["private-*"]),
             "xai-good" => serde_json::json!(["grok-private-*"]),
             "openference-good" => serde_json::json!(["private-openference-*"]),
+            "github-good" => serde_json::json!(["private-copilot-*"]),
             _ => panic!("unexpected provider"),
         };
         assert_eq!(
@@ -868,6 +955,8 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         "openference-private-access",
         "openference-private-refresh",
         "openference-private-identity",
+        "github-long-lived",
+        "copilot-private-token",
     ] {
         assert!(!bytes
             .windows(secret.len())

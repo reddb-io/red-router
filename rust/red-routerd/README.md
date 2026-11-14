@@ -527,6 +527,11 @@ Other OAuth providers and advanced routing settings still require conversion.
 The equivalent Openference command is `red-routerd adopt-legacy-openference
 --offline-confirmed PROVIDER_ID`; it applies the same offline checks and retains
 the original account disabled until the operator verifies it.
+For a GitHub Copilot account, `red-routerd adopt-legacy-github --offline-confirmed
+PROVIDER_ID` requires a stored Copilot token and expiry and a GitHub token usable
+for Copilot token refresh. It refuses accounts with a separate GitHub refresh token
+or enabled model auto-sync because those behaviors are not yet migrated. No token
+is refreshed or sent upstream during adoption; the account remains disabled.
 To stage legacy usage history, cost ledger, quota counters, reservations and budget
 tables without rounding their stored values, stop both servers and run
 `red-routerd archive-legacy-usage --offline-confirmed` with the same source and

@@ -145,6 +145,16 @@ pub async fn adopt_openference(
     adopt_oauth(destination, id, storage_key, legacy_key, "openference").await
 }
 
+/// Adopt GitHub sessions only when the GitHub token can refresh Copilot directly.
+pub async fn adopt_github(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+) -> Result<ProviderImport, &'static str> {
+    adopt_oauth(destination, id, storage_key, legacy_key, "github").await
+}
+
 async fn adopt_oauth(
     destination: &Path,
     id: &str,
@@ -217,7 +227,12 @@ async fn adopt_oauth(
             crate::product::decrypt(stored, Some(legacy_key))
         };
         let access = token("access_token")?;
-        let refresh = token("refresh_token")?;
+        let refresh = if provider == "github" {
+            if text("refresh_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy GitHub token renewal requires migration"); }
+            Zeroizing::new(access.to_string())
+        } else {
+            token("refresh_token")?
+        };
         let mut specific: serde_json::Value = match text("provider_specific_data")? {
             None | Some("") => serde_json::json!({}),
             Some(value) => serde_json::from_str(value).map_err(|_| "invalid legacy OAuth metadata")?,
@@ -257,6 +272,32 @@ async fn adopt_oauth(
             let session = Zeroizing::new(metadata.to_string());
             let email = specific.get("bootstrapEmail").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()).map(str::to_owned);
             (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, email, crate::control_plane::CLAUDE_PROVIDER_URL)
+        } else if provider == "github" {
+            if text("id_token")?.is_some_and(|value| !value.is_empty()) || text("project_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy GitHub identity requires migration"); }
+            if text("token_type")?.is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("bearer")) { return Err("unsupported legacy GitHub token type"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "autoSync" | "copilotToken" | "copilotTokenExpiresAt" | "githubUserId" | "githubLogin" | "githubName" | "githubEmail")) { return Err("legacy GitHub configuration requires migration"); }
+            if specific.get("autoSync") == Some(&serde_json::Value::Bool(true)) { return Err("legacy model auto-sync requires migration"); }
+            let github_token = refresh;
+            if !(1..=8192).contains(&github_token.len()) || reqwest::header::HeaderValue::from_str(github_token.as_str()).is_err() { return Err("invalid legacy GitHub token"); }
+            let stored_copilot = specific.remove("copilotToken").and_then(|value| value.as_str().map(str::to_owned)).filter(|value| !value.is_empty()).ok_or("legacy Copilot token is missing")?;
+            let copilot = crate::product::decrypt(&Zeroizing::new(stored_copilot), Some(legacy_key))?;
+            if !(1..=8192).contains(&copilot.len()) || reqwest::header::HeaderValue::from_str(copilot.as_str()).is_err() { return Err("invalid legacy Copilot token"); }
+            let expiry = match specific.get("copilotTokenExpiresAt") {
+                Some(serde_json::Value::Number(value)) => {
+                    let value = value.as_u64().filter(|value| *value > 0).ok_or("invalid legacy Copilot expiry")?;
+                    if value < 1_000_000_000_000 { value } else { value / 1000 }
+                }
+                Some(serde_json::Value::String(value)) => {
+                    let value = time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).map_err(|_| "invalid legacy Copilot expiry")?.unix_timestamp();
+                    u64::try_from(value).map_err(|_| "invalid legacy Copilot expiry")?
+                }
+                _ => return Err("legacy Copilot expiry is missing"),
+            };
+            let scope = text("scope")?.filter(|value| !value.is_empty());
+            if scope.is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control)) { return Err("invalid legacy GitHub scope"); }
+            let session = Zeroizing::new(serde_json::json!({"scope":scope,"github":specific}).to_string());
+            if session.len() > 65_536 { return Err("legacy GitHub identity is too large"); }
+            (copilot, github_token, session, expiry, None, "https://api.githubcopilot.com/chat/completions")
         } else if matches!(provider, "xai-oauth" | "openference") {
             if !(1..=8192).contains(&access.len()) || !(1..=8192).contains(&refresh.len()) || reqwest::header::HeaderValue::from_str(access.as_str()).is_err() { return Err("invalid legacy OAuth credentials"); }
             if specific.keys().any(|key| !matches!(key.as_str(), "scope" | "tokenType")) { return Err("legacy OAuth configuration requires migration"); }
@@ -339,7 +380,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
         sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,?,?,0,1)").bind(id).bind(provider).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
         sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,?,?,1)").bind(id).bind(provider).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;
-        let scope = if matches!(provider, "xai-oauth" | "openference") { "model" } else { "connection" };
+        let scope = if matches!(provider, "github" | "xai-oauth" | "openference") { "model" } else { "connection" };
         sqlx::query("INSERT INTO redrouter_provider_resilience VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(scope).execute(&mut db).await.map_err(|_| "cannot write provider resilience")?;
         Ok(ProviderImport { imported: 1, enabled: false, source_enabled: active })
     }.await;
