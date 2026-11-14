@@ -528,6 +528,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli","excluded_models":"gemini-private,other-*"}).to_string()).execute(&mut input).await.unwrap();
     }
+    for (id, token_type) in [("xai-good", "Bearer"), ("xai-bad", "Basic")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'xai-oauth','oauth',1,'red','xAI account','xai@example.com','xai-private-access','xai-private-refresh','xai-private-identity',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"scope":"openid offline_access","tokenType":token_type,"excludedModels":["grok-private-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
         .bind(serde_json::json!({
             "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
@@ -552,7 +556,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        8
+        10
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -576,6 +580,11 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert!(
         legacy_providers::adopt_antigravity(&dest, "agy-wrong", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_xai(&dest, "xai-bad", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
     );
@@ -690,19 +699,76 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     );
     assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
     db.close().await.unwrap();
+    let result = legacy_providers::adopt_xai(&dest, "xai-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let xai = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "xai-good")
+        .unwrap();
+    assert!(!xai.enabled);
+    assert_eq!(xai.provider, "xai-oauth");
+    assert_eq!(xai.upstream_url, "https://api.x.ai/v1/chat/completions");
+    assert_eq!(
+        decrypt_rust_ciphertext(&xai.credential_ciphertext, "xai-good"),
+        "xai-private-access"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(&oauth.refresh_token_ciphertext, "xai-good:oauth-refresh"),
+        "xai-private-refresh"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "xai-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["idToken"], "xai-private-identity");
+    assert_eq!(metadata["scope"], "openid offline_access");
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
     let mut connection =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
             .await
             .unwrap();
     let rules: Vec<(String, String, String)> = sqlx::query_as("SELECT provider_id,tenant_id,patterns_json FROM redrouter_provider_model_rules ORDER BY provider_id")
         .fetch_all(&mut connection).await.unwrap();
-    assert_eq!(rules.len(), 3);
+    assert_eq!(rules.len(), 4);
     for (id, tenant, json) in rules {
         assert_eq!(tenant, "red");
         let expected = match id.as_str() {
             "agy-good" => serde_json::json!(["gemini-private", "other-*"]),
             "claude-good" => serde_json::json!(["claude/private-*"]),
             "codex-good" => serde_json::json!(["private-*"]),
+            "xai-good" => serde_json::json!(["grok-private-*"]),
             _ => panic!("unexpected provider"),
         };
         assert_eq!(
@@ -711,4 +777,14 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         );
     }
     connection.close().await.unwrap();
+    let bytes = tokio::fs::read(&dest).await.unwrap();
+    for secret in [
+        "xai-private-access",
+        "xai-private-refresh",
+        "xai-private-identity",
+    ] {
+        assert!(!bytes
+            .windows(secret.len())
+            .any(|window| window == secret.as_bytes()));
+    }
 }

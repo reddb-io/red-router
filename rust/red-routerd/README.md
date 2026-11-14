@@ -517,8 +517,13 @@ For a supported Antigravity session, `red-routerd adopt-legacy-antigravity
 the access and refresh tokens plus the project ID and CLI session metadata. It
 requires a valid project and expiry, rejects conflicting project values, non-CLI
 profiles and unsupported provider settings, and leaves the connection disabled.
-It does not make a provider request or verify a live session. Other OAuth providers
-and advanced routing settings still require conversion.
+It does not make a provider request or verify a live session.
+For a staged xAI OAuth account, `red-routerd adopt-legacy-xai --offline-confirmed
+PROVIDER_ID` uses the same environment variables. It preserves the encrypted
+tokens, optional identity token and scope, model exclusions and account identity,
+and requires a valid expiry and Bearer token type. It rejects conflicting or
+unsupported settings, leaves the connection disabled and makes no provider request.
+Other OAuth providers and advanced routing settings still require conversion.
 To stage legacy usage history, cost ledger, quota counters, reservations and budget
 tables without rounding their stored values, stop both servers and run
 `red-routerd archive-legacy-usage --offline-confirmed` with the same source and
