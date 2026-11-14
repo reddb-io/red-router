@@ -137,6 +137,19 @@ describe("Rust provider models.dev catalog", () => {
     expect(container.textContent).toContain("1 enabled / 1 configured");
     expect((container.querySelector('input[list="rust-model-catalog-providers"]') as HTMLInputElement).value).toBe("agy");
     expect(container.querySelector('a[href="/dashboard/providers"]')).not.toBeNull();
+    const search = container.querySelector('input[type="search"]') as HTMLInputElement;
+    const changeSearch = async (value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, value);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await changeSearch("other-account");
+    expect(container.textContent).toContain("No connections match your search.");
+    expect(container.textContent).not.toContain("Other provider account");
+    await changeSearch("AGY-ACCOUNT");
+    expect(container.textContent).toContain("Antigravity account");
+    expect(container.textContent).toContain("1 enabled / 1 matching");
   });
 
   it("creates an explicitly unauthenticated provider without fabricating a credential", async () => {

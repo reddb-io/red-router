@@ -313,6 +313,7 @@ export default function RustProvidersPageClient() {
     provider: providerScope ?? EMPTY_DRAFT.provider,
   }));
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [connectionSearch, setConnectionSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
@@ -407,10 +408,14 @@ export default function RustProvidersPageClient() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const visibleProviders = useMemo(
-    () => providerScope ? providers.filter((provider) => provider.provider === providerScope) : providers,
-    [providers, providerScope]
-  );
+  const visibleProviders = useMemo(() => {
+    const query = connectionSearch.trim().toLowerCase();
+    return providers.filter((provider) =>
+      (!providerScope || provider.provider === providerScope) &&
+      (!query || [provider.id, provider.label, provider.provider, provider.account_email ?? ""]
+        .some((value) => value.toLowerCase().includes(query)))
+    );
+  }, [providers, providerScope, connectionSearch]);
   const enabledCount = useMemo(
     () => visibleProviders.filter((provider) => provider.enabled).length,
     [visibleProviders]
@@ -740,7 +745,7 @@ export default function RustProvidersPageClient() {
           </p>
         </div>
         <div className="rounded-full bg-black/5 px-3 py-1 text-xs text-text-muted dark:bg-white/5">
-          {enabledCount} enabled / {visibleProviders.length} configured
+          {enabledCount} enabled / {visibleProviders.length} {connectionSearch.trim() ? "matching" : "configured"}
         </div>
       </div>
 
@@ -1217,6 +1222,12 @@ export default function RustProvidersPageClient() {
           </>
         )}
 
+      <label className="flex max-w-lg flex-col gap-1 text-sm">
+        Search connections
+        <input className={inputClass} type="search" value={connectionSearch}
+          onChange={(event) => setConnectionSearch(event.target.value)}
+          placeholder="Name, ID, provider or email" />
+      </label>
       <div className="grid gap-3 lg:grid-cols-2">
         {loading ? (
           <div className="text-sm text-text-muted" role="status">
@@ -1224,7 +1235,7 @@ export default function RustProvidersPageClient() {
           </div>
         ) : visibleProviders.length === 0 ? (
           <Card>
-            <p className="text-sm text-text-muted">{providerScope ? "No connections configured for this provider." : "No provider connections configured."}</p>
+            <p className="text-sm text-text-muted">{connectionSearch.trim() ? "No connections match your search." : providerScope ? "No connections configured for this provider." : "No provider connections configured."}</p>
           </Card>
         ) : (
           visibleProviders.map((provider) => {
