@@ -12015,3 +12015,5 @@ include!("cases/model_aliases.rs");
 include!("cases/provider_rules.rs");
 
 include!("cases/legacy_xai.rs");
+
+include!("cases/legacy_openference.rs");

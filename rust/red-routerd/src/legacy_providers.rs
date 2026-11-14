@@ -135,6 +135,16 @@ pub async fn adopt_xai(
     adopt_oauth(destination, id, storage_key, legacy_key, "xai-oauth").await
 }
 
+/// Preserve a staged Openference OAuth session without contacting the provider.
+pub async fn adopt_openference(
+    destination: &Path,
+    id: &str,
+    storage_key: &str,
+    legacy_key: &str,
+) -> Result<ProviderImport, &'static str> {
+    adopt_oauth(destination, id, storage_key, legacy_key, "openference").await
+}
+
 async fn adopt_oauth(
     destination: &Path,
     id: &str,
@@ -246,34 +256,35 @@ async fn adopt_oauth(
             let session = Zeroizing::new(metadata.to_string());
             let email = specific.get("bootstrapEmail").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()).map(str::to_owned);
             (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, email, crate::control_plane::CLAUDE_PROVIDER_URL)
-        } else if provider == "xai-oauth" {
-            if !(1..=8192).contains(&access.len()) || !(1..=8192).contains(&refresh.len()) || reqwest::header::HeaderValue::from_str(access.as_str()).is_err() { return Err("invalid legacy xAI credentials"); }
-            if specific.keys().any(|key| !matches!(key.as_str(), "scope" | "tokenType")) { return Err("legacy xAI configuration requires migration"); }
-            if text("project_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy xAI project requires migration"); }
+        } else if matches!(provider, "xai-oauth" | "openference") {
+            if !(1..=8192).contains(&access.len()) || !(1..=8192).contains(&refresh.len()) || reqwest::header::HeaderValue::from_str(access.as_str()).is_err() { return Err("invalid legacy OAuth credentials"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "scope" | "tokenType")) { return Err("legacy OAuth configuration requires migration"); }
+            if text("project_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy OAuth project requires migration"); }
             let optional_metadata = |key: &str| -> Result<Option<&str>, &'static str> {
                 match specific.get(key) {
                     None | Some(serde_json::Value::Null) => Ok(None),
                     Some(serde_json::Value::String(value)) if value.len() <= 4096 && !value.chars().any(char::is_control) => Ok(Some(value)),
-                    _ => Err("invalid legacy xAI metadata"),
+                    _ => Err("invalid legacy OAuth metadata"),
                 }
             };
             let nested_scope = optional_metadata("scope")?.filter(|value| !value.is_empty());
             let direct_scope = text("scope")?.filter(|value| !value.is_empty());
-            if direct_scope.is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control)) { return Err("invalid legacy xAI scope"); }
-            if direct_scope.is_some() && nested_scope.is_some() && direct_scope != nested_scope { return Err("legacy xAI scope requires reconciliation"); }
+            if direct_scope.is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control)) { return Err("invalid legacy OAuth scope"); }
+            if direct_scope.is_some() && nested_scope.is_some() && direct_scope != nested_scope { return Err("legacy OAuth scope requires reconciliation"); }
             let nested_type = optional_metadata("tokenType")?.filter(|value| !value.is_empty());
             let direct_type = text("token_type")?.filter(|value| !value.is_empty());
-            if direct_type.is_some_and(|value| !value.eq_ignore_ascii_case("bearer")) || nested_type.is_some_and(|value| !value.eq_ignore_ascii_case("bearer")) { return Err("unsupported legacy xAI token type"); }
+            if direct_type.is_some_and(|value| !value.eq_ignore_ascii_case("bearer")) || nested_type.is_some_and(|value| !value.eq_ignore_ascii_case("bearer")) { return Err("unsupported legacy OAuth token type"); }
             let id_token = match text("id_token")?.filter(|value| !value.is_empty()) {
                 Some(value) => Some(crate::product::decrypt(value, Some(legacy_key))?),
                 None => None,
             };
-            if id_token.as_ref().is_some_and(|value| value.len() > 8192 || value.chars().any(char::is_control)) { return Err("invalid legacy xAI identity token"); }
+            if id_token.as_ref().is_some_and(|value| value.len() > 8192 || value.chars().any(char::is_control)) { return Err("invalid legacy OAuth identity token"); }
             let expiry = text("token_expires_at")?.filter(|value| !value.is_empty()).or(text("expires_at")?.filter(|value| !value.is_empty())).ok_or("legacy OAuth expiry is missing")?;
             let expiry = time::OffsetDateTime::parse(expiry, &time::format_description::well_known::Rfc3339).map_err(|_| "invalid legacy OAuth expiry")?.unix_timestamp();
             let expiry = u64::try_from(expiry).map_err(|_| "invalid legacy OAuth expiry")?;
             let session = Zeroizing::new(serde_json::json!({"scope":direct_scope.or(nested_scope),"tokenType":"Bearer","idToken":id_token.as_deref().map(|value| value.as_str())}).to_string());
-            (access, refresh, session, expiry, None, crate::control_plane::XAI_PROVIDER_URL)
+            let upstream = if provider == "xai-oauth" { crate::control_plane::XAI_PROVIDER_URL } else { crate::control_plane::OPENFERENCE_PROVIDER_URL };
+            (access, refresh, session, expiry, None, upstream)
         } else {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Antigravity identity token requires migration"); }
             if text("scope")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy Antigravity OAuth scope requires migration"); }
@@ -327,7 +338,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_provider_auth VALUES (?,?,'bearer',?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(label).bind(email).bind(expires).execute(&mut db).await.map_err(|_| "cannot write provider identity")?;
         sqlx::query("INSERT INTO redrouter_control_provider_oauth VALUES (?,?,?,0,1)").bind(id).bind(provider).bind(refresh_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth refresh token")?;
         sqlx::query("INSERT INTO redrouter_control_provider_sessions VALUES (?,?,?,1)").bind(id).bind(provider).bind(session_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth session")?;
-        let scope = if provider == "xai-oauth" { "model" } else { "connection" };
+        let scope = if matches!(provider, "xai-oauth" | "openference") { "model" } else { "connection" };
         sqlx::query("INSERT INTO redrouter_provider_resilience VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(scope).execute(&mut db).await.map_err(|_| "cannot write provider resilience")?;
         Ok(ProviderImport { imported: 1, enabled: false, source_enabled: active })
     }.await;

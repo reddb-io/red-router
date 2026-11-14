@@ -532,6 +532,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'xai-oauth','oauth',1,'red','xAI account','xai@example.com','xai-private-access','xai-private-refresh','xai-private-identity',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"scope":"openid offline_access","tokenType":token_type,"excludedModels":["grok-private-*"]}).to_string()).execute(&mut input).await.unwrap();
     }
+    for (id, token_type) in [("openference-good", "Bearer"), ("openference-bad", "Basic")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'openference','oauth',1,'red','Openference account','openference@example.com','openference-private-access','openference-private-refresh','openference-private-identity',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"scope":"openid model:invoke offline_access","tokenType":token_type,"excluded_models":["private-openference-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
         .bind(serde_json::json!({
             "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
@@ -556,7 +560,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        10
+        12
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -588,6 +592,14 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .is_err()
     );
+    assert!(legacy_providers::adopt_openference(
+        &dest,
+        "openference-bad",
+        STORAGE_KEY,
+        STORAGE_KEY
+    )
+    .await
+    .is_err());
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert!(db.providers().await.unwrap().is_empty());
     db.close().await.unwrap();
@@ -755,13 +767,75 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .unwrap();
     assert_eq!(resilience.rate_limit_scope, "model");
     db.close().await.unwrap();
+    let result =
+        legacy_providers::adopt_openference(&dest, "openference-good", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "openference-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.openference.com/v1/chat/completions"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "openference-good"),
+        "openference-private-access"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(
+            &oauth.refresh_token_ciphertext,
+            "openference-good:oauth-refresh"
+        ),
+        "openference-private-refresh"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "openference-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["idToken"], "openference-private-identity");
+    assert_eq!(metadata["scope"], "openid model:invoke offline_access");
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
     let mut connection =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
             .await
             .unwrap();
     let rules: Vec<(String, String, String)> = sqlx::query_as("SELECT provider_id,tenant_id,patterns_json FROM redrouter_provider_model_rules ORDER BY provider_id")
         .fetch_all(&mut connection).await.unwrap();
-    assert_eq!(rules.len(), 4);
+    assert_eq!(rules.len(), 5);
     for (id, tenant, json) in rules {
         assert_eq!(tenant, "red");
         let expected = match id.as_str() {
@@ -769,6 +843,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             "claude-good" => serde_json::json!(["claude/private-*"]),
             "codex-good" => serde_json::json!(["private-*"]),
             "xai-good" => serde_json::json!(["grok-private-*"]),
+            "openference-good" => serde_json::json!(["private-openference-*"]),
             _ => panic!("unexpected provider"),
         };
         assert_eq!(
@@ -782,6 +857,9 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         "xai-private-access",
         "xai-private-refresh",
         "xai-private-identity",
+        "openference-private-access",
+        "openference-private-refresh",
+        "openference-private-identity",
     ] {
         assert!(!bytes
             .windows(secret.len())

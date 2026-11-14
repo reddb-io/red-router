@@ -112,12 +112,13 @@ async fn run(
                 | "adopt-legacy-claude"
                 | "adopt-legacy-antigravity"
                 | "adopt-legacy-xai"
+                | "adopt-legacy-openference"
         )
     ) {
         let flag = args.next();
         let id = args.next();
         if flag.as_deref() != Some("--offline-confirmed") || id.is_none() || args.next().is_some() {
-            return Err("usage: red-routerd adopt-legacy-codex|adopt-legacy-claude|adopt-legacy-antigravity|adopt-legacy-xai --offline-confirmed PROVIDER_ID (set RED_ROUTER_MIGRATION_DEST_PATH, STORAGE_ENCRYPTION_KEY and optionally RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY; stop all servers first)".into());
+            return Err("usage: red-routerd adopt-legacy-codex|adopt-legacy-claude|adopt-legacy-antigravity|adopt-legacy-xai|adopt-legacy-openference --offline-confirmed PROVIDER_ID (set RED_ROUTER_MIGRATION_DEST_PATH, STORAGE_ENCRYPTION_KEY and optionally RED_ROUTER_LEGACY_STORAGE_ENCRYPTION_KEY; stop all servers first)".into());
         }
         let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
             .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
@@ -147,6 +148,15 @@ async fn run(
             }
             Some("adopt-legacy-xai") => {
                 red_routerd::legacy_providers::adopt_xai(
+                    std::path::Path::new(&destination),
+                    id.as_deref().unwrap_or_default(),
+                    &secret,
+                    &legacy_secret,
+                )
+                .await?
+            }
+            Some("adopt-legacy-openference") => {
+                red_routerd::legacy_providers::adopt_openference(
                     std::path::Path::new(&destination),
                     id.as_deref().unwrap_or_default(),
                     &secret,
@@ -491,7 +501,7 @@ async fn run(
         return Ok(());
     }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|migrate-legacy|import-legacy-pricing|import-legacy-keys|import-legacy-models|import-legacy-aliases|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|adopt-legacy-claude|adopt-legacy-antigravity|adopt-legacy-xai|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+        return Err("usage: red-routerd [set-upstream|fastllm-route-plan|inspect-legacy-sqlite|migrate-legacy|import-legacy-pricing|import-legacy-keys|import-legacy-models|import-legacy-aliases|import-legacy-provider|archive-legacy-usage|stage-legacy-provider-records|adopt-legacy-quota-state|adopt-legacy-codex|adopt-legacy-claude|adopt-legacy-antigravity|adopt-legacy-xai|adopt-legacy-openference|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())
