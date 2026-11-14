@@ -114,6 +114,31 @@ async function mount() {
 }
 
 describe("Rust provider models.dev catalog", () => {
+  it.each(["github", "openference"])("exposes account discovery for %s OAuth connections", async (provider) => {
+    api.listRustProviders.mockResolvedValue([{
+      id: `${provider}-account`, tenant_id: "red", provider, oauth_provider: provider,
+      upstream_url: "https://example.com/chat/completions", enabled: true, revision: "1",
+      has_credential: true, rate_limit_scope: "model", auth_scheme: "bearer",
+      credential_expired: false, credential_type: "oauth", refreshable: true,
+      label: `${provider} account`,
+    }]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 0, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [], snapshot: { source: "persisted", revision: "1" },
+    });
+    api.discoverProviderModels.mockResolvedValue([{ id: "available-model" }]);
+    const container = await mount();
+    const replace = [...container.querySelectorAll("button")].find((entry) => entry.textContent === "Replace");
+    expect(replace).toBeDefined();
+    await act(async () => { replace?.click(); });
+    expect(container.textContent).toContain("Discover connection models");
+    expect(container.textContent).not.toContain("Models path override");
+    const discover = [...container.querySelectorAll("button")].find((entry) => entry.textContent === "Discover models");
+    expect(discover).toBeDefined();
+    await act(async () => { discover?.click(); });
+    expect(api.discoverProviderModels).toHaveBeenCalledWith(`${provider}-account`);
+    expect(container.textContent).toContain("available-model");
+  });
   it("opens a provider deep link with only that provider's accounts", async () => {
     window.history.replaceState(null, "", "/dashboard/providers/agy");
     const account = {
