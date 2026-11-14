@@ -711,9 +711,12 @@ impl ControlPlane {
             .database
             .provider_oauth()
             .await?
-            .iter()
-            .any(|row| row.provider_id == id);
-        if oauth {
+            .into_iter()
+            .find(|row| row.provider_id == id);
+        if let Some(oauth) = oauth {
+            if oauth.oauth_provider != provider.provider {
+                return Err("unsupported_connection");
+            }
             let url = reqwest::Url::parse(&provider.upstream_url)
                 .map_err(|_| "unsupported_connection")?;
             let (host, upstream_path, _) =
@@ -1791,6 +1794,114 @@ mod tests {
                 .unwrap_err(),
             "provider_not_found"
         );
+    }
+
+    #[tokio::test]
+    async fn oauth_discovery_only_sends_tokens_to_matching_provider_origins() {
+        let database = Arc::new(
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap(),
+        );
+        let control = ControlPlane::new(
+            database.clone(),
+            "fixture-admin-key-1234567890-abcdef",
+            "fixture-storage-key-1234567890",
+            false,
+        )
+        .await
+        .unwrap();
+        for (id, provider, oauth, upstream, allowed) in [
+            (
+                "github-good",
+                "github",
+                "github",
+                "https://api.githubcopilot.com/chat/completions",
+                true,
+            ),
+            (
+                "openference-good",
+                "openference",
+                "openference",
+                "https://api.openference.com/v1/chat/completions",
+                true,
+            ),
+            (
+                "github-other-host",
+                "github",
+                "github",
+                "https://evil.test/chat/completions",
+                false,
+            ),
+            (
+                "github-http",
+                "github",
+                "github",
+                "http://api.githubcopilot.com/chat/completions",
+                false,
+            ),
+            (
+                "github-port",
+                "github",
+                "github",
+                "https://api.githubcopilot.com:444/chat/completions",
+                false,
+            ),
+            (
+                "github-other-path",
+                "github",
+                "github",
+                "https://api.githubcopilot.com/other",
+                false,
+            ),
+            (
+                "github-other-oauth",
+                "github",
+                "codex",
+                "https://api.githubcopilot.com/chat/completions",
+                false,
+            ),
+            (
+                "openference-other-host",
+                "openference",
+                "openference",
+                "https://evil.test/v1/chat/completions",
+                false,
+            ),
+        ] {
+            database
+                .upsert_provider(&StoredProvider {
+                    node_id: None,
+                    protocol: "auto".into(),
+                    priority: 0,
+                    default_model: None,
+                    id: id.into(),
+                    tenant_id: "red".into(),
+                    provider: provider.into(),
+                    upstream_url: upstream.into(),
+                    credential_ciphertext: "opaque".into(),
+                    enabled: false,
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+            database
+                .upsert_provider_oauth(&StoredProviderOAuth {
+                    provider_id: id.into(),
+                    oauth_provider: oauth.into(),
+                    refresh_token_ciphertext: "opaque".into(),
+                    generation: 1,
+                    revision: 1,
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                control.discovery_provider(id, Some("red")).await.is_ok(),
+                allowed,
+                "{id}"
+            );
+            assert!(control.discovery_provider(id, Some("other")).await.is_err());
+        }
     }
 
     #[test]
