@@ -280,7 +280,9 @@ async fn adopt_oauth(
             let mut metadata: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str()).map_err(|_| "invalid Claude metadata")?;
             metadata["accountUUID"] = serde_json::Value::String(account.to_ascii_lowercase());
             metadata["cliUserID"] = serde_json::Value::String(device.to_ascii_lowercase());
+            metadata["legacyClaude"] = serde_json::Value::Object(specific.clone());
             let session = Zeroizing::new(metadata.to_string());
+            if session.len() > 65_536 { return Err("legacy Claude identity is too large"); }
             let email = specific.get("bootstrapEmail").and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()).map(str::to_owned);
             (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, email, crate::control_plane::CLAUDE_PROVIDER_URL)
         } else if provider == "github" {

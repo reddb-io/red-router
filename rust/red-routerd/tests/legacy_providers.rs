@@ -553,6 +553,9 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
         .bind(serde_json::json!({
             "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
+            "organizationUUID":"123e4567-e89b-42d3-a456-426614174001",
+            "organizationName":"Legacy team",
+            "organizationType":"team",
             "cliUserID":"abababababababababababababababababababababababababababababababab",
             "bootstrapEmail":"claude@example.com",
             "excludedModels":["claude/private-*"],
@@ -756,6 +759,13 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         "123e4567-e89b-42d3-a456-426614174000"
     );
     assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        metadata["legacyClaude"]["organizationUUID"],
+        "123e4567-e89b-42d3-a456-426614174001"
+    );
+    assert_eq!(metadata["legacyClaude"]["organizationName"], "Legacy team");
+    assert_eq!(metadata["legacyClaude"]["organizationType"], "team");
+    assert!(metadata["legacyClaude"].get("excludedModels").is_none());
     db.close().await.unwrap();
     let result = legacy_providers::adopt_xai(&dest, "xai-good", STORAGE_KEY, STORAGE_KEY)
         .await
