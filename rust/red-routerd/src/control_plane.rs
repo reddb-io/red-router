@@ -156,6 +156,7 @@ UNION ALL SELECT 'provider-oauth', provider_id, revision, generation FROM redrou
 UNION ALL SELECT 'provider-headers', provider_id, revision, 0 FROM redrouter_control_provider_headers
 UNION ALL SELECT 'provider-discovery', provider_id, revision, 0 FROM redrouter_control_provider_discovery
 UNION ALL SELECT 'synced-models', provider_id, COALESCE(published_generation,0), COALESCE(observed_at_unix_ms,0) FROM redrouter_synced_models
+UNION ALL SELECT 'synced-model-legacy-origin', provider_id, published_generation, 0 FROM redrouter_synced_model_legacy_origin WHERE provider_id<>''
 UNION ALL SELECT 'provider-protocol', record_id, revision, 0 FROM redrouter_control_provider_protocols
 UNION ALL SELECT 'provider-node', id, revision, 0 FROM redrouter_control_provider_nodes
 UNION ALL SELECT 'provider-model', id, revision, 0 FROM redrouter_control_provider_models
@@ -16702,6 +16703,20 @@ mod tests {
         assert!(watcher.changed().await.unwrap());
         watcher.acknowledge();
         assert!(!watcher.changed().await.unwrap());
+        sqlx::query("INSERT INTO redrouter_synced_model_legacy_origin(provider_id,published_generation) VALUES ('fixture',1)")
+            .execute(pool).await.unwrap();
+        assert!(
+            watcher.changed().await.unwrap(),
+            "other processes must observe origin-only changes"
+        );
+        watcher.acknowledge();
+        assert!(!watcher.changed().await.unwrap());
+        sqlx::query("DELETE FROM redrouter_synced_model_legacy_origin WHERE provider_id='fixture'")
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(watcher.changed().await.unwrap());
+        watcher.acknowledge();
         assert!(
             sqlx::query("DELETE FROM redrouter_control_provider_headers")
                 .execute(&mut watcher.connection)
