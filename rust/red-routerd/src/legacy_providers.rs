@@ -243,11 +243,22 @@ async fn adopt_oauth(
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
             if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) { return Err("legacy Codex configuration requires migration"); }
-            if specific.get("autoSync") == Some(&serde_json::Value::Bool(true)) { return Err("legacy model auto-sync requires migration"); }
+            match specific.get("autoSync") {
+                None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {},
+                Some(serde_json::Value::Bool(true)) => return Err("legacy model auto-sync requires migration"),
+                _ => return Err("invalid legacy model auto-sync setting"),
+            }
             if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
                 if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
             }
-            (parsed.access_token, parsed.refresh_token, parsed.session_metadata, parsed.expires_at_unix, parsed.email, crate::control_plane::CODEX_PROVIDER_URL)
+            if let Some(user) = specific.get("chatgptUserId").filter(|value| !value.is_null()) {
+                if user.as_str() != parsed.user_id.as_deref() { return Err("legacy Codex user requires reconciliation"); }
+            }
+            let mut session: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str()).map_err(|_| "invalid Codex metadata")?;
+            session["legacyCodex"] = serde_json::Value::Object(specific.clone());
+            let session = Zeroizing::new(session.to_string());
+            if session.len() > 65_536 { return Err("legacy Codex identity is too large"); }
+            (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, parsed.email, crate::control_plane::CODEX_PROVIDER_URL)
         } else if provider == "claude" {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Claude identity token requires migration"); }
             let allowed = ["accountUUID", "organizationUUID", "organizationName", "organizationType", "rateLimitTier", "scopes", "subscriptionType", "bootstrapEmail", "importedAt", "cliUserID", "userID"];
@@ -276,7 +287,11 @@ async fn adopt_oauth(
             if text("id_token")?.is_some_and(|value| !value.is_empty()) || text("project_id")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy GitHub identity requires migration"); }
             if text("token_type")?.is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("bearer")) { return Err("unsupported legacy GitHub token type"); }
             if specific.keys().any(|key| !matches!(key.as_str(), "autoSync" | "copilotToken" | "copilotTokenExpiresAt" | "githubUserId" | "githubLogin" | "githubName" | "githubEmail")) { return Err("legacy GitHub configuration requires migration"); }
-            if specific.get("autoSync") == Some(&serde_json::Value::Bool(true)) { return Err("legacy model auto-sync requires migration"); }
+            match specific.get("autoSync") {
+                None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {},
+                Some(serde_json::Value::Bool(true)) => return Err("legacy model auto-sync requires migration"),
+                _ => return Err("invalid legacy model auto-sync setting"),
+            }
             let github_token = refresh;
             if !(1..=8192).contains(&github_token.len()) || reqwest::header::HeaderValue::from_str(github_token.as_str()).is_err() { return Err("invalid legacy GitHub token"); }
             let stored_copilot = specific.remove("copilotToken").and_then(|value| value.as_str().map(str::to_owned)).filter(|value| !value.is_empty()).ok_or("legacy Copilot token is missing")?;

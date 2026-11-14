@@ -507,7 +507,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         ("codex-wrong", "workspace-other"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
-            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
         .bind(&legacy_oauth_label)
@@ -524,6 +524,10 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","excludedModels":[17]}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":true}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-wrong-user','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","chatgptUserId":"user-other"}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":"true"}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
     for (id, project) in [("agy-good", "project-1"), ("agy-wrong", "project-other")] {
@@ -570,7 +574,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        16
+        18
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -592,6 +596,18 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .err(),
         Some("legacy model auto-sync requires migration")
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-wrong-user", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy Codex user requires reconciliation")
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-invalid-auto", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy model auto-sync setting")
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-proxy", STORAGE_KEY, STORAGE_KEY)
@@ -667,10 +683,12 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     let sessions = db.provider_sessions().await.unwrap();
     let metadata =
         decrypt_rust_ciphertext(&sessions[0].session_ciphertext, "codex-good:oauth-session");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&metadata).unwrap()["id_token"],
-        id_token
-    );
+    let metadata = serde_json::from_str::<serde_json::Value>(&metadata).unwrap();
+    assert_eq!(metadata["id_token"], id_token);
+    assert_eq!(metadata["legacyCodex"]["chatgptUserId"], "user-1");
+    assert_eq!(metadata["legacyCodex"]["workspacePlanType"], "team");
+    assert_eq!(metadata["legacyCodex"]["organizations"][0]["id"], "org-1");
+    assert!(metadata["legacyCodex"].get("excludedModels").is_none());
     db.close().await.unwrap();
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-good", STORAGE_KEY, STORAGE_KEY)
