@@ -228,6 +228,7 @@ async fn adopt_oauth(
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
             if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) { return Err("legacy Codex configuration requires migration"); }
+            if specific.get("autoSync") == Some(&serde_json::Value::Bool(true)) { return Err("legacy model auto-sync requires migration"); }
             if let Some(workspace) = specific.get("workspaceId").filter(|value| !value.is_null()) {
                 if workspace.as_str() != Some(parsed.account_id.as_str()) { return Err("legacy Codex workspace requires reconciliation"); }
             }

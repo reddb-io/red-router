@@ -522,6 +522,8 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-rules','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","excludedModels":[17]}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":true}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
     for (id, project) in [("agy-good", "project-1"), ("agy-wrong", "project-other")] {
@@ -560,7 +562,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        12
+        13
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -576,6 +578,12 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         legacy_providers::adopt_codex(&dest, "codex-invalid-rules", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-auto", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy model auto-sync requires migration")
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-proxy", STORAGE_KEY, STORAGE_KEY)
