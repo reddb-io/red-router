@@ -78,8 +78,9 @@ An operator can restore a staged per-account inventory for a matching migrated
 API-key connection. The restore checks the tenant, account, credential, provider
 and configuration, requires imported activation defaults and refuses to replace
 a discovery that has started. Only metadata with a supported native equivalent
-is accepted; the original remains staged. The source age is unknown, so the UI
-asks the operator to refresh it. OAuth, unsupported metadata and broader
+is accepted; the original remains staged. The UI keeps showing that restored
+models are unverified after reload until a live discovery succeeds. OAuth,
+unsupported metadata and broader
 failure/restart validation remain open. Rust, Windows storage, FastLLM concurrent
 agent benchmarks, UI tests and product checks passed for code commit cd2dcb66e
 (CI runs 43525639243, 43525639555 and 43525639350). These tests cover SQLite

@@ -2370,6 +2370,7 @@ export interface ProviderDiscoveryConfig {
   effective_models_path: string | null;
   revision: string | null;
   legacy_inventory_available?: boolean;
+  legacy_inventory_unverified?: boolean;
 }
 export interface DiscoveredProviderModel {
   id: string;
@@ -2392,7 +2393,9 @@ export async function providerDiscoveryConfig(
       (entry) => entry === null || typeof entry === "string"
     ) ||
     (config.legacy_inventory_available !== undefined &&
-      typeof config.legacy_inventory_available !== "boolean")
+      typeof config.legacy_inventory_available !== "boolean") ||
+    (config.legacy_inventory_unverified !== undefined &&
+      typeof config.legacy_inventory_unverified !== "boolean")
   ) {
     throw new Error("Invalid discovery configuration");
   }

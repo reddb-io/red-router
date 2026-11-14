@@ -19,6 +19,7 @@ struct DiscoveryView {
     effective_models_path: Option<String>,
     revision: Option<String>,
     legacy_inventory_available: bool,
+    legacy_inventory_unverified: bool,
 }
 
 #[derive(Deserialize)]
@@ -658,7 +659,19 @@ impl ControlPlane {
             models_url(&provider.upstream_url, path)?;
         }
         let mut legacy_inventory_available = false;
+        let mut legacy_inventory_unverified = false;
         if provider.enabled && self.0.database.is_sqlite().await {
+            legacy_inventory_unverified = self
+                .0
+                .database
+                .synced_models(
+                    &provider.id,
+                    &provider.tenant_id,
+                    unix_time_ms()?,
+                    SYNCED_MODEL_MAX_AGE_MS,
+                )
+                .await?
+                .is_some_and(|snapshot| !snapshot.source_verified);
             let pool = self.0.database.sql_pool().ok_or("legacy_unavailable")?;
             let tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('redrouter_legacy_provider_records','redrouter_legacy_provider_migration','redrouter_legacy_synced_model_records')")
                 .fetch_one(pool).await.map_err(|_| "cannot inspect staged inventory")?;
@@ -674,6 +687,7 @@ impl ControlPlane {
             effective_models_path,
             revision: entry.map(|value| value.revision.to_string()),
             legacy_inventory_available,
+            legacy_inventory_unverified,
         })
     }
 
@@ -1312,6 +1326,13 @@ mod tests {
             .unwrap();
         assert!(saved.models_json.contains("model-a"));
         assert!(
+            control
+                .discovery_view(&provider)
+                .await
+                .unwrap()
+                .legacy_inventory_unverified
+        );
+        assert!(
             !saved.source_verified,
             "restoration must not pretend a live discovery occurred"
         );
@@ -1381,6 +1402,13 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(saved.models_json.contains("new-model"));
+        assert!(
+            !control
+                .discovery_view(&provider)
+                .await
+                .unwrap()
+                .legacy_inventory_unverified
+        );
         assert!(
             saved.source_verified,
             "a successfully published live probe verifies the origin"

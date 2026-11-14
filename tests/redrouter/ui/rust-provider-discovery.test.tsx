@@ -58,6 +58,7 @@ it("restores migrated models for the selected account and explains their unknown
   await click(container, "Restore migrated models");
   expect(api.adoptLegacyProviderModels).toHaveBeenCalledWith("account-a");
   expect(container.textContent).toContain("Restored 3 models. Their age is unknown");
+  expect(container.textContent).toContain("Restored models have not been verified");
   expect(container.textContent).not.toContain("Restore migrated models");
 });
 it("saves the override, resets to default and uses persisted settings for discovery", async () => {

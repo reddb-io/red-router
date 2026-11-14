@@ -78,7 +78,7 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
     setModels(null);
     try {
       setModels(await discoverProviderModels(id));
-      setConfig((current) => current && { ...current, legacy_inventory_available: false });
+      setConfig((current) => current && { ...current, legacy_inventory_available: false, legacy_inventory_unverified: false });
       setPage(0);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not discover models");
@@ -92,7 +92,7 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
     setMessage("");
     try {
       const count = await adoptLegacyProviderModels(id);
-      setConfig((current) => current && { ...current, legacy_inventory_available: false });
+      setConfig((current) => current && { ...current, legacy_inventory_available: false, legacy_inventory_unverified: true });
       setMessage(`Restored ${count} models. Their age is unknown; discover models to refresh availability.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not restore models");
@@ -128,6 +128,11 @@ function DiscoveryEditor({ id, onSelect }: { id: string; onSelect: (model: strin
       {config?.legacy_inventory_available && (
         <p className="mt-2 text-sm text-text-muted">
           Migrated models may be out of date. Discover models to verify current availability.
+        </p>
+      )}
+      {config?.legacy_inventory_unverified && (
+        <p className="mt-2 text-sm text-text-muted">
+          Restored models have not been verified with this provider. Discover models to update them.
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
