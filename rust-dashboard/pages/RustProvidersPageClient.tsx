@@ -288,7 +288,18 @@ function supportsQuotaRefresh(provider: RustProvider): boolean {
   );
 }
 
+function providerFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/(?:dashboard|proxy)\/providers\/([^/]+)\/?$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 export default function RustProvidersPageClient() {
+  const [providerScope] = useState(() => providerFromPath(window.location.pathname));
   const [providers, setProviders] = useState<RustProvider[]>([]);
   const [providerNodes, setProviderNodes] = useState<ProviderNode[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<Record<string, RustProviderQuota>>({});
@@ -297,7 +308,10 @@ export default function RustProvidersPageClient() {
   const [healthDrafts, setHealthDrafts] = useState<Record<string, HealthDraft>>({});
   const [catalog, setCatalog] = useState<RustModelCatalogIndex | null>(null);
   const [catalogProvider, setCatalogProvider] = useState<RustCatalogProvider | null>(null);
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<Draft>(() => ({
+    ...EMPTY_DRAFT,
+    provider: providerScope ?? EMPTY_DRAFT.provider,
+  }));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -393,9 +407,13 @@ export default function RustProvidersPageClient() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const visibleProviders = useMemo(
+    () => providerScope ? providers.filter((provider) => provider.provider === providerScope) : providers,
+    [providers, providerScope]
+  );
   const enabledCount = useMemo(
-    () => providers.filter((provider) => provider.enabled).length,
-    [providers]
+    () => visibleProviders.filter((provider) => provider.enabled).length,
+    [visibleProviders]
   );
   const catalogNames = useMemo(
     () => new Map(catalog?.providers.map((provider) => [provider.id, provider.name]) ?? []),
@@ -407,7 +425,7 @@ export default function RustProvidersPageClient() {
   );
 
   const reset = () => {
-    setDraft(EMPTY_DRAFT);
+    setDraft({ ...EMPTY_DRAFT, provider: providerScope ?? EMPTY_DRAFT.provider });
     setEditingId(null);
   };
 
@@ -709,13 +727,16 @@ export default function RustProvidersPageClient() {
     <div className="flex flex-col gap-5 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text">Provider connections</h1>
+          {providerScope && <a className="text-sm text-primary underline" href="/dashboard/providers">All providers</a>}
+          <h1 className="text-2xl font-semibold text-text">
+            {providerScope ? `${catalogNames.get(providerScope) ?? providerScope} connections` : "Provider connections"}
+          </h1>
           <p className="mt-1 max-w-3xl text-sm text-text-muted">
             Credentials are encrypted by the server and are never returned to this page.
           </p>
         </div>
         <div className="rounded-full bg-black/5 px-3 py-1 text-xs text-text-muted dark:bg-white/5">
-          {enabledCount} enabled / {providers.length} configured
+          {enabledCount} enabled / {visibleProviders.length} configured
         </div>
       </div>
 
@@ -1197,12 +1218,12 @@ export default function RustProvidersPageClient() {
           <div className="text-sm text-text-muted" role="status">
             Loading provider connections…
           </div>
-        ) : providers.length === 0 ? (
+        ) : visibleProviders.length === 0 ? (
           <Card>
-            <p className="text-sm text-text-muted">No provider connections configured.</p>
+            <p className="text-sm text-text-muted">{providerScope ? "No connections configured for this provider." : "No provider connections configured."}</p>
           </Card>
         ) : (
-          providers.map((provider) => {
+          visibleProviders.map((provider) => {
             const quota = providerQuotas[provider.id];
             const quotaDraft = quotaDrafts[provider.id] ?? quotaDraftFromQuota(quota);
             const health = providerHealth[provider.id];
@@ -1797,6 +1818,7 @@ export default function RustProvidersPageClient() {
                   >
                     Replace
                   </Button>
+                  {!providerScope && <a className="text-sm text-primary underline" href={`/dashboard/providers/${encodeURIComponent(provider.provider)}`}>View provider</a>}
                   {provider.enabled && (
                     <Button
                       variant="danger"

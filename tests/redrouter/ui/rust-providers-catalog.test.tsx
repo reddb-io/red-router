@@ -97,6 +97,7 @@ afterEach(() => {
     container.remove();
   }
   vi.clearAllMocks();
+  window.history.replaceState(null, "", "/");
 });
 
 async function mount() {
@@ -113,6 +114,31 @@ async function mount() {
 }
 
 describe("Rust provider models.dev catalog", () => {
+  it("opens a provider deep link with only that provider's accounts", async () => {
+    window.history.replaceState(null, "", "/dashboard/providers/agy");
+    const account = {
+      tenant_id: "red", upstream_url: "https://example.com/v1/chat/completions", enabled: true,
+      revision: "1", has_credential: true, rate_limit_scope: "connection", auth_scheme: "bearer",
+      credential_expired: false, credential_type: "static", refreshable: false,
+    };
+    api.listRustProviders.mockResolvedValue([
+      { ...account, id: "agy-account", provider: "agy", label: "Antigravity account" },
+      { ...account, id: "other-account", provider: "openai", label: "Other provider account" },
+    ]);
+    api.readRustModelCatalog.mockResolvedValue({
+      manifest: { providers: 2, providerModels: 0, fetchedAt: "2026-11-13T00:00:00Z" },
+      providers: [{ id: "agy", name: "Antigravity" }, { id: "openai", name: "OpenAI" }],
+      snapshot: { source: "persisted", revision: "1" },
+    });
+    const container = await mount();
+    expect(container.querySelector("h1")?.textContent).toBe("Antigravity connections");
+    expect(container.textContent).toContain("Antigravity account");
+    expect(container.textContent).not.toContain("Other provider account");
+    expect(container.textContent).toContain("1 enabled / 1 configured");
+    expect((container.querySelector('input[list="rust-model-catalog-providers"]') as HTMLInputElement).value).toBe("agy");
+    expect(container.querySelector('a[href="/dashboard/providers"]')).not.toBeNull();
+  });
+
   it("creates an explicitly unauthenticated provider without fabricating a credential", async () => {
     api.listRustProviders.mockResolvedValue([]);
     api.readRustModelCatalog.mockResolvedValue({
