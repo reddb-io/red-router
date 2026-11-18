@@ -7,6 +7,7 @@ mod availability;
 pub mod catalog;
 mod catalog_capabilities;
 mod catalog_listing;
+mod catalog_order;
 mod circuit;
 pub mod control_plane;
 pub mod fastllm_control;
@@ -623,6 +624,11 @@ struct ModelListResponse {
     has_more: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_id: Option<String>,
+    /// Always empty; present only for the Codex CLI, whose catalog decoder
+    /// requires the field. A populated entry would replace Codex's built-in
+    /// agent prompt for that model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    models: Option<[ListedModel; 0]>,
 }
 
 impl catalog_listing::CatalogEntry for ListedModel {
@@ -2605,18 +2611,21 @@ fn error(status: StatusCode, message: &'static str) -> Response {
 }
 
 /// `GET /v1/models` body, in the legacy order: exact duplicates removed,
-/// decision roles applied, then the capability filter and the requested page.
-/// The catalog version header describes the whole listing, so every page and
-/// filter of one catalog carries the same version.
+/// decision roles applied, rows grouped by provider, then the capability
+/// filter and the requested page. The catalog version header describes the
+/// whole listing, so every page and filter of one catalog carries the same
+/// version.
 fn model_list_response(
     data: Vec<ListedModel>,
     capabilities: &[catalog_capabilities::CatalogCapability],
     page: &catalog_listing::CatalogPage,
+    codex_client: bool,
 ) -> Response {
     let data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
         .into_iter()
         .map(apply_catalog_role)
         .collect();
+    let data = catalog_order::sort_catalog_models_provider_grouped(data);
     let catalog_version = model_catalog_version(&data);
     let data = catalog_capabilities::filter_catalog_capabilities(data, capabilities);
     let paged = catalog_listing::apply_catalog_page(data, page);
@@ -2626,6 +2635,7 @@ fn model_list_response(
         data: paged.models,
         has_more: requested.then_some(paged.has_more),
         last_id: if requested { paged.last_id } else { None },
+        models: codex_client.then_some([]),
     })
     .into_response();
     attach_model_catalog_headers(&mut response, catalog_version.as_deref());
@@ -3269,6 +3279,7 @@ async fn models(State(state): State<ProxyState>, uri: Uri, headers: HeaderMap) -
                 models,
                 &capabilities,
                 &catalog_listing::parse_catalog_page(uri.query()),
+                catalog_listing::is_codex_model_catalog_client(&headers),
             )
         }
         Err(response) => *response,

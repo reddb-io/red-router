@@ -45,9 +45,13 @@ accounts and includes eligible synchronized per-connection inventory. It does
 not yet honor the key's flat model-ID format. Of those post-filters, the Rust
 `/v1/models` now applies the exact-duplicate guard, decision roles
 (`systemone`), the `?capabilities=` filter and OpenAI `limit`/`after` paging in
-the legacy order, ported with Rustify (Rust CI 44383753407); display-name
-normalization is ported but not wired, and decision rows still lack
-`availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
+the legacy order, ported with Rustify (Rust CI 44383753407). It also groups
+rows by owner in the legacy provider precedence (combos first, then the
+registry order snapshotted from the baseline, then unknown owners) and adds the
+empty `models` array the Codex CLI decoder needs (CI pending; not yet recorded
+in the Rustify index because the provider constants it reads are unported).
+Display-name normalization is ported but not wired, and decision rows still
+lack `availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
 schedule refreshes after a 30-second startup delay, with a shared daily lease,
 five-minute failure backoff and the existing last-good snapshot.

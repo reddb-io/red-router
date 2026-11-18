@@ -1,6 +1,6 @@
 //! Listing rules for `GET /v1/models`, ported from the legacy
 //! `src/app/api/v1/models/catalogPagination.ts`, `catalogDedupe.ts` and
-//! `displayNames.ts`.
+//! `displayNames.ts`, plus the Codex client check of `catalogRequest.ts`.
 //!
 //! The legacy body writer (explicit `Content-Length`, chunked enqueue) needs no
 //! port: axum serializes `Json` into one buffered body with a known length.
@@ -313,6 +313,19 @@ fn js_parse_positive_int(value: &str) -> Option<usize> {
     (parsed > 0).then_some(parsed)
 }
 
+/// Legacy `isCodexModelCatalogClient` (`catalogRequest.ts`): the Codex CLI's
+/// catalog refresh sends an `originator` or `User-Agent` starting with
+/// `codex`. Its decoder needs a top-level `models` array, so the listing adds
+/// an empty one for these clients only.
+pub(crate) fn is_codex_model_catalog_client(headers: &axum::http::HeaderMap) -> bool {
+    ["originator", "user-agent"].into_iter().any(|name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.to_ascii_lowercase().starts_with("codex"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +333,33 @@ mod tests {
 
     fn rows(value: Value) -> Vec<Value> {
         value.as_array().cloned().unwrap()
+    }
+
+    // tests/unit/catalog-helpers-extraction.test.ts
+    #[test]
+    fn codex_clients_are_detected_by_originator_or_user_agent() {
+        let headers = |name: &'static str, value: &'static str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(name, axum::http::HeaderValue::from_static(value));
+            headers
+        };
+        assert!(is_codex_model_catalog_client(&headers(
+            "originator",
+            "codex_cli_rs"
+        )));
+        assert!(is_codex_model_catalog_client(&headers(
+            "user-agent",
+            "codex_exec/0.137"
+        )));
+        assert!(is_codex_model_catalog_client(&headers(
+            "originator",
+            "Codex_Exec"
+        )));
+        assert!(!is_codex_model_catalog_client(&headers(
+            "user-agent",
+            "curl/8.0"
+        )));
+        assert!(!is_codex_model_catalog_client(&axum::http::HeaderMap::new()));
     }
 
     // tests/unit/models-catalog-pagination.test.ts
