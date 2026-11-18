@@ -5,6 +5,7 @@ mod antigravity_translation;
 pub mod audit_export;
 mod availability;
 pub mod catalog;
+mod catalog_listing;
 mod circuit;
 pub mod control_plane;
 pub mod fastllm_control;
@@ -615,6 +616,23 @@ pub(crate) struct ControlTargetConfig {
 struct ModelListResponse {
     object: &'static str,
     data: Vec<ListedModel>,
+    /// Present only when the client sent `limit` or `after`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_more: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_id: Option<String>,
+}
+
+impl catalog_listing::CatalogEntry for ListedModel {
+    fn catalog_id(&self) -> Option<&str> {
+        Some(&self.id)
+    }
+    fn catalog_type(&self) -> &str {
+        self.r#type
+    }
+    fn catalog_subtype(&self) -> &str {
+        ""
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -2551,11 +2569,19 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
-fn model_list_response(data: Vec<ListedModel>) -> Response {
+/// `GET /v1/models` body: exact duplicates removed, then the requested page.
+/// The catalog version header describes the whole listing, so every page of
+/// one catalog carries the same version.
+fn model_list_response(data: Vec<ListedModel>, page: &catalog_listing::CatalogPage) -> Response {
+    let data = catalog_listing::dedupe_exact_catalog_ids(data);
     let catalog_version = model_catalog_version(&data);
+    let paged = catalog_listing::apply_catalog_page(data, page);
+    let requested = page.is_requested();
     let mut response = Json(ModelListResponse {
         object: "list",
-        data,
+        data: paged.models,
+        has_more: requested.then_some(paged.has_more),
+        last_id: if requested { paged.last_id } else { None },
     })
     .into_response();
     attach_model_catalog_headers(&mut response, catalog_version.as_deref());
@@ -3185,9 +3211,11 @@ async fn authorized_models(
     Ok(models)
 }
 
-async fn models(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+async fn models(State(state): State<ProxyState>, uri: Uri, headers: HeaderMap) -> Response {
     match authorized_models(&state, &headers).await {
-        Ok(models) => model_list_response(models),
+        Ok(models) => {
+            model_list_response(models, &catalog_listing::parse_catalog_page(uri.query()))
+        }
         Err(response) => *response,
     }
 }
