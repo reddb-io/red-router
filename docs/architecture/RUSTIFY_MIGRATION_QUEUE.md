@@ -48,18 +48,18 @@ not yet honor the key's flat model-ID format. Of those post-filters, the Rust
 the legacy order, ported with Rustify (Rust CI 44383753407). It also groups
 rows by owner in the legacy provider precedence (combos first, then the
 registry order snapshotted from the baseline, then unknown owners) and adds the
-empty `models` array the Codex CLI decoder needs (CI pending; not yet recorded
-in the Rustify index because the provider constants it reads are unported).
-Combo rows carry `strategy` (with the v0.33.0 name `fallback` for priority),
-`routing_strategy` and `members` for RedCode; members list only targets with a
-public provider that the key may use (CI pending; `catalogComboRouting.ts`
-waits on the unported routing-strategy constants).
-`/v1/models/{id}`, `/v1/models/systemone` (and `decisions`), `/v1/models/info`
-and the discovery endpoints now read the same processed listing, so decision
-models appear in the kind listing, `id_format` is `bare` or `prefixed` as in
-`modelById.ts`, case-insensitive lookup follows JavaScript lowercasing, and
-every view reports the same catalog version. `/v1/models/web` and the legacy
-unconditional `HEAD` probe are not ported.
+empty `models` array the Codex CLI decoder needs. Combo rows carry `strategy`
+(with the v0.33.0 name `fallback` for priority), `routing_strategy` and
+`members` for RedCode; members list only targets with a public provider that
+the key may use. `/v1/models/{id}`, `/v1/models/systemone` (and `decisions`),
+`/v1/models/info` and the discovery endpoints now read the same processed
+listing, so decision models appear in the kind listing, `id_format` is `bare`
+or `prefixed` as in `modelById.ts`, case-insensitive lookup follows JavaScript
+lowercasing, and every view reports the same catalog version. Rust CI
+44404356698 passed for these changes. They are not yet recorded in the Rustify
+index: `catalogOrder.ts`, `catalogComboRouting.ts` and `modelById.ts` import
+provider, routing-strategy and HTTP helper modules that are unported.
+`/v1/models/web` and the legacy unconditional `HEAD` probe are not ported.
 Display-name normalization is ported but not wired, and decision rows still
 lack `availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
