@@ -44,10 +44,9 @@ The proxy core imports almost everything else. Porting it first would pull in 61
 Done:
 - Rustify `bbf9ac7` with a small patch for the repository root package and tsconfig path aliases, so it reads the real tree instead of a rewritten copy.
 - `rustify.toml`, `rust/port/mappings.toml` (a rule for every one of the 91 external imports) and `rust/port/CONVENTIONS.md`.
-- Pilot, catalog front: batch 1 (paging, dedupe, display names) passed the Rust tests on Linux and Windows; batch 2 (endpoint policy, capability filter) is in CI.
+- Pilot, catalog front: batch 1 (paging, dedupe, display names) and batch 2 (endpoint policy, capability filter) passed the full Rust CI (run 44383753407). Five TypeScript modules are recorded in `rust/port/index.toml`.
 
 Remaining:
-- Record the pilot with `rustify done` and commit `rust/port/index.toml`.
 - Build the patched Rustify in CI. Either propose the patch upstream or vendor it with a pinned build step.
 - Add a CI job for `rustify check` and `rustify ratchet --base origin/main`, so changed TypeScript cannot drift from its port.
 - Add `compare.toml` cases that run the same requests against both servers (`/v1/models` first).

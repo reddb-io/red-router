@@ -42,8 +42,12 @@ registries and activation/connection rules. Its `catalogResponse.ts` adds
 variants, post-filters, pagination and client formatting. Direct discovery now
 combines configured chat models with matching models.dev entries for eligible
 accounts and includes eligible synchronized per-connection inventory. It does
-not yet honor the key's flat model-ID format or reproduce those
-post-filters. Provider metadata is descriptive and must not itself grant
+not yet honor the key's flat model-ID format. Of those post-filters, the Rust
+`/v1/models` now applies the exact-duplicate guard, decision roles
+(`systemone`), the `?capabilities=` filter and OpenAI `limit`/`after` paging in
+the legacy order, ported with Rustify (Rust CI 44383753407); display-name
+normalization is ported but not wired, and decision rows still lack
+`availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
 schedule refreshes after a 30-second startup delay, with a shared daily lease,
 five-minute failure backoff and the existing last-good snapshot.

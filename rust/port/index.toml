@@ -1,0 +1,105 @@
+# Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
+
+[[module]]
+ts = "open-sse/services/modelEndpointPolicy.ts"
+status = "ported"
+rust = "model_endpoint_policy.rs"
+module = "red_routerd::model_endpoint_policy"
+ported_at = "2026-11-18T20:09:51Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/model-endpoint-policy.test.ts"]
+notes = "filterChatSelectableModels is Iterator::filter over is_chat_selectable_model."
+
+[module.ts_blobs]
+"open-sse/services/modelEndpointPolicy.ts" = "c92e881263fe6e1783f26e0b52cdad55207777e5"
+"tests/unit/model-endpoint-policy.test.ts" = "d57d9b9ded2791f9085ab70d665142362068f40a"
+
+[module.symbols]
+ModelEndpointDecision = "red_routerd::model_endpoint_policy::ModelEndpointDecision"
+ModelEndpointKind = "red_routerd::model_endpoint_policy::ModelEndpointKind"
+declaresOnlyNonChatEndpoints = "red_routerd::model_endpoint_policy::declares_only_non_chat_endpoints"
+filterChatSelectableModels = "-"
+getModelEndpointDecision = "red_routerd::model_endpoint_policy::model_endpoint_decision"
+isChatSelectableModel = "red_routerd::model_endpoint_policy::is_chat_selectable_model"
+isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_openrouter_decision_family_model_id"
+isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogCapabilities.ts"
+status = "ported"
+rust = "catalog_capabilities.rs"
+module = "red_routerd::catalog_capabilities"
+ported_at = "2026-11-18T20:14:27Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-capabilities.test.ts"]
+notes = "Typed decision rows do not yet carry availability and supported_endpoints."
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogCapabilities.ts" = "916a2f463e275ac5659489d77162f465419b8f5b"
+"tests/redrouter/native/catalog-capabilities.test.ts" = "b4515fd631c7fbc1f5ca38e0289f7ef4d56671b7"
+
+[module.symbols]
+CatalogCapability = "red_routerd::catalog_capabilities::CatalogCapability"
+catalogCapabilityCacheKey = "red_routerd::catalog_capabilities::catalog_capability_cache_key"
+filterCatalogCapabilities = "red_routerd::catalog_capabilities::filter_catalog_capabilities"
+parseCatalogCapabilities = "red_routerd::catalog_capabilities::parse_catalog_capabilities"
+withCatalogRoleCapabilities = "red_routerd::catalog_capabilities::with_catalog_role_capabilities"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogDedupe.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T20:00:39Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/models-catalog-exact-dup-4424.test.ts"]
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogDedupe.ts" = "29f48ac35df0565fa108c315ddf97d63ac2e9328"
+"tests/unit/models-catalog-exact-dup-4424.test.ts" = "7dfd3cd8ed7e402d37e2c65e1095be60fda501e0"
+
+[module.symbols]
+dedupeExactCatalogIds = "red_routerd::catalog_listing::dedupe_exact_catalog_ids"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogPagination.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T19:55:57Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/models-catalog-pagination.test.ts"]
+notes = "axum Json already sends one buffered body with Content-Length; the chunked writer has no Rust counterpart."
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogPagination.ts" = "1fbecde59f43035c3370280f829a00c0e49514fa"
+"tests/unit/models-catalog-pagination.test.ts" = "8bf903e7de3b6ae06e67b91c9d21a166345bf670"
+
+[module.symbols]
+CATALOG_BODY_CHUNK_BYTES = "-"
+CATALOG_PAGE_LIMIT_MAX = "red_routerd::catalog_listing::CATALOG_PAGE_LIMIT_MAX"
+CatalogPage = "red_routerd::catalog_listing::CatalogPage"
+CatalogPageResult = "red_routerd::catalog_listing::CatalogPageResult"
+applyCatalogPage = "red_routerd::catalog_listing::apply_catalog_page"
+catalogJsonResponse = "-"
+catalogPageCacheKey = "red_routerd::catalog_listing::CatalogPage::cache_key"
+catalogStringResponse = "-"
+parseCatalogPage = "red_routerd::catalog_listing::parse_catalog_page"
+
+[[module]]
+ts = "src/app/api/v1/models/displayNames.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T20:05:12Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-display-names.test.ts"]
+notes = "Ported as functions; not wired until the Rust listing emits model names."
+
+[module.ts_blobs]
+"src/app/api/v1/models/displayNames.ts" = "32becf5c38517e388bb42c38e2cfe2d69281958a"
+"tests/redrouter/native/catalog-display-names.test.ts" = "66418d5989abc05649cdf039bb3cc3d7141c8937"
+
+[module.symbols]
+normalizeCatalogDisplayName = "red_routerd::catalog_listing::normalize_catalog_display_name"
+normalizeCatalogModelNames = "red_routerd::catalog_listing::normalize_catalog_model_names"
