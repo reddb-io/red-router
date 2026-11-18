@@ -9,7 +9,8 @@ completion percentages.
 
 Baseline: legacy `525a71de4ac25968d0a25e52eeb1b09cc21c6e92`; Rustify
 `bbf9ac726e4fbf511a77a4c9e818cd8fb7f9bcb7`. The detailed dependency graph and
-71-front audit remain in [RUSTIFY_PARITY_AUDIT.md](RUSTIFY_PARITY_AUDIT.md).
+71-front audit remain in [RUSTIFY_PARITY_AUDIT.md](RUSTIFY_PARITY_AUDIT.md). The Rustify port plan, graph sizes and phases are in
+[RUSTIFY_ROADMAP.md](RUSTIFY_ROADMAP.md).
 
 | Order | Requested capability | Complexity | State | Current acceptance gap |
 | ---: | --- | --- | --- | --- |
