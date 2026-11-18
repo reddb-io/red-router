@@ -313,6 +313,55 @@ fn js_parse_positive_int(value: &str) -> Option<usize> {
     (parsed > 0).then_some(parsed)
 }
 
+/// Legacy `findModelById` (`modelById.ts`): an exact id wins; otherwise the
+/// first id equal after lowercasing, so clients that normalize case still
+/// get the real entry.
+pub(crate) fn find_model_by_id<'a, T: CatalogEntry>(
+    models: &'a [T],
+    requested: &str,
+) -> Option<&'a T> {
+    models
+        .iter()
+        .find(|model| model.catalog_id() == Some(requested))
+        .or_else(|| {
+            let lower = requested.to_lowercase();
+            models.iter().find(|model| {
+                model
+                    .catalog_id()
+                    .is_some_and(|id| id.to_lowercase() == lower)
+            })
+        })
+}
+
+/// Legacy `MODEL_KIND_TYPES` / `isModelKind` (`modelById.ts`): the
+/// `/v1/models/{kind}` paths that list one catalog type instead of naming a
+/// model. Only kinds whose catalog type is verified are routed.
+pub(crate) fn model_kind_type(kind: &str) -> Option<&'static str> {
+    match kind {
+        "systemone" | "decisions" => Some("systemone"),
+        _ => None,
+    }
+}
+
+/// `id_format` of a kind listing: `bare` when there is at least one row and
+/// no id carries a provider prefix, else `prefixed`.
+pub(crate) fn model_kind_id_format<'a>(
+    ids: impl IntoIterator<Item = Option<&'a str>>,
+) -> &'static str {
+    let mut any = false;
+    for id in ids {
+        match id {
+            Some(id) if !id.contains('/') => any = true,
+            _ => return "prefixed",
+        }
+    }
+    if any {
+        "bare"
+    } else {
+        "prefixed"
+    }
+}
+
 /// Legacy `isCodexModelCatalogClient` (`catalogRequest.ts`): the Codex CLI's
 /// catalog refresh sends an `originator` or `User-Agent` starting with
 /// `codex`. Its decoder needs a top-level `models` array, so the listing adds
@@ -333,6 +382,67 @@ mod tests {
 
     fn rows(value: Value) -> Vec<Value> {
         value.as_array().cloned().unwrap()
+    }
+
+    // tests/unit/v1-models-by-id-4674.test.ts
+    #[test]
+    fn find_model_by_id_prefers_exact_case_then_ignores_case() {
+        let catalog = rows(json!([
+            {"id": "claude/claude-sonnet-4-6", "object": "model"},
+            {"id": "openai/gpt-5.4", "object": "model"},
+            {"id": "gpt-5", "object": "model"},
+        ]));
+        let id = |requested: &str| find_model_by_id(&catalog, requested).map(|m| m["id"].clone());
+        assert_eq!(
+            id("claude/claude-sonnet-4-6"),
+            Some(json!("claude/claude-sonnet-4-6"))
+        );
+        assert_eq!(id("openai/gpt-5.4"), Some(json!("openai/gpt-5.4")));
+        assert_eq!(id("does-not-exist"), None);
+        assert_eq!(
+            id("CLAUDE/Claude-Sonnet-4-6"),
+            Some(json!("claude/claude-sonnet-4-6"))
+        );
+
+        let twins = rows(json!([
+            {"id": "Model-X", "context_length": 111},
+            {"id": "model-x", "context_length": 222},
+        ]));
+        assert_eq!(
+            find_model_by_id(&twins, "model-x").unwrap()["context_length"],
+            222
+        );
+        assert_eq!(
+            find_model_by_id(&twins, "Model-X").unwrap()["context_length"],
+            111
+        );
+        // JavaScript lowercases beyond ASCII.
+        let unicode = rows(json!([{"id": "vendor/ÉCLAIR"}]));
+        assert!(find_model_by_id(&unicode, "vendor/éclair").is_some());
+    }
+
+    // tests/redrouter/native/redcode-models-kind.test.ts
+    #[test]
+    fn only_verified_kinds_route_and_report_their_id_format() {
+        assert_eq!(model_kind_type("systemone"), Some("systemone"));
+        assert_eq!(model_kind_type("decisions"), Some("systemone"));
+        for other in ["web", "openai", "toString"] {
+            assert_eq!(model_kind_type(other), None);
+        }
+        assert_eq!(
+            model_kind_id_format([Some("typesafe-ai/jev-latest")]),
+            "prefixed"
+        );
+        assert_eq!(model_kind_id_format([Some("jev-latest")]), "bare");
+        assert_eq!(
+            model_kind_id_format([Some("jev-latest"), Some("x/y")]),
+            "prefixed"
+        );
+        assert_eq!(model_kind_id_format([Some("jev-latest"), None]), "prefixed");
+        assert_eq!(
+            model_kind_id_format(std::iter::empty::<Option<&str>>()),
+            "prefixed"
+        );
     }
 
     // tests/unit/catalog-helpers-extraction.test.ts

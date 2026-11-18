@@ -3432,6 +3432,7 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
     let systemone: serde_json::Value =
         serde_json::from_str(&systemone.text().await.unwrap()).unwrap();
     assert_eq!(systemone["object"], "list");
+    assert_eq!(systemone["id_format"], "prefixed");
     assert_eq!(systemone["data"], serde_json::json!([]));
 
     let catalog = client

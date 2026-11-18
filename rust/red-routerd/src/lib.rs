@@ -2647,9 +2647,18 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
-/// `GET /v1/models` body, in the legacy order: exact duplicates removed,
-/// decision roles applied, rows grouped by provider, then the capability
-/// filter and the requested page. The catalog version header describes the
+/// The listing every `/v1/models` view reads, in the legacy order: exact
+/// duplicates removed, decision roles applied, rows grouped by provider.
+fn catalog_rows(data: Vec<ListedModel>) -> Vec<ListedModel> {
+    let data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
+        .into_iter()
+        .map(apply_catalog_role)
+        .collect();
+    catalog_order::sort_catalog_models_provider_grouped(data)
+}
+
+/// `GET /v1/models` body: the [`catalog_rows`] listing from
+/// `authorized_models`, then the capability filter and the requested page. The catalog version header describes the
 /// whole listing, so every page and filter of one catalog carries the same
 /// version.
 fn model_list_response(
@@ -2658,11 +2667,6 @@ fn model_list_response(
     page: &catalog_listing::CatalogPage,
     codex_client: bool,
 ) -> Response {
-    let data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
-        .into_iter()
-        .map(apply_catalog_role)
-        .collect();
-    let data = catalog_order::sort_catalog_models_provider_grouped(data);
     let catalog_version = model_catalog_version(&data);
     let data = catalog_capabilities::filter_catalog_capabilities(data, capabilities);
     let paged = catalog_listing::apply_catalog_page(data, page);
@@ -3325,7 +3329,9 @@ async fn authorized_models(
         }
         models.sort_unstable_by(|left, right| left.id.cmp(&right.id));
     }
-    Ok(models)
+    // Every view (list, single model, kinds, info, discovery) reads the same
+    // processed listing, so they agree on rows and on the catalog version.
+    Ok(catalog_rows(models))
 }
 
 async fn models(State(state): State<ProxyState>, uri: Uri, headers: HeaderMap) -> Response {
@@ -3370,16 +3376,12 @@ fn model_not_found(requested: &str) -> Response {
 }
 
 fn find_listed_model<'a>(models: &'a [ListedModel], requested: &str) -> Option<&'a ListedModel> {
-    models
-        .iter()
-        .find(|model| model.id == requested)
-        .or_else(|| {
-            models
-                .iter()
-                .find(|model| model.id.eq_ignore_ascii_case(requested))
-        })
+    catalog_listing::find_model_by_id(models, requested)
 }
 
+/// `GET /v1/models/{model}` and `/v1/models/{kind}` (legacy `modelById.ts`).
+/// The processed listing types decision rows `systemone`, which the kind
+/// listings select.
 async fn model_by_id(
     State(state): State<ProxyState>,
     Path(requested): Path<String>,
@@ -3397,11 +3399,17 @@ async fn model_by_id(
         return response;
     }
     let catalog_version = model_catalog_version(&models);
-    if matches!(requested, "systemone" | "decisions") {
+    if let Some(kind_type) = catalog_listing::model_kind_type(requested) {
+        let selected = models
+            .iter()
+            .filter(|model| model.r#type == kind_type)
+            .collect::<Vec<_>>();
+        let id_format =
+            catalog_listing::model_kind_id_format(selected.iter().map(|model| Some(&*model.id)));
         let mut response = Json(serde_json::json!({
             "object":"list",
-            "id_format":"prefixed",
-            "data":models.iter().filter(|model| model.r#type == "systemone").collect::<Vec<_>>()
+            "id_format":id_format,
+            "data":selected
         }))
         .into_response();
         attach_model_catalog_headers(&mut response, catalog_version.as_deref());
