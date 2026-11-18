@@ -5,6 +5,7 @@ mod antigravity_translation;
 pub mod audit_export;
 mod availability;
 pub mod catalog;
+mod catalog_capabilities;
 mod catalog_listing;
 mod circuit;
 pub mod control_plane;
@@ -22,6 +23,7 @@ pub mod legacy_provider_nodes;
 pub mod legacy_providers;
 pub mod legacy_quota;
 mod model_alias_response;
+mod model_endpoint_policy;
 mod model_permissions;
 mod native_usage;
 mod oidc;
@@ -633,6 +635,39 @@ impl catalog_listing::CatalogEntry for ListedModel {
     fn catalog_subtype(&self) -> &str {
         ""
     }
+}
+
+impl catalog_capabilities::CatalogRoleEntry for ListedModel {
+    fn catalog_owned_by(&self) -> Option<&str> {
+        Some(&self.owned_by)
+    }
+    fn catalog_root(&self) -> Option<&str> {
+        None
+    }
+    fn catalog_supported_endpoints(&self) -> Option<Vec<String>> {
+        None
+    }
+    fn catalog_capability(&self, name: &str) -> Option<bool> {
+        self.capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.get(name).copied())
+    }
+}
+
+/// Legacy `withCatalogRoleCapabilities` for typed rows: a decision model is
+/// listed as `systemone` with its chat and generation flags forced off.
+/// (The legacy row also gains `availability` and `supported_endpoints`, which
+/// the typed listing does not carry yet.)
+fn apply_catalog_role(mut model: ListedModel) -> ListedModel {
+    if !catalog_capabilities::catalog_model_role(&model).decision {
+        return model;
+    }
+    model.r#type = "systemone";
+    let capabilities = model.capabilities.get_or_insert_with(BTreeMap::new);
+    for (name, value) in catalog_capabilities::DECISION_CAPABILITY_FLAGS {
+        capabilities.insert(name, value);
+    }
+    model
 }
 
 #[derive(serde::Serialize)]
@@ -2569,12 +2604,21 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
-/// `GET /v1/models` body: exact duplicates removed, then the requested page.
-/// The catalog version header describes the whole listing, so every page of
-/// one catalog carries the same version.
-fn model_list_response(data: Vec<ListedModel>, page: &catalog_listing::CatalogPage) -> Response {
-    let data = catalog_listing::dedupe_exact_catalog_ids(data);
+/// `GET /v1/models` body, in the legacy order: exact duplicates removed,
+/// decision roles applied, then the capability filter and the requested page.
+/// The catalog version header describes the whole listing, so every page and
+/// filter of one catalog carries the same version.
+fn model_list_response(
+    data: Vec<ListedModel>,
+    capabilities: &[catalog_capabilities::CatalogCapability],
+    page: &catalog_listing::CatalogPage,
+) -> Response {
+    let data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
+        .into_iter()
+        .map(apply_catalog_role)
+        .collect();
     let catalog_version = model_catalog_version(&data);
+    let data = catalog_capabilities::filter_catalog_capabilities(data, capabilities);
     let paged = catalog_listing::apply_catalog_page(data, page);
     let requested = page.is_requested();
     let mut response = Json(ModelListResponse {
@@ -3214,7 +3258,18 @@ async fn authorized_models(
 async fn models(State(state): State<ProxyState>, uri: Uri, headers: HeaderMap) -> Response {
     match authorized_models(&state, &headers).await {
         Ok(models) => {
-            model_list_response(models, &catalog_listing::parse_catalog_page(uri.query()))
+            let Some(capabilities) = catalog_capabilities::parse_catalog_capabilities(uri.query())
+            else {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    catalog_capabilities::INVALID_CAPABILITIES_MESSAGE,
+                );
+            };
+            model_list_response(
+                models,
+                &capabilities,
+                &catalog_listing::parse_catalog_page(uri.query()),
+            )
         }
         Err(response) => *response,
     }
