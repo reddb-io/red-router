@@ -680,7 +680,12 @@ impl catalog_capabilities::CatalogRoleEntry for ListedModel {
         None
     }
     fn catalog_supported_endpoints(&self) -> Option<Vec<String>> {
-        None
+        self.supported_endpoints.map(|endpoints| {
+            endpoints
+                .iter()
+                .map(|&endpoint| endpoint.to_owned())
+                .collect()
+        })
     }
     fn catalog_capability(&self, name: &str) -> Option<bool> {
         self.capabilities
@@ -690,14 +695,15 @@ impl catalog_capabilities::CatalogRoleEntry for ListedModel {
 }
 
 /// Legacy `withCatalogRoleCapabilities` for typed rows: a decision model is
-/// listed as `systemone` with its chat and generation flags forced off.
-/// (The legacy row also gains `availability` and `supported_endpoints`, which
-/// the typed listing does not carry yet.)
+/// listed as `systemone`, not probed, served by the decision endpoints, with
+/// its chat and generation flags forced off.
 fn apply_catalog_role(mut model: ListedModel) -> ListedModel {
     if !catalog_capabilities::catalog_model_role(&model).decision {
         return model;
     }
     model.r#type = "systemone";
+    model.availability = Some(catalog_capabilities::DECISION_AVAILABILITY);
+    model.supported_endpoints = Some(&catalog_capabilities::DECISION_SUPPORTED_ENDPOINTS);
     let capabilities = model.capabilities.get_or_insert_with(BTreeMap::new);
     for (name, value) in catalog_capabilities::DECISION_CAPABILITY_FLAGS {
         capabilities.insert(name, value);
@@ -724,6 +730,11 @@ struct ListedModel {
     output_modalities: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capabilities: Option<BTreeMap<&'static str, bool>>,
+    /// Decision rows only (see `apply_catalog_role`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    availability: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    supported_endpoints: Option<&'static [&'static str]>,
     /// Combos only: the client-facing strategy name (see
     /// `catalog_combo_routing`), the native one and the routable member ids.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3074,6 +3085,8 @@ fn listed_models(
             input_modalities: intersect_modalities(&input_modalities),
             output_modalities: intersect_modalities(&output_modalities),
             capabilities: (!capabilities.is_empty()).then_some(capabilities),
+            availability: None,
+            supported_endpoints: None,
             strategy,
             routing_strategy,
             members,
@@ -3131,6 +3144,8 @@ fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u6
             .map(|value| value.output.clone())
             .filter(|value| !value.is_empty()),
         capabilities: (!capabilities.is_empty()).then_some(capabilities),
+        availability: None,
+        supported_endpoints: None,
         strategy: None,
         routing_strategy: None,
         members: None,
@@ -7946,6 +7961,57 @@ mod address_tests {
         .unwrap();
         let listed = listed_direct_model("test/example".to_owned(), metadata, 0);
         assert!(listed.capabilities.is_none());
+    }
+
+    // tests/redrouter/native/catalog-capabilities.test.ts
+    #[test]
+    fn decision_rows_list_as_systemone_with_their_endpoints() {
+        let metadata = |id: &str| -> catalog::ModelMetadata {
+            serde_json::from_value(serde_json::json!({"id": id, "tool_call": true})).unwrap()
+        };
+        let rows = catalog_rows(vec![
+            listed_direct_model("openai/gpt-5".to_owned(), metadata("gpt-5"), 0),
+            listed_direct_model(
+                "openrouter/typesafe/jev-1.13".to_owned(),
+                metadata("typesafe/jev-1.13"),
+                0,
+            ),
+        ]);
+        let rows = serde_json::to_value(&rows).unwrap();
+        let decision = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "openrouter/typesafe/jev-1.13")
+            .unwrap();
+        assert_eq!(decision["type"], "systemone");
+        assert_eq!(decision["availability"], "not_probed");
+        assert_eq!(
+            decision["supported_endpoints"],
+            serde_json::json!(["systemone", "decisions"])
+        );
+        assert_eq!(decision["capabilities"]["chat"], false);
+        assert_eq!(decision["capabilities"]["decision"], true);
+        assert_eq!(decision["capabilities"]["tool_calling"], false);
+        let chat = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "openai/gpt-5")
+            .unwrap();
+        assert_eq!(chat["type"], "chat");
+        assert!(chat.get("availability").is_none());
+        assert!(chat.get("supported_endpoints").is_none());
+        assert_eq!(
+            catalog_listing::model_kind_id_format(
+                rows.as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|row| row["type"] == "systemone")
+                    .map(|row| row["id"].as_str())
+            ),
+            "prefixed"
+        );
     }
 
     #[test]

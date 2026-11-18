@@ -60,8 +60,9 @@ lowercasing, and every view reports the same catalog version. Rust CI
 index: `catalogOrder.ts`, `catalogComboRouting.ts` and `modelById.ts` import
 provider, routing-strategy and HTTP helper modules that are unported.
 `/v1/models/web` and the legacy unconditional `HEAD` probe are not ported.
-Display-name normalization is ported but not wired, and decision rows still
-lack `availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
+Decision rows now carry `availability: "not_probed"` and
+`supported_endpoints: ["systemone", "decisions"]` as in the legacy listing (CI
+pending). Display-name normalization is ported but not wired. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
 schedule refreshes after a 30-second startup delay, with a shared daily lease,
 five-minute failure backoff and the existing last-good snapshot.

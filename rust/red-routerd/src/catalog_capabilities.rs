@@ -201,6 +201,12 @@ pub(crate) const DECISION_CAPABILITY_FLAGS: [(&str, bool); 7] = [
     ("supportsThinking", false),
 ];
 
+/// A decision row has never been probed by the catalog.
+pub(crate) const DECISION_AVAILABILITY: &str = "not_probed";
+
+/// The endpoints that serve a decision row.
+pub(crate) const DECISION_SUPPORTED_ENDPOINTS: [&str; 2] = ["systemone", "decisions"];
+
 /// JSON form of the legacy `withCatalogRoleCapabilities`: rows that are not
 /// decisions are returned unchanged; decision rows become `systemone` rows
 /// with decision endpoints and the forced capability flags.
@@ -223,10 +229,10 @@ pub(crate) fn with_catalog_role_capabilities(model: &serde_json::Value) -> serde
     let mut out = model.clone();
     if let Some(object) = out.as_object_mut() {
         object.insert("type".into(), "systemone".into());
-        object.insert("availability".into(), "not_probed".into());
+        object.insert("availability".into(), DECISION_AVAILABILITY.into());
         object.insert(
             "supported_endpoints".into(),
-            serde_json::json!(["systemone", "decisions"]),
+            serde_json::json!(DECISION_SUPPORTED_ENDPOINTS),
         );
         object.insert(
             "capabilities".into(),
