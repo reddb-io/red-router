@@ -718,6 +718,10 @@ struct ListedModel {
     created: u64,
     owned_by: String,
     r#type: &'static str,
+    /// Display name from the model metadata, normalized for display
+    /// (legacy `MODEL_CATALOG_INCLUDE_NAMES`, on by default).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     context_length: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2659,12 +2663,18 @@ fn error(status: StatusCode, message: &'static str) -> Response {
 }
 
 /// The listing every `/v1/models` view reads, in the legacy order: exact
-/// duplicates removed, decision roles applied, rows grouped by provider.
+/// duplicates removed, decision roles applied, display names normalized, rows
+/// grouped by provider.
 fn catalog_rows(data: Vec<ListedModel>) -> Vec<ListedModel> {
-    let data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
+    let mut data: Vec<ListedModel> = catalog_listing::dedupe_exact_catalog_ids(data)
         .into_iter()
         .map(apply_catalog_role)
         .collect();
+    for model in &mut data {
+        if let Some(name) = model.name.as_mut().filter(|name| !name.is_empty()) {
+            *name = catalog_listing::normalize_catalog_display_name(name, Some(&model.id));
+        }
+    }
     catalog_order::sort_catalog_models_provider_grouped(data)
 }
 
@@ -3079,6 +3089,7 @@ fn listed_models(
             created,
             owned_by: if is_combo { "combo" } else { "alias" }.to_owned(),
             r#type: route_model_type(route.protocol),
+            name: None,
             context_length: context_lengths.into_iter().min(),
             max_input_tokens: max_input_tokens.into_iter().min(),
             max_output_tokens: max_output_tokens.into_iter().min(),
@@ -3126,6 +3137,7 @@ fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u6
         created,
         owned_by: owner,
         r#type: "chat",
+        name: metadata.name.clone(),
         context_length,
         max_input_tokens: metadata
             .limit
@@ -7961,6 +7973,40 @@ mod address_tests {
         .unwrap();
         let listed = listed_direct_model("test/example".to_owned(), metadata, 0);
         assert!(listed.capabilities.is_none());
+    }
+
+    // tests/redrouter/native/catalog-display-names.test.ts
+    #[test]
+    fn listed_names_are_normalized_for_display_without_changing_ids() {
+        let named = |id: &str, name: Option<&str>| -> catalog::ModelMetadata {
+            serde_json::from_value(serde_json::json!({"id": id, "name": name})).unwrap()
+        };
+        let rows = catalog_rows(vec![
+            listed_direct_model(
+                "openrouter/z-ai/glm-5.3".to_owned(),
+                named("z-ai/glm-5.3", Some("Z.ai: GLM 5.3")),
+                0,
+            ),
+            listed_direct_model(
+                "zai/glm-5.3-flash".to_owned(),
+                named("glm-5.3-flash", Some("glm-5.3-flash")),
+                0,
+            ),
+            listed_direct_model("openai/gpt-5".to_owned(), named("gpt-5", None), 0),
+        ]);
+        let names: BTreeMap<&str, Option<&str>> = rows
+            .iter()
+            .map(|row| (row.id.as_str(), row.name.as_deref()))
+            .collect();
+        assert_eq!(names["openrouter/z-ai/glm-5.3"], Some("GLM 5.3"));
+        assert_eq!(names["zai/glm-5.3-flash"], Some("GLM 5.3 Flash"));
+        assert_eq!(names["openai/gpt-5"], None);
+        let serialized = serde_json::to_value(&rows).unwrap();
+        assert!(serialized
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "openai/gpt-5" && row.get("name").is_none()));
     }
 
     // tests/redrouter/native/catalog-capabilities.test.ts

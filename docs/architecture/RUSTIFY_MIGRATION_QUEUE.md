@@ -62,7 +62,11 @@ provider, routing-strategy and HTTP helper modules that are unported.
 `/v1/models/web` and the legacy unconditional `HEAD` probe are not ported.
 Decision rows now carry `availability: "not_probed"` and
 `supported_endpoints: ["systemone", "decisions"]` as in the legacy listing (CI
-pending). Display-name normalization is ported but not wired. Provider metadata is descriptive and must not itself grant
+pending). Direct model rows now list the metadata `name`, normalized for
+display (vendor prefix removed, id-like names humanized), as the legacy default
+`MODEL_CATALOG_INCLUDE_NAMES` does (CI pending). Turning names off,
+`disambiguateCatalogModelNames` and names for combo and alias rows are not
+ported. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
 schedule refreshes after a 30-second startup delay, with a shared daily lease,
 five-minute failure backoff and the existing last-good snapshot.

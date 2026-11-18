@@ -174,7 +174,6 @@ pub(crate) fn dedupe_exact_catalog_ids<T: CatalogEntry>(models: Vec<T>) -> Vec<T
 /// Normalize a catalog display name: drop a short vendor prefix copied from
 /// OpenRouter ("Z.ai: GLM 5.3" → "GLM 5.3") and humanize names that are really
 /// ids ("z-ai/glm-5.3-flash" → "GLM 5.3 Flash"). Display only; ids never change.
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 pub(crate) fn normalize_catalog_display_name(name: &str, id: Option<&str>) -> String {
     let trimmed = js_trim(name);
     if trimmed.is_empty() {
@@ -201,7 +200,7 @@ pub(crate) fn normalize_catalog_display_name(name: &str, id: Option<&str>) -> St
 
 /// Apply [`normalize_catalog_display_name`] to every row with a non-empty
 /// string `name`; other rows pass through unchanged.
-#[allow(dead_code)]
+#[allow(dead_code)] // The typed listing normalizes `ListedModel::name` directly.
 pub(crate) fn normalize_catalog_model_names(models: &mut [serde_json::Value]) {
     for model in models {
         let Some(name) = model
@@ -219,12 +218,10 @@ pub(crate) fn normalize_catalog_model_names(models: &mut [serde_json::Value]) {
     }
 }
 
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 fn leaf_of(value: &str) -> &str {
     value.rsplit_once('/').map_or(value, |(_, leaf)| leaf)
 }
 
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 fn humanize_token(token: &str) -> String {
     const ACRONYMS: [&str; 13] = [
         "gpt", "glm", "llm", "vl", "ai", "api", "ocr", "tts", "stt", "moe", "r1", "qwq", "mimo",
@@ -244,7 +241,6 @@ fn humanize_token(token: &str) -> String {
     }
 }
 
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 fn humanize_id(value: &str) -> String {
     let joined = leaf_of(value)
         .split(|c: char| c == '-' || c == '_' || js_whitespace(c))
@@ -259,7 +255,6 @@ fn humanize_id(value: &str) -> String {
     }
 }
 
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 fn id_like() -> &'static regex::Regex {
     static ID_LIKE: OnceLock<regex::Regex> = OnceLock::new();
     ID_LIKE.get_or_init(|| {
@@ -271,7 +266,6 @@ fn id_like() -> &'static regex::Regex {
 /// Legacy `/^[A-Za-z0-9][A-Za-z0-9.\- ]{0,23}:\s+(?=\S)/`. The lookahead is
 /// implied here: the name is trimmed first, so whitespace after the colon is
 /// always followed by a non-space character.
-#[allow(dead_code)] // Wired once the Rust listing emits display names.
 fn vendor_prefix() -> &'static regex::Regex {
     static VENDOR_PREFIX: OnceLock<regex::Regex> = OnceLock::new();
     VENDOR_PREFIX.get_or_init(|| {
