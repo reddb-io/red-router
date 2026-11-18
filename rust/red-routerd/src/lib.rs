@@ -6,6 +6,7 @@ pub mod audit_export;
 mod availability;
 pub mod catalog;
 mod catalog_capabilities;
+mod catalog_combo_routing;
 mod catalog_listing;
 mod catalog_order;
 mod circuit;
@@ -542,6 +543,34 @@ pub(crate) enum RouteStrategy {
     Lkgp,
 }
 
+impl RouteStrategy {
+    /// The configured strategy name, one of [`ROUTING_STRATEGIES`].
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Priority => "priority",
+            Self::Auto => "auto",
+            Self::RoundRobin => "round-robin",
+            Self::Weighted => "weighted",
+            Self::Random => "random",
+            Self::LeastUsed => "least-used",
+            Self::P2c => "p2c",
+            Self::FillFirst => "fill-first",
+            Self::StrictRandom => "strict-random",
+            Self::CostOptimized => "cost-optimized",
+            Self::ContextOptimized => "context-optimized",
+            Self::CacheOptimized => "cache-optimized",
+            Self::ContextRelay => "context-relay",
+            Self::Fusion => "fusion",
+            Self::Pipeline => "pipeline",
+            Self::ResetAware => "reset-aware",
+            Self::ResetWindow => "reset-window",
+            Self::Headroom => "headroom",
+            Self::QuotaWeighted => "quota-weighted",
+            Self::Lkgp => "lkgp",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderProtocol {
     OpenAi,
@@ -695,6 +724,14 @@ struct ListedModel {
     output_modalities: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     capabilities: Option<BTreeMap<&'static str, bool>>,
+    /// Combos only: the client-facing strategy name (see
+    /// `catalog_combo_routing`), the native one and the routable member ids.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    routing_strategy: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    members: Option<Vec<String>>,
 }
 
 impl ModelRoute {
@@ -2901,6 +2938,23 @@ fn listed_models(
         if eligible.is_empty() {
             continue;
         }
+        // Combos tell clients how they route and which public provider/model
+        // ids they can reach; targets without a public provider are omitted.
+        let is_combo = route.public_model_alias.is_none();
+        let combo_routing = is_combo.then(|| {
+            let (strategy, routing_strategy) =
+                catalog_combo_routing::combo_strategy_for_clients(route.strategy.as_str());
+            let members = catalog_combo_routing::combo_member_ids(
+                eligible.iter().filter_map(|target| {
+                    target
+                        .provider_name
+                        .as_deref()
+                        .map(|provider| (provider, target.model.as_str()))
+                }),
+                |provider| provider,
+            );
+            (strategy, routing_strategy, members)
+        });
 
         let mut metadata = Vec::new();
         let mut context_lengths = Vec::new();
@@ -2996,16 +3050,19 @@ fn listed_models(
                 capabilities.insert(name, value);
             }
         }
+        let (strategy, routing_strategy, members) = match combo_routing {
+            Some((strategy, routing_strategy, members)) => (
+                Some(strategy),
+                Some(routing_strategy),
+                (!members.is_empty()).then_some(members),
+            ),
+            None => (None, None, None),
+        };
         models.push(ListedModel {
             id: id.to_owned(),
             object: "model",
             created,
-            owned_by: if route.public_model_alias.is_some() {
-                "alias"
-            } else {
-                "combo"
-            }
-            .to_owned(),
+            owned_by: if is_combo { "combo" } else { "alias" }.to_owned(),
             r#type: route_model_type(route.protocol),
             context_length: context_lengths.into_iter().min(),
             max_input_tokens: max_input_tokens.into_iter().min(),
@@ -3013,6 +3070,9 @@ fn listed_models(
             input_modalities: intersect_modalities(&input_modalities),
             output_modalities: intersect_modalities(&output_modalities),
             capabilities: (!capabilities.is_empty()).then_some(capabilities),
+            strategy,
+            routing_strategy,
+            members,
         });
     }
     Ok(models)
@@ -3067,6 +3127,9 @@ fn listed_direct_model(id: String, metadata: catalog::ModelMetadata, created: u6
             .map(|value| value.output.clone())
             .filter(|value| !value.is_empty()),
         capabilities: (!capabilities.is_empty()).then_some(capabilities),
+        strategy: None,
+        routing_strategy: None,
+        members: None,
     }
 }
 

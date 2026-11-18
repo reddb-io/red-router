@@ -3317,6 +3317,10 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         assert!(model["context_length"].as_u64().is_some());
         assert!(model["max_input_tokens"].as_u64().is_some());
         assert!(model["capabilities"]["tool_calling"].is_boolean());
+        // RedCode reads the v0.33.0 strategy name and the routable members.
+        assert_eq!(model["strategy"], "fallback");
+        assert_eq!(model["routing_strategy"], "priority");
+        assert_eq!(model["members"], serde_json::json!(["openai/gpt-4o"]));
         let direct = entries
             .iter()
             .find(|model| model["id"] == "openai/gpt-4o")

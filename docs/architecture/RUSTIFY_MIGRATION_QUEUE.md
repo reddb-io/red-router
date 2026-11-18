@@ -50,6 +50,10 @@ rows by owner in the legacy provider precedence (combos first, then the
 registry order snapshotted from the baseline, then unknown owners) and adds the
 empty `models` array the Codex CLI decoder needs (CI pending; not yet recorded
 in the Rustify index because the provider constants it reads are unported).
+Combo rows carry `strategy` (with the v0.33.0 name `fallback` for priority),
+`routing_strategy` and `members` for RedCode; members list only targets with a
+public provider that the key may use (CI pending; `catalogComboRouting.ts`
+waits on the unported routing-strategy constants).
 Display-name normalization is ported but not wired, and decision rows still
 lack `availability` and `supported_endpoints`. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
