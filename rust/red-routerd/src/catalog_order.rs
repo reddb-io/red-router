@@ -26,7 +26,9 @@ struct ProviderOrderSnapshot {
 }
 
 /// Registry rank of every canonical provider id and of each alias that is not
-/// itself a canonical id.
+/// itself a canonical id. An id listed in several registry sections keeps its
+/// last position: collecting into the map overwrites earlier ones, like the
+/// legacy loop.
 static PROVIDER_RANKS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
     let snapshot: ProviderOrderSnapshot =
         serde_json::from_str(include_str!("legacy_provider_order.json"))
@@ -262,10 +264,14 @@ mod tests {
             assert!(!snapshot.order.contains(alias), "{alias} is canonical");
             assert_eq!(PROVIDER_RANKS.get(alias), PROVIDER_RANKS.get(id), "{alias}");
         }
-        assert_eq!(
-            GroupPriority::of("windsurf"),
-            GroupPriority::Registry(0),
-            "first OAuth provider"
-        );
+        // An id listed in two registry sections takes its last position, as
+        // the legacy `rank.set(id, i)` loop overwrites the earlier one.
+        let last = snapshot
+            .order
+            .iter()
+            .rposition(|id| id == "windsurf")
+            .unwrap();
+        assert!(last > 0, "windsurf is listed twice in the baseline");
+        assert_eq!(GroupPriority::of("windsurf"), GroupPriority::Registry(last));
     }
 }
