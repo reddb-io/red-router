@@ -157,7 +157,7 @@ pub(crate) fn ensure_tool_call_ids(body: &mut Value) {
             if let Some(function) = call.get_mut("function").and_then(Value::as_object_mut) {
                 if let Some(arguments) = function
                     .get("arguments")
-                    .filter(|arguments| truthy(Some(arguments)) && !arguments.is_string())
+                    .filter(|arguments| truthy(Some(*arguments)) && !arguments.is_string())
                 {
                     let encoded = arguments.to_string();
                     function.insert("arguments".to_owned(), Value::String(encoded));
@@ -203,14 +203,14 @@ fn tool_call_ids(message: &Value) -> Vec<String> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|call| call.get("id").filter(|id| truthy(Some(id))));
+        .filter_map(|call| call.get("id").filter(|id| truthy(Some(*id))));
     let blocks = message
         .get("content")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
-        .filter_map(|block| block.get("id").filter(|id| truthy(Some(id))));
+        .filter_map(|block| block.get("id").filter(|id| truthy(Some(*id))));
     calls.chain(blocks).map(id_string).collect()
 }
 
@@ -228,7 +228,7 @@ fn has_tool_results(message: &Value, ids: &[String]) -> bool {
                     block.get("type").and_then(Value::as_str) == Some("tool_result")
                         && block
                             .get("tool_use_id")
-                            .filter(|id| truthy(Some(id)))
+                            .filter(|id| truthy(Some(*id)))
                             .is_some_and(|id| ids.contains(&id_string(id)))
                 })
             }),
