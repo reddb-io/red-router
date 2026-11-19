@@ -88,7 +88,8 @@ async fn cutover_imports_models_after_their_provider_definitions() {
     let report = legacy_cutover::migrate(&source, &destination, &backup, STORAGE_KEY)
         .await
         .unwrap();
-    assert_eq!(report.version, 4);
+    assert_eq!(report.version, 5);
+    assert!(!report.settings.runtime_settings_imported);
     assert_eq!(report.provider_nodes.imported, 1);
     assert_eq!(report.custom_models.imported, 1);
     assert_eq!(report.model_aliases.imported, 1);

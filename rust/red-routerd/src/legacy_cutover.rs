@@ -5,7 +5,7 @@
 //! leave an operator with a partially migrated Rust database.
 use crate::{
     legacy_aliases, legacy_archive, legacy_keys, legacy_models, legacy_payload_rules,
-    legacy_preflight, legacy_provider_nodes, legacy_providers,
+    legacy_preflight, legacy_provider_nodes, legacy_providers, legacy_settings,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,7 @@ pub struct CutoverReport {
     pub custom_models: legacy_models::ModelImport,
     pub model_aliases: legacy_aliases::AliasImport,
     pub payload_rules: legacy_payload_rules::PayloadRulesImport,
+    pub settings: legacy_settings::SettingsImport,
     pub providers: legacy_providers::ProviderStage,
     pub synced_models: legacy_preflight::SyncedModelStage,
     pub usage_archive: legacy_archive::ArchiveReport,
@@ -82,6 +83,25 @@ fn restore(destination: &Path, rollback: &Path, step: &str, error: &str) -> Stri
             rollback.display()
         ),
     }
+}
+
+/// The settings slice writes through the native storage layer, which owns the
+/// runtime settings schema; the connection is closed before the next slice.
+async fn import_settings(
+    source: &Path,
+    destination: &Path,
+) -> Result<legacy_settings::SettingsImport, &'static str> {
+    let file = url::Url::from_file_path(destination).map_err(|_| "invalid destination path")?;
+    let url = format!("{}?mode=rw", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = crate::storage::Database::connect(crate::storage::Backend::Sqlite, &url)
+        .await
+        .map_err(|_| "cannot open destination database")?;
+    let result = legacy_settings::import(source, &database).await;
+    database
+        .close()
+        .await
+        .map_err(|_| "cannot close destination database")?;
+    result
 }
 
 /// Run every lossless generic migration slice against one quiescent source.
@@ -152,6 +172,10 @@ pub async fn migrate(
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "payload rules", error)),
     };
+    let settings = match import_settings(&source, &destination).await {
+        Ok(report) => report,
+        Err(error) => return Err(restore(&destination, &rollback, "settings", error)),
+    };
     let providers = match legacy_providers::stage(&source, &destination, storage_key).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "providers", error)),
@@ -169,7 +193,7 @@ pub async fn migrate(
         .map_err(|error| restore(&destination, &rollback, "final verification", &error))?;
 
     Ok(CutoverReport {
-        version: 4,
+        version: 5,
         source: source.to_string_lossy().into_owned(),
         destination: destination.to_string_lossy().into_owned(),
         rollback_copy: rollback.to_string_lossy().into_owned(),
@@ -180,6 +204,7 @@ pub async fn migrate(
         custom_models,
         model_aliases,
         payload_rules,
+        settings,
         providers,
         synced_models,
         usage_archive,
