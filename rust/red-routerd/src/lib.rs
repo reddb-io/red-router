@@ -47,6 +47,7 @@ pub mod spa;
 pub mod storage;
 mod strict_system_hoist;
 mod tool_call_ids;
+mod tool_schemas;
 mod translation;
 mod usage_stream;
 mod wildcard_router;
@@ -7027,6 +7028,7 @@ async fn proxy_request(
                                     preserve_reasoning_content: reasoner,
                                 },
                             );
+                            tool_schemas::sanitize_tools(&mut attempt_parsed);
                             if !reasoner {
                                 openai_content::strip_echo_fields(&mut attempt_parsed);
                             }

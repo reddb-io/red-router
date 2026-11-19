@@ -508,7 +508,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     ruled["stream_options"] = serde_json::json!({"include_usage": true});
     ruled["max_output_tokens"] = serde_json::json!(32);
     ruled["metadata"] = serde_json::json!({"trace":"client"});
-    ruled["tools"] = serde_json::json!([{"name":"lookup","input_schema":{"type":"object"}}]);
+    ruled["tools"] = serde_json::json!([{"name":"lookup","input_schema":{"type":"object","properties":{"limit":{"type":"integer","maximum":"10","default":5}}}}]);
     ruled["tool_choice"] = serde_json::json!({"type":"auto"});
     ruled["messages"][2]["reasoning_content"] = serde_json::json!("long reasoning");
     assert_eq!(
@@ -527,7 +527,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     assert!(ruled_sent.get("metadata").is_none());
     assert_eq!(
         ruled_sent["tools"],
-        serde_json::json!([{"type":"function","function":{"name":"lookup","description":"","parameters":{"type":"object"}}}])
+        serde_json::json!([{"type":"function","function":{"name":"lookup","description":"","parameters":{"type":"object","properties":{"limit":{"type":"integer","maximum":10}}}}}])
     );
     assert_eq!(ruled_sent["tool_choice"], "auto");
     assert!(ruled_sent["messages"][2].get("reasoning_content").is_none());
