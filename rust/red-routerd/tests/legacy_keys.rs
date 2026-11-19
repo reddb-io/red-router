@@ -336,7 +336,7 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET max_requests_per_minute=30,max_requests_per_day=1000 WHERE id='first';")
+    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET max_requests_per_minute=30,max_requests_per_day=1000,allowed_endpoints='[\"chat\",\"models\",\"chat\"]' WHERE id='first';")
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
@@ -357,6 +357,9 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     assert_eq!((first.max_rpm, first.max_rpd), (30, 1000));
     let second = records.iter().find(|key| key.id == "second").unwrap();
     assert_eq!((second.max_rpm, second.max_rpd), (0, 0));
+    // Endpoint categories keep the natively gated ones (models has no gate).
+    assert_eq!(first.allowed_endpoints_json, r#"["chat"]"#);
+    assert_eq!(second.allowed_endpoints_json, "[]");
     assert!(!first.enabled);
     assert_eq!(
         first.key_hash,

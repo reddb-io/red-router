@@ -213,9 +213,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if number("compression_enabled")? != Some(1) || number("allow_auto_combos")? != Some(1) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
-            for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_endpoints", "allowed_quotas"] {
+            for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
+            let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;
             if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
@@ -263,8 +264,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if get("key_hash")?.is_some_and(|existing| !existing.is_empty() && existing != hash) || !hashes.insert(hash.clone()) {
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
-            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,?,0,?,?,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).bind(allowed_connections).bind(max_rpm).bind(max_rpd).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]',?,?,?,?,0,?,?,1)")
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_endpoints).bind(allowed_models).bind(blocked_models).bind(allowed_connections).bind(max_rpm).bind(max_rpd).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
@@ -362,6 +363,38 @@ fn import_schedule(raw: Option<&str>) -> Result<String, &'static str> {
     schedule.validate()?;
     serde_json::to_string(&schedule).map_err(|_| "cannot encode legacy access schedule")
 }
+/// Legacy endpoint categories as native grants. The native router gates
+/// `chat`, `embeddings` and `rerank`; the legacy `models` category has no
+/// native gate (listing stays available). A list that keeps no native
+/// category cannot be expressed, since an empty native list allows all.
+fn import_endpoint_grants(value: Option<&str>) -> Result<String, &'static str> {
+    let categories = match value {
+        None | Some("") => Vec::new(),
+        Some(raw) => {
+            serde_json::from_str::<Vec<String>>(raw).map_err(|_| "invalid legacy key policy")?
+        }
+    };
+    if categories.len() > 20 {
+        return Err("legacy key policy is unsupported; no keys imported");
+    }
+    let mut grants: Vec<String> = Vec::new();
+    for category in &categories {
+        match category.as_str() {
+            "chat" | "embeddings" | "rerank" => {
+                if !grants.contains(category) {
+                    grants.push(category.clone());
+                }
+            }
+            "models" => {}
+            _ => return Err("legacy key policy is unsupported; no keys imported"),
+        }
+    }
+    if !categories.is_empty() && grants.is_empty() {
+        return Err("legacy key policy is unsupported; no keys imported");
+    }
+    serde_json::to_string(&grants).map_err(|_| "invalid legacy key policy")
+}
+
 fn empty_list(value: Option<&str>) -> Result<bool, &'static str> {
     match value {
         None | Some("") => Ok(true),
