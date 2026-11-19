@@ -1,6 +1,35 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/services/dailyQuotaReset.ts"
+status = "ported"
+rust = "daily_quota_reset.rs"
+module = "red_routerd::daily_quota_reset"
+ported_at = "2026-11-19T17:13:11Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/daily-quota-reset.test.ts",
+    "tests/unit/daily-reset-dst-gap.test.ts",
+]
+notes = "Node clocks come from provider definitions; connection lockouts use them for daily-quota and TPD failures. TpdCooldownOptions is a parameter list in Rust. Timezone names are matched case-sensitively."
+
+[module.ts_blobs]
+"open-sse/services/dailyQuotaReset.ts" = "fd9360d49b0d1d947e48bbf9741c7a1b0e11467e"
+"tests/unit/daily-quota-reset.test.ts" = "0d2c78cfaff459a40837f3cc26b6ec71cf3a9c6a"
+"tests/unit/daily-reset-dst-gap.test.ts" = "0ae77e9104c36a55477353ba6b85f8a682d8f731"
+
+[module.symbols]
+TpdCooldownOptions = "-"
+isTpdRateLimit = "red_routerd::daily_quota_reset::is_tpd_rate_limit"
+isValidIanaTimeZone = "red_routerd::daily_quota_reset::is_valid_iana_time_zone"
+isValidResetHour = "red_routerd::daily_quota_reset::is_valid_reset_hour"
+nextConfiguredResetMs = "red_routerd::daily_quota_reset::next_configured_reset_ms"
+nextDailyResetAtMs = "red_routerd::daily_quota_reset::next_daily_reset_at_ms"
+nodeDailyResetConfigured = "red_routerd::daily_quota_reset::node_daily_reset_configured"
+parseTpdLimitFromText = "red_routerd::daily_quota_reset::parse_tpd_limit_from_text"
+resolveTpdCooldownMs = "red_routerd::daily_quota_reset::resolve_tpd_cooldown_ms"
+
+[[module]]
 ts = "open-sse/services/modelEndpointPolicy.ts"
 status = "ported"
 rust = "model_endpoint_policy.rs"
