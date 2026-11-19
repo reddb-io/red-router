@@ -2805,15 +2805,16 @@ fn apply_openai_target_rules(
     compat: OpenAiModelCompat,
     claude_code_client: bool,
 ) {
+    reasoning_replay::normalize_thinking_config(payload);
+    let thinking = reasoning_replay::has_thinking_config(payload);
     // Every call gets an ID and a result, and stale results go, before the
     // role and content rules; the pass repeats on the final body.
     tool_call_ids::repair_tool_calls(payload, false);
-    if let Some(provider) = provider {
-        let reasoner = reasoning_replay::requires_reasoning_replay(
-            provider,
-            model,
-            reasoning_replay::has_thinking_config(payload),
-        );
+    let reasoner = provider.map(|provider| {
+        let reasoner = reasoning_replay::requires_reasoning_replay(provider, model, thinking);
+        (provider, reasoner)
+    });
+    if let Some((provider, reasoner)) = reasoner {
         role_normalizer::normalize_roles(
             payload,
             provider,
@@ -2838,14 +2839,20 @@ fn apply_openai_target_rules(
             },
         );
         tool_schemas::sanitize_tools(payload);
-        if !reasoner {
+    }
+    tool_call_ids::repair_tool_calls(payload, compat.normalize_tool_call_id);
+    if let Some((provider, reasoner)) = reasoner {
+        if reasoner {
+            let explicit =
+                reasoning_replay::requires_explicit_reasoning_replay(provider, model, thinking);
+            reasoning_replay::replay_reasoning(payload, provider, model, explicit);
+        } else {
             openai_content::strip_echo_fields(payload);
         }
         // The filter maps `developer` to `system`; strict providers still
         // need a single leading one.
         strict_system_hoist::hoist_leading_system_message(payload, provider);
     }
-    tool_call_ids::repair_tool_calls(payload, compat.normalize_tool_call_id);
 }
 
 fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option<&str>) {
