@@ -253,8 +253,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             for field in ["scopes", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
+            // stream_default_mode=json only changes the legacy stream default for
+            // source formats other than Chat Completions, Messages and Responses,
+            // where an omitted `stream` is already non-streaming unless SSE is
+            // explicitly accepted. The native Gemini surface takes streaming from
+            // the method in the URL, so both modes import with the same behavior.
             let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;
-            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy" | "bypass")) {
+            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy" | "json")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy" | "bypass")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             // The catalog scope and auto-combo listing shape what the key
