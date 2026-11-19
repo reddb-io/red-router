@@ -22,6 +22,18 @@ fn terminal_status_code(status: Option<&str>) -> Result<Option<i64>, &'static st
     }
 }
 
+/// A legacy connection's `global_priority` is validated and dropped: the
+/// legacy dashboard shows it as an "auto priority" badge, but no legacy
+/// routing, selection or fallback path ever reads it (account order comes
+/// from `priority`, which imports).
+fn legacy_global_priority(value: Option<i64>) -> Result<(), &'static str> {
+    match value {
+        None | Some(0) => Ok(()),
+        Some(priority) if (1..=100_000).contains(&priority) => Ok(()),
+        Some(_) => Err("invalid legacy provider global priority"),
+    }
+}
+
 /// A legacy connection's `max_concurrent`: zero or unset means no cap.
 fn legacy_concurrency(value: Option<i64>) -> Result<Option<u32>, &'static str> {
     match value {
@@ -302,7 +314,11 @@ async fn adopt_oauth(
             Some(value) => value.as_i64().filter(|value| crate::control_plane::valid_provider_priority(*value)).ok_or("invalid legacy provider priority")?,
             None => return Err("unsupported staged provider schema"),
         };
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "global_priority", "rate_limit_protection"] {
+        legacy_global_priority(match object.get("global_priority") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(value.as_i64().ok_or("invalid legacy provider global priority")?),
+        })?;
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
         let max_concurrent = legacy_concurrency(match object.get("max_concurrent") {
@@ -742,7 +758,12 @@ pub async fn import(
             Ok(Some(_)) | Err(_) => return Err("invalid legacy provider backoff"),
         };
         let cooldown_until = pending_cooldown_ms(text("rate_limited_until")?.as_deref(), unix_now_ms()?);
-        for field in ["global_priority", "rate_limit_protection", "health_check_interval"] {
+        match row.try_get::<Option<i64>, _>("global_priority") {
+            Ok(value) => legacy_global_priority(value)?,
+            Err(sqlx::Error::ColumnNotFound(_)) => {}
+            Err(_) => return Err("invalid legacy provider global priority"),
+        }
+        for field in ["rate_limit_protection", "health_check_interval"] {
             match row.try_get::<Option<i64>, _>(field) {
                 Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
                 Ok(_) => return Err("legacy provider selection or health policy requires migration"),
@@ -842,6 +863,19 @@ pub async fn import(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_global_priority_is_validated_and_dropped() {
+        for value in [None, Some(0), Some(1), Some(100_000)] {
+            assert_eq!(legacy_global_priority(value), Ok(()));
+        }
+        for value in [Some(-1), Some(100_001)] {
+            assert_eq!(
+                legacy_global_priority(value),
+                Err("invalid legacy provider global priority")
+            );
+        }
+    }
 
     #[test]
     fn only_future_legacy_cooldowns_carry_over() {

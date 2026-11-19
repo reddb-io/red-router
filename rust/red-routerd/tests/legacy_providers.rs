@@ -336,11 +336,27 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
-    for field in [
-        "global_priority",
-        "rate_limit_protection",
-        "health_check_interval",
-    ] {
+    // global_priority is a display-only badge in the legacy dashboard: a valid
+    // value imports (and is dropped), an out-of-range one is refused.
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN global_priority INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET global_priority=-1")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy provider global priority")
+    );
+    sqlx::query("UPDATE provider_connections SET global_priority=7")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    for field in ["rate_limit_protection", "health_check_interval"] {
         sqlx::query(&format!(
             "ALTER TABLE provider_connections ADD COLUMN {field} INTEGER"
         ))
