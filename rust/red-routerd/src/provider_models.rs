@@ -83,6 +83,44 @@ impl Drop for StoredModelHeaders {
     }
 }
 
+/// Header maps as the legacy importer reads them: headers for every request
+/// and per client protocol.
+pub(crate) type HeaderDocument = (
+    BTreeMap<String, String>,
+    BTreeMap<String, BTreeMap<String, String>>,
+);
+
+/// Validate and encrypt a header document for a model record.
+pub(crate) async fn encrypt_header_document(
+    record_id: &str,
+    document: HeaderDocument,
+    encryption_key: &str,
+) -> Result<String, &'static str> {
+    let (headers, by_protocol) = document;
+    let document = StoredModelHeaders {
+        headers,
+        by_protocol,
+    };
+    document.validate()?;
+    let plaintext =
+        Zeroizing::new(serde_json::to_string(&document).map_err(|_| "Invalid model headers")?);
+    encrypt_async(&plaintext, &headers_aad(record_id), encryption_key).await
+}
+
+/// Whether a stored ciphertext holds exactly this header document, so a
+/// repeated import can accept it despite a fresh nonce.
+pub(crate) async fn header_document_matches(
+    record_id: &str,
+    ciphertext: &str,
+    document: &HeaderDocument,
+    encryption_key: &str,
+) -> Result<bool, &'static str> {
+    let plaintext = decrypt_async(ciphertext, &headers_aad(record_id), encryption_key).await?;
+    let stored: StoredModelHeaders =
+        serde_json::from_str(&plaintext).map_err(|_| "invalid stored model headers")?;
+    Ok(stored.headers == document.0 && stored.by_protocol == document.1)
+}
+
 #[derive(Default)]
 struct ModelHeaderMaps {
     all: HeaderMap,
@@ -326,6 +364,11 @@ impl ModelOverrides {
             if record.id != record_id(&record.tenant_id, &record.provider, &record.metadata.id) {
                 return Err("Invalid provider model identity");
             }
+            if record.headers_only
+                && !headers_only_shape(&record.metadata, record.visibility_only, record.hidden)?
+            {
+                return Err("Invalid headers-only model storage");
+            }
             bytes += serde_json::to_vec(&record)
                 .map_err(|_| "Invalid provider model storage")?
                 .len();
@@ -338,6 +381,9 @@ impl ModelOverrides {
                 snapshot
                     .headers
                     .insert(record.id.clone(), ModelHeaderMaps::decode(&plaintext)?);
+            }
+            if record.headers_only {
+                continue;
             }
             snapshot
                 .visibility
@@ -440,7 +486,21 @@ pub struct ModelInput {
     metadata: ModelMetadata,
     hidden: Option<bool>,
     visibility_only: Option<bool>,
+    headers_only: Option<bool>,
     revision: Option<String>,
+}
+
+/// A headers-only record has metadata `{id}` and neither visibility nor
+/// a hidden flag; it exists to carry a model's request headers.
+fn headers_only_shape(
+    metadata: &ModelMetadata,
+    visibility_only: bool,
+    hidden: bool,
+) -> Result<bool, &'static str> {
+    Ok(!visibility_only
+        && !hidden
+        && serde_json::to_value(metadata).map_err(|_| "Invalid model metadata")?
+            == serde_json::json!({"id":&metadata.id}))
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -462,7 +522,7 @@ fn view(
     );
     Ok(
         serde_json::json!({"id":model.id,"tenant_id":model.tenant_id,"provider":model.provider,
-        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"visibility_only":model.visibility_only,"revision":model.revision.to_string()}),
+        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"visibility_only":model.visibility_only,"headers_only":model.headers_only,"revision":model.revision.to_string()}),
     )
 }
 
@@ -580,15 +640,23 @@ impl ControlPlane {
         {
             return Err("Visibility-only entries cannot override model metadata");
         }
+        let headers_only = input
+            .headers_only
+            .unwrap_or_else(|| existing.is_some_and(|model| model.headers_only));
+        let hidden = input
+            .hidden
+            .unwrap_or_else(|| existing.is_some_and(|model| model.hidden));
+        if headers_only && !headers_only_shape(&input.metadata, visibility_only, hidden)? {
+            return Err("Headers-only entries cannot override model metadata or visibility");
+        }
         let record = StoredProviderModel {
             id,
             tenant_id: tenant.to_owned(),
             provider: input.provider,
             metadata: input.metadata,
-            hidden: input
-                .hidden
-                .unwrap_or_else(|| existing.is_some_and(|model| model.hidden)),
+            hidden,
             visibility_only,
+            headers_only,
             // Metadata edits keep the model's encrypted request headers.
             headers_ciphertext: existing.and_then(|model| model.headers_ciphertext.clone()),
             revision: revision()?,
@@ -1044,6 +1112,7 @@ mod tests {
             metadata: serde_json::from_value(serde_json::json!({"id":"activated"})).unwrap(),
             hidden: false,
             visibility_only: true,
+            headers_only: false,
             headers_ciphertext: None,
             revision: 1,
         };

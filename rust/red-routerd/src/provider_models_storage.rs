@@ -25,6 +25,10 @@ pub struct StoredProviderModel {
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub visibility_only: bool,
+    /// The record only carries request headers: it neither overrides
+    /// metadata nor changes the model's visibility.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub headers_only: bool,
     /// Encrypted upstream request headers for this model (legacy
     /// `upstreamHeaders`), bound to the record ID. Values are write-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,6 +223,7 @@ mod tests {
                 .unwrap(),
             hidden: false,
             visibility_only: false,
+            headers_only: false,
             headers_ciphertext: None,
             revision: 1,
         };

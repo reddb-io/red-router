@@ -346,6 +346,139 @@ async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries
 }
 
 #[tokio::test]
+async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
+    use red_routerd::{
+        control_plane::ControlPlane,
+        legacy_models, router,
+        storage::{Backend, Database},
+        ProxyState,
+    };
+    use std::sync::Arc;
+    const KEY: &str = "test-storage-key-at-least-16-bytes";
+    const ADMIN: &str = "legacy-model-headers-admin-key-12345";
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(
+            r#"[{"id":"gpt-headers","upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
+               {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}}]"#,
+        )
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model headers require the storage encryption key"
+    );
+    let first = legacy_models::import_with_key(&source, &destination, Some(KEY))
+        .await
+        .unwrap();
+    assert_eq!((first.imported, first.already_present), (2, 0));
+    // A repeat import accepts the same headers despite a fresh nonce.
+    let second = legacy_models::import_with_key(&source, &destination, Some(KEY))
+        .await
+        .unwrap();
+    assert_eq!((second.imported, second.already_present), (0, 2));
+    let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let models = db.provider_models().await.unwrap();
+    let headers_only = models
+        .iter()
+        .find(|model| model.metadata.id == "gpt-headers")
+        .unwrap();
+    assert!(headers_only.headers_only && !headers_only.hidden && !headers_only.visibility_only);
+    assert!(!headers_only
+        .headers_ciphertext
+        .as_deref()
+        .unwrap()
+        .contains("model-secret"));
+    let hidden = models
+        .iter()
+        .find(|model| model.metadata.id == "gpt-hidden")
+        .unwrap();
+    assert!(hidden.visibility_only && hidden.hidden && hidden.headers_ciphertext.is_some());
+    let control = ControlPlane::new(db.clone(), ADMIN, KEY, true)
+        .await
+        .unwrap();
+    let state = ProxyState::new(
+        "http://127.0.0.1:1/v1/chat/completions",
+        "legacy-model-headers-client-key-123",
+        "placeholder",
+        true,
+    )
+    .await
+    .unwrap()
+    .with_control_plane(control);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let view: serde_json::Value = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!(
+            "{base}/api/admin/provider-models/{}/headers",
+            headers_only.id
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // Trimmed like sanitizeUpstreamHeadersMap; Host is never sent by the legacy server.
+    assert_eq!(view["names"], serde_json::json!(["x-title"]));
+    assert_eq!(
+        view["by_protocol"],
+        serde_json::json!({"claude":["x-scope"]})
+    );
+    server.abort();
+    // A credential header the legacy server would send has no safe equivalent.
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='openai'",
+    )
+    .bind(r#"[{"id":"gpt-auth","upstreamHeaders":{"Authorization":"Bearer model-token"}}]"#)
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import_with_key(&source, &destination, Some(KEY))
+            .await
+            .unwrap_err(),
+        "legacy model headers require migration"
+    );
+}
+
+#[tokio::test]
 async fn legacy_activation_is_migrated_for_each_provider_organization() {
     use red_routerd::{
         legacy_models,

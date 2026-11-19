@@ -138,10 +138,11 @@ pub async fn migrate(
         };
     // Provider definitions must exist before model namespaces can be resolved.
     // A later error restores the complete destination from the rollback copy.
-    let custom_models = match legacy_models::import(&source, &destination).await {
-        Ok(report) => report,
-        Err(error) => return Err(restore(&destination, &rollback, "custom models", error)),
-    };
+    let custom_models =
+        match legacy_models::import_with_key(&source, &destination, Some(storage_key)).await {
+            Ok(report) => report,
+            Err(error) => return Err(restore(&destination, &rollback, "custom models", error)),
+        };
     let model_aliases = match legacy_aliases::import(&source, &destination).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "model aliases", error)),

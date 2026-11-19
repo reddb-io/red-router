@@ -248,15 +248,20 @@ async fn run(
     }
     if command.as_deref() == Some("import-legacy-models") {
         if args.next().as_deref() != Some("--offline-confirmed") || args.next().is_some() {
-            return Err("usage: red-routerd import-legacy-models --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH and RED_ROUTER_MIGRATION_DEST_PATH; stop both servers first)".into());
+            return Err("usage: red-routerd import-legacy-models --offline-confirmed (set RED_ROUTER_PRODUCT_DB_PATH and RED_ROUTER_MIGRATION_DEST_PATH, and STORAGE_ENCRYPTION_KEY to import model headers; stop both servers first)".into());
         }
         let source = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
             .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
         let destination = env::var_os("RED_ROUTER_MIGRATION_DEST_PATH")
             .ok_or("RED_ROUTER_MIGRATION_DEST_PATH is required")?;
-        let report = red_routerd::legacy_models::import(
+        // Model headers are stored encrypted; without the key they are refused.
+        let secret = env::var("STORAGE_ENCRYPTION_KEY")
+            .ok()
+            .map(zeroize::Zeroizing::new);
+        let report = red_routerd::legacy_models::import_with_key(
             std::path::Path::new(&source),
             std::path::Path::new(&destination),
+            secret.as_deref().map(String::as_str),
         )
         .await?;
         println!("{}", serde_json::to_string_pretty(&report)?);
