@@ -285,6 +285,12 @@ const DASHBOARD: &[&str] = &[
     "setupComplete",
     // Read only by the dashboard's debug card; no gateway path reads it.
     "debugMode",
+    // The dashboard's quota auto-refresh toggle (the auto-combo reads only
+    // the interval, which stays in the inventory).
+    "autoRefreshProviderQuota",
+    // A breach check when changing the dashboard login password; the native
+    // management API has no password login.
+    "passwordBreachCheckEnabled",
 ];
 
 /// Opt-in diagnostics that only add log lines (dropped: the native gateway
@@ -540,6 +546,15 @@ mod tests {
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
         assert_eq!(classify("debugMode", "true"), SettingClass::Dashboard);
+        assert_eq!(
+            classify("autoRefreshProviderQuota", "true"),
+            SettingClass::Dashboard
+        );
+        // Cloud sync is a real feature, still refused when enabled.
+        assert!(matches!(
+            classify("cloudEnabled", "true"),
+            SettingClass::Refused { .. }
+        ));
         assert_eq!(classify("logToolSources", "true"), SettingClass::Diagnostic);
         assert_eq!(
             classify("payloadRules", "{}"),
