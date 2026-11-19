@@ -545,7 +545,7 @@ pub async fn import_with_key(
                 // A custom row's own headers replace any compatibility entry's
                 // (legacy getModelUpstreamExtraHeaders reads the row first).
                 let row_settings = compat_settings(object);
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "isHidden")
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "supportsVision" | "isHidden")
                     && !(row_settings.is_some() && is_compat_setting(key))) {
                     return Err("legacy model settings require migration");
                 }
@@ -581,6 +581,9 @@ pub async fn import_with_key(
                 let input = number("inputTokenLimit")?;
                 let output = number("outputTokenLimit")?;
                 let reasoning = match object.get("supportsThinking") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
+                // Legacy getCustomVisionCapabilityFields: an explicit true
+                // advertises text+image input; false advertises no vision.
+                let vision = match object.get("supportsVision") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
                 // Legacy catalog activation is opt-in. A custom decision wins
                 // over compat for the same key; hidden wins across sibling keys.
                 let explicit = match object.get("isHidden") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model visibility")?) };
@@ -591,6 +594,9 @@ pub async fn import_with_key(
                     || (own.is_none() && !related.contains(&false));
                 let mut metadata: ModelMetadata = serde_json::from_value(serde_json::json!({"id":id,"name":name,"reasoning":reasoning})).map_err(|_| "invalid legacy model")?;
                 if input.is_some() || output.is_some() { metadata.limit = Some(crate::catalog::CatalogLimit { context: None, input, output }); }
+                if vision == Some(true) {
+                    metadata.modalities = Some(crate::catalog::CatalogModalities { input: vec!["text".to_owned(), "image".to_owned()], output: vec!["text".to_owned()] });
+                }
                 provider_models::validate_metadata(&metadata)?;
                 let identity = provider_models::record_id(&tenant, &provider, id);
                 if legacy_provider != provider && !nodes.contains_key(&legacy_provider) {

@@ -794,7 +794,7 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     .await
     .unwrap();
     sqlx::query("INSERT INTO key_value VALUES ('customModels','openai',?)")
-        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false,"isHidden":true}]"#)
+        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false,"supportsVision":true,"isHidden":true}]"#)
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
@@ -816,6 +816,9 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     assert_eq!(models[0].provider, "openai");
     assert_eq!(models[0].metadata.name.as_deref(), Some("Custom Model"));
     assert_eq!(models[0].metadata.reasoning, Some(false));
+    let modalities = models[0].metadata.modalities.as_ref().unwrap();
+    assert_eq!(modalities.input, ["text", "image"]);
+    assert_eq!(modalities.output, ["text"]);
     assert!(models[0].hidden);
     assert_eq!(
         models[0].metadata.limit.as_ref().unwrap().input,
