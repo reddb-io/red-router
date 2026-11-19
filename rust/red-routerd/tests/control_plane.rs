@@ -12038,3 +12038,5 @@ include!("cases/legacy_xai.rs");
 include!("cases/legacy_openference.rs");
 
 include!("cases/legacy_github.rs");
+
+include!("cases/provider_concurrency.rs");
