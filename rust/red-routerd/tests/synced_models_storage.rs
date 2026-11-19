@@ -298,6 +298,8 @@ async fn synced_inventory_invalidates_when_shared_provider_definition_changes() 
         revision: 1,
         header_config: None,
         icon_url: None,
+        daily_quota_reset_timezone: None,
+        daily_quota_reset_hour: None,
     };
     db.upsert_provider_node(&node, None).await.unwrap();
     let provider = StoredProvider {

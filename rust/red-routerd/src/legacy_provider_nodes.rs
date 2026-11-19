@@ -224,8 +224,12 @@ pub async fn import(
             {
                 return Err("invalid legacy provider node icon");
             }
-            if timezone.is_some() || reset_hour.is_some() {
-                return Err("legacy provider node quota clock requires migration");
+            if timezone
+                .as_deref()
+                .is_some_and(|zone| !crate::daily_quota_reset::is_valid_iana_time_zone(zone))
+                || reset_hour.is_some_and(|hour| !crate::daily_quota_reset::is_valid_reset_hour(hour))
+            {
+                return Err("invalid legacy provider node quota clock");
             }
             let tenant = text("tenant_id")?.unwrap_or_else(|| "red".to_owned());
             if !valid_id(&id) || !valid_id(&tenant) {
@@ -261,6 +265,8 @@ pub async fn import(
                 revision: 1,
                 header_config: None,
                 icon_url: icon.map(|icon| icon.trim().to_owned()),
+                daily_quota_reset_timezone: timezone.map(|zone| zone.trim().to_owned()),
+                daily_quota_reset_hour: reset_hour.and_then(|hour| u8::try_from(hour).ok()),
             };
             crate::control_plane::provider_nodes::models_path(&node)?;
             let headers = match text("custom_headers_json")? {

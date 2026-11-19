@@ -25,6 +25,13 @@ pub struct StoredProviderNode {
     /// Operator-supplied icon (http(s) or `data:image/*;base64` URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_url: Option<String>,
+    /// IANA timezone of the node's daily quota reset; with
+    /// `daily_quota_reset_hour` it is the legacy node clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_quota_reset_timezone: Option<String>,
+    /// Local hour (0-23) of the node's daily quota reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_quota_reset_hour: Option<u8>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

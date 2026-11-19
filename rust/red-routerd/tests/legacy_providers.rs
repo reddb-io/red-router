@@ -113,7 +113,7 @@ async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers
     .await
     .unwrap();
     let id = "openai-compatible-responses-12345678-1234-1234-1234-123456789abc";
-    sqlx::query("INSERT INTO provider_nodes (id,type,name,prefix,api_type,base_url,chat_path,models_path,custom_headers_json,created_at,updated_at) VALUES (?,'openai-compatible','Internal Gateway','internal-gateway','responses','https://gateway.example/v1','/responses?api-version=2026-11-01','/models?api-version=2026-11-01','{\"x-team\":\"red\"}','now','now')")
+    sqlx::query("INSERT INTO provider_nodes (id,type,name,prefix,api_type,base_url,chat_path,models_path,custom_headers_json,daily_quota_reset_timezone,daily_quota_reset_hour,created_at,updated_at) VALUES (?,'openai-compatible','Internal Gateway','internal-gateway','responses','https://gateway.example/v1','/responses?api-version=2026-11-01','/models?api-version=2026-11-01','{\"x-team\":\"red\"}',' America/Sao_Paulo ',6,'now','now')")
         .bind(id)
         .execute(&mut input)
         .await
@@ -154,6 +154,12 @@ async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers
         node.models_path.as_deref(),
         Some("/models?api-version=2026-11-01")
     );
+    // The legacy node clock for daily quota resets carries over.
+    assert_eq!(
+        node.daily_quota_reset_timezone.as_deref(),
+        Some("America/Sao_Paulo")
+    );
+    assert_eq!(node.daily_quota_reset_hour, Some(6));
     let headers = node.header_config.as_ref().unwrap();
     assert!(!headers.ciphertext.contains(r#"{"x-team":"red"}"#));
     let aad = node_header_aad(

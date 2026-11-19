@@ -17,12 +17,24 @@ pub struct NodeInput {
     /// Omitted keeps the stored icon; `null` or an empty value clears it.
     #[serde(default, deserialize_with = "present_node_id")]
     icon_url: Option<Option<String>>,
+    /// The legacy node clock: an IANA timezone and a local hour. Each one
+    /// omitted keeps the stored value; `null` (or an empty timezone) clears it.
+    #[serde(default, deserialize_with = "present_node_id")]
+    daily_quota_reset_timezone: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_value")]
+    daily_quota_reset_hour: Option<Option<u8>>,
 }
 
 pub(super) fn present_node_id<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<Option<String>>, D::Error> {
     Option::<String>::deserialize(d).map(Some)
+}
+
+fn present_value<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 pub(crate) fn default_chat_path(protocol: &str) -> Result<&'static str, &'static str> {
@@ -123,6 +135,24 @@ impl ControlPlane {
         {
             return Err("Icon URL must be a valid http(s) or data:image/*;base64 URL");
         }
+        if input
+            .daily_quota_reset_timezone
+            .as_ref()
+            .and_then(Option::as_deref)
+            .map(str::trim)
+            .is_some_and(|zone| {
+                !zone.is_empty() && !crate::daily_quota_reset::is_valid_iana_time_zone(zone)
+            })
+        {
+            return Err("Unknown IANA timezone");
+        }
+        if input
+            .daily_quota_reset_hour
+            .flatten()
+            .is_some_and(|hour| hour > 23)
+        {
+            return Err("Hour must be 0-23");
+        }
         let _mutation = self.0.mutation.lock().await;
         let nodes = self.0.database.provider_nodes().await?;
         let existing = nodes.iter().find(|node| node.id == id);
@@ -208,6 +238,18 @@ impl ControlPlane {
                     .filter(|icon| !icon.is_empty())
                     .map(str::to_owned),
             },
+            daily_quota_reset_timezone: match &input.daily_quota_reset_timezone {
+                None => existing.and_then(|node| node.daily_quota_reset_timezone.clone()),
+                Some(zone) => zone
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|zone| !zone.is_empty())
+                    .map(str::to_owned),
+            },
+            daily_quota_reset_hour: match input.daily_quota_reset_hour {
+                None => existing.and_then(|node| node.daily_quota_reset_hour),
+                Some(hour) => hour,
+            },
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             name: input.name.trim().to_owned(),
@@ -272,7 +314,7 @@ impl ControlPlane {
 }
 
 fn node_view(node: &StoredProviderNode) -> serde_json::Value {
-    serde_json::json!({"id":node.id,"tenant_id":node.tenant_id,"name":node.name,"prefix":node.prefix,"protocol":node.protocol,"base_url":node.base_url,"chat_path":node.chat_path,"upstream_url":node.upstream_url,"models_path":node.models_path,"icon_url":node.icon_url,"revision":node.revision.to_string()})
+    serde_json::json!({"id":node.id,"tenant_id":node.tenant_id,"name":node.name,"prefix":node.prefix,"protocol":node.protocol,"base_url":node.base_url,"chat_path":node.chat_path,"upstream_url":node.upstream_url,"models_path":node.models_path,"icon_url":node.icon_url,"daily_quota_reset_timezone":node.daily_quota_reset_timezone,"daily_quota_reset_hour":node.daily_quota_reset_hour,"revision":node.revision.to_string()})
 }
 
 pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
@@ -467,6 +509,8 @@ mod tests {
             models_path: None,
             apply_to_connections: false,
             icon_url: None,
+            daily_quota_reset_timezone: None,
+            daily_quota_reset_hour: None,
         };
         control
             .save_provider_node("team", input(), "test", Some("red"))
