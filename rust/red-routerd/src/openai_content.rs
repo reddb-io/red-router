@@ -73,6 +73,35 @@ pub(crate) fn is_claude_code_client(user_agent: Option<&str>) -> bool {
 /// Legacy `shouldPreserveCacheControl` in `auto` mode combined with
 /// `providerHonorsOpenAIFormatCacheControl`: a caching-aware client talking to
 /// a provider that reads OpenAI-format breakpoints.
+/// The operator's client cache-marker policy (legacy `alwaysPreserveClientCache`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheControlMode {
+    /// Preserve for caching-aware clients talking to caching providers.
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+/// Whether a request keeps its `cache_control` markers (legacy
+/// `shouldPreserveCacheControl`: an explicit mode wins over the automatic rule).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CachePolicy {
+    pub mode: CacheControlMode,
+    pub claude_code_client: bool,
+}
+
+impl CachePolicy {
+    pub(crate) fn preserves(&self, provider: &str) -> bool {
+        match self.mode {
+            CacheControlMode::Always => true,
+            CacheControlMode::Never => false,
+            CacheControlMode::Auto => preserve_cache_control(self.claude_code_client, provider),
+        }
+    }
+}
+
 pub(crate) fn preserve_cache_control(claude_code_client: bool, provider: &str) -> bool {
     claude_code_client
         && OPENAI_FORMAT_CACHE_CONTROL_PROVIDERS.contains(&provider.to_lowercase().as_str())
@@ -650,6 +679,14 @@ mod tests {
         assert!(preserve_cache_control(true, "Alibaba"));
         assert!(!preserve_cache_control(true, "openai"));
         assert!(!preserve_cache_control(false, "xiaomi-mimo"));
+        let policy = |mode, claude_code_client| CachePolicy {
+            mode,
+            claude_code_client,
+        };
+        assert!(policy(CacheControlMode::Always, false).preserves("openai"));
+        assert!(!policy(CacheControlMode::Never, true).preserves("alibaba"));
+        assert!(policy(CacheControlMode::Auto, true).preserves("alibaba"));
+        assert!(!policy(CacheControlMode::Auto, true).preserves("openai"));
     }
 
     #[test]

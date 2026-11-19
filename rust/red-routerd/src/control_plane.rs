@@ -11570,6 +11570,11 @@ impl ControlPlane {
         self.0.global_settings.read().await.idempotency_window_ms()
     }
 
+    /// The client cache-marker policy (legacy `alwaysPreserveClientCache`).
+    pub(crate) async fn cache_control_mode(&self) -> crate::openai_content::CacheControlMode {
+        self.0.global_settings.read().await.cache_control_mode()
+    }
+
     /// The operator's custom system prompt, when enabled.
     pub(crate) async fn custom_system_prompt(&self) -> Option<String> {
         self.0

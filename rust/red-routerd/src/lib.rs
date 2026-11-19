@@ -2838,7 +2838,7 @@ fn apply_openai_target_rules(
     provider: Option<&str>,
     model: &str,
     compat: OpenAiModelCompat,
-    claude_code_client: bool,
+    cache: openai_content::CachePolicy,
 ) {
     reasoning_replay::normalize_thinking_config(payload);
     let thinking = reasoning_replay::has_thinking_config(payload);
@@ -2862,10 +2862,7 @@ fn apply_openai_target_rules(
         openai_content::filter_to_openai_format(
             payload,
             openai_content::FilterOptions {
-                preserve_cache_control: openai_content::preserve_cache_control(
-                    claude_code_client,
-                    provider,
-                ),
+                preserve_cache_control: cache.preserves(provider),
                 preserve_video_url: openai_content::preserve_video_url(
                     compat.preserve_video_url,
                     provider,
@@ -5200,7 +5197,13 @@ async fn execute_fusion_panel_target(
                 provider,
                 &target.model,
                 OpenAiModelCompat::default(),
-                false,
+                openai_content::CachePolicy {
+                    mode: match &control {
+                        Some(control) => control.cache_control_mode().await,
+                        None => openai_content::CacheControlMode::Auto,
+                    },
+                    claude_code_client: false,
+                },
             );
         }
         serde_json::to_vec(&body).map_err(|_| ())
@@ -6076,6 +6079,13 @@ async fn proxy_request(
             .get(header::USER_AGENT)
             .and_then(|value| value.to_str().ok()),
     );
+    let cache_policy = openai_content::CachePolicy {
+        mode: match &state.control_plane {
+            Some(control) => control.cache_control_mode().await,
+            None => openai_content::CacheControlMode::Auto,
+        },
+        claude_code_client,
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -7351,7 +7361,7 @@ async fn proxy_request(
                                 preserve_developer_role: target.preserve_developer_role,
                                 preserve_video_url: target.preserve_video_url,
                             },
-                            claude_code_client,
+                            cache_policy,
                         );
                     }
                     serde_json::to_vec(&attempt_parsed).map_err(|_| ())
@@ -7401,7 +7411,7 @@ async fn proxy_request(
                         Some(provider),
                         &model,
                         OpenAiModelCompat::default(),
-                        claude_code_client,
+                        cache_policy,
                     );
                     match serde_json::to_vec(&live_parsed) {
                         Ok(payload) => payload,

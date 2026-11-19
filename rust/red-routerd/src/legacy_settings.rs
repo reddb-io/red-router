@@ -123,6 +123,15 @@ fn model_lockout_ceiling(raw: &str) -> Result<u64, &'static str> {
     Ok(maximum.max(base))
 }
 
+/// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
+fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
+    match parse_value(raw).as_str()? {
+        "always" => Some(crate::openai_content::CacheControlMode::Always),
+        "never" => Some(crate::openai_content::CacheControlMode::Never),
+        _ => None,
+    }
+}
+
 /// One legacy strategy choice: a falsy strategy inherits, an unsupported one
 /// is refused; a present sticky limit goes through the legacy `toNumber(x, 3)`
 /// and the `count < limit` comparison (fractions round up, negatives are 0).
@@ -516,6 +525,13 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Only an explicit always/never overrides the automatic rule.
+        "alwaysPreserveClientCache" => {
+            return match legacy_cache_control_mode(raw) {
+                Some(_) => SettingClass::Imported,
+                None => SettingClass::AtDefault,
+            };
+        }
         // Hiding no-think variants matches the native catalog, which does not
         // advertise them (requests may still name them).
         "hideNoThinkVariants" if parse_value(raw) == Value::Bool(true) => {
@@ -654,6 +670,16 @@ pub async fn import(
         global.push((
             crate::global_settings::IDEMPOTENCY_WINDOW_MS,
             Value::from(ms),
+        ));
+    }
+    if let Some(mode) = rows
+        .iter()
+        .find(|(key, _)| key == "alwaysPreserveClientCache")
+        .and_then(|(_, raw)| legacy_cache_control_mode(raw))
+    {
+        global.push((
+            crate::global_settings::CACHE_CONTROL_MODE,
+            serde_json::to_value(mode).map_err(|_| "invalid legacy cache control mode")?,
         ));
     }
     if let Some(ceiling) = rows
@@ -888,6 +914,18 @@ mod tests {
         ));
         assert_eq!(
             classify("hideNoThinkVariants", "false"),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("alwaysPreserveClientCache", "\"always\""),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("alwaysPreserveClientCache", "\"auto\""),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("alwaysPreserveClientCache", "\"odd\""),
             SettingClass::AtDefault
         );
         assert_eq!(classify("maxBodySizeMb", "25"), SettingClass::Imported);
