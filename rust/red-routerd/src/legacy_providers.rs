@@ -210,7 +210,10 @@ async fn adopt_oauth(
         }
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
-        for field in ["rate_limited_until", "group", "api_key", "error_code", "last_error", "last_error_type", "last_error_source"] {
+        // A transient cooldown (rate_limited_until) and the last error's
+        // diagnostics are runtime health, not configuration: the adopted
+        // connection starts with fresh availability state.
+        for field in ["group", "api_key"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider configuration requires migration"); }
         }
         if text("test_status")?.is_some_and(|status| !matches!(status, "" | "untested" | "success" | "active")) { return Err("legacy provider health requires migration"); }
@@ -595,7 +598,9 @@ pub async fn import(
         let provider = text("provider")?.ok_or("invalid legacy provider")?;
         if text("auth_type")?.as_deref() != Some("apikey") { return Err("legacy OAuth or provider authentication requires migration"); }
         let source_enabled = match number("is_active")? { Some(0) => false, Some(1) => true, _ => return Err("invalid legacy provider status") };
-        for field in ["access_token", "refresh_token", "id_token", "expires_at", "token_expires_at", "scope", "project_id", "rate_limited_until", "group"] {
+        // rate_limited_until is a transient cooldown; the imported (disabled)
+        // connection starts with fresh availability state.
+        for field in ["access_token", "refresh_token", "id_token", "expires_at", "token_expires_at", "scope", "project_id", "group"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider metadata requires migration"); }
         }
         let default_model = text("default_model")?.filter(|value| !value.is_empty());

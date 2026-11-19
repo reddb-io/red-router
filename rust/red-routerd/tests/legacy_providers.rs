@@ -289,7 +289,8 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     .unwrap();
     sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
         .execute(&mut input).await.unwrap();
-    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id) VALUES ('provider-1','openrouter','apikey','My OpenRouter',1,?,'red')")
+    // A transient legacy cooldown does not block the import.
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id,rate_limited_until) VALUES ('provider-1','openrouter','apikey','My OpenRouter',1,?,'red','2099-01-01T00:00:00.000Z')")
         .bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let file = Url::from_file_path(&dest).unwrap();
