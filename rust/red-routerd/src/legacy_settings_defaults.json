@@ -1,6 +1,8 @@
 {
   "source_commit": "525a71de4ac25968d0a25e52eeb1b09cc21c6e92",
   "env_dependent": ["maxBodySizeMb","preferClaudeCodeForUnprefixedClaudeModels"],
+  "resilience_defaults": {"requestQueue":{"autoEnableApiKeyProviders":true,"requestsPerMinute":60,"minTimeBetweenRequestsMs":350,"concurrentRequests":6,"globalConcurrentRequests":0,"maxWaitMs":30000,"executionMaxWaitMs":600000,"maxQueueDepth":0},"connectionCooldown":{"oauth":{"baseCooldownMs":5000,"useUpstreamRetryHints":false,"maxBackoffSteps":8},"apikey":{"baseCooldownMs":3000,"useUpstreamRetryHints":true,"maxBackoffSteps":5}},"providerBreaker":{"oauth":{"failureThreshold":8,"degradationThreshold":5,"resetTimeoutMs":60000},"apikey":{"failureThreshold":12,"degradationThreshold":7,"resetTimeoutMs":30000}},"waitForCooldown":{"enabled":true,"maxRetries":5,"maxRetryWaitSec":90,"maxRetryWaitMs":90000,"budgetMs":300000},"comboCooldownWait":{"enabled":true,"maxWaitMs":90000,"maxAttempts":5,"budgetMs":300000},"quotaShareConcurrencyLimit":{"enabled":true},"providerCooldown":{"minRetryCooldownMs":5000,"maxRetryCooldownMs":300000,"enabled":false},"quotaPreflight":{"enabled":false,"defaultThresholdPercent":2,"warnThresholdPercent":20,"providerWindowDefaults":{}},"streamRecovery":{"enabled":false,"continueMidStream":false,"throughputWatchdog":{"enabled":false,"warmupMs":30000,"windowMs":30000,"minUsefulBytesPerSecond":4,"minUsefulBytes":1}},"providerQuotaOverrides":{},"credentialHealthCheck":{"intervalMinutes":60}},
+  "model_lockout_defaults": {"enabled":false,"errorCodes":[403,404,429,502,503,504],"baseCooldownMs":120000,"maxCooldownMs":1800000,"maxBackoffSteps":10,"useExponentialBackoff":true},
   "defaults": {
     "a2aEnabled": false,
     "alwaysPreserveClientCache": "auto",

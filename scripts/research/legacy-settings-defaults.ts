@@ -9,6 +9,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { requestBodyLimitMbFromEnv } from "../../src/shared/constants/bodySize";
 import { DEFAULT_RESPONSES_PREVIOUS_RESPONSE_ID_MODE } from "../../src/shared/constants/responsesPreviousResponseId";
+import { DEFAULT_RESILIENCE_SETTINGS } from "../../src/lib/resilience/settings";
+import { DEFAULT_MODEL_LOCKOUT_SETTINGS } from "../../src/lib/resilience/modelLockoutSettings";
 
 const source = readFileSync("src/lib/db/settings.ts", "utf8").replace(/\r\n/g, "\n");
 const opening = "  const settings: Record<string, unknown> = {\n";
@@ -41,7 +43,7 @@ entries.forEach((match, index) => {
 
 const sourceCommit = execFileSync(
   "git",
-  ["log", "-1", "--format=%H", "--", "src/lib/db/settings.ts"],
+  ["log", "-1", "--format=%H", "--", "src/lib/db/settings.ts", "src/lib/resilience"],
   { encoding: "utf8" }
 ).trim();
 
@@ -51,6 +53,10 @@ writeFileSync(
   "rust/red-routerd/src/legacy_settings_defaults.json",
   `{\n  "source_commit": ${JSON.stringify(sourceCommit)},\n` +
     `  "env_dependent": ${JSON.stringify(envDependent.sort())},\n` +
+    // The resilienceSettings and modelLockout rows are objects the legacy
+    // resolvers merge with these defaults.
+    `  "resilience_defaults": ${JSON.stringify(DEFAULT_RESILIENCE_SETTINGS)},\n` +
+    `  "model_lockout_defaults": ${JSON.stringify(DEFAULT_MODEL_LOCKOUT_SETTINGS)},\n` +
     `  "defaults": {\n${lines.join(",\n")}\n  }\n}\n`
 );
 console.log(`${keys.length} defaults, ${envDependent.length} env-dependent`);
