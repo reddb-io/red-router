@@ -14,6 +14,7 @@ pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
+mod icon_url;
 mod kafka_export;
 pub mod legacy_aliases;
 pub mod legacy_archive;

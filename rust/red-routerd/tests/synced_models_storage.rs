@@ -297,6 +297,7 @@ async fn synced_inventory_invalidates_when_shared_provider_definition_changes() 
         models_path: None,
         revision: 1,
         header_config: None,
+        icon_url: None,
     };
     db.upsert_provider_node(&node, None).await.unwrap();
     let provider = StoredProvider {

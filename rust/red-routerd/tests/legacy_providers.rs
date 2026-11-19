@@ -209,7 +209,7 @@ async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,icon_url TEXT,created_at TEXT,updated_at TEXT); INSERT INTO provider_nodes VALUES ('node-one','openai-compatible','One','node-one','chat','https://one.example/v1',NULL,'now','now'); INSERT INTO provider_nodes VALUES ('node-two','openai-compatible','Two','node-two','chat','https://two.example/v1','https://icons.example/two.png','now','now');")
+    sqlx::raw_sql("CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,icon_url TEXT,created_at TEXT,updated_at TEXT); INSERT INTO provider_nodes VALUES ('node-one','openai-compatible','One','node-one','chat','https://one.example/v1',NULL,'now','now'); INSERT INTO provider_nodes VALUES ('node-two','openai-compatible','Two','node-two','chat','https://two.example/v1','javascript:alert(1)','now','now');")
         .execute(&mut input)
         .await
         .unwrap();
@@ -227,10 +227,45 @@ async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
         legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
             .await
             .err(),
-        Some("legacy provider node icon requires migration")
+        Some("invalid legacy provider node icon")
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert!(db.provider_nodes().await.unwrap().is_empty());
+    db.close().await.unwrap();
+
+    // A valid legacy icon (http(s) or data:image URL) imports with its node.
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE provider_nodes SET icon_url='https://icons.example/two.png' WHERE id='node-two'",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+            .await
+            .unwrap()
+            .imported,
+        2
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let nodes = db.provider_nodes().await.unwrap();
+    let icon = |id: &str| {
+        nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap()
+            .icon_url
+            .clone()
+    };
+    assert_eq!(
+        icon("node-two").as_deref(),
+        Some("https://icons.example/two.png")
+    );
+    assert_eq!(icon("node-one"), None);
     db.close().await.unwrap();
 }
 

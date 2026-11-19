@@ -14,6 +14,9 @@ pub struct NodeInput {
     models_path: Option<String>,
     #[serde(default)]
     apply_to_connections: bool,
+    /// Omitted keeps the stored icon; `null` or an empty value clears it.
+    #[serde(default, deserialize_with = "present_node_id")]
+    icon_url: Option<Option<String>>,
 }
 
 pub(super) fn present_node_id<'de, D: serde::Deserializer<'de>>(
@@ -112,6 +115,14 @@ impl ControlPlane {
         if input.base_url.len() > 2048 {
             return Err("Base URL is too long");
         }
+        if input
+            .icon_url
+            .as_ref()
+            .and_then(Option::as_deref)
+            .is_some_and(|icon| !crate::icon_url::is_valid_provider_icon_url(icon))
+        {
+            return Err("Icon URL must be a valid http(s) or data:image/*;base64 URL");
+        }
         let _mutation = self.0.mutation.lock().await;
         let nodes = self.0.database.provider_nodes().await?;
         let existing = nodes.iter().find(|node| node.id == id);
@@ -189,6 +200,14 @@ impl ControlPlane {
         .await?;
         let node = StoredProviderNode {
             header_config: existing.and_then(|node| node.header_config.clone()),
+            icon_url: match &input.icon_url {
+                None => existing.and_then(|node| node.icon_url.clone()),
+                Some(icon) => icon
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|icon| !icon.is_empty())
+                    .map(str::to_owned),
+            },
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             name: input.name.trim().to_owned(),
@@ -253,7 +272,7 @@ impl ControlPlane {
 }
 
 fn node_view(node: &StoredProviderNode) -> serde_json::Value {
-    serde_json::json!({"id":node.id,"tenant_id":node.tenant_id,"name":node.name,"prefix":node.prefix,"protocol":node.protocol,"base_url":node.base_url,"chat_path":node.chat_path,"upstream_url":node.upstream_url,"models_path":node.models_path,"revision":node.revision.to_string()})
+    serde_json::json!({"id":node.id,"tenant_id":node.tenant_id,"name":node.name,"prefix":node.prefix,"protocol":node.protocol,"base_url":node.base_url,"chat_path":node.chat_path,"upstream_url":node.upstream_url,"models_path":node.models_path,"icon_url":node.icon_url,"revision":node.revision.to_string()})
 }
 
 pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Response {

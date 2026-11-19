@@ -1432,6 +1432,7 @@ mod tests {
             models_path: None,
             revision: 1,
             header_config: None,
+            icon_url: None,
         };
         database.upsert_provider_node(&node, None).await.unwrap();
         let provider = StoredProvider {

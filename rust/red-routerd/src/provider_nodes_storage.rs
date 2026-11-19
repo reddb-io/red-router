@@ -22,6 +22,9 @@ pub struct StoredProviderNode {
     pub revision: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header_config: Option<StoredProviderNodeHeaders>,
+    /// Operator-supplied icon (http(s) or `data:image/*;base64` URL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

@@ -218,8 +218,11 @@ pub async fn import(
             let reset_hour = row
                 .try_get::<Option<i64>, _>("daily_quota_reset_hour")
                 .map_err(|_| "invalid legacy provider definition")?;
-            if icon.is_some() {
-                return Err("legacy provider node icon requires migration");
+            if icon
+                .as_deref()
+                .is_some_and(|icon| !crate::icon_url::is_valid_provider_icon_url(icon))
+            {
+                return Err("invalid legacy provider node icon");
             }
             if timezone.is_some() || reset_hour.is_some() {
                 return Err("legacy provider node quota clock requires migration");
@@ -257,6 +260,7 @@ pub async fn import(
                 models_path,
                 revision: 1,
                 header_config: None,
+                icon_url: icon.map(|icon| icon.trim().to_owned()),
             };
             crate::control_plane::provider_nodes::models_path(&node)?;
             let headers = match text("custom_headers_json")? {
