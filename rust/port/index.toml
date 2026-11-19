@@ -171,3 +171,22 @@ notes = "Ported as functions; not wired until the Rust listing emits model names
 [module.symbols]
 normalizeCatalogDisplayName = "red_routerd::catalog_listing::normalize_catalog_display_name"
 normalizeCatalogModelNames = "red_routerd::catalog_listing::normalize_catalog_model_names"
+
+[[module]]
+ts = "src/shared/validation/iconUrl.ts"
+status = "ported"
+rust = "icon_url.rs"
+module = "red_routerd::icon_url"
+ported_at = "2026-11-19T16:10:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/provider-icon-url-validator.test.ts"]
+notes = "Validates provider definition icons in the admin API and the legacy node importer."
+
+[module.ts_blobs]
+"src/shared/validation/iconUrl.ts" = "e3c0876b7ec1aaf2fbb5fb963d5204095638e084"
+"tests/unit/provider-icon-url-validator.test.ts" = "9a6c1425a3b609420d9df50a6e86259d3bb5b05b"
+
+[module.symbols]
+MAX_ICON_DATA_URL_LENGTH = "red_routerd::icon_url::MAX_ICON_DATA_URL_LENGTH"
+MAX_ICON_URL_LENGTH = "red_routerd::icon_url::MAX_ICON_URL_LENGTH"
+isValidProviderIconUrl = "red_routerd::icon_url::is_valid_provider_icon_url"
