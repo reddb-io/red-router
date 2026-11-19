@@ -212,6 +212,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             };
             let max_rpm = request_limit("max_requests_per_minute", 10_000)?;
             let max_rpd = request_limit("max_requests_per_day", 10_000_000)?;
+            // Custom rate rules replace those columns (legacy buildRateLimitRules).
+            let (max_rpm, max_rpd) = import_rate_rules(get("rate_limits")?.as_deref())?.unwrap_or((max_rpm, max_rpd));
             for field in ["daily_usage_limit_usd", "weekly_usage_limit_usd"] {
                 if row.try_get::<Option<f64>, _>(field).map_err(|_| "invalid legacy key")?.is_some() {
                     return Err("legacy spending limits require migration; no keys imported");
@@ -233,7 +235,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                     return Err("invalid legacy key IP allowlist; no keys imported");
                 }
             }
-            for field in ["scopes", "rate_limits", "allowed_quotas"] {
+            for field in ["scopes", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;
@@ -435,11 +437,78 @@ fn import_endpoint_grants(value: Option<&str>) -> Result<String, &'static str> {
     serde_json::to_string(&grants).map_err(|_| "invalid legacy key policy")
 }
 
+/// A legacy key's custom rate rules (`{limit, window}` in seconds, fixed
+/// windows) as native per-minute and per-day limits, or `None` when it has
+/// none. Several rules on one window keep the strictest; the native sliding
+/// windows never admit more requests. Other windows have no native limit.
+fn import_rate_rules(value: Option<&str>) -> Result<Option<(i64, i64)>, &'static str> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Rule {
+        limit: i64,
+        window: i64,
+    }
+    let rules: Vec<Rule> = match value.map(str::trim) {
+        None | Some("" | "null") => return Ok(None),
+        Some(raw) => serde_json::from_str(raw)
+            .map_err(|_| "invalid legacy key rate rules; no keys imported")?,
+    };
+    if rules.is_empty() {
+        return Ok(None);
+    }
+    let (mut rpm, mut rpd) = (0_i64, 0_i64);
+    for rule in rules {
+        let (slot, max) = match rule.window {
+            60 => (&mut rpm, 10_000),
+            86_400 => (&mut rpd, 10_000_000),
+            _ => return Err("legacy key rate window requires migration; no keys imported"),
+        };
+        if !(1..=max).contains(&rule.limit) {
+            return Err("unsupported legacy request limit; no keys imported");
+        }
+        *slot = if *slot == 0 {
+            rule.limit
+        } else {
+            (*slot).min(rule.limit)
+        };
+    }
+    Ok(Some((rpm, rpd)))
+}
+
 fn empty_list(value: Option<&str>) -> Result<bool, &'static str> {
     match value {
         None | Some("") => Ok(true),
         Some(raw) => serde_json::from_str::<Vec<String>>(raw)
             .map(|list| list.is_empty())
             .map_err(|_| "invalid legacy key policy"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_rate_rules_map_to_native_minute_and_day_limits() {
+        assert_eq!(import_rate_rules(None), Ok(None));
+        assert_eq!(import_rate_rules(Some(" null ")), Ok(None));
+        assert_eq!(import_rate_rules(Some("[]")), Ok(None));
+        assert_eq!(
+            import_rate_rules(Some(r#"[{"limit":9,"window":60},{"limit":4,"window":60}]"#)),
+            Ok(Some((4, 0)))
+        );
+        assert_eq!(
+            import_rate_rules(Some(r#"[{"limit":700,"window":86400}]"#)),
+            Ok(Some((0, 700)))
+        );
+        assert_eq!(
+            import_rate_rules(Some(r#"[{"limit":10,"window":3600}]"#)),
+            Err("legacy key rate window requires migration; no keys imported")
+        );
+        assert_eq!(
+            import_rate_rules(Some(r#"[{"limit":0,"window":60}]"#)),
+            Err("unsupported legacy request limit; no keys imported")
+        );
+        assert!(import_rate_rules(Some(r#"[{"limit":1}]"#)).is_err());
     }
 }
