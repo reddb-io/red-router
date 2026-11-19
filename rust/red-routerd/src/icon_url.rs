@@ -151,7 +151,7 @@ fn parameter_value_length(input: &str) -> Option<usize> {
 /// `xx==` or `xxx=` group, no whitespace.
 fn is_base64(payload: &str) -> bool {
     let bytes = payload.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return false;
     }
     let alphabet = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/';

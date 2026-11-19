@@ -466,6 +466,7 @@ mod tests {
             chat_path: None,
             models_path: None,
             apply_to_connections: false,
+            icon_url: None,
         };
         control
             .save_provider_node("team", input(), "test", Some("red"))
