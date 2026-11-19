@@ -559,7 +559,7 @@ pub async fn import_with_key(
                 // A custom row's own headers replace any compatibility entry's
                 // (legacy getModelUpstreamExtraHeaders reads the row first).
                 let row_settings = compat_settings(object);
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "supportsVision" | "isHidden")
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "supportsVision" | "isFree" | "isHidden")
                     && !(row_settings.is_some() && is_compat_setting(key))) {
                     return Err("legacy model settings require migration");
                 }
@@ -597,6 +597,10 @@ pub async fn import_with_key(
                 let reasoning = match object.get("supportsThinking") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
                 // Legacy getCustomVisionCapabilityFields: an explicit true
                 // advertises text+image input; false advertises no vision.
+                // Only the legacy hidePaidModels filter reads a custom row's
+                // isFree, and the cutover refuses that setting when enabled;
+                // the flag has no runtime effect, so it is validated and dropped.
+                if object.get("isFree").is_some_and(|value| !value.is_boolean() && !value.is_null()) { return Err("invalid legacy model capability"); }
                 let vision = match object.get("supportsVision") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_bool().ok_or("invalid legacy model capability")?) };
                 // Legacy catalog activation is opt-in. A custom decision wins
                 // over compat for the same key; hidden wins across sibling keys.
