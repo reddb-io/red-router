@@ -163,7 +163,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 .is_ok_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")),
             _ => return Err("invalid legacy Claude routing setting; no keys imported"),
         };
-        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_combo_access", "redrouter_control_client_key_catalog", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
+        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_combo_access", "redrouter_control_client_key_catalog", "redrouter_control_client_key_limits", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
                 .fetch_one(&mut *target).await.map_err(|_| "destination key schema unavailable")?;
             if count != 0 { return Err("destination key tables must be empty; no keys imported"); }
@@ -197,7 +197,22 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             // auto_resolve is stored and shown by the legacy dashboard, but no
             // legacy routing path reads the key's value; only a boolean imports.
             if !matches!(number("auto_resolve")?, None | Some(0 | 1)) { return Err("invalid legacy key resolution flag; no keys imported"); }
-            for field in [ "throttle_delay_ms", "max_sessions", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
+            // The active-session cap and throttle delay become the key's runtime
+            // limits; the legacy throttle is applied up to five minutes.
+            let limits = crate::client_key_limits::KeyRuntimeLimits {
+                // Zero or negative means unlimited, as the legacy check does.
+                max_sessions: match number("max_sessions")? {
+                    None => 0,
+                    Some(value) if value <= 0 => 0,
+                    Some(value) => u32::try_from(value).ok().filter(|value| *value <= crate::client_key_limits::MAX_KEY_SESSIONS).ok_or("unsupported legacy session cap; no keys imported")?,
+                },
+                throttle_delay_ms: match number("throttle_delay_ms")? {
+                    None => 0,
+                    Some(value) => u64::try_from(value).unwrap_or(0).min(crate::client_key_limits::MAX_THROTTLE_DELAY_MS),
+                },
+            }
+            .encode();
+            for field in ["allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
                 if number(field)?.unwrap_or(0) != 0 { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             // Legacy request limits (fixed 60-second and one-day windows, used
@@ -312,6 +327,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_combo_access (key_id,allowed_combos_json,revision) VALUES (?,?,1)").bind(&id).bind(combos).execute(&mut *target).await.map_err(|_| "cannot write key combo grants")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_catalog (key_id,catalog_policy_json,revision) VALUES (?,?,1)").bind(&id).bind(&catalog).execute(&mut *target).await.map_err(|_| "cannot write key catalog policy")?;
+            sqlx::query("INSERT INTO redrouter_control_client_key_limits (key_id,limits_json,revision) VALUES (?,?,1)").bind(&id).bind(&limits).execute(&mut *target).await.map_err(|_| "cannot write key runtime limits")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_model_access (key_id,model_access_mode,revision) VALUES (?,?,1)").bind(&id).bind(model_access_mode).execute(&mut *target).await.map_err(|_| "cannot write key model access mode")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,?,1)").bind(&id).bind(schedule).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_ownership (key_id,tenant_id,created_by,revision) VALUES (?,?,'legacy-migration',1)").bind(&id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write key ownership")?;

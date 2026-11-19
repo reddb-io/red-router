@@ -27,6 +27,7 @@ pub(crate) struct ClientPolicy {
     allowed_routes: Option<Vec<String>>,
     allowed_combos: Option<Vec<String>>,
     catalog: crate::client_key_catalog::CatalogPolicy,
+    limits: crate::client_key_limits::KeyRuntimeLimits,
     allowed_models: Option<Vec<String>>,
     allowed_endpoints: Vec<String>,
     blocked_models: Vec<String>,
@@ -61,6 +62,7 @@ pub(crate) struct StoredPolicy {
     pub model_access_restricted: bool,
     pub allowed_combos: Option<Vec<String>>,
     pub catalog: crate::client_key_catalog::CatalogPolicy,
+    pub limits: crate::client_key_limits::KeyRuntimeLimits,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -222,6 +224,7 @@ impl ClientPolicies {
                 allowed_routes: None,
                 allowed_combos: None,
                 catalog: crate::client_key_catalog::CatalogPolicy::default(),
+                limits: crate::client_key_limits::KeyRuntimeLimits::default(),
                 allowed_models: None,
                 allowed_endpoints: Vec::new(),
                 blocked_models: Vec::new(),
@@ -286,6 +289,7 @@ impl ClientPolicies {
                     allowed_models,
                     allowed_combos: policy.allowed_combos,
                     catalog: policy.catalog,
+                    limits: policy.limits,
                     allowed_endpoints: policy.allowed_endpoints,
                     blocked_models: policy.blocked_models,
                     allowed_provider_ids: policy.allowed_provider_ids,
@@ -435,6 +439,7 @@ impl ClientPolicies {
                 allowed_routes,
                 allowed_combos: None,
                 catalog: crate::client_key_catalog::CatalogPolicy::default(),
+                limits: crate::client_key_limits::KeyRuntimeLimits::default(),
                 allowed_models,
                 allowed_endpoints,
                 blocked_models,
@@ -643,6 +648,11 @@ impl ClientPolicy {
     /// scope and auto-combo listing).
     pub(crate) fn catalog_lists_combo(&self, combo: &str) -> bool {
         self.catalog.lists_combo(combo)
+    }
+
+    /// The key's active-session cap and throttle delay.
+    pub(crate) fn runtime_limits(&self) -> crate::client_key_limits::KeyRuntimeLimits {
+        self.limits
     }
 
     /// Whether the key reaches only published models.

@@ -889,6 +889,10 @@ pub struct ClientKeyInput {
     pub list_auto_combos: Option<bool>,
     /// Omitted keeps whether only published models are reachable.
     pub public_models_only: Option<bool>,
+    /// Omitted keeps the active-session cap (0 is unlimited).
+    pub max_sessions: Option<u32>,
+    /// Omitted keeps the per-request throttle delay (0 is none).
+    pub throttle_delay_ms: Option<u64>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -928,6 +932,10 @@ pub struct ClientKeyIssueInput {
     pub list_auto_combos: Option<bool>,
     /// Omitted keeps whether only published models are reachable.
     pub public_models_only: Option<bool>,
+    /// Omitted keeps the active-session cap (0 is unlimited).
+    pub max_sessions: Option<u32>,
+    /// Omitted keeps the per-request throttle delay (0 is none).
+    pub throttle_delay_ms: Option<u64>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -1082,6 +1090,8 @@ impl ClientKeyIssueInput {
             catalog_scope: self.catalog_scope,
             list_auto_combos: self.list_auto_combos,
             public_models_only: self.public_models_only,
+            max_sessions: self.max_sessions,
+            throttle_delay_ms: self.throttle_delay_ms,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
             access_schedule: self.access_schedule,
@@ -1115,6 +1125,8 @@ pub struct ClientKeyView {
     pub catalog_scope: crate::client_key_catalog::CatalogScope,
     pub list_auto_combos: bool,
     pub public_models_only: bool,
+    pub max_sessions: u32,
+    pub throttle_delay_ms: u64,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub access_schedule: Option<AccessScheduleConfig>,
@@ -8295,6 +8307,22 @@ impl ControlPlane {
                 }
                 catalog.encode()
             },
+            limits_json: {
+                let mut limits = match &existing {
+                    Some(key) => {
+                        crate::client_key_limits::KeyRuntimeLimits::decode(&key.limits_json)?
+                    }
+                    None => crate::client_key_limits::KeyRuntimeLimits::default(),
+                };
+                if let Some(max_sessions) = input.max_sessions {
+                    limits.max_sessions = max_sessions;
+                }
+                if let Some(delay) = input.throttle_delay_ms {
+                    limits.throttle_delay_ms = delay;
+                }
+                limits.validate()?;
+                limits.encode()
+            },
             model_access_mode: effective_model_access_mode(
                 input
                     .model_access_mode
@@ -12104,6 +12132,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         _ => return Err("invalid client key expiry"),
     };
     let catalog = crate::client_key_catalog::CatalogPolicy::decode(&record.catalog_policy_json)?;
+    let limits = crate::client_key_limits::KeyRuntimeLimits::decode(&record.limits_json)?;
     Ok(ClientKeyView {
         model_matching: model_matching.name(),
         id: record.id.clone(),
@@ -12126,6 +12155,8 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         catalog_scope: catalog.catalog_scope,
         list_auto_combos: catalog.list_auto_combos,
         public_models_only: catalog.public_models_only,
+        max_sessions: limits.max_sessions,
+        throttle_delay_ms: limits.throttle_delay_ms,
         blocked_models: parse_list(&record.blocked_models_json)?,
         allowed_provider_ids: parse_list(&record.allowed_provider_ids_json)?,
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
@@ -13042,6 +13073,10 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
             catalog_scope: view.catalog_scope,
             list_auto_combos: view.list_auto_combos,
             public_models_only: view.public_models_only,
+        },
+        limits: crate::client_key_limits::KeyRuntimeLimits {
+            max_sessions: view.max_sessions,
+            throttle_delay_ms: view.throttle_delay_ms,
         },
         key_hash,
         enabled: record.enabled,

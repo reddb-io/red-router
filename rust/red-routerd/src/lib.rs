@@ -11,6 +11,7 @@ mod catalog_listing;
 mod catalog_order;
 mod circuit;
 pub mod client_key_catalog;
+pub mod client_key_limits;
 pub mod control_plane;
 mod daily_quota_reset;
 pub mod fastllm_control;
@@ -6668,6 +6669,40 @@ async fn proxy_request(
     };
     if !request_allowed {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
+    }
+    let limits = policy.runtime_limits();
+    // Per-key active-session cap on chat requests (legacy chat handler).
+    if category == "chat" && limits.max_sessions > 0 {
+        if let (Some(identity), Some(session)) = (
+            policy.identity(),
+            client_key_limits::session_id(&original_headers, &parsed),
+        ) {
+            if !client_key_limits::KEY_SESSIONS.admit(
+                &identity.id,
+                &session,
+                limits.max_sessions,
+                u64::try_from(unix_time_ms()).unwrap_or_default(),
+            ) {
+                let message = format!(
+                    "You have reached the maximum number of active sessions ({}). Please close unused sessions or wait for them to expire.",
+                    limits.max_sessions
+                );
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(serde_json::json!({"error": {"message": message, "type": "proxy_error"}})),
+                )
+                    .into_response();
+            }
+        }
+    }
+    // Legacy per-key throttle: wait before forwarding an admitted request.
+    if limits.throttle_delay_ms > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(
+            limits
+                .throttle_delay_ms
+                .min(client_key_limits::MAX_THROTTLE_DELAY_MS),
+        ))
+        .await;
     }
     if let (Some(access), Some(connection)) = (&product_access, &state.product_connection) {
         match connection.reserve_rpm(&access.key_id).await {
