@@ -2582,6 +2582,12 @@ impl ControlPlane {
             .map(|record| record.provider_id)
             .collect();
         let settings = self.0.runtime_settings.read().await.clone();
+        let max_cooldown_ms = self
+            .0
+            .global_settings
+            .read()
+            .await
+            .connection_max_cooldown_ms();
         // An account bound to a reusable definition takes that node's daily
         // quota reset clock (legacy resolveDailyResetForProvider).
         let nodes = self.0.database.provider_nodes().await?;
@@ -2612,7 +2618,9 @@ impl ControlPlane {
             } else {
                 &settings.apikey_connection_cooldown
             };
-            availability.configure_cooldown(connection_cooldown_profile(configured)?)?;
+            let mut profile = connection_cooldown_profile(configured)?;
+            profile.max_cooldown_ms = max_cooldown_ms;
+            availability.configure_cooldown(profile)?;
             let (timezone, hour) = clocks.get(provider_id).cloned().unwrap_or_default();
             availability.configure_daily_reset(timezone.as_deref(), hour, oauth)?;
         }
@@ -11589,6 +11597,7 @@ impl ControlPlane {
             .await?;
         stored.insert(key.to_owned(), value.clone());
         *self.0.global_settings.write().await = crate::global_settings::snapshot(&stored)?;
+        self.refresh_availability_profiles().await?;
         self.record_audit_event(
             AuditContext {
                 action: "global_setting.configure",
@@ -12890,6 +12899,7 @@ fn connection_cooldown_profile(
         base_cooldown_ms: settings.base_cooldown_ms,
         use_upstream_retry_hints: settings.use_upstream_retry_hints,
         max_backoff_steps: settings.max_backoff_steps,
+        max_cooldown_ms: crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS,
     })
 }
 

@@ -88,6 +88,40 @@ fn merged(default: &Value, stored: &Value) -> Value {
     }
 }
 
+/// The connection cooldown ceiling a legacy `modelLockout` row resolves to
+/// (`resolveModelLockoutSettings`: the max cooldown, clamped to 5 s-1 h, and
+/// never below the clamped base). The opt-in per-model lockout policy itself
+/// (enabled, error codes, backoff steps, exponential backoff) has no native
+/// equivalent yet and must stay at its defaults.
+fn model_lockout_ceiling(raw: &str) -> Result<u64, &'static str> {
+    let default = &SNAPSHOT.model_lockout_defaults;
+    let stored = merged(default, &parse_value(raw));
+    for field in [
+        "enabled",
+        "errorCodes",
+        "maxBackoffSteps",
+        "useExponentialBackoff",
+    ] {
+        if stored.get(field) != default.get(field) {
+            return Err("legacy model lockout policy has no native equivalent yet");
+        }
+    }
+    let integer = |field: &str, fallback: u64, min: u64, max: u64| {
+        let parsed = match stored.get(field) {
+            Some(Value::Number(number)) => number.as_f64(),
+            Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
+            _ => None,
+        };
+        match parsed.filter(|number| number.is_finite()) {
+            Some(number) => (number.trunc().max(0.0) as u64).clamp(min, max),
+            None => fallback,
+        }
+    };
+    let base = integer("baseCooldownMs", 120_000, 5_000, 600_000);
+    let maximum = integer("maxCooldownMs", 1_800_000, 5_000, 3_600_000);
+    Ok(maximum.max(base))
+}
+
 /// One legacy strategy choice: a falsy strategy inherits, an unsupported one
 /// is refused; a present sticky limit goes through the legacy `toNumber(x, 3)`
 /// and the `count < limit` comparison (fractions round up, negatives are 0).
@@ -494,13 +528,12 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
             };
         }
         "modelLockout" => {
-            let default = &SNAPSHOT.model_lockout_defaults;
-            return if merged(default, &parse_value(raw)) == *default {
-                SettingClass::AtDefault
-            } else {
-                SettingClass::Refused {
-                    reason: "legacy model lockout settings have no native equivalent yet",
+            return match model_lockout_ceiling(raw) {
+                Ok(crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS) => {
+                    SettingClass::AtDefault
                 }
+                Ok(_) => SettingClass::Imported,
+                Err(reason) => SettingClass::Refused { reason },
             };
         }
         _ => {}
@@ -609,6 +642,18 @@ pub async fn import(
         global.push((
             crate::global_settings::IDEMPOTENCY_WINDOW_MS,
             Value::from(ms),
+        ));
+    }
+    if let Some(ceiling) = rows
+        .iter()
+        .find(|(key, _)| key == "modelLockout")
+        .map(|(_, raw)| model_lockout_ceiling(raw))
+        .transpose()?
+        .filter(|ceiling| *ceiling != crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS)
+    {
+        global.push((
+            crate::global_settings::CONNECTION_MAX_COOLDOWN_MS,
+            Value::from(ceiling),
         ));
     }
     let strategies = legacy_provider_strategies(&rows)?;
@@ -808,6 +853,23 @@ mod tests {
             (crate::account_rotation::AccountStrategy::Random, 3)
         );
         assert_eq!(strategies.providers.len(), 1);
+        assert_eq!(
+            classify("modelLockout", r#"{"maxCooldownMs":600000}"#),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            model_lockout_ceiling(r#"{"maxCooldownMs":600000}"#),
+            Ok(600_000)
+        );
+        // The ceiling never drops below the clamped base.
+        assert_eq!(
+            model_lockout_ceiling(r#"{"maxCooldownMs":1000,"baseCooldownMs":300000}"#),
+            Ok(300_000)
+        );
+        assert_eq!(
+            model_lockout_ceiling(r#"{"maxCooldownMs":"9e9"}"#),
+            Ok(3_600_000)
+        );
         assert_eq!(classify("maxBodySizeMb", "25"), SettingClass::Imported);
         assert_eq!(classify("maxBodySizeMb", "0"), SettingClass::AtDefault);
         assert_eq!(

@@ -96,8 +96,8 @@ async fn daily_quota_text_parks_the_connection_until_the_reset() {
         .unwrap();
     assert_eq!(quota["connection_last_status"], 403);
     // Without a node clock the lockout lasts until the host's next midnight
-    // (UTC here), well past the five-minute ceiling of an ordinary cooldown;
-    // only a run in the last five minutes before midnight cannot tell them apart.
+    // (UTC here), well past the seconds-long first cooldown of an ordinary
+    // failure; only a run in the last five minutes before midnight is skipped.
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

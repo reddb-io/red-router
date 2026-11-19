@@ -16,7 +16,13 @@ use std::{
 use tokio::sync::Mutex;
 
 const CONNECTION_BASE_MS: u64 = 3_000;
+/// Largest configurable base connection cooldown.
 const CONNECTION_MAX_MS: u64 = 5 * 60 * 1_000;
+/// Legacy connection cooldown ceiling: `modelLockout.maxCooldownMs`, which
+/// defaults to 30 minutes and ranges from 5 seconds to an hour.
+pub(crate) const DEFAULT_CONNECTION_MAX_COOLDOWN_MS: u64 = 30 * 60 * 1_000;
+pub(crate) const CONNECTION_MAX_COOLDOWN_RANGE: std::ops::RangeInclusive<u64> =
+    5_000..=60 * 60 * 1_000;
 const RETRY_HINT_MAX_MS: u64 = 24 * 60 * 60 * 1_000;
 const MODEL_BASE_MS: u64 = 30_000;
 const MODEL_MAX_MS: u64 = 10 * 60 * 1_000;
@@ -31,6 +37,8 @@ pub(crate) struct ConnectionCooldownProfile {
     pub base_cooldown_ms: u64,
     pub use_upstream_retry_hints: bool,
     pub max_backoff_steps: u32,
+    /// Ceiling on the scaled cooldown (an upstream retry hint may exceed it).
+    pub max_cooldown_ms: u64,
 }
 
 impl ConnectionCooldownProfile {
@@ -39,6 +47,7 @@ impl ConnectionCooldownProfile {
             base_cooldown_ms: 5_000,
             use_upstream_retry_hints: false,
             max_backoff_steps: 8,
+            max_cooldown_ms: DEFAULT_CONNECTION_MAX_COOLDOWN_MS,
         }
     }
 
@@ -47,6 +56,7 @@ impl ConnectionCooldownProfile {
             base_cooldown_ms: CONNECTION_BASE_MS,
             use_upstream_retry_hints: true,
             max_backoff_steps: 5,
+            max_cooldown_ms: DEFAULT_CONNECTION_MAX_COOLDOWN_MS,
         }
     }
 }
@@ -135,6 +145,7 @@ pub(crate) struct ProviderAvailability {
     cooldown_base_ms: AtomicU64,
     cooldown_retry_hints: AtomicBool,
     cooldown_max_backoff_steps: AtomicU32,
+    cooldown_max_ms: AtomicU64,
     /// The account's node clock (IANA timezone, local hour) for daily quota
     /// resets, and whether the account is OAuth (legacy provider category).
     daily_reset: std::sync::Mutex<(Option<String>, Option<u8>)>,
@@ -309,6 +320,7 @@ impl ProviderAvailability {
             cooldown_base_ms: AtomicU64::new(CONNECTION_BASE_MS),
             cooldown_retry_hints: AtomicBool::new(true),
             cooldown_max_backoff_steps: AtomicU32::new(5),
+            cooldown_max_ms: AtomicU64::new(DEFAULT_CONNECTION_MAX_COOLDOWN_MS),
             daily_reset: std::sync::Mutex::new((None, None)),
             oauth: AtomicBool::new(false),
             inner: Mutex::new(inner),
@@ -322,6 +334,7 @@ impl ProviderAvailability {
     ) -> Result<(), &'static str> {
         if profile.base_cooldown_ms > CONNECTION_MAX_MS
             || profile.max_backoff_steps > MAX_BACKOFF_LEVEL
+            || !CONNECTION_MAX_COOLDOWN_RANGE.contains(&profile.max_cooldown_ms)
         {
             return Err("invalid connection cooldown profile");
         }
@@ -331,6 +344,8 @@ impl ProviderAvailability {
             .store(profile.use_upstream_retry_hints, Ordering::Release);
         self.cooldown_max_backoff_steps
             .store(profile.max_backoff_steps, Ordering::Release);
+        self.cooldown_max_ms
+            .store(profile.max_cooldown_ms, Ordering::Release);
         Ok(())
     }
 
@@ -388,6 +403,7 @@ impl ProviderAvailability {
             base_cooldown_ms: self.cooldown_base_ms.load(Ordering::Acquire),
             use_upstream_retry_hints: self.cooldown_retry_hints.load(Ordering::Acquire),
             max_backoff_steps: self.cooldown_max_backoff_steps.load(Ordering::Acquire),
+            max_cooldown_ms: self.cooldown_max_ms.load(Ordering::Acquire),
         }
     }
 
@@ -819,7 +835,7 @@ fn connection_cooldown_duration(
     let exponential = profile
         .base_cooldown_ms
         .saturating_mul(1_u64 << exponent)
-        .min(CONNECTION_MAX_MS);
+        .min(profile.max_cooldown_ms);
     let hinted = profile
         .use_upstream_retry_hints
         .then_some(retry_hint_ms)
@@ -884,6 +900,25 @@ mod tests {
     use crate::storage::Backend;
     use tempfile::TempDir;
     use url::Url;
+
+    #[test]
+    fn the_scaled_cooldown_reaches_the_legacy_ceiling() {
+        // Legacy OAuth defaults back off to 5 s * 2^8 = 21m20s, under the
+        // 30-minute ceiling; a configured ceiling caps it, a retry hint may
+        // still exceed it.
+        let mut oauth = ConnectionCooldownProfile::oauth_default();
+        assert_eq!(connection_cooldown_duration(oauth, 8, None), 1_280_000);
+        assert_eq!(connection_cooldown_duration(oauth, 16, None), 1_280_000);
+        oauth.max_cooldown_ms = 60_000;
+        assert_eq!(connection_cooldown_duration(oauth, 8, None), 60_000);
+        let mut api_key = ConnectionCooldownProfile::api_key_default();
+        api_key.max_cooldown_ms = 60_000;
+        assert_eq!(
+            connection_cooldown_duration(api_key, 5, Some(120_000)),
+            120_000
+        );
+        assert!(!CONNECTION_MAX_COOLDOWN_RANGE.contains(&1_000));
+    }
 
     #[test]
     fn connection_cooldown_profile_controls_hints_and_backoff() {

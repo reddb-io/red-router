@@ -13,6 +13,8 @@
 //! - `provider_strategies`: the legacy `fallbackStrategy`,
 //!   `stickyRoundRobinLimit` and `providerStrategies`, the account selection
 //!   inside a provider pool (`account_rotation`).
+//! - `connection_max_cooldown_ms`: the legacy `modelLockout.maxCooldownMs`,
+//!   the ceiling on scaled connection cooldowns (default 30 minutes).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,6 +24,7 @@ pub(crate) const CUSTOM_SYSTEM_PROMPT: &str = "custom_system_prompt";
 pub(crate) const MAX_BODY_SIZE_MB: &str = "max_body_size_mb";
 pub(crate) const IDEMPOTENCY_WINDOW_MS: &str = "idempotency_window_ms";
 pub(crate) const PROVIDER_STRATEGIES: &str = "provider_strategies";
+pub(crate) const CONNECTION_MAX_COOLDOWN_MS: &str = "connection_max_cooldown_ms";
 /// Legacy `MIN_REQUEST_BODY_LIMIT_MB` and `MAX_REQUEST_BODY_LIMIT_MB`.
 pub(crate) const BODY_SIZE_MB_RANGE: std::ops::RangeInclusive<u64> = 1..=500;
 /// The longest replay window accepted (a year).
@@ -109,6 +112,7 @@ pub(crate) struct Snapshot {
     max_body_size_mb: Option<u64>,
     idempotency_window_ms: Option<u64>,
     provider_strategies: ProviderStrategies,
+    connection_max_cooldown_ms: Option<u64>,
 }
 
 impl Snapshot {
@@ -130,6 +134,12 @@ impl Snapshot {
         provider: &str,
     ) -> (crate::account_rotation::AccountStrategy, u32) {
         self.provider_strategies.for_provider(provider)
+    }
+
+    /// The ceiling on scaled connection cooldowns.
+    pub(crate) fn connection_max_cooldown_ms(&self) -> u64 {
+        self.connection_max_cooldown_ms
+            .unwrap_or(crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS)
     }
 
     /// The idempotent replay window (legacy default 5 s).
@@ -158,6 +168,11 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|ms| (1..=MAX_IDEMPOTENCY_WINDOW_MS).contains(ms))
             .map(Value::from)
             .ok_or("invalid idempotency window"),
+        CONNECTION_MAX_COOLDOWN_MS => value
+            .as_u64()
+            .filter(|ms| crate::availability::CONNECTION_MAX_COOLDOWN_RANGE.contains(ms))
+            .map(Value::from)
+            .ok_or("invalid connection cooldown ceiling"),
         PROVIDER_STRATEGIES => {
             let strategies: ProviderStrategies =
                 serde_json::from_value(value).map_err(|_| "invalid provider strategies")?;
@@ -181,6 +196,7 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             MAX_BODY_SIZE_MB => snapshot.max_body_size_mb = value.as_u64(),
             IDEMPOTENCY_WINDOW_MS => snapshot.idempotency_window_ms = value.as_u64(),
+            CONNECTION_MAX_COOLDOWN_MS => snapshot.connection_max_cooldown_ms = value.as_u64(),
             PROVIDER_STRATEGIES => {
                 snapshot.provider_strategies =
                     serde_json::from_value(value).map_err(|_| "invalid provider strategies")?;
