@@ -2572,6 +2572,11 @@ pub fn router(state: ProxyState) -> Router {
                 .delete(control_plane::provider_models::remove),
         )
         .route(
+            "/api/admin/provider-models/{id}/headers",
+            get(control_plane::provider_models::get_headers)
+                .put(control_plane::provider_models::put_headers),
+        )
+        .route(
             "/api/admin/model-catalog",
             get(control_plane::list_model_catalog),
         )

@@ -2191,7 +2191,8 @@ impl ControlPlane {
             )),
             _ => None,
         };
-        let provider_models = provider_models::ModelOverrides::load(&database).await?;
+        let provider_models =
+            provider_models::ModelOverrides::load(&database, encryption_key).await?;
         let model_aliases = model_aliases::AliasSnapshot::load(&database).await?;
         let bundled_catalog = crate::catalog::bundled_catalog()?;
         let stored_catalog = database.model_catalog_snapshot().await?;
@@ -4774,6 +4775,7 @@ impl ControlPlane {
             .collect::<Vec<_>>()
             .await;
         initialized.sort_by_key(|(index, _, _, _)| *index);
+        let model_overrides = self.provider_model_overrides().await?;
         let model_quotas = self.0.model_quotas.read().await;
         let targets = initialized
             .into_iter()
@@ -4803,6 +4805,11 @@ impl ControlPlane {
                     model_quota,
                 );
                 target.model_rules = account.model_rules.clone();
+                model_overrides.apply_request_headers(
+                    &mut target,
+                    &account.record.tenant_id,
+                    &account.record.provider,
+                );
                 target
             })
             .collect::<Vec<_>>();
@@ -9953,6 +9960,13 @@ impl ControlPlane {
                     Some(model_quota),
                 );
                 compiled_target.model_rules = model_rules.get(&provider.id).cloned();
+                self.provider_model_overrides()
+                    .await?
+                    .apply_request_headers(
+                        &mut compiled_target,
+                        &record.tenant_id,
+                        &provider.provider,
+                    );
                 targets.push(compiled_target);
             }
             if targets.is_empty() {

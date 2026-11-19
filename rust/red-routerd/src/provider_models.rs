@@ -11,6 +11,14 @@ pub(crate) struct ModelOverrides {
     tenants: HashMap<String, ProviderModels>,
     visibility: HashMap<String, HashMap<String, HashMap<String, bool>>>,
     default_hidden: HashMap<String, HashSet<String>>,
+    /// Decrypted per-model upstream headers keyed by record ID.
+    headers: HashMap<String, HeaderMap>,
+}
+
+/// Associated data that binds a model's encrypted headers to its record ID
+/// (organization, provider and model).
+pub(super) fn headers_aad(record_id: &str) -> String {
+    format!("{record_id}:model-request-headers")
 }
 const MAX_MODELS: usize = 10_000;
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
@@ -185,7 +193,10 @@ impl ModelOverrides {
             .flat_map(|models| models.values())
     }
 
-    pub(crate) async fn load(database: &Database) -> Result<Self, &'static str> {
+    pub(crate) async fn load(
+        database: &Database,
+        encryption_key: &str,
+    ) -> Result<Self, &'static str> {
         let records = database.provider_models().await?;
         if records.len() > MAX_MODELS {
             return Err("Provider model snapshot exceeds its limit");
@@ -228,6 +239,14 @@ impl ModelOverrides {
             if bytes > MAX_SNAPSHOT_BYTES {
                 return Err("Provider model snapshot exceeds its limit");
             }
+            if let Some(ciphertext) = &record.headers_ciphertext {
+                let plaintext =
+                    decrypt_async(ciphertext, &headers_aad(&record.id), encryption_key).await?;
+                snapshot.headers.insert(
+                    record.id.clone(),
+                    super::provider_headers::decoded_values(&plaintext)?,
+                );
+            }
             snapshot
                 .visibility
                 .entry(record.tenant_id.clone())
@@ -246,6 +265,32 @@ impl ModelOverrides {
             }
         }
         Ok(snapshot)
+    }
+
+    /// Upstream request headers configured for this model, which take
+    /// precedence over the account's custom headers.
+    pub(crate) fn request_headers(
+        &self,
+        tenant: &str,
+        provider: &str,
+        model: &str,
+    ) -> Option<&HeaderMap> {
+        self.headers.get(&record_id(tenant, provider, model))
+    }
+
+    /// Legacy `buildUpstreamHeadersForExecute`: model headers are merged over
+    /// the account's custom headers, so the model wins on the same name.
+    pub(crate) fn apply_request_headers(
+        &self,
+        target: &mut crate::ModelTarget,
+        tenant: &str,
+        provider: &str,
+    ) {
+        if let Some(headers) = self.request_headers(tenant, provider, &target.model) {
+            for (name, value) in headers {
+                target.custom_headers.insert(name.clone(), value.clone());
+            }
+        }
     }
 
     pub(crate) fn is_hidden(&self, tenant: &str, provider: &str, model: &str) -> bool {
@@ -350,7 +395,7 @@ fn failure(message: &'static str) -> Response {
 
 impl ControlPlane {
     pub(super) async fn refresh_provider_models(&self) -> Result<(), &'static str> {
-        match ModelOverrides::load(&self.0.database).await {
+        match ModelOverrides::load(&self.0.database, self.0.encryption_key.as_str()).await {
             Ok(models) => {
                 *self.0.provider_models.write().await = Some(Arc::new(models));
                 Ok(())
@@ -453,6 +498,8 @@ impl ControlPlane {
                 .hidden
                 .unwrap_or_else(|| existing.is_some_and(|model| model.hidden)),
             visibility_only,
+            // Metadata edits keep the model's encrypted request headers.
+            headers_ciphertext: existing.and_then(|model| model.headers_ciphertext.clone()),
             revision: revision()?,
         };
         let catalog = self.model_catalog().await;
@@ -597,6 +644,178 @@ pub async fn get_one(
     }
 }
 
+/// Upstream request headers for one model (legacy `upstreamHeaders`). The
+/// same name, size and denylist rules apply as for account headers.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelHeadersInput {
+    headers: BTreeMap<String, String>,
+    revision: String,
+}
+
+impl Drop for ModelHeadersInput {
+    fn drop(&mut self) {
+        for value in self.headers.values_mut() {
+            value.zeroize();
+        }
+    }
+}
+
+/// Header names only: values are write-only.
+#[derive(Serialize)]
+struct ModelHeadersView {
+    names: Vec<String>,
+    revision: String,
+}
+
+impl ControlPlane {
+    async fn model_headers_view(
+        &self,
+        record: &StoredProviderModel,
+    ) -> Result<ModelHeadersView, &'static str> {
+        let mut names = match &record.headers_ciphertext {
+            Some(ciphertext) => {
+                let plaintext = decrypt_async(
+                    ciphertext,
+                    &headers_aad(&record.id),
+                    self.0.encryption_key.as_str(),
+                )
+                .await?;
+                super::provider_headers::decoded_values(&plaintext)?
+                    .keys()
+                    .map(|name| name.as_str().to_owned())
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        names.sort();
+        Ok(ModelHeadersView {
+            names,
+            revision: record.revision.to_string(),
+        })
+    }
+
+    async fn scoped_provider_model(
+        &self,
+        id: &str,
+        tenant: Option<&str>,
+    ) -> Result<StoredProviderModel, &'static str> {
+        self.0
+            .database
+            .provider_models()
+            .await?
+            .into_iter()
+            .find(|row| row.id == id && tenant.is_none_or(|tenant| tenant == row.tenant_id))
+            .ok_or("Provider model unavailable")
+    }
+}
+
+pub async fn get_headers(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Control plane unavailable");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let result: Result<_, &'static str> = async {
+        let record = control
+            .scoped_provider_model(&id, scope.tenant_id.as_deref())
+            .await?;
+        control.model_headers_view(&record).await
+    }
+    .await;
+    match result {
+        Ok(view) => ([(header::CACHE_CONTROL, "no-store")], Json(view)).into_response(),
+        Err(error) => failure(error),
+    }
+}
+
+pub async fn put_headers(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ModelHeadersInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Control plane unavailable");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if let Err(error) = super::provider_headers::validate(&input.headers) {
+        return api_error(StatusCode::BAD_REQUEST, error);
+    }
+    let _mutation = control.0.mutation.lock().await;
+    let result: Result<ModelHeadersView, &'static str> = async {
+        let existing = control
+            .scoped_provider_model(&id, scope.tenant_id.as_deref())
+            .await?;
+        let expected = input
+            .revision
+            .parse::<i64>()
+            .map_err(|_| "Invalid model revision")?;
+        if existing.revision != expected {
+            return Err("Provider model changed; reload and retry");
+        }
+        let headers_ciphertext = if input.headers.is_empty() {
+            None
+        } else {
+            let plaintext = Zeroizing::new(
+                serde_json::to_string(&input.headers).map_err(|_| "Invalid model headers")?,
+            );
+            Some(
+                encrypt_async(
+                    &plaintext,
+                    &headers_aad(&existing.id),
+                    control.0.encryption_key.as_str(),
+                )
+                .await?,
+            )
+        };
+        let record = StoredProviderModel {
+            headers_ciphertext,
+            revision: revision()?,
+            ..existing.clone()
+        };
+        control
+            .0
+            .database
+            .upsert_provider_model(&record, Some(expected))
+            .await?;
+        control.refresh_provider_models().await?;
+        if let Err(error) = control.refresh_routes().await {
+            *control.0.current.write().await = None;
+            *control.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        let before = control.model_headers_view(&existing).await?;
+        let after = control.model_headers_view(&record).await?;
+        control
+            .record_audit_event(
+                AuditContext {
+                    action: "provider.model.headers.update",
+                    actor: &scope.actor,
+                    tenant_id: &record.tenant_id,
+                    target: &record.id,
+                    resource_type: "provider_model",
+                },
+                Some(&before),
+                Some(&after),
+            )
+            .await;
+        Ok(after)
+    }
+    .await;
+    match result {
+        Ok(view) => ([(header::CACHE_CONTROL, "no-store")], Json(view)).into_response(),
+        Err(error) => failure(error),
+    }
+}
+
 pub async fn create(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -734,10 +953,13 @@ mod tests {
             metadata: serde_json::from_value(serde_json::json!({"id":"activated"})).unwrap(),
             hidden: false,
             visibility_only: true,
+            headers_ciphertext: None,
             revision: 1,
         };
         db.upsert_provider_model(&active, None).await.unwrap();
-        let snapshot = ModelOverrides::load(&db).await.unwrap();
+        let snapshot = ModelOverrides::load(&db, "test-storage-key-at-least-16-bytes")
+            .await
+            .unwrap();
         assert!(snapshot.is_hidden("red", "openai", "unselected"));
         assert!(!snapshot.is_hidden("red", "openai", "activated"));
         assert!(!snapshot.is_hidden("other", "openai", "unselected"));

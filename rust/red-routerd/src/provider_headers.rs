@@ -43,7 +43,8 @@ fn identity(provider: &StoredProvider) -> String {
     hex::encode(digest.finalize())
 }
 
-fn validate(values: &BTreeMap<String, String>) -> Result<HeaderMap, &'static str> {
+/// Shared with per-model headers, which follow the same rules.
+pub(super) fn validate(values: &BTreeMap<String, String>) -> Result<HeaderMap, &'static str> {
     if values.len() > 16 {
         return Err("at most 16 custom headers are allowed");
     }
@@ -236,7 +237,7 @@ fn account_definition_subject(provider: &StoredProvider, node_id: &str) -> Store
         node_id: None,
     }
 }
-fn decoded_values(plaintext: &str) -> Result<HeaderMap, &'static str> {
+pub(super) fn decoded_values(plaintext: &str) -> Result<HeaderMap, &'static str> {
     let mut values: BTreeMap<String, String> =
         serde_json::from_str(plaintext).map_err(|_| "invalid stored provider headers")?;
     let result = validate(&values);
