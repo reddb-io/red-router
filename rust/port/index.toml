@@ -1,6 +1,27 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/services/accountFallback/mistralAmbiguousAuth.ts"
+status = "ported"
+rust = "mistral_ambiguous_auth.rs"
+module = "red_routerd::mistral_ambiguous_auth"
+ported_at = "2026-11-19T21:17:14Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/provider-401-ambiguous-runtime.test.ts"]
+notes = "The soft lockout is the legacy flag of the same name, read from the environment (the settings importer will carry a stored value). Strikes are counted durably per connection by the availability state (record_ambiguous_auth_failure), so the in-memory strike map and its test reset have no Rust counterpart."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/mistralAmbiguousAuth.ts" = "5f1ba872a1d279354f87224b43fbdef1b44dbf0f"
+"tests/unit/provider-401-ambiguous-runtime.test.ts" = "15422df01c85de57fb5b1b14b978cf250f5c640f"
+
+[module.symbols]
+MISTRAL_AMBIGUOUS_401_MAX_SOFT_STRIKES = "red_routerd::mistral_ambiguous_auth::MAX_SOFT_STRIKES"
+MISTRAL_AMBIGUOUS_401_STRIKE_WINDOW_MS = "red_routerd::mistral_ambiguous_auth::STRIKE_WINDOW_MS"
+isMistralAmbiguous401 = "red_routerd::mistral_ambiguous_auth::is_mistral_ambiguous_401"
+resetMistralAmbiguous401Strikes = "-"
+takeMistralAmbiguous401SoftStrike = "-"
+
+[[module]]
 ts = "open-sse/services/accountFallback/sharedWalletCredits.ts"
 status = "ported"
 rust = "shared_wallet_credits.rs"
