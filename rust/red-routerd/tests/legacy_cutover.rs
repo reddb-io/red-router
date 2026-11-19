@@ -139,8 +139,8 @@ async fn cutover_restores_prior_stages_when_alias_behavior_is_unsupported() {
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
             .await
             .unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('settings','wildcardAliases',?)")
-        .bind(r#"[{"pattern":"fast-*","target":"openrouter/vendor/model"}]"#)
+    // Prefix stripping has no Rust equivalent yet; glob aliases now migrate.
+    sqlx::query("INSERT INTO key_value VALUES ('settings','stripModelPrefix','true')")
         .execute(&mut source_db)
         .await
         .unwrap();
