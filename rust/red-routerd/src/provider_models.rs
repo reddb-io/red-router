@@ -12,13 +12,106 @@ pub(crate) struct ModelOverrides {
     visibility: HashMap<String, HashMap<String, HashMap<String, bool>>>,
     default_hidden: HashMap<String, HashSet<String>>,
     /// Decrypted per-model upstream headers keyed by record ID.
-    headers: HashMap<String, HeaderMap>,
+    headers: HashMap<String, ModelHeaderMaps>,
 }
 
 /// Associated data that binds a model's encrypted headers to its record ID
 /// (organization, provider and model).
 pub(super) fn headers_aad(record_id: &str) -> String {
     format!("{record_id}:model-request-headers")
+}
+
+/// Client request protocols a header map can be scoped to (legacy
+/// `MODEL_COMPAT_PROTOCOL_KEYS`): Chat Completions, Responses and Messages.
+const HEADER_PROTOCOLS: [&str; 3] = ["openai", "openai-responses", "claude"];
+
+/// The client protocol of a compiled target, as the legacy `sourceFormat`.
+fn client_protocol(protocol: ProviderProtocol) -> Option<&'static str> {
+    match protocol {
+        ProviderProtocol::OpenAi
+        | ProviderProtocol::OpenAiToAnthropic
+        | ProviderProtocol::OpenAiToAntigravity => Some("openai"),
+        ProviderProtocol::OpenAiResponses => Some("openai-responses"),
+        ProviderProtocol::Anthropic => Some("claude"),
+        _ => None,
+    }
+}
+
+/// Encrypted document: headers for every request to the model, plus headers
+/// for one client protocol, which win on the same name.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredModelHeaders {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    headers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    by_protocol: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+impl StoredModelHeaders {
+    fn is_empty(&self) -> bool {
+        self.headers.is_empty() && self.by_protocol.values().all(BTreeMap::is_empty)
+    }
+
+    fn validate(&self) -> Result<ModelHeaderMaps, &'static str> {
+        let mut by_protocol = HashMap::new();
+        for (protocol, headers) in &self.by_protocol {
+            if !HEADER_PROTOCOLS.contains(&protocol.as_str()) {
+                return Err("unknown model header protocol");
+            }
+            by_protocol.insert(
+                protocol.clone(),
+                super::provider_headers::validate(headers)?,
+            );
+        }
+        Ok(ModelHeaderMaps {
+            all: super::provider_headers::validate(&self.headers)?,
+            by_protocol,
+        })
+    }
+}
+
+impl Drop for StoredModelHeaders {
+    fn drop(&mut self) {
+        for value in self
+            .headers
+            .values_mut()
+            .chain(self.by_protocol.values_mut().flat_map(BTreeMap::values_mut))
+        {
+            value.zeroize();
+        }
+    }
+}
+
+#[derive(Default)]
+struct ModelHeaderMaps {
+    all: HeaderMap,
+    by_protocol: HashMap<String, HeaderMap>,
+}
+
+impl ModelHeaderMaps {
+    fn decode(plaintext: &str) -> Result<Self, &'static str> {
+        serde_json::from_str::<StoredModelHeaders>(plaintext)
+            .map_err(|_| "invalid stored model headers")?
+            .validate()
+    }
+
+    fn names(&self) -> serde_json::Value {
+        let sorted = |headers: &HeaderMap| {
+            let mut names: Vec<_> = headers
+                .keys()
+                .map(|name| name.as_str().to_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let by_protocol: BTreeMap<_, _> = self
+            .by_protocol
+            .iter()
+            .map(|(protocol, headers)| (protocol.clone(), sorted(headers)))
+            .collect();
+        serde_json::json!({"names": sorted(&self.all), "by_protocol": by_protocol})
+    }
 }
 const MAX_MODELS: usize = 10_000;
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
@@ -242,10 +335,9 @@ impl ModelOverrides {
             if let Some(ciphertext) = &record.headers_ciphertext {
                 let plaintext =
                     decrypt_async(ciphertext, &headers_aad(&record.id), encryption_key).await?;
-                snapshot.headers.insert(
-                    record.id.clone(),
-                    super::provider_headers::decoded_values(&plaintext)?,
-                );
+                snapshot
+                    .headers
+                    .insert(record.id.clone(), ModelHeaderMaps::decode(&plaintext)?);
             }
             snapshot
                 .visibility
@@ -267,26 +359,25 @@ impl ModelOverrides {
         Ok(snapshot)
     }
 
-    /// Upstream request headers configured for this model, which take
-    /// precedence over the account's custom headers.
-    pub(crate) fn request_headers(
-        &self,
-        tenant: &str,
-        provider: &str,
-        model: &str,
-    ) -> Option<&HeaderMap> {
-        self.headers.get(&record_id(tenant, provider, model))
-    }
-
-    /// Legacy `buildUpstreamHeadersForExecute`: model headers are merged over
-    /// the account's custom headers, so the model wins on the same name.
+    /// Legacy `buildUpstreamHeadersForExecute` with
+    /// `getModelUpstreamExtraHeaders`: the model's headers, then those for
+    /// the target's client protocol, are merged over the account's custom
+    /// headers, so the most specific map wins on the same name.
     pub(crate) fn apply_request_headers(
         &self,
         target: &mut crate::ModelTarget,
         tenant: &str,
         provider: &str,
     ) {
-        if let Some(headers) = self.request_headers(tenant, provider, &target.model) {
+        let Some(maps) = self
+            .headers
+            .get(&record_id(tenant, provider, &target.model))
+        else {
+            return;
+        };
+        let scoped =
+            client_protocol(target.protocol).and_then(|protocol| maps.by_protocol.get(protocol));
+        for headers in std::iter::once(&maps.all).chain(scoped) {
             for (name, value) in headers {
                 target.custom_headers.insert(name.clone(), value.clone());
             }
@@ -644,36 +735,36 @@ pub async fn get_one(
     }
 }
 
-/// Upstream request headers for one model (legacy `upstreamHeaders`). The
-/// same name, size and denylist rules apply as for account headers.
+/// Upstream request headers for one model (legacy `upstreamHeaders` and
+/// `compatByProtocol.*.upstreamHeaders`). The same name, size and denylist
+/// rules apply as for account headers.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelHeadersInput {
+    #[serde(default)]
     headers: BTreeMap<String, String>,
+    #[serde(default)]
+    by_protocol: BTreeMap<String, BTreeMap<String, String>>,
     revision: String,
 }
 
-impl Drop for ModelHeadersInput {
-    fn drop(&mut self) {
-        for value in self.headers.values_mut() {
-            value.zeroize();
+impl ModelHeadersInput {
+    /// Move the values into the document that zeroizes them on drop.
+    fn take_document(&mut self) -> StoredModelHeaders {
+        StoredModelHeaders {
+            headers: std::mem::take(&mut self.headers),
+            by_protocol: std::mem::take(&mut self.by_protocol),
         }
     }
 }
 
-/// Header names only: values are write-only.
-#[derive(Serialize)]
-struct ModelHeadersView {
-    names: Vec<String>,
-    revision: String,
-}
-
 impl ControlPlane {
+    /// Header names only: values are write-only.
     async fn model_headers_view(
         &self,
         record: &StoredProviderModel,
-    ) -> Result<ModelHeadersView, &'static str> {
-        let mut names = match &record.headers_ciphertext {
+    ) -> Result<serde_json::Value, &'static str> {
+        let maps = match &record.headers_ciphertext {
             Some(ciphertext) => {
                 let plaintext = decrypt_async(
                     ciphertext,
@@ -681,18 +772,13 @@ impl ControlPlane {
                     self.0.encryption_key.as_str(),
                 )
                 .await?;
-                super::provider_headers::decoded_values(&plaintext)?
-                    .keys()
-                    .map(|name| name.as_str().to_owned())
-                    .collect()
+                ModelHeaderMaps::decode(&plaintext)?
             }
-            None => Vec::new(),
+            None => ModelHeaderMaps::default(),
         };
-        names.sort();
-        Ok(ModelHeadersView {
-            names,
-            revision: record.revision.to_string(),
-        })
+        let mut view = maps.names();
+        view["revision"] = serde_json::Value::String(record.revision.to_string());
+        Ok(view)
     }
 
     async fn scoped_provider_model(
@@ -738,7 +824,7 @@ pub async fn put_headers(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    Json(input): Json<ModelHeadersInput>,
+    Json(mut input): Json<ModelHeadersInput>,
 ) -> Response {
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Control plane unavailable");
@@ -746,11 +832,12 @@ pub async fn put_headers(
     let Some(scope) = control.management_scope(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
-    if let Err(error) = super::provider_headers::validate(&input.headers) {
+    let mut document = input.take_document();
+    if let Err(error) = document.validate() {
         return api_error(StatusCode::BAD_REQUEST, error);
     }
     let _mutation = control.0.mutation.lock().await;
-    let result: Result<ModelHeadersView, &'static str> = async {
+    let result: Result<serde_json::Value, &'static str> = async {
         let existing = control
             .scoped_provider_model(&id, scope.tenant_id.as_deref())
             .await?;
@@ -761,11 +848,15 @@ pub async fn put_headers(
         if existing.revision != expected {
             return Err("Provider model changed; reload and retry");
         }
-        let headers_ciphertext = if input.headers.is_empty() {
+        // Drop empty protocol maps so a cleared scope leaves no residue.
+        document
+            .by_protocol
+            .retain(|_, headers| !headers.is_empty());
+        let headers_ciphertext = if document.is_empty() {
             None
         } else {
             let plaintext = Zeroizing::new(
-                serde_json::to_string(&input.headers).map_err(|_| "Invalid model headers")?,
+                serde_json::to_string(&document).map_err(|_| "Invalid model headers")?,
             );
             Some(
                 encrypt_async(

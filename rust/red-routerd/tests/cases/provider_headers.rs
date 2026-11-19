@@ -340,9 +340,24 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         .status(),
         StatusCode::CONFLICT
     );
+    assert_eq!(
+        admin_put(
+            endpoint.clone(),
+            serde_json::json!({"by_protocol":{"gemini":{"x-title":"bad"}},"revision":revision}),
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Chat Completions requests get the `openai` scope on top of the model's
+    // headers; the `claude` scope applies only to Messages requests.
     let response = admin_put(
         endpoint.clone(),
-        serde_json::json!({"headers":{"X-Title":"model-secret-title"},"revision":revision}),
+        serde_json::json!({
+            "headers":{"X-Title":"model-secret-title","x-scope":"model"},
+            "by_protocol":{"openai":{"x-scope":"chat-only"},"claude":{"x-scope":"messages-only"}},
+            "revision":revision
+        }),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -362,6 +377,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let request = last(&seen);
     assert_eq!(request["x-title"], "model-secret-title");
     assert_eq!(request["x-account-only"], "kept");
+    assert_eq!(request["x-scope"], "chat-only");
     assert_eq!(
         chat_model(&client, &base, CLIENT_KEY, "other-headers")
             .await
@@ -379,7 +395,11 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         .json()
         .await
         .unwrap();
-    assert_eq!(view["names"], serde_json::json!(["x-title"]));
+    assert_eq!(view["names"], serde_json::json!(["x-scope", "x-title"]));
+    assert_eq!(
+        view["by_protocol"],
+        serde_json::json!({"claude":["x-scope"],"openai":["x-scope"]})
+    );
     let edited = admin_put(
         format!("{base}/api/admin/provider-models/{id}"),
         serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model","name":"Fixture"},"revision":view["revision"]}),
