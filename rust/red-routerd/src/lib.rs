@@ -30,6 +30,7 @@ mod model_permissions;
 mod native_usage;
 mod oidc;
 mod openai_content;
+mod payload_rules;
 mod policy;
 pub mod product;
 pub mod product_combo;
@@ -2588,6 +2589,10 @@ pub fn router(state: ProxyState) -> Router {
                 .delete(control_plane::provider_models::remove),
         )
         .route(
+            "/api/admin/payload-rules",
+            get(control_plane::payload_rules_api::get).put(control_plane::payload_rules_api::put),
+        )
+        .route(
             "/api/admin/provider-models/{id}/headers",
             get(control_plane::provider_models::get_headers)
                 .put(control_plane::provider_models::put_headers),
@@ -2724,6 +2729,46 @@ fn model_list_response(
     .into_response();
     attach_model_catalog_headers(&mut response, catalog_version.as_deref());
     response
+}
+
+/// The legacy target format a payload rule matches for a passthrough body.
+/// Embeddings and rerank are outside the legacy chat body builder.
+fn payload_rule_format(protocol: ProviderProtocol) -> Option<&'static str> {
+    match protocol {
+        ProviderProtocol::OpenAi => Some("openai"),
+        ProviderProtocol::OpenAiResponses => Some("openai-responses"),
+        ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => Some("claude"),
+        ProviderProtocol::Gemini => Some("gemini"),
+        ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity => {
+            Some("antigravity")
+        }
+        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank => None,
+    }
+}
+
+/// Legacy `prepareUpstreamBody`: operator payload rules run on the translated
+/// body, matched by its upstream model and the provider and target format.
+fn apply_target_payload_rules(
+    payload: &mut serde_json::Value,
+    rules: Option<&payload_rules::PayloadRulesConfig>,
+    target: &ModelTarget,
+    target_format: Option<&str>,
+) {
+    let (Some(rules), Some(format)) = (rules.filter(|rules| !rules.is_empty()), target_format)
+    else {
+        return;
+    };
+    let protocols = payload_rules::resolve_payload_rule_protocols(
+        target.provider_name.as_deref(),
+        Some(format),
+    );
+    let model = payload
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(&target.model)
+        .to_owned();
+    payload_rules::apply_payload_rules(payload, &model, &protocols, rules);
 }
 
 fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option<&str>) {
@@ -5807,6 +5852,10 @@ async fn proxy_request(
         Some(control) => control.current().await,
         None => None,
     };
+    let payload_rules = match &state.control_plane {
+        Some(control) => Some(control.payload_rules().await),
+        None => None,
+    };
     let connection_changed = match (&state.product_connection, &state.product_combo) {
         (Some(connection), None) => !connection.unchanged().await,
         _ => false,
@@ -6902,14 +6951,35 @@ async fn proxy_request(
                         target.antigravity_project.as_deref(),
                         attempt_signatures.as_ref(),
                     )
-                    .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
+                    .and_then(|mut value| {
+                        apply_target_payload_rules(
+                            &mut value,
+                            payload_rules.as_deref(),
+                            target,
+                            Some("antigravity"),
+                        );
+                        serde_json::to_vec(&value).map_err(|_| ())
+                    })
                 } else if translate_anthropic {
-                    translation::request(&attempt_parsed, &target.model)
-                        .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()))
+                    translation::request(&attempt_parsed, &target.model).and_then(|mut value| {
+                        apply_target_payload_rules(
+                            &mut value,
+                            payload_rules.as_deref(),
+                            target,
+                            Some("claude"),
+                        );
+                        serde_json::to_vec(&value).map_err(|_| ())
+                    })
                 } else {
                     if protocol != ProviderProtocol::Gemini {
                         attempt_parsed["model"] = serde_json::Value::String(target.model.clone());
                     }
+                    apply_target_payload_rules(
+                        &mut attempt_parsed,
+                        payload_rules.as_deref(),
+                        target,
+                        payload_rule_format(attempt_protocol),
+                    );
                     if attempt_protocol == ProviderProtocol::OpenAi {
                         // Legacy translateRequest: roles for an OpenAI-format target,
                         // when the account's provider is known.

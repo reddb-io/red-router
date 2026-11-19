@@ -13,6 +13,8 @@ pub mod provider_nodes;
 #[path = "provider_rules.rs"]
 pub mod provider_rules;
 pub(crate) use credential_crypto::{decrypt_async, encrypt_async};
+#[path = "payload_rules_api.rs"]
+pub mod payload_rules_api;
 #[path = "provider_headers.rs"]
 pub mod provider_headers;
 
@@ -201,6 +203,7 @@ struct Inner {
     oidc_snapshot_signature: RwLock<[u8; 32]>,
     catalog: RwLock<CatalogState>,
     provider_models: RwLock<Option<Arc<provider_models::ModelOverrides>>>,
+    payload_rules: RwLock<Arc<crate::payload_rules::PayloadRulesConfig>>,
     model_aliases: RwLock<Option<Arc<model_aliases::AliasSnapshot>>>,
     catalog_refresh: tokio::sync::Mutex<()>,
     catalog_client: reqwest::Client,
@@ -2193,6 +2196,8 @@ impl ControlPlane {
         };
         let provider_models =
             provider_models::ModelOverrides::load(&database, encryption_key).await?;
+        let payload_rules =
+            payload_rules_api::stored_config(database.payload_rules().await?.as_ref())?;
         let model_aliases = model_aliases::AliasSnapshot::load(&database).await?;
         let bundled_catalog = crate::catalog::bundled_catalog()?;
         let stored_catalog = database.model_catalog_snapshot().await?;
@@ -2265,6 +2270,7 @@ impl ControlPlane {
         };
         let plane = Self(Arc::new(Inner {
             provider_models: RwLock::new(Some(Arc::new(provider_models))),
+            payload_rules: RwLock::new(Arc::new(payload_rules)),
             model_aliases: RwLock::new(Some(Arc::new(model_aliases))),
             database,
             current: RwLock::new(None),
@@ -2458,6 +2464,7 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        self.refresh_payload_rules().await?;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
@@ -9501,6 +9508,10 @@ impl ControlPlane {
         for model in self.0.database.provider_models().await? {
             signature_text(&mut digest, &model.id);
             signature_i64(&mut digest, model.revision);
+        }
+        if let Some(rules) = self.0.database.payload_rules().await? {
+            signature_text(&mut digest, "payload-rules");
+            signature_i64(&mut digest, rules.revision);
         }
         for (tenant, provider, revision) in self.0.database.model_activation_defaults().await? {
             signature_text(&mut digest, &tenant);

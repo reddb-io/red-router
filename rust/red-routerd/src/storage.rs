@@ -2,8 +2,11 @@
 //!
 //! Each process selects one database authority; connection errors never fall
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
+#[path = "payload_rules_storage.rs"]
+mod payload_rules_storage;
 #[path = "provider_models_storage.rs"]
 mod provider_models_storage;
+pub use payload_rules_storage::StoredPayloadRules;
 pub(crate) use provider_models_storage::CREATE_ACTIVATION_DEFAULTS;
 pub use provider_models_storage::{ModelCompat, ModelCompatProtocol, StoredProviderModel};
 #[path = "model_aliases_storage.rs"]
@@ -797,6 +800,7 @@ impl Database {
                         provider_default_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
+                        payload_rules_storage::CREATE,
                         model_aliases_storage::CREATE,
                         model_aliases_storage::STATE,
                         provider_node_binding_storage::CREATE,
@@ -939,6 +943,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_models_storage::CREATE)
                     .await?;
+                db.remote_schema_query(payload_rules_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(provider_nodes_storage::CREATE)
                     .await?;
                 db.remote_schema_query(provider_node_binding_storage::CREATE)
@@ -1072,6 +1078,7 @@ impl Database {
                     provider_default_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
+                    payload_rules_storage::CREATE,
                     model_aliases_storage::CREATE,
                     model_aliases_storage::STATE,
                     provider_node_binding_storage::CREATE,
