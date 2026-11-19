@@ -296,7 +296,10 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         .status(),
         StatusCode::OK
     );
-    for (combo, model) in [("model-headers", "fixture-model"), ("other-headers", "other-model")] {
+    for (combo, model) in [
+        ("model-headers", "fixture-model"),
+        ("other-headers", "other-model"),
+    ] {
         assert_eq!(
             admin_put(
                 format!("{base}/api/admin/combos/{combo}"),
@@ -310,7 +313,9 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let created: serde_json::Value = client
         .post(format!("{base}/api/admin/provider-models"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model"}}))
+        .json(
+            &serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model"}}),
+        )
         .send()
         .await
         .unwrap()
@@ -445,7 +450,11 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let sent = bodies.lock().unwrap().last().unwrap().clone();
     assert_eq!(sent["messages"][0]["role"], "system");
     // preserve_video_url keeps the video block for this model.
-    assert_eq!(sent["messages"][1]["content"][1]["type"], "video_url");.as_str().unwrap().to_owned();
+    assert_eq!(sent["messages"][1]["content"][1]["type"], "video_url");
+    let id = sent["messages"][2]["tool_calls"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert_eq!(id.len(), 9);
     assert!(id.bytes().all(|byte| byte.is_ascii_alphanumeric()));
     assert_eq!(sent["messages"][3]["tool_call_id"], id.as_str());
@@ -453,7 +462,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let mut other = history;
     other["model"] = serde_json::json!("other-headers");
     assert_eq!(
-        chat_model_with_body(&client, &base, CLIENT_KEY, other)
+        chat_model_with_body(&client, &base, CLIENT_KEY, other.clone())
             .await
             .status(),
         StatusCode::OK
@@ -463,6 +472,49 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         sent["messages"][2]["tool_calls"][0]["id"],
         "call_long_client_identifier"
     );
+    // Global payload rules (legacy settings.payloadRules) apply to the
+    // translated body of matching models.
+    let rules_endpoint = format!("{base}/api/admin/payload-rules");
+    assert_eq!(
+        client.get(&rules_endpoint).send().await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let saved: serde_json::Value = client
+        .put(&rules_endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .json(&serde_json::json!({"rules":{
+            "override":[{"models":[{"name":"other-*","protocol":"openai"}],"params":{"temperature":0.1}}],
+            "filter":[{"models":[{"name":"other-model"}],"params":["stream_options"]}]
+        }}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(saved["rules"]["override"][0]["params"]["temperature"], 0.1);
+    assert_eq!(
+        client
+            .put(&rules_endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"rules":{}}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let mut ruled = other.clone();
+    ruled["stream_options"] = serde_json::json!({"include_usage": true});
+    assert_eq!(
+        chat_model_with_body(&client, &base, CLIENT_KEY, ruled)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let ruled_sent = bodies.lock().unwrap().last().unwrap().clone();
+    assert_eq!(ruled_sent["temperature"], 0.1);
+    assert!(ruled_sent.get("stream_options").is_none());
     // An openai-compatible provider keeps the developer role by default, and
     // drops Moonshot's video block unless the model keeps it.
     assert_eq!(sent["messages"][0]["role"], "developer");
