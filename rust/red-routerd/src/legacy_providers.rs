@@ -22,23 +22,51 @@ fn terminal_status_code(status: Option<&str>) -> Result<Option<i64>, &'static st
     }
 }
 
-/// Record a terminal legacy health state as the connection's native
-/// terminal availability, which only an operator reset clears.
-async fn record_terminal_status(
+/// A legacy `rate_limited_until` still ahead of `now_ms`, as epoch
+/// milliseconds. A past or unparseable value is cleared, as the legacy
+/// startup sweep (`clearStaleCrashCooldowns`) does; a future one is kept,
+/// since it can be a multi-day quota cooldown.
+fn pending_cooldown_ms(value: Option<&str>, now_ms: i64) -> Option<i64> {
+    let parsed = time::OffsetDateTime::parse(
+        value?.trim(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .ok()?;
+    let until = i64::try_from(parsed.unix_timestamp_nanos() / 1_000_000).ok()?;
+    (until > now_ms).then_some(until)
+}
+
+fn unix_now_ms() -> Result<i64, &'static str> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
+        .ok_or("invalid system clock")
+}
+
+/// Carry a connection's legacy health over as its native availability: a
+/// terminal state, which only an operator reset clears, or else a pending
+/// cooldown with the legacy backoff level.
+async fn record_imported_availability(
     db: &mut SqliteConnection,
     id: &str,
-    status: Option<i64>,
+    terminal: Option<i64>,
+    cooldown_until_ms: Option<i64>,
+    backoff_level: i64,
 ) -> Result<(), &'static str> {
-    let Some(status) = status else {
-        return Ok(());
+    let (until, backoff, status) = match (terminal, cooldown_until_ms) {
+        (Some(status), _) => (i64::MAX, 1, status),
+        (None, Some(until)) => (until, backoff_level.clamp(1, 16), 429),
+        (None, None) => return Ok(()),
     };
     sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_provider_availability (provider_id TEXT PRIMARY KEY, cooldown_until_unix_ms BIGINT NOT NULL, backoff_level BIGINT NOT NULL, last_status BIGINT NOT NULL, model_lockouts_json TEXT NOT NULL, revision BIGINT NOT NULL)")
         .execute(&mut *db)
         .await
         .map_err(|_| "cannot initialize provider availability")?;
-    sqlx::query("INSERT INTO redrouter_provider_availability (provider_id,cooldown_until_unix_ms,backoff_level,last_status,model_lockouts_json,revision) VALUES (?,?,1,?,'[]',1)")
+    sqlx::query("INSERT INTO redrouter_provider_availability (provider_id,cooldown_until_unix_ms,backoff_level,last_status,model_lockouts_json,revision) VALUES (?,?,?,?,'[]',1)")
         .bind(id)
-        .bind(i64::MAX)
+        .bind(until)
+        .bind(backoff)
         .bind(status)
         .execute(&mut *db)
         .await
@@ -243,9 +271,16 @@ async fn adopt_oauth(
             Some(value) => value.as_i64().filter(|value| crate::control_plane::valid_provider_priority(*value)).ok_or("invalid legacy provider priority")?,
             None => return Err("unsupported staged provider schema"),
         };
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "global_priority", "backoff_level", "rate_limit_protection"] {
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "global_priority", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
+        // The backoff level and a pending cooldown are runtime health; a
+        // future cooldown carries over (see pending_cooldown_ms).
+        let backoff_level = match object.get("backoff_level") {
+            None | Some(serde_json::Value::Null) => 0,
+            Some(value) => value.as_i64().filter(|level| *level >= 0).ok_or("invalid legacy provider backoff")?,
+        };
+        let cooldown_until = pending_cooldown_ms(text("rate_limited_until")?, unix_now_ms()?);
         for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
         }
@@ -426,7 +461,7 @@ async fn adopt_oauth(
         sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut db).await.map_err(|_| "cannot initialize provider migration state")?;
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
-        record_terminal_status(&mut db, id, terminal).await?;
+        record_imported_availability(&mut db, id, terminal, cooldown_until, backoff_level).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
         }
@@ -662,7 +697,15 @@ pub async fn import(
             Err(_) => return Err("invalid legacy provider priority"),
         };
         if !crate::control_plane::valid_provider_priority(priority) { return Err("invalid legacy provider priority"); }
-        for field in ["global_priority", "backoff_level", "rate_limit_protection", "health_check_interval"] {
+        // The backoff level and a pending cooldown are runtime health; a
+        // future cooldown carries over (see pending_cooldown_ms).
+        let backoff_level = match row.try_get::<Option<i64>, _>("backoff_level") {
+            Ok(None) | Err(sqlx::Error::ColumnNotFound(_)) => 0,
+            Ok(Some(level)) if level >= 0 => level,
+            Ok(Some(_)) | Err(_) => return Err("invalid legacy provider backoff"),
+        };
+        let cooldown_until = pending_cooldown_ms(text("rate_limited_until")?.as_deref(), unix_now_ms()?);
+        for field in ["global_priority", "rate_limit_protection", "health_check_interval"] {
             match row.try_get::<Option<i64>, _>(field) {
                 Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
                 Ok(_) => return Err("legacy provider selection or health policy requires migration"),
@@ -712,7 +755,7 @@ pub async fn import(
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration (provider_id,source_enabled) VALUES (?,?)").bind(id).bind(i64::from(source_enabled)).execute(&mut *target).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
-        record_terminal_status(&mut target, id, terminal).await?;
+        record_imported_availability(&mut target, id, terminal, cooldown_until, backoff_level).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
         }
@@ -755,5 +798,61 @@ pub async fn import(
             let _ = snapshot.rollback().await;
             Err(error)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_future_legacy_cooldowns_carry_over() {
+        let now = 1_800_000_000_000;
+        assert_eq!(
+            pending_cooldown_ms(Some(" 2099-01-01T00:00:00.000Z "), now),
+            Some(4_070_908_800_000)
+        );
+        assert_eq!(pending_cooldown_ms(Some("2020-01-01T00:00:00Z"), now), None);
+        assert_eq!(pending_cooldown_ms(Some("not a date"), now), None);
+        assert_eq!(pending_cooldown_ms(None, now), None);
+    }
+
+    #[test]
+    fn legacy_health_states_map_to_native_terminal_statuses() {
+        assert_eq!(terminal_status_code(Some("expired")), Ok(Some(401)));
+        assert_eq!(
+            terminal_status_code(Some("credits_exhausted")),
+            Ok(Some(402))
+        );
+        assert_eq!(terminal_status_code(Some("deactivated")), Ok(Some(403)));
+        assert_eq!(terminal_status_code(Some("degraded")), Ok(None));
+        assert_eq!(terminal_status_code(None), Ok(None));
+        assert!(terminal_status_code(Some("mystery")).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_terminal_state_wins_over_a_pending_cooldown() {
+        let mut db = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        let future = 9_999_999_999_999;
+        record_imported_availability(&mut db, "a", None, Some(future), 40)
+            .await
+            .unwrap();
+        record_imported_availability(&mut db, "b", Some(403), Some(future), 2)
+            .await
+            .unwrap();
+        record_imported_availability(&mut db, "c", None, None, 3)
+            .await
+            .unwrap();
+        let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as("SELECT provider_id,cooldown_until_unix_ms,backoff_level,last_status FROM redrouter_provider_availability ORDER BY provider_id")
+            .fetch_all(&mut db)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("a".to_owned(), future, 16, 429),
+                ("b".to_owned(), i64::MAX, 1, 403),
+            ]
+        );
     }
 }

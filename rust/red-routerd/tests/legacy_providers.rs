@@ -338,7 +338,6 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .unwrap();
     for field in [
         "global_priority",
-        "backoff_level",
         "rate_limit_protection",
         "health_check_interval",
     ] {
