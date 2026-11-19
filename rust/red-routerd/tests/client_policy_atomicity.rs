@@ -45,6 +45,7 @@ fn policy(revision: i64) -> StoredClientKey {
         }
         .into(),
         allowed_combos_json: format!("[\"combo/team-{revision}\"]"),
+        catalog_policy_json: "{}".to_owned(),
         access_schedule_json: format!(
             r#"{{"enabled":{},"from":"08:00","until":"18:00","days":[1],"tz":"UTC"}}"#,
             revision % 2 == 0

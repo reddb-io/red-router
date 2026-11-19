@@ -883,6 +883,10 @@ pub struct ClientKeyInput {
     pub model_access_mode: Option<String>,
     #[serde(default, deserialize_with = "present_combo_grants")]
     pub allowed_combos: Option<Option<Vec<String>>>,
+    /// Omitted keeps the stored catalog scope.
+    pub catalog_scope: Option<crate::client_key_catalog::CatalogScope>,
+    /// Omitted keeps whether `auto` combos are listed.
+    pub list_auto_combos: Option<bool>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -916,6 +920,10 @@ pub struct ClientKeyIssueInput {
     pub model_access_mode: Option<String>,
     #[serde(default, deserialize_with = "present_combo_grants")]
     pub allowed_combos: Option<Option<Vec<String>>>,
+    /// Omitted keeps the stored catalog scope.
+    pub catalog_scope: Option<crate::client_key_catalog::CatalogScope>,
+    /// Omitted keeps whether `auto` combos are listed.
+    pub list_auto_combos: Option<bool>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -1067,6 +1075,8 @@ impl ClientKeyIssueInput {
             model_id_format: self.model_id_format,
             model_access_mode: self.model_access_mode,
             allowed_combos: self.allowed_combos,
+            catalog_scope: self.catalog_scope,
+            list_auto_combos: self.list_auto_combos,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
             access_schedule: self.access_schedule,
@@ -1097,6 +1107,8 @@ pub struct ClientKeyView {
     pub model_id_format: String,
     pub model_access_mode: String,
     pub allowed_combos: Option<Vec<String>>,
+    pub catalog_scope: crate::client_key_catalog::CatalogScope,
+    pub list_auto_combos: bool,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub access_schedule: Option<AccessScheduleConfig>,
@@ -8228,6 +8240,21 @@ impl ControlPlane {
                     .as_ref()
                     .map_or_else(|| "null".to_owned(), |key| key.allowed_combos_json.clone()),
             },
+            catalog_policy_json: {
+                let mut catalog = match &existing {
+                    Some(key) => {
+                        crate::client_key_catalog::CatalogPolicy::decode(&key.catalog_policy_json)?
+                    }
+                    None => crate::client_key_catalog::CatalogPolicy::default(),
+                };
+                if let Some(scope) = input.catalog_scope {
+                    catalog.catalog_scope = scope;
+                }
+                if let Some(listed) = input.list_auto_combos {
+                    catalog.list_auto_combos = listed;
+                }
+                catalog.encode()
+            },
             model_access_mode: effective_model_access_mode(
                 input
                     .model_access_mode
@@ -12036,6 +12063,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         value if value > 0 => Some(value as u64),
         _ => return Err("invalid client key expiry"),
     };
+    let catalog = crate::client_key_catalog::CatalogPolicy::decode(&record.catalog_policy_json)?;
     Ok(ClientKeyView {
         model_matching: model_matching.name(),
         id: record.id.clone(),
@@ -12055,6 +12083,8 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         allowed_endpoints: parse_list(&record.allowed_endpoints_json)?,
         allowed_models,
         allowed_combos: decode_combo_grants(&record.allowed_combos_json)?,
+        catalog_scope: catalog.catalog_scope,
+        list_auto_combos: catalog.list_auto_combos,
         blocked_models: parse_list(&record.blocked_models_json)?,
         allowed_provider_ids: parse_list(&record.allowed_provider_ids_json)?,
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
@@ -12967,6 +12997,10 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         model_id_format: view.model_id_format,
         model_access_restricted: view.model_access_mode == "restricted",
         allowed_combos: view.allowed_combos,
+        catalog: crate::client_key_catalog::CatalogPolicy {
+            catalog_scope: view.catalog_scope,
+            list_auto_combos: view.list_auto_combos,
+        },
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,

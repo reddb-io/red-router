@@ -15,6 +15,8 @@ pub use model_aliases_storage::StoredModelAlias;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
+#[path = "client_key_catalog_storage.rs"]
+mod client_key_catalog_storage;
 #[path = "provider_concurrency_storage.rs"]
 mod provider_concurrency_storage;
 pub(crate) use provider_concurrency_storage::MAX_PROVIDER_CONCURRENCY;
@@ -115,6 +117,8 @@ const LIST_SQL_CLIENT_KEY_SNAPSHOT: &str = r#"SELECT
     CASE WHEN m.key_id IS NULL THEN 'all' ELSE m.model_access_mode END AS model_access_mode,
     CASE WHEN c.key_id IS NULL THEN k.revision ELSE c.revision END AS combo_access_revision,
     CASE WHEN c.key_id IS NULL THEN 'null' ELSE c.allowed_combos_json END AS allowed_combos_json,
+    CASE WHEN g.key_id IS NULL THEN k.revision ELSE g.revision END AS catalog_revision,
+    CASE WHEN g.key_id IS NULL THEN '{}' ELSE g.catalog_policy_json END AS catalog_policy_json,
     CASE WHEN o.key_id IS NULL THEN k.revision ELSE o.revision END AS ownership_revision,
     CASE WHEN o.key_id IS NULL THEN 'red' ELSE o.tenant_id END AS tenant_id,
     CASE WHEN o.key_id IS NULL THEN 'legacy' ELSE o.created_by END AS created_by,
@@ -129,6 +133,7 @@ LEFT JOIN redrouter_control_client_key_preferences p ON p.key_id = k.id
 LEFT JOIN redrouter_control_client_key_schedules s ON s.key_id = k.id
 LEFT JOIN redrouter_control_client_key_model_access m ON m.key_id = k.id
 LEFT JOIN redrouter_control_client_key_combo_access c ON c.key_id = k.id
+LEFT JOIN redrouter_control_client_key_catalog g ON g.key_id = k.id
 LEFT JOIN redrouter_control_client_key_ownership o ON o.key_id = k.id
 LEFT JOIN redrouter_control_client_key_quotas q ON q.key_id = k.id
 ORDER BY k.revision DESC, k.id ASC"#;
@@ -362,6 +367,8 @@ pub struct StoredClientKey {
     pub access_schedule_json: String,
     pub model_access_mode: String,
     pub allowed_combos_json: String,
+    /// See `client_key_catalog::CatalogPolicy`; `{}` is the default policy.
+    pub catalog_policy_json: String,
     pub tenant_id: String,
     pub created_by: String,
     pub max_tokens_per_minute: i64,
@@ -817,6 +824,7 @@ impl Database {
                         CREATE_CLIENT_KEY_SCHEDULES,
                         CREATE_CLIENT_KEY_MODEL_ACCESS,
                         CREATE_CLIENT_KEY_COMBO_ACCESS,
+                        client_key_catalog_storage::CREATE,
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_AUDIT_EVENTS,
@@ -967,6 +975,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_COMBO_ACCESS)
                     .await?;
+                db.remote_schema_query(client_key_catalog_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_AUDIT_EVENTS).await?;
@@ -1098,6 +1108,7 @@ impl Database {
                     CREATE_CLIENT_KEY_SCHEDULES,
                     CREATE_CLIENT_KEY_MODEL_ACCESS,
                     CREATE_CLIENT_KEY_COMBO_ACCESS,
+                    client_key_catalog_storage::CREATE,
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_AUDIT_EVENTS,
@@ -2829,6 +2840,20 @@ impl Database {
             }
             key.allowed_combos_json = access.allowed_combos_json;
         }
+        for catalog in self.client_key_catalogs().await? {
+            let Some(key) = key_indices
+                .get(&catalog.key_id)
+                .and_then(|index| keys.get_mut(*index))
+            else {
+                // Sidecars are committed first. An orphan from a failed key
+                // insert is inert and can be ignored.
+                continue;
+            };
+            if key.revision != catalog.revision {
+                return Err("client key catalog policy revision mismatch");
+            }
+            key.catalog_policy_json = catalog.catalog_policy_json;
+        }
         for ownership in self.client_key_ownerships().await? {
             let Some(key) = key_indices
                 .get(&ownership.key_id)
@@ -2874,6 +2899,7 @@ impl Database {
         }
         if !matches!(self, Self::Sql(_)) {
             self.upsert_client_key_combo_access(key).await?;
+            self.upsert_client_key_catalog(key).await?;
             self.upsert_client_key_model_access(key).await?;
             self.upsert_client_key_preference(key).await?;
             self.upsert_client_key_schedule(key).await?;
@@ -2892,6 +2918,14 @@ impl Database {
                     .execute(&mut *transaction)
                     .await
                     .map_err(|_| "cannot write client key combo grants")?;
+
+                sqlx::query(client_key_catalog_storage::UPSERT)
+                    .bind(&key.id)
+                    .bind(&key.catalog_policy_json)
+                    .bind(key.revision)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "cannot write client key catalog policy")?;
 
                 sqlx::query(UPSERT_CLIENT_KEY_MODEL_ACCESS)
                     .bind(&key.id)
@@ -5628,6 +5662,10 @@ fn read_sql_client_key_snapshot(row: &sqlx::any::AnyRow) -> Result<StoredClientK
             "client key combo grants revision mismatch",
         ),
         (
+            "catalog_revision",
+            "client key catalog policy revision mismatch",
+        ),
+        (
             "ownership_revision",
             "client key ownership revision mismatch",
         ),
@@ -5652,6 +5690,9 @@ fn read_sql_client_key_snapshot(row: &sqlx::any::AnyRow) -> Result<StoredClientK
         .map_err(|_| "invalid client key snapshot")?;
     key.allowed_combos_json = row
         .try_get("allowed_combos_json")
+        .map_err(|_| "invalid client key snapshot")?;
+    key.catalog_policy_json = row
+        .try_get("catalog_policy_json")
         .map_err(|_| "invalid client key snapshot")?;
     key.tenant_id = row
         .try_get("tenant_id")
@@ -5701,6 +5742,7 @@ fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'sta
         access_schedule_json: String::new(),
         model_access_mode: "all".to_owned(),
         allowed_combos_json: "null".to_owned(),
+        catalog_policy_json: "{}".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
         max_tokens_per_minute: 0,
@@ -5745,6 +5787,7 @@ fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'s
         access_schedule_json: String::new(),
         model_access_mode: "all".to_owned(),
         allowed_combos_json: "null".to_owned(),
+        catalog_policy_json: "{}".to_owned(),
         tenant_id: "red".to_owned(),
         created_by: "legacy".to_owned(),
         max_tokens_per_minute: 0,

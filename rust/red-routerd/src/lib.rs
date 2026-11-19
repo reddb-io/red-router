@@ -10,6 +10,7 @@ mod catalog_combo_routing;
 mod catalog_listing;
 mod catalog_order;
 mod circuit;
+pub mod client_key_catalog;
 pub mod control_plane;
 mod daily_quota_reset;
 pub mod fastllm_control;
@@ -3109,6 +3110,15 @@ fn listed_models(
         if route.public_model_alias.is_some() && wildcard_router::is_pattern(id) {
             continue;
         }
+        // The key's catalog policy decides which kinds of row it lists.
+        let listed = if route.public_model_alias.is_none() {
+            policy.catalog_lists_combo(id)
+        } else {
+            policy.catalog_lists_models()
+        };
+        if !listed {
+            continue;
+        }
         if !policy.tenant_allowed(&route.tenant_id)
             || (route.public_model_alias.is_none() && !policy.combo_allowed(id))
             || !policy.endpoint_allowed(route_category(route.protocol))
@@ -3513,6 +3523,9 @@ async fn authorized_models(
             })?
             .as_secs();
         for (id, metadata) in direct {
+            if !policy.catalog_lists_models() {
+                break;
+            }
             // A configured combo or alias wins dispatch, even if it is disabled.
             if aliases.resolve(tenant, &id).is_some()
                 || routes

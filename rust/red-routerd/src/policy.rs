@@ -26,6 +26,7 @@ pub(crate) struct ClientPolicy {
     scopes: Vec<String>,
     allowed_routes: Option<Vec<String>>,
     allowed_combos: Option<Vec<String>>,
+    catalog: crate::client_key_catalog::CatalogPolicy,
     allowed_models: Option<Vec<String>>,
     allowed_endpoints: Vec<String>,
     blocked_models: Vec<String>,
@@ -59,6 +60,7 @@ pub(crate) struct StoredPolicy {
     pub model_id_format: String,
     pub model_access_restricted: bool,
     pub allowed_combos: Option<Vec<String>>,
+    pub catalog: crate::client_key_catalog::CatalogPolicy,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -219,6 +221,7 @@ impl ClientPolicies {
                 scopes: Vec::new(),
                 allowed_routes: None,
                 allowed_combos: None,
+                catalog: crate::client_key_catalog::CatalogPolicy::default(),
                 allowed_models: None,
                 allowed_endpoints: Vec::new(),
                 blocked_models: Vec::new(),
@@ -282,6 +285,7 @@ impl ClientPolicies {
                     allowed_routes: None,
                     allowed_models,
                     allowed_combos: policy.allowed_combos,
+                    catalog: policy.catalog,
                     allowed_endpoints: policy.allowed_endpoints,
                     blocked_models: policy.blocked_models,
                     allowed_provider_ids: policy.allowed_provider_ids,
@@ -430,6 +434,7 @@ impl ClientPolicies {
                 scopes: Vec::new(),
                 allowed_routes,
                 allowed_combos: None,
+                catalog: crate::client_key_catalog::CatalogPolicy::default(),
                 allowed_models,
                 allowed_endpoints,
                 blocked_models,
@@ -632,6 +637,17 @@ impl ClientPolicy {
                         .as_ref()
                         .is_some_and(|name| self.model_matching.matches(patterns, name))
             })
+    }
+
+    /// Whether the key's `/v1/models` lists this combo (legacy catalog
+    /// scope and auto-combo listing).
+    pub(crate) fn catalog_lists_combo(&self, combo: &str) -> bool {
+        self.catalog.lists_combo(combo)
+    }
+
+    /// Whether the key's `/v1/models` lists model (non-combo) rows.
+    pub(crate) fn catalog_lists_models(&self) -> bool {
+        self.catalog.lists_models()
     }
 
     pub(crate) fn target_allowed(&self, model: &str) -> bool {

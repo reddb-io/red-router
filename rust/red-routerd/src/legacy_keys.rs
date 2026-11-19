@@ -163,7 +163,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 .is_ok_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")),
             _ => return Err("invalid legacy Claude routing setting; no keys imported"),
         };
-        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_combo_access", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
+        for table in ["redrouter_control_client_keys", "redrouter_control_client_key_preferences", "redrouter_control_client_key_schedules", "redrouter_control_client_key_model_access", "redrouter_control_client_key_combo_access", "redrouter_control_client_key_catalog", "redrouter_control_client_key_ownership", "redrouter_control_client_key_quotas"] {
             let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
                 .fetch_one(&mut *target).await.map_err(|_| "destination key schema unavailable")?;
             if count != 0 { return Err("destination key tables must be empty; no keys imported"); }
@@ -221,16 +221,30 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             // out of prompt compression and the semantic cache. The native
             // gateway has neither, so both opt-outs already hold for every key
             // (any such feature added later must honor a per-key opt-out).
-            if !matches!(number("compression_enabled")?, Some(0 | 1)) || number("allow_auto_combos")? != Some(1) {
+            if !matches!(number("compression_enabled")?, Some(0 | 1)) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;
-            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy" | "bypass")) {
+            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy" | "bypass")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
+            // The catalog scope and auto-combo listing shape what the key
+            // lists in /v1/models (client_key_catalog).
+            let catalog = crate::client_key_catalog::CatalogPolicy {
+                catalog_scope: get("catalog_scope")?
+                    .as_deref()
+                    .and_then(crate::client_key_catalog::CatalogScope::parse_legacy)
+                    .ok_or("unsupported legacy catalog scope; no keys imported")?,
+                list_auto_combos: match number("allow_auto_combos")? {
+                    Some(1) => true,
+                    Some(0) => false,
+                    _ => return Err("invalid legacy auto-combo listing flag; no keys imported"),
+                },
+            }
+            .encode();
             let raw_combos = get("allowed_combos")?;
             let allowed_connections = import_connection_grants(get("allowed_connections")?.as_deref())?;
             let allowed_models = import_model_patterns(get("allowed_models")?.as_deref())?;
@@ -281,6 +295,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_combo_access (key_id,allowed_combos_json,revision) VALUES (?,?,1)").bind(&id).bind(combos).execute(&mut *target).await.map_err(|_| "cannot write key combo grants")?;
+            sqlx::query("INSERT INTO redrouter_control_client_key_catalog (key_id,catalog_policy_json,revision) VALUES (?,?,1)").bind(&id).bind(&catalog).execute(&mut *target).await.map_err(|_| "cannot write key catalog policy")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_model_access (key_id,model_access_mode,revision) VALUES (?,?,1)").bind(&id).bind(model_access_mode).execute(&mut *target).await.map_err(|_| "cannot write key model access mode")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_schedules (key_id,schedule_json,revision) VALUES (?,?,1)").bind(&id).bind(schedule).execute(&mut *target).await.map_err(|_| "cannot write key schedule")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_ownership (key_id,tenant_id,created_by,revision) VALUES (?,?,'legacy-migration',1)").bind(&id).bind(&tenant).execute(&mut *target).await.map_err(|_| "cannot write key ownership")?;
