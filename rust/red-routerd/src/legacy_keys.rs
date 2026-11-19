@@ -224,7 +224,16 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if !matches!(number("compression_enabled")?, Some(0 | 1)) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
-            for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_quotas"] {
+            // The legacy router stores and returns ip_allowlist but never
+            // enforces it (no request path reads it), so a valid list of
+            // address strings imports without granting or removing access.
+            if let Some(raw) = get("ip_allowlist")?.filter(|raw| !raw.trim().is_empty()) {
+                let entries: Vec<String> = serde_json::from_str(&raw).map_err(|_| "invalid legacy key IP allowlist; no keys imported")?;
+                if entries.len() > 1_000 || entries.iter().any(|entry| entry.is_empty() || entry.len() > 128 || entry.chars().any(char::is_control)) {
+                    return Err("invalid legacy key IP allowlist; no keys imported");
+                }
+            }
+            for field in ["scopes", "rate_limits", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;

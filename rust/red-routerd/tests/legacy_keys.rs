@@ -336,7 +336,7 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET no_log=1,auto_resolve=1,compression_enabled=0,cache_default_mode='bypass',catalog_scope='models',allow_auto_combos=0,disable_non_public_models=1,max_requests_per_minute=30,max_requests_per_day=1000,allowed_endpoints='[\"chat\",\"models\",\"chat\"]' WHERE id='first';")
+    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET no_log=1,auto_resolve=1,compression_enabled=0,cache_default_mode='bypass',catalog_scope='models',allow_auto_combos=0,disable_non_public_models=1,ip_allowlist='[\"10.0.0.0/8\"]',max_requests_per_minute=30,max_requests_per_day=1000,allowed_endpoints='[\"chat\",\"models\",\"chat\"]' WHERE id='first';")
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
