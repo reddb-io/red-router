@@ -19,6 +19,7 @@ pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
 mod icon_url;
+mod idempotency;
 mod kafka_export;
 pub mod legacy_aliases;
 pub mod legacy_archive;
@@ -3921,16 +3922,27 @@ fn availability_blocked_error(
     response
 }
 
+// Chat-like routes replay a completed request for a repeated idempotency key
+// (legacy chatCore idempotency).
 async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::OpenAi, None).await
+    idempotency::with_idempotency(request, |request| {
+        proxy_request(state, request, ProviderProtocol::OpenAi, None)
+    })
+    .await
 }
 
 async fn messages(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::Anthropic, None).await
+    idempotency::with_idempotency(request, |request| {
+        proxy_request(state, request, ProviderProtocol::Anthropic, None)
+    })
+    .await
 }
 
 async fn responses(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::OpenAiResponses, None).await
+    idempotency::with_idempotency(request, |request| {
+        proxy_request(state, request, ProviderProtocol::OpenAiResponses, None)
+    })
+    .await
 }
 
 async fn embeddings(State(state): State<ProxyState>, request: Request) -> Response {

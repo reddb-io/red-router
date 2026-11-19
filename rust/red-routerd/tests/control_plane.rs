@@ -12052,3 +12052,5 @@ include!("cases/client_key_public_models.rs");
 include!("cases/client_key_limits.rs");
 
 include!("cases/banned_signals.rs");
+
+include!("cases/idempotency.rs");
