@@ -22,6 +22,10 @@ pub struct ModelCompat {
     /// Rewrite tool call IDs to 9 characters (`normalizeToolCallId`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalize_tool_call_id: Option<bool>,
+    /// Keep (`true`) or map to `system` (`false`) the OpenAI `developer` role
+    /// (`preserveOpenAIDeveloperRole`); unset uses the provider default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_openai_developer_role: Option<bool>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub by_protocol: std::collections::BTreeMap<String, ModelCompatProtocol>,
 }
@@ -31,15 +35,29 @@ pub struct ModelCompat {
 pub struct ModelCompatProtocol {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalize_tool_call_id: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_openai_developer_role: Option<bool>,
+}
+
+impl ModelCompatProtocol {
+    fn is_empty(&self) -> bool {
+        self.normalize_tool_call_id.is_none() && self.preserve_openai_developer_role.is_none()
+    }
 }
 
 impl ModelCompat {
     pub fn is_empty(&self) -> bool {
         self.normalize_tool_call_id.is_none()
-            && self
-                .by_protocol
-                .values()
-                .all(|protocol| protocol.normalize_tool_call_id.is_none())
+            && self.preserve_openai_developer_role.is_none()
+            && self.by_protocol.values().all(ModelCompatProtocol::is_empty)
+    }
+
+    /// Legacy `getModelPreserveOpenAIDeveloperRole` for a client protocol.
+    pub fn preserve_openai_developer_role(&self, protocol: Option<&str>) -> Option<bool> {
+        protocol
+            .and_then(|protocol| self.by_protocol.get(protocol))
+            .and_then(|scoped| scoped.preserve_openai_developer_role)
+            .or(self.preserve_openai_developer_role)
     }
 
     /// Legacy `getModelNormalizeToolCallId` for a client protocol.
@@ -261,6 +279,23 @@ mod tests {
         assert!(compat.normalize_tool_call_id(None));
         assert!(!ModelCompat::default().normalize_tool_call_id(Some("openai")));
         assert!(ModelCompat::default().is_empty());
+        let developer: ModelCompat = serde_json::from_value(serde_json::json!({
+            "preserve_openai_developer_role": false,
+            "by_protocol": {"openai-responses": {"preserve_openai_developer_role": true}}
+        }))
+        .unwrap();
+        assert_eq!(
+            developer.preserve_openai_developer_role(Some("openai")),
+            Some(false)
+        );
+        assert_eq!(
+            developer.preserve_openai_developer_role(Some("openai-responses")),
+            Some(true)
+        );
+        assert_eq!(
+            ModelCompat::default().preserve_openai_developer_role(None),
+            None
+        );
     }
 
     #[tokio::test]

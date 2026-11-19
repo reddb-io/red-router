@@ -86,6 +86,7 @@ fn compat_settings(
     };
     let mut compat = ModelCompat {
         normalize_tool_call_id: flag(object.get("normalizeToolCallId"))?,
+        preserve_openai_developer_role: flag(object.get("preserveOpenAIDeveloperRole"))?,
         ..ModelCompat::default()
     };
     let mut by_protocol = BTreeMap::new();
@@ -95,10 +96,12 @@ fn compat_settings(
     {
         for (protocol, entry) in value.as_object()? {
             let entry = entry.as_object()?;
-            if entry
-                .keys()
-                .any(|key| !matches!(key.as_str(), "upstreamHeaders" | "normalizeToolCallId"))
-            {
+            if entry.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "upstreamHeaders" | "normalizeToolCallId" | "preserveOpenAIDeveloperRole"
+                )
+            }) {
                 return None;
             }
             // The legacy reader only looks up known protocol keys.
@@ -114,13 +117,12 @@ fn compat_settings(
                     by_protocol.insert(protocol.clone(), map);
                 }
             }
-            if let Some(normalize) = flag(entry.get("normalizeToolCallId"))? {
-                compat.by_protocol.insert(
-                    protocol.clone(),
-                    ModelCompatProtocol {
-                        normalize_tool_call_id: Some(normalize),
-                    },
-                );
+            let scoped = ModelCompatProtocol {
+                normalize_tool_call_id: flag(entry.get("normalizeToolCallId"))?,
+                preserve_openai_developer_role: flag(entry.get("preserveOpenAIDeveloperRole"))?,
+            };
+            if scoped != ModelCompatProtocol::default() {
+                compat.by_protocol.insert(protocol.clone(), scoped);
             }
         }
     }
@@ -131,7 +133,10 @@ fn compat_settings(
 fn is_compat_setting(key: &str) -> bool {
     matches!(
         key,
-        "upstreamHeaders" | "compatByProtocol" | "normalizeToolCallId"
+        "upstreamHeaders"
+            | "compatByProtocol"
+            | "normalizeToolCallId"
+            | "preserveOpenAIDeveloperRole"
     )
 }
 

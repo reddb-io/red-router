@@ -36,6 +36,7 @@ pub mod product_provider;
 mod provider_quota;
 pub mod reconcile;
 mod resilience;
+mod role_normalizer;
 pub mod shared_budget;
 pub mod shared_usage;
 pub mod spa;
@@ -624,6 +625,9 @@ pub(crate) struct ModelTarget {
     in_flight: Arc<AtomicUsize>,
     /// The model's `normalizeToolCallId` compatibility flag for this route.
     normalize_tool_call_id: bool,
+    /// The model's `preserveOpenAIDeveloperRole` flag; unset uses the
+    /// provider default.
+    preserve_developer_role: Option<bool>,
 }
 
 impl ModelTarget {
@@ -1690,6 +1694,7 @@ impl ProxyState {
             availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
             normalize_tool_call_id: false,
+            preserve_developer_role: None,
         }
     }
 
@@ -2121,6 +2126,7 @@ impl ProxyState {
                     availability: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
                     normalize_tool_call_id: false,
+                    preserve_developer_role: None,
                 });
             }
             if strategy == RouteStrategy::Weighted
@@ -6899,9 +6905,21 @@ async fn proxy_request(
                     if protocol != ProviderProtocol::Gemini {
                         attempt_parsed["model"] = serde_json::Value::String(target.model.clone());
                     }
-                    if target.normalize_tool_call_id && attempt_protocol == ProviderProtocol::OpenAi
-                    {
-                        tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);
+                    if attempt_protocol == ProviderProtocol::OpenAi {
+                        // Legacy translateRequest: roles for an OpenAI-format target,
+                        // when the account's provider is known.
+                        if let Some(provider) = target.provider_name.as_deref() {
+                            role_normalizer::normalize_roles(
+                                &mut attempt_parsed,
+                                provider,
+                                &target.model,
+                                true,
+                                target.preserve_developer_role,
+                            );
+                        }
+                        if target.normalize_tool_call_id {
+                            tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);
+                        }
                     }
                     serde_json::to_vec(&attempt_parsed).map_err(|_| ())
                 };
@@ -8649,6 +8667,7 @@ mod address_tests {
             availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
             normalize_tool_call_id: false,
+            preserve_developer_role: None,
         };
         assert!(target_quota(&target, 2).unwrap().limit_reached);
         assert!(!quota_preflight_allows(&target, 2, 20_000));

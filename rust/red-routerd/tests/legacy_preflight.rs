@@ -374,7 +374,7 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
     .unwrap();
     sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
         .bind(
-            r#"[{"id":"gpt-headers","normalizeToolCallId":true,"upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
+            r#"[{"id":"gpt-headers","normalizeToolCallId":true,"preserveOpenAIDeveloperRole":false,"upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
                {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}},
                {"id":"custom-headers","upstreamHeaders":{"x-compat":"ignored"}}]"#,
         )
@@ -472,11 +472,9 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
     let custom_compat = custom.compat.as_ref().unwrap();
     assert!(custom_compat.normalize_tool_call_id(Some("openai")));
     assert!(!custom_compat.normalize_tool_call_id(Some("claude")));
-    assert!(headers_only
-        .compat
-        .as_ref()
-        .unwrap()
-        .normalize_tool_call_id(None));
+    let flags = headers_only.compat.as_ref().unwrap();
+    assert!(flags.normalize_tool_call_id(None));
+    assert_eq!(flags.preserve_openai_developer_role(None), Some(false));
     let view: serde_json::Value = reqwest::Client::builder()
         .no_proxy()
         .build()

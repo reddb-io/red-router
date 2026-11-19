@@ -424,13 +424,14 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let edited: serde_json::Value = edited.json().await.unwrap();
     let flagged = admin_put(
         format!("{base}/api/admin/provider-models/{id}"),
-        serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model","name":"Fixture"},"compat":{"normalize_tool_call_id":true},"revision":edited["model"]["revision"]}),
+        serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model","name":"Fixture"},"compat":{"normalize_tool_call_id":true,"preserve_openai_developer_role":false},"revision":edited["model"]["revision"]}),
     )
     .await;
     assert_eq!(flagged.status(), StatusCode::OK);
     let edited: serde_json::Value = flagged.json().await.unwrap();
     assert_eq!(edited["model"]["compat"]["normalize_tool_call_id"], true);
     let history = serde_json::json!({"model":"model-headers","messages":[
+        {"role":"developer","content":"policy"},
         {"role":"user","content":"hi"},
         {"role":"assistant","tool_calls":[{"id":"call_long_client_identifier","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
         {"role":"tool","tool_call_id":"call_long_client_identifier","content":"result"}
@@ -442,10 +443,10 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         StatusCode::OK
     );
     let sent = bodies.lock().unwrap().last().unwrap().clone();
-    let id = sent["messages"][1]["tool_calls"][0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(sent["messages"][0]["role"], "system");.as_str().unwrap().to_owned();
     assert_eq!(id.len(), 9);
     assert!(id.bytes().all(|byte| byte.is_ascii_alphanumeric()));
-    assert_eq!(sent["messages"][2]["tool_call_id"], id.as_str());
+    assert_eq!(sent["messages"][3]["tool_call_id"], id.as_str());
     // Other models keep the client's IDs.
     let mut other = history;
     other["model"] = serde_json::json!("other-headers");
@@ -455,10 +456,13 @@ async fn model_headers_override_account_headers_for_that_model_only() {
             .status(),
         StatusCode::OK
     );
+    let sent = bodies.lock().unwrap().last().unwrap().clone();
     assert_eq!(
-        bodies.lock().unwrap().last().unwrap()["messages"][1]["tool_calls"][0]["id"],
+        sent["messages"][2]["tool_calls"][0]["id"],
         "call_long_client_identifier"
     );
+    // An openai-compatible provider keeps the developer role by default.
+    assert_eq!(sent["messages"][0]["role"], "developer");
     // Clearing the model headers falls back to the account's.
     assert_eq!(
         admin_put(

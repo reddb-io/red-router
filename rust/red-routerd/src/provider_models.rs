@@ -424,10 +424,11 @@ impl ModelOverrides {
         let id = record_id(tenant, provider, &target.model);
         let protocol = client_protocol(target.protocol);
         // Legacy `getModelNormalizeToolCallId`, applied to Chat Completions bodies.
-        target.normalize_tool_call_id = self
-            .compat
-            .get(&id)
-            .is_some_and(|compat| compat.normalize_tool_call_id(protocol));
+        let compat = self.compat.get(&id);
+        target.normalize_tool_call_id =
+            compat.is_some_and(|compat| compat.normalize_tool_call_id(protocol));
+        target.preserve_developer_role =
+            compat.and_then(|compat| compat.preserve_openai_developer_role(protocol));
         let Some(maps) = self.headers.get(&id) else {
             return;
         };
