@@ -41,6 +41,7 @@ mod model_endpoint_policy;
 mod model_permissions;
 mod model_scope_providers;
 mod native_usage;
+mod no_thinking_alias;
 mod oidc;
 mod openai_content;
 mod payload_rules;
@@ -6184,6 +6185,17 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
+    // A no-thinking alias resolves to the real model with reasoning suppressed
+    // before routing sees it (legacy chat handler).
+    let no_thinking_shape = match protocol {
+        ProviderProtocol::Anthropic => Some(no_thinking_alias::ReasoningShape::Messages),
+        ProviderProtocol::OpenAi => Some(no_thinking_alias::ReasoningShape::ChatCompletions),
+        ProviderProtocol::OpenAiResponses => Some(no_thinking_alias::ReasoningShape::Responses),
+        _ => None,
+    };
+    if let Some(shape) = no_thinking_shape {
+        no_thinking_alias::apply_no_thinking_alias(&mut parsed, shape);
+    }
     // The operator's custom system prompt (legacy chatCore) on chat-like requests.
     if matches!(
         protocol,

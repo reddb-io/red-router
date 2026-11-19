@@ -9,6 +9,7 @@
 //! - dashboard: a personal dashboard preference with no gateway behavior,
 //!   dropped;
 //! - diagnostic: an opt-in diagnostic that only adds log lines, dropped;
+//! - equivalent: a value the native gateway already behaves like, dropped;
 //! - imported: migrated by this importer onto native runtime settings;
 //! - refused: a non-default value with no native equivalent yet, or a key
 //!   this inventory does not know. Each refusal blocks the cutover.
@@ -431,6 +432,10 @@ pub enum SettingClass {
         importer: &'static str,
     },
     Dashboard,
+    /// The native gateway already behaves like this value; dropped.
+    Equivalent {
+        reason: &'static str,
+    },
     /// An opt-in diagnostic log line, dropped.
     Diagnostic,
     /// Migrated by this importer onto native runtime settings.
@@ -511,6 +516,13 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Hiding no-think variants matches the native catalog, which does not
+        // advertise them (requests may still name them).
+        "hideNoThinkVariants" if parse_value(raw) == Value::Bool(true) => {
+            return SettingClass::Equivalent {
+                reason: "the native catalog does not list no-think variants",
+            };
+        }
         "customSystemPrompt" => {
             return match parse_value(raw) {
                 Value::String(prompt) if prompt.len() <= 100_000 && !prompt.contains('\0') => {
@@ -869,6 +881,14 @@ mod tests {
         assert_eq!(
             model_lockout_ceiling(r#"{"maxCooldownMs":"9e9"}"#),
             Ok(3_600_000)
+        );
+        assert!(matches!(
+            classify("hideNoThinkVariants", "true"),
+            SettingClass::Equivalent { .. }
+        ));
+        assert_eq!(
+            classify("hideNoThinkVariants", "false"),
+            SettingClass::AtDefault
         );
         assert_eq!(classify("maxBodySizeMb", "25"), SettingClass::Imported);
         assert_eq!(classify("maxBodySizeMb", "0"), SettingClass::AtDefault);

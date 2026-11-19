@@ -12058,3 +12058,5 @@ include!("cases/idempotency.rs");
 include!("cases/custom_system_prompt.rs");
 
 include!("cases/provider_strategies.rs");
+
+include!("cases/no_thinking_alias.rs");
