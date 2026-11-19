@@ -502,9 +502,11 @@ pub async fn import_with_key(
                         None | Some(serde_json::Value::Null) => None,
                         Some(value) => {
                             let Some(map) = value.as_object() else { return Err("invalid legacy model visibility"); };
-                            if map.keys().any(|key| key != "chat") {
-                                overrides.insert((provider.clone(), id.to_owned()));
-                                continue;
+                            // The Rust catalog is the chat registry: only the chat
+                            // decision applies here. Other modalities (images,
+                            // embeddings, ...) stay in the raw visibility staging.
+                            if map.values().any(|hidden| !hidden.is_boolean()) {
+                                return Err("invalid legacy model visibility");
                             }
                             match map.get("chat") {
                                 None => None,

@@ -213,7 +213,7 @@ async fn legacy_custom_model_activation_preserves_default_and_override_precedenc
     .unwrap();
     sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)").bind(r#"[{"id":"default","source":"manual"},{"id":"custom-active","source":"manual","isHidden":false},{"id":"compat-active","source":"manual"},{"id":"custom-wins","source":"manual","isHidden":false},{"id":"scoped-hide","source":"manual"},{"id":"scoped-show","source":"manual"}]"#).execute(&mut legacy).await.unwrap();
     sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
-        .bind(r#"[{"id":"compat-active","isHidden":false},{"id":"custom-wins","isHidden":true},{"id":"scoped-hide","isHidden":false,"hiddenModalities":{"chat":true}},{"id":"scoped-show","isHidden":true,"hiddenModalities":{"chat":false}}]"#)
+        .bind(r#"[{"id":"compat-active","isHidden":false},{"id":"custom-wins","isHidden":true},{"id":"scoped-hide","isHidden":false,"hiddenModalities":{"chat":true,"images":false}},{"id":"scoped-show","isHidden":true,"hiddenModalities":{"chat":false,"embeddings":true}}]"#)
         .execute(&mut legacy)
         .await
         .unwrap();
