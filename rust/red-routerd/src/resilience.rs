@@ -259,7 +259,8 @@ fn banned_text(text: &str) -> bool {
             "account has been disabled",
             "your account has been suspended",
             "this account is deactivated",
-            "service has been disabled in this account for violation",
+            // Antigravity bans; legacy ACCOUNT_DEACTIVATED_SIGNALS lists both.
+            "service has been disabled in this account",
         ],
     )
 }
@@ -278,6 +279,16 @@ fn credits_exhausted_text(text: &str) -> bool {
             "out of credits",
             "payment required",
             "free tier of the model has been exhausted",
+            // Narrower than "has been exhausted", which Gemini also uses for
+            // transient rate limits (legacy #8631).
+            "tier has been exhausted",
+            "insufficient balance",
+            "insufficient_balance",
+            "insufficient account balance",
+            "insufficient credit",
+            "exhausted all your credits",
+            // Shared-wallet providers (Grok Build) report the weekly pool.
+            "usage balance exhausted",
         ],
     )
 }
@@ -343,6 +354,47 @@ fn any_model_exhausted(value: &str) -> bool {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn credit_and_ban_signals_follow_the_legacy_lists() {
+        let class = |status: u16, body: &[u8]| {
+            classify_provider_failure(
+                RateLimitScope::Connection,
+                Some("openai-compatible"),
+                StatusCode::from_u16(status).unwrap(),
+                &HeaderMap::new(),
+                Some(body),
+            )
+        };
+        for body in [
+            &br#"{"error":{"message":"Insufficient account balance"}}"#[..],
+            br#"{"error":{"message":"You have insufficient credits to make this request."}}"#,
+            br#"{"error":{"message":"Your free tier has been exhausted"}}"#,
+            br#"{"error":{"message":"You have exhausted all your credits"}}"#,
+            br#"{"error":{"message":"Usage balance exhausted for this week"}}"#,
+        ] {
+            assert!(
+                matches!(class(400, body), ProviderFailureClass::CreditsExhausted),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
+        // Gemini's transient wording stays a rate limit.
+        assert!(matches!(
+            class(
+                429,
+                br#"{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}"#
+            ),
+            ProviderFailureClass::Transient
+        ));
+        assert!(matches!(
+            class(
+                403,
+                br#"{"error":{"message":"This service has been disabled in this account."}}"#
+            ),
+            ProviderFailureClass::Banned
+        ));
+    }
 
     #[test]
     fn antigravity_credits_retry_is_limited_to_plan_quota_exhaustion() {
