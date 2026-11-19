@@ -260,6 +260,33 @@ fn owner_tenants(
     }
 }
 
+/// Whether an existing destination row is the record this import would
+/// write. Encryption uses a fresh nonce, so a record with headers is compared
+/// without its ciphertext, then by its decrypted header document.
+async fn same_import(
+    existing: Option<&str>,
+    document: &str,
+    record: &StoredProviderModel,
+    headers: Option<&provider_models::HeaderDocument>,
+    storage_key: Option<&str>,
+) -> bool {
+    let (Some(existing), Some(headers), Some(key)) = (existing, headers, storage_key) else {
+        return headers.is_none() && existing == Some(document);
+    };
+    let Ok(mut stored) = serde_json::from_str::<StoredProviderModel>(existing) else {
+        return false;
+    };
+    let Some(ciphertext) = stored.headers_ciphertext.take() else {
+        return false;
+    };
+    let mut expected = record.clone();
+    expected.headers_ciphertext = None;
+    serde_json::to_value(&stored).ok() == serde_json::to_value(&expected).ok()
+        && provider_models::header_document_matches(&record.id, &ciphertext, headers, key)
+            .await
+            .unwrap_or(false)
+}
+
 /// Import without the storage key: model headers found in the legacy
 /// compatibility overrides are refused, since they must be stored encrypted.
 pub async fn import(source: &Path, destination: &Path) -> Result<ModelImport, &'static str> {
@@ -473,9 +500,14 @@ pub async fn import_with_key(
             for item in &models {
                 if seen.len() >= 10_000 { return Err("too many legacy models"); }
                 let object = item.as_object().ok_or("invalid legacy model")?;
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "isHidden")) {
+                // A custom row's own headers replace any compatibility entry's
+                // (legacy getModelUpstreamExtraHeaders reads the row first).
+                let row_headers = compat_headers(object);
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "name" | "source" | "apiFormat" | "supportedEndpoints" | "inputTokenLimit" | "outputTokenLimit" | "supportsThinking" | "isHidden")
+                    && !(row_headers.is_some() && matches!(key.as_str(), "upstreamHeaders" | "compatByProtocol"))) {
                     return Err("legacy model settings require migration");
                 }
+                let row_headers = row_headers.filter(|(all, scoped)| !all.is_empty() || !scoped.is_empty());
                 if object.get("source").is_some_and(|v| v.as_str() != Some("manual"))
                     || object.get("apiFormat").is_some_and(|v| v.as_str() != Some("chat-completions"))
                     || object.get("supportedEndpoints").is_some_and(|v| v != &serde_json::json!(["chat"])) {
@@ -519,13 +551,22 @@ pub async fn import_with_key(
                     if old != 0 { return Err("prior provider-alias model import requires reconciliation"); }
                 }
                 if !seen.insert(identity.clone()) { return Err("duplicate legacy model"); }
-                let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden, visibility_only: false, headers_only: false, headers_ciphertext: None, revision: 1 };
+                let headers_ciphertext = match &row_headers {
+                    None => None,
+                    Some(document) => {
+                        let key = storage_key.ok_or("legacy model headers require the storage encryption key")?;
+                        Some(provider_models::encrypt_header_document(&identity, document.clone(), key).await.map_err(|_| "legacy model headers require migration")?)
+                    }
+                };
+                let record = StoredProviderModel { id: identity.clone(), tenant_id: tenant.clone(), provider: provider.clone(), metadata, hidden, visibility_only: false, headers_only: false, headers_ciphertext, revision: 1 };
                 let namespace = serde_json::to_string(&(&record.tenant_id, &record.provider, &record.metadata.id)).map_err(|_| "invalid model identity")?;
                 let document = serde_json::to_string(&record).map_err(|_| "invalid legacy model")?;
                 let inserted = sqlx::query("INSERT INTO redrouter_control_provider_models (id,tenant_id,namespace,config_json,revision) VALUES (?,?,?,?,1) ON CONFLICT DO NOTHING").bind(&identity).bind(&tenant).bind(&namespace).bind(&document).execute(&mut *target).await.map_err(|_| "cannot import model")?.rows_affected();
                 if inserted == 1 { imported += 1; } else {
                     let existing: Option<String> = sqlx::query_scalar("SELECT config_json FROM redrouter_control_provider_models WHERE id=? AND tenant_id=? AND namespace=?").bind(&identity).bind(&tenant).bind(&namespace).fetch_optional(&mut *target).await.map_err(|_| "cannot verify model")?;
-                    if existing.as_deref() != Some(&document) { return Err("destination contains conflicting model"); }
+                    if !same_import(existing.as_deref(), &document, &record, row_headers.as_ref(), storage_key).await {
+                        return Err("destination contains conflicting model");
+                    }
                     already_present += 1;
                 }
             }
@@ -612,24 +653,9 @@ pub async fn import_with_key(
             if inserted == 1 { imported += 1; } else {
                 let existing: Option<String> = sqlx::query_scalar("SELECT config_json FROM redrouter_control_provider_models WHERE id=? AND tenant_id=? AND namespace=?")
                     .bind(&identity).bind(tenant).bind(&namespace).fetch_optional(&mut *target).await.map_err(|_| "cannot verify model visibility")?;
-                let matches = match (&headers, existing.as_deref()) {
-                    (None, existing) => existing == Some(&document),
-                    // Encryption uses a fresh nonce: compare the record without
-                    // its ciphertext, then the decrypted header document.
-                    (Some(headers), Some(existing)) => {
-                        let mut stored: StoredProviderModel = serde_json::from_str(existing).map_err(|_| "cannot verify model visibility")?;
-                        let ciphertext = stored.headers_ciphertext.take();
-                        let mut expected = record.clone();
-                        expected.headers_ciphertext = None;
-                        let same_record = serde_json::to_value(&stored).ok() == serde_json::to_value(&expected).ok();
-                        match (same_record, ciphertext, storage_key) {
-                            (true, Some(ciphertext), Some(key)) => provider_models::header_document_matches(&identity, &ciphertext, headers, key).await.unwrap_or(false),
-                            _ => false,
-                        }
-                    }
-                    (Some(_), None) => false,
-                };
-                if !matches { return Err("destination contains conflicting model visibility"); }
+                if !same_import(existing.as_deref(), &document, &record, headers.as_ref(), storage_key).await {
+                    return Err("destination contains conflicting model visibility");
+                }
                 already_present += 1;
             }
         }

@@ -375,8 +375,15 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
     sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
         .bind(
             r#"[{"id":"gpt-headers","upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
-               {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}}]"#,
+               {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}},
+               {"id":"custom-headers","upstreamHeaders":{"x-compat":"ignored"}}]"#,
         )
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    // The legacy reader takes a custom row's own headers over compat entries.
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)")
+        .bind(r#"[{"id":"custom-headers","source":"manual","upstreamHeaders":{"x-row":"row-secret"}}]"#)
         .execute(&mut legacy)
         .await
         .unwrap();
@@ -398,12 +405,12 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
     let first = legacy_models::import_with_key(&source, &destination, Some(KEY))
         .await
         .unwrap();
-    assert_eq!((first.imported, first.already_present), (2, 0));
+    assert_eq!((first.imported, first.already_present), (3, 0));
     // A repeat import accepts the same headers despite a fresh nonce.
     let second = legacy_models::import_with_key(&source, &destination, Some(KEY))
         .await
         .unwrap();
-    assert_eq!((second.imported, second.already_present), (0, 2));
+    assert_eq!((second.imported, second.already_present), (0, 3));
     let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
     let models = db.provider_models().await.unwrap();
     let headers_only = models
@@ -457,6 +464,27 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
         view["by_protocol"],
         serde_json::json!({"claude":["x-scope"]})
     );
+    let custom = models
+        .iter()
+        .find(|model| model.metadata.id == "custom-headers")
+        .unwrap();
+    assert!(!custom.visibility_only && !custom.headers_only);
+    let view: serde_json::Value = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!(
+            "{base}/api/admin/provider-models/{}/headers",
+            custom.id
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(view["names"], serde_json::json!(["x-row"]));
     server.abort();
     // A credential header the legacy server would send has no safe equivalent.
     let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
