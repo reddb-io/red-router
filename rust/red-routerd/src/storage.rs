@@ -15,6 +15,9 @@ pub use model_aliases_storage::StoredModelAlias;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
+#[path = "provider_concurrency_storage.rs"]
+mod provider_concurrency_storage;
+pub(crate) use provider_concurrency_storage::MAX_PROVIDER_CONCURRENCY;
 #[path = "provider_default_storage.rs"]
 mod provider_default_storage;
 #[path = "provider_discovery_storage.rs"]
@@ -277,6 +280,8 @@ pub struct StoredProvider {
     pub protocol: String,
     pub priority: i64,
     pub default_model: Option<String>,
+    /// Concurrent requests the account accepts; none means no cap.
+    pub max_concurrent: Option<u32>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -798,6 +803,7 @@ impl Database {
                         provider_protocol_storage::CREATE,
                         provider_priority_storage::CREATE,
                         provider_default_storage::CREATE,
+                        provider_concurrency_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
                         payload_rules_storage::CREATE,
@@ -938,6 +944,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(provider_default_storage::CREATE)
                     .await?;
+                db.remote_schema_query(provider_concurrency_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(model_aliases_storage::STATE).await?;
                 db.remote_schema_query(model_aliases_storage::CREATE)
                     .await?;
@@ -1076,6 +1084,7 @@ impl Database {
                     provider_protocol_storage::CREATE,
                     provider_priority_storage::CREATE,
                     provider_default_storage::CREATE,
+                    provider_concurrency_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
                     payload_rules_storage::CREATE,
@@ -1240,9 +1249,12 @@ impl Database {
         } else {
             Some(self.provider_defaults().await?)
         };
+        let mut concurrency = self.provider_concurrency().await?;
         let mut bindings = self.provider_node_bindings().await?;
         let nodes = self.provider_nodes().await?;
         for provider in &mut providers {
+            provider.max_concurrent =
+                concurrency.remove(&(provider.id.clone(), provider.updated_at));
             if let Some(priorities) = &mut priorities {
                 provider.priority = priorities
                     .remove(&(provider.id.clone(), provider.updated_at))
@@ -1298,6 +1310,7 @@ impl Database {
         self.upsert_provider_protocol(provider).await?;
         self.upsert_provider_priority(provider).await?;
         self.upsert_provider_default(provider).await?;
+        self.upsert_provider_concurrency(provider).await?;
         self.upsert_provider_node_binding(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
@@ -1341,6 +1354,7 @@ impl Database {
         self.upsert_provider_protocol(&provider).await?;
         self.upsert_provider_priority(&provider).await?;
         self.upsert_provider_default(&provider).await?;
+        self.upsert_provider_concurrency(&provider).await?;
         self.upsert_provider_node_binding(&provider).await?;
         self.upsert_provider_ownership(&provider).await?;
         match self {
@@ -1386,6 +1400,7 @@ impl Database {
         self.delete_provider_protocols(id).await?;
         self.delete_provider_priorities(id).await?;
         self.delete_provider_defaults(id).await?;
+        self.delete_provider_concurrency(id).await?;
         self.delete_provider_node_bindings(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
@@ -5193,6 +5208,8 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
         default_model: row
             .try_get("default_model")
             .map_err(|_| "invalid provider default model")?,
+        // Loaded from its revision-bound table by `providers()`.
+        max_concurrent: None,
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
         provider: row
@@ -5234,6 +5251,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         protocol: "auto".to_owned(),
         priority: 0,
         default_model: None,
+        max_concurrent: None,
         id: text("id")?,
         tenant_id: "red".to_owned(),
         provider: text("provider")?,

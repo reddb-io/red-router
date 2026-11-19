@@ -31,7 +31,7 @@ pub(super) fn present_node_id<'de, D: serde::Deserializer<'de>>(
     Option::<String>::deserialize(d).map(Some)
 }
 
-fn present_value<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+pub(super) fn present_value<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)

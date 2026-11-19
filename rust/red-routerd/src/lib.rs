@@ -279,6 +279,8 @@ pub(crate) struct LiveProvider {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+    /// The account's concurrency cap (legacy `max_concurrent`).
+    max_concurrent: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -633,6 +635,8 @@ pub(crate) struct ModelTarget {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+    /// The account's concurrency cap; at the cap the target is skipped.
+    max_concurrent: Option<usize>,
     /// The model's `normalizeToolCallId` compatibility flag for this route.
     normalize_tool_call_id: bool,
     /// The model's `preserveOpenAIDeveloperRole` flag; unset uses the
@@ -1669,6 +1673,7 @@ impl ProxyState {
             circuit: None,
             availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            max_concurrent: None,
         })
     }
 
@@ -1705,6 +1710,7 @@ impl ProxyState {
             circuit: provider.circuit.clone(),
             availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
+            max_concurrent: provider.max_concurrent,
             normalize_tool_call_id: false,
             preserve_developer_role: None,
             preserve_video_url: None,
@@ -2138,6 +2144,7 @@ impl ProxyState {
                     circuit: None,
                     availability: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
+                    max_concurrent: None,
                     normalize_tool_call_id: false,
                     preserve_developer_role: None,
                     preserve_video_url: None,
@@ -6511,6 +6518,20 @@ async fn proxy_request(
             );
         }
     }
+    // An account at its concurrency cap is skipped before dispatch, like the
+    // legacy combo gate (concurrencyCaps.ts), so routing falls through to the
+    // next account instead of overloading one.
+    eligible.retain(|target| {
+        target
+            .max_concurrent
+            .is_none_or(|cap| target.in_flight.load(Ordering::Acquire) < cap)
+    });
+    if route.is_some() && eligible.is_empty() {
+        return error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "All permitted route targets are at their concurrency cap",
+        );
+    }
     if let Some(target) = product_target {
         parsed["model"] = serde_json::Value::String(target);
     }
@@ -8963,6 +8984,7 @@ mod address_tests {
             circuit: None,
             availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            max_concurrent: None,
             normalize_tool_call_id: false,
             preserve_developer_role: None,
             preserve_video_url: None,

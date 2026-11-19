@@ -593,6 +593,10 @@ pub struct ProviderInput {
     pub priority: Option<i64>,
     #[serde(default, deserialize_with = "provider_nodes::present_node_id")]
     pub default_model: Option<Option<String>>,
+    /// Concurrent requests the account accepts; omitted keeps the stored cap
+    /// and `null` removes it.
+    #[serde(default, deserialize_with = "provider_nodes::present_value")]
+    pub max_concurrent: Option<Option<u32>>,
     pub tenant_id: Option<String>,
     #[serde(default)]
     pub provider: String,
@@ -622,6 +626,8 @@ pub struct ProviderView {
     pub priority: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<u32>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -4641,6 +4647,9 @@ impl ControlPlane {
                 runtime.custom_headers = self.request_headers(provider).await?;
                 runtime.provider_id = Some(Arc::from(provider.id.clone()));
                 runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                runtime.max_concurrent = provider
+                    .max_concurrent
+                    .and_then(|cap| usize::try_from(cap).ok());
                 runtime.tenant_id = Arc::from(provider.tenant_id.clone());
                 runtime.rate_limit_scope = account.rate_limit_scope;
                 runtime.antigravity_project = account.antigravity_project.clone();
@@ -5663,6 +5672,7 @@ impl ControlPlane {
                             protocol: None,
                             priority: None,
                             default_model: None,
+                            max_concurrent: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
                             upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
@@ -5767,6 +5777,7 @@ impl ControlPlane {
                             protocol: None,
                             priority: None,
                             default_model: None,
+                            max_concurrent: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
                             upstream_url: self
@@ -5874,6 +5885,7 @@ impl ControlPlane {
                     protocol: None,
                     priority: None,
                     default_model: None,
+                    max_concurrent: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
                     upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
@@ -5993,6 +6005,7 @@ impl ControlPlane {
                     protocol: None,
                     priority: None,
                     default_model: None,
+                    max_concurrent: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
                     upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
@@ -6114,6 +6127,7 @@ impl ControlPlane {
                     protocol: None,
                     priority: None,
                     default_model: None,
+                    max_concurrent: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
                     upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
@@ -6441,6 +6455,16 @@ impl ControlPlane {
         {
             return Err("invalid provider default model");
         }
+        let max_concurrent = input.max_concurrent.take().unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|provider| provider.max_concurrent)
+        });
+        if max_concurrent
+            .is_some_and(|cap| !(1..=crate::storage::MAX_PROVIDER_CONCURRENCY).contains(&cap))
+        {
+            return Err("invalid provider concurrency");
+        }
         let node_id = input.node_id.take().unwrap_or_else(|| {
             existing
                 .as_ref()
@@ -6734,6 +6758,7 @@ impl ControlPlane {
                 .or_else(|| existing.as_ref().map(|record| record.priority))
                 .unwrap_or(0),
             default_model,
+            max_concurrent,
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             provider: input.provider,
@@ -9837,6 +9862,9 @@ impl ControlPlane {
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
                 live.custom_headers = self.request_headers(&record).await?;
+                live.max_concurrent = record
+                    .max_concurrent
+                    .and_then(|cap| usize::try_from(cap).ok());
                 live.provider_id = Some(Arc::from(record.id));
                 live.provider_name = Some(Arc::from(record.provider));
                 live.tenant_id = Arc::from(record.tenant_id);
@@ -10046,6 +10074,9 @@ impl ControlPlane {
                     runtime.custom_headers = self.request_headers(provider).await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                    runtime.max_concurrent = provider
+                        .max_concurrent
+                        .and_then(|cap| usize::try_from(cap).ok());
                     runtime.antigravity_project = antigravity_projects
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
@@ -11966,6 +11997,7 @@ fn view(
         protocol: record.protocol.clone(),
         priority: record.priority,
         default_model: record.default_model.clone(),
+        max_concurrent: record.max_concurrent,
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -17063,6 +17095,7 @@ mod tests {
             protocol: "auto".to_owned(),
             priority: 0,
             default_model: None,
+            max_concurrent: None,
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),

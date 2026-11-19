@@ -1065,6 +1065,7 @@ async fn run(
                             protocol: env::var("RED_ROUTER_PROVIDER_PROTOCOL").ok(),
                             priority: None,
                             default_model: None,
+                            max_concurrent: None,
                             tenant_id: None,
                             provider,
                             upstream_url: upstream.to_owned(),

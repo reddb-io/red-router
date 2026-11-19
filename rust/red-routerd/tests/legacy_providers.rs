@@ -367,7 +367,7 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     }
     let legacy_label = "é".repeat(200);
     sqlx::query(
-        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model', test_status='expired'",
+        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model', test_status='expired', max_concurrent=3",
     )
     .execute(&mut input)
     .await
@@ -405,6 +405,8 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     assert_eq!(providers.len(), 1);
     assert!(!providers[0].enabled);
     assert_eq!(providers[0].priority, -4);
+    // The legacy per-connection concurrency cap carries over.
+    assert_eq!(providers[0].max_concurrent, Some(3));
     assert_eq!(
         providers[0].default_model.as_deref(),
         Some("legacy-openrouter-model")

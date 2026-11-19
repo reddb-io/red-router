@@ -22,6 +22,37 @@ fn terminal_status_code(status: Option<&str>) -> Result<Option<i64>, &'static st
     }
 }
 
+/// A legacy connection's `max_concurrent`: zero or unset means no cap.
+fn legacy_concurrency(value: Option<i64>) -> Result<Option<u32>, &'static str> {
+    match value {
+        None | Some(0) => Ok(None),
+        Some(cap) => u32::try_from(cap)
+            .ok()
+            .filter(|cap| (1..=crate::storage::MAX_PROVIDER_CONCURRENCY).contains(cap))
+            .map(Some)
+            .ok_or("unsupported legacy provider concurrency"),
+    }
+}
+
+/// Write an imported connection's concurrency cap for its first revision.
+async fn record_imported_concurrency(
+    db: &mut SqliteConnection,
+    id: &str,
+    max_concurrent: Option<u32>,
+) -> Result<(), &'static str> {
+    let Some(cap) = max_concurrent else {
+        return Ok(());
+    };
+    sqlx::query("INSERT INTO redrouter_control_provider_concurrency (record_id,provider_id,max_concurrent,revision) VALUES (?,?,?,1)")
+        .bind(format!("{id}:1"))
+        .bind(id)
+        .bind(i64::from(cap))
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot write provider concurrency")?;
+    Ok(())
+}
+
 /// A legacy `rate_limited_until` still ahead of `now_ms`, as epoch
 /// milliseconds. A past or unparseable value is cleared, as the legacy
 /// startup sweep (`clearStaleCrashCooldowns`) does; a future one is kept,
@@ -271,9 +302,13 @@ async fn adopt_oauth(
             Some(value) => value.as_i64().filter(|value| crate::control_plane::valid_provider_priority(*value)).ok_or("invalid legacy provider priority")?,
             None => return Err("unsupported staged provider schema"),
         };
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent", "global_priority", "rate_limit_protection"] {
+        for field in ["per_key_proxy_enabled", "proxy_enabled", "global_priority", "rate_limit_protection"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
+        let max_concurrent = legacy_concurrency(match object.get("max_concurrent") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(value.as_i64().ok_or("invalid legacy provider concurrency")?),
+        })?;
         // The backoff level and a pending cooldown are runtime health; a
         // future cooldown carries over (see pending_cooldown_ms).
         let backoff_level = match object.get("backoff_level") {
@@ -462,6 +497,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         record_imported_availability(&mut db, id, terminal, cooldown_until, backoff_level).await?;
+        record_imported_concurrency(&mut db, id, max_concurrent).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
         }
@@ -686,7 +722,8 @@ pub async fn import(
         for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
             if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
         }
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "max_concurrent"] {
+        let max_concurrent = legacy_concurrency(number("max_concurrent")?)?;
+        for field in ["per_key_proxy_enabled", "proxy_enabled"] {
             if number(field)?.unwrap_or(0) != 0 { return Err("legacy provider policy requires migration"); }
         }
         // Older schemas omit these columns. When present, never silently drop
@@ -756,6 +793,7 @@ pub async fn import(
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         record_imported_availability(&mut target, id, terminal, cooldown_until, backoff_level).await?;
+        record_imported_concurrency(&mut target, id, max_concurrent).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
         }

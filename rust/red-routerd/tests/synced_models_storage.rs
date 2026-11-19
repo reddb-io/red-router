@@ -25,6 +25,7 @@ async fn upgrade_marks_prior_migrated_inventory_unknown_until_a_live_probe() {
         protocol: "openai".into(),
         priority: 0,
         default_model: None,
+        max_concurrent: None,
     })
     .await
     .unwrap();
@@ -112,6 +113,7 @@ async fn synced_inventory_is_tenant_scoped_generation_bound_and_survives_restart
         protocol: "openai".into(),
         priority: 0,
         default_model: None,
+        max_concurrent: None,
     };
     first.upsert_provider(&provider).await.unwrap();
     assert!(first
@@ -314,6 +316,7 @@ async fn synced_inventory_invalidates_when_shared_provider_definition_changes() 
         protocol: "openai".into(),
         priority: 0,
         default_model: None,
+        max_concurrent: None,
     };
     db.upsert_provider(&provider).await.unwrap();
     let ticket = db
