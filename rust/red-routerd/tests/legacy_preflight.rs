@@ -794,7 +794,7 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
     .await
     .unwrap();
     sqlx::query("INSERT INTO key_value VALUES ('customModels','openai',?)")
-        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false,"supportsVision":true,"isHidden":true}]"#)
+        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false,"supportsVision":true,"isHidden":true},{"id":"synced-1","source":"auto-sync","apiFormat":"embeddings","supportedEndpoints":["embeddings"]}]"#)
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
@@ -808,6 +808,8 @@ async fn custom_model_import_is_transactional_and_preserves_metadata() {
         .unwrap();
     let report = legacy_models::import(&source, &destination).await.unwrap();
     assert_eq!((report.imported, report.already_present), (1, 0));
+    // A row the legacy model sync wrote is catalog provenance, not a model.
+    assert_eq!(report.skipped_synced_custom_models, 1);
     let report = legacy_models::import(&source, &destination).await.unwrap();
     assert_eq!((report.imported, report.already_present), (0, 1));
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();

@@ -151,6 +151,10 @@ fn is_compat_setting(key: &str) -> bool {
 pub struct ModelImport {
     pub imported: u64,
     pub already_present: u64,
+    /// Custom-model rows the legacy model sync wrote (`source` `auto-sync`,
+    /// `api-sync` or `imported`), left out: the cutover stages the raw
+    /// `customModels` namespace with the synced inventories.
+    pub skipped_synced_custom_models: u64,
 }
 
 struct LegacyNode {
@@ -525,6 +529,7 @@ pub async fn import_with_key(
         let mut custom_ids: HashSet<(String, String)> = HashSet::new();
         let mut imported = 0_u64;
         let mut already_present = 0_u64;
+        let mut skipped_synced_custom_models = 0_u64;
         let mut bytes = 0_usize;
         while let Some(row) = rows.try_next().await.map_err(|_| "legacy model schema unavailable")? {
             row_count += 1;
@@ -542,6 +547,15 @@ pub async fn import_with_key(
             for item in &models {
                 if seen.len() >= 10_000 { return Err("too many legacy models"); }
                 let object = item.as_object().ok_or("invalid legacy model")?;
+                // Rows the legacy model sync wrote, and may prune, are catalog
+                // provenance rather than operator models (legacy
+                // clearImportedCustomModels). The cutover keeps the raw rows in
+                // the model-visibility staging; they do not import as models.
+                let row_source = object.get("source").and_then(|v| v.as_str()).map(|v| v.trim().to_ascii_lowercase());
+                if matches!(row_source.as_deref(), Some("imported" | "api-sync" | "auto-sync")) {
+                    skipped_synced_custom_models += 1;
+                    continue;
+                }
                 // A custom row's own headers replace any compatibility entry's
                 // (legacy getModelUpstreamExtraHeaders reads the row first).
                 let row_settings = compat_settings(object);
@@ -721,7 +735,7 @@ pub async fn import_with_key(
                 already_present += 1;
             }
         }
-        Ok(ModelImport { imported, already_present })
+        Ok(ModelImport { imported, already_present, skipped_synced_custom_models })
     }.await;
     match result {
         Ok(report) => {
