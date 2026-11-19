@@ -25,6 +25,26 @@ isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_open
 isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
 
 [[module]]
+ts = "open-sse/services/roleNormalizer.ts"
+status = "ported"
+rust = "role_normalizer.rs"
+module = "red_routerd::role_normalizer"
+ported_at = "2026-11-19T04:27:37Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/role-normalizer.test.ts"]
+notes = "Applied to Chat Completions bodies sent to a target with a known provider; preserveDeveloperRole comes from the model compatibility flag."
+
+[module.ts_blobs]
+"open-sse/services/roleNormalizer.ts" = "51268eeaef7e873af5547a52313a60e26a5f1e50"
+"tests/unit/role-normalizer.test.ts" = "af29f5f07564d601b9cdfbb8ef553b9c226bc81e"
+
+[module.symbols]
+normalizeDeveloperRole = "red_routerd::role_normalizer::normalize_developer_role"
+normalizeModelRole = "red_routerd::role_normalizer::normalize_model_role"
+normalizeRoles = "red_routerd::role_normalizer::normalize_roles"
+normalizeSystemRole = "red_routerd::role_normalizer::normalize_system_role"
+
+[[module]]
 ts = "open-sse/services/wildcardRouter.ts"
 status = "ported"
 rust = "wildcard_router.rs"
