@@ -25,6 +25,26 @@ isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_open
 isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
 
 [[module]]
+ts = "open-sse/services/wildcardRouter.ts"
+status = "ported"
+rust = "wildcard_router.rs"
+module = "red_routerd::wildcard_router"
+ported_at = "2026-11-19T01:14:17Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/wildcard-router.test.ts"]
+notes = "resolveModel is the exact-then-glob step of AliasSnapshot::resolve_route; the glob step applies only to names without a provider prefix, as in getModelInfoCore."
+
+[module.ts_blobs]
+"open-sse/services/wildcardRouter.ts" = "7f101489ce97f6bb431052b5a83035a5b444b3fc"
+"tests/unit/wildcard-router.test.ts" = "f1eb4199cb41dd033031256fb2f2ba92631b90f0"
+
+[module.symbols]
+getSpecificity = "red_routerd::wildcard_router::get_specificity"
+resolveModel = "red_routerd::control_plane::model_aliases::AliasSnapshot::resolve_route"
+resolveWildcardAlias = "red_routerd::wildcard_router::resolve_wildcard_alias"
+wildcardMatch = "red_routerd::wildcard_router::wildcard_match"
+
+[[module]]
 ts = "src/app/api/v1/models/catalogCapabilities.ts"
 status = "ported"
 rust = "catalog_capabilities.rs"
