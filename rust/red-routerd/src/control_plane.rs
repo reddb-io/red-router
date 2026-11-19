@@ -477,8 +477,8 @@ fn uses_local_account_inventory(provider: &str) -> bool {
     )
 }
 
-/// Legacy `OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS`; the
-/// database setting of the same name is not ported.
+/// Legacy `OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS`, the
+/// fallback when no imported key carries the database setting.
 fn prefer_claude_code_for_unprefixed_claude_models() -> bool {
     std::env::var("OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS").is_ok_and(|value| {
         matches!(
@@ -4685,6 +4685,7 @@ impl ControlPlane {
         &self,
         tenant: &str,
         requested: &str,
+        policy: &ClientPolicy,
     ) -> Result<Option<(String, String)>, &'static str> {
         if self.0.current.read().await.is_some() {
             return Ok(None);
@@ -4725,7 +4726,8 @@ impl ControlPlane {
         let context = crate::provider_inference::InferenceContext {
             active: Some(&active),
             synced: &synced,
-            prefer_claude_code: prefer_claude_code_for_unprefixed_claude_models(),
+            prefer_claude_code: policy.prefers_claude_code()
+                || prefer_claude_code_for_unprefixed_claude_models(),
         };
         match crate::provider_inference::infer_provider(requested, &context) {
             crate::provider_inference::Inference::Provider { provider, model }
@@ -4751,7 +4753,10 @@ impl ControlPlane {
         let (prefix, model) = match requested.split_once('/') {
             Some(parts) => parts,
             None => {
-                let Some(found) = self.infer_bare_model_provider(tenant, requested).await? else {
+                let Some(found) = self
+                    .infer_bare_model_provider(tenant, requested, policy)
+                    .await?
+                else {
                     return Ok(None);
                 };
                 inferred = found;

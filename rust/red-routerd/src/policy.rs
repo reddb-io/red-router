@@ -680,6 +680,17 @@ impl ClientPolicy {
     pub(crate) fn identity(&self) -> Option<&ClientIdentity> {
         self.identity.as_ref()
     }
+
+    /// The legacy `preferClaudeCodeForUnprefixedClaudeModels` setting an
+    /// imported key carries.
+    pub(crate) fn prefers_claude_code(&self) -> bool {
+        matches!(
+            self.model_matching,
+            crate::model_permissions::ModelMatching::Legacy {
+                prefer_claude_code: true
+            }
+        )
+    }
 }
 
 fn combo_name(value: &str) -> &str {
