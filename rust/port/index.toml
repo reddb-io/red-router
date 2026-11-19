@@ -122,6 +122,32 @@ VALID_OPENAI_MESSAGE_TYPES = "-"
 filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
 
 [[module]]
+ts = "open-sse/utils/reasoningPlaceholder.ts"
+status = "ported"
+rust = "reasoning_placeholder.rs"
+module = "red_routerd::reasoning_placeholder"
+ported_at = "2026-11-19T18:25:28Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/reasoning-placeholder-strip.test.ts",
+    "tests/unit/reasoning-fields-placeholder-strip.test.ts",
+    "tests/unit/opencode-reasoning-presence-responses.test.ts",
+]
+notes = "Request-side replay uses the recognizer and the presence rule. The visible-content strip waits for the response translators; until then it is covered by unit tests only."
+
+[module.ts_blobs]
+"open-sse/utils/reasoningPlaceholder.ts" = "438cc1894f979fc39ab0b55275df977300884eec"
+"tests/unit/opencode-reasoning-presence-responses.test.ts" = "a205957934b7b330f926e360ec730beb42c60891"
+"tests/unit/reasoning-fields-placeholder-strip.test.ts" = "566d1dee120ab615afc7f12c2115671c28cdd599"
+"tests/unit/reasoning-placeholder-strip.test.ts" = "fc3f3a3e8b3e18d4502154ec9073088ec2621855"
+
+[module.symbols]
+NON_ANTHROPIC_THINKING_PLACEHOLDER = "red_routerd::reasoning_placeholder::NON_ANTHROPIC_THINKING_PLACEHOLDER"
+isInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::is_internal_reasoning_placeholder"
+requiresReasoningContentPresence = "red_routerd::reasoning_placeholder::requires_reasoning_content_presence"
+stripInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::strip_internal_reasoning_placeholder"
+
+[[module]]
 ts = "src/app/api/v1/models/catalogCapabilities.ts"
 status = "ported"
 rust = "catalog_capabilities.rs"
