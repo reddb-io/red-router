@@ -13,6 +13,8 @@ pub(crate) struct ModelOverrides {
     default_hidden: HashMap<String, HashSet<String>>,
     /// Decrypted per-model upstream headers keyed by record ID.
     headers: HashMap<String, ModelHeaderMaps>,
+    /// Per-model request compatibility flags keyed by record ID.
+    compat: HashMap<String, crate::storage::ModelCompat>,
 }
 
 /// Associated data that binds a model's encrypted headers to its record ID
@@ -382,6 +384,10 @@ impl ModelOverrides {
                     .headers
                     .insert(record.id.clone(), ModelHeaderMaps::decode(&plaintext)?);
             }
+            if let Some(compat) = &record.compat {
+                validate_compat(compat)?;
+                snapshot.compat.insert(record.id.clone(), compat.clone());
+            }
             if record.headers_only {
                 continue;
             }
@@ -415,14 +421,17 @@ impl ModelOverrides {
         tenant: &str,
         provider: &str,
     ) {
-        let Some(maps) = self
-            .headers
-            .get(&record_id(tenant, provider, &target.model))
-        else {
+        let id = record_id(tenant, provider, &target.model);
+        let protocol = client_protocol(target.protocol);
+        // Legacy `getModelNormalizeToolCallId`, applied to Chat Completions bodies.
+        target.normalize_tool_call_id = self
+            .compat
+            .get(&id)
+            .is_some_and(|compat| compat.normalize_tool_call_id(protocol));
+        let Some(maps) = self.headers.get(&id) else {
             return;
         };
-        let scoped =
-            client_protocol(target.protocol).and_then(|protocol| maps.by_protocol.get(protocol));
+        let scoped = protocol.and_then(|protocol| maps.by_protocol.get(protocol));
         for headers in std::iter::once(&maps.all).chain(scoped) {
             for (name, value) in headers {
                 target.custom_headers.insert(name.clone(), value.clone());
@@ -487,7 +496,20 @@ pub struct ModelInput {
     hidden: Option<bool>,
     visibility_only: Option<bool>,
     headers_only: Option<bool>,
+    compat: Option<crate::storage::ModelCompat>,
     revision: Option<String>,
+}
+
+/// Compatibility flags may only be scoped to the known client protocols.
+fn validate_compat(compat: &crate::storage::ModelCompat) -> Result<(), &'static str> {
+    if compat
+        .by_protocol
+        .keys()
+        .any(|protocol| !HEADER_PROTOCOLS.contains(&protocol.as_str()))
+    {
+        return Err("unknown model compatibility protocol");
+    }
+    Ok(())
 }
 
 /// A headers-only record has metadata `{id}` and neither visibility nor
@@ -522,7 +544,7 @@ fn view(
     );
     Ok(
         serde_json::json!({"id":model.id,"tenant_id":model.tenant_id,"provider":model.provider,
-        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"visibility_only":model.visibility_only,"headers_only":model.headers_only,"revision":model.revision.to_string()}),
+        "metadata":model.metadata,"effective":effective,"hidden":model.hidden,"visibility_only":model.visibility_only,"headers_only":model.headers_only,"compat":model.compat,"revision":model.revision.to_string()}),
     )
 }
 
@@ -649,6 +671,14 @@ impl ControlPlane {
         if headers_only && !headers_only_shape(&input.metadata, visibility_only, hidden)? {
             return Err("Headers-only entries cannot override model metadata or visibility");
         }
+        // Omitted compatibility flags keep the stored ones; an empty object clears them.
+        let compat = match input.compat {
+            Some(compat) => {
+                validate_compat(&compat)?;
+                (!compat.is_empty()).then_some(compat)
+            }
+            None => existing.and_then(|model| model.compat.clone()),
+        };
         let record = StoredProviderModel {
             id,
             tenant_id: tenant.to_owned(),
@@ -657,6 +687,7 @@ impl ControlPlane {
             hidden,
             visibility_only,
             headers_only,
+            compat,
             // Metadata edits keep the model's encrypted request headers.
             headers_ciphertext: existing.and_then(|model| model.headers_ciphertext.clone()),
             revision: revision()?,
@@ -1113,6 +1144,7 @@ mod tests {
             hidden: false,
             visibility_only: true,
             headers_only: false,
+            compat: None,
             headers_ciphertext: None,
             revision: 1,
         };

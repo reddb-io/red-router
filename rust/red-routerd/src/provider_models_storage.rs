@@ -13,6 +13,45 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Request compatibility flags for one model (legacy `modelCompatOverrides`
+/// and custom-model fields). A protocol entry wins over the top-level value
+/// when it sets the flag.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCompat {
+    /// Rewrite tool call IDs to 9 characters (`normalizeToolCallId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalize_tool_call_id: Option<bool>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub by_protocol: std::collections::BTreeMap<String, ModelCompatProtocol>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCompatProtocol {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalize_tool_call_id: Option<bool>,
+}
+
+impl ModelCompat {
+    pub fn is_empty(&self) -> bool {
+        self.normalize_tool_call_id.is_none()
+            && self
+                .by_protocol
+                .values()
+                .all(|protocol| protocol.normalize_tool_call_id.is_none())
+    }
+
+    /// Legacy `getModelNormalizeToolCallId` for a client protocol.
+    pub fn normalize_tool_call_id(&self, protocol: Option<&str>) -> bool {
+        protocol
+            .and_then(|protocol| self.by_protocol.get(protocol))
+            .and_then(|scoped| scoped.normalize_tool_call_id)
+            .or(self.normalize_tool_call_id)
+            .unwrap_or(false)
+    }
+}
+
 /// Tenant-owned model metadata overrides. Credentials and grants are separate.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,10 +64,12 @@ pub struct StoredProviderModel {
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub visibility_only: bool,
-    /// The record only carries request headers: it neither overrides
-    /// metadata nor changes the model's visibility.
+    /// The record only carries request settings (headers and compatibility
+    /// flags): it neither overrides metadata nor changes the model's visibility.
     #[serde(default, skip_serializing_if = "is_false")]
     pub headers_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compat: Option<ModelCompat>,
     /// Encrypted upstream request headers for this model (legacy
     /// `upstreamHeaders`), bound to the record ID. Values are write-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,6 +246,23 @@ impl Database {
 mod tests {
     use super::*;
 
+    // Legacy getModelNormalizeToolCallId: a protocol entry that sets the flag
+    // wins; otherwise the top-level value; unset means off.
+    #[test]
+    fn protocol_flags_override_the_model_flag_only_when_set() {
+        let compat: ModelCompat = serde_json::from_value(serde_json::json!({
+            "normalize_tool_call_id": true,
+            "by_protocol": {"claude": {"normalize_tool_call_id": false}, "openai-responses": {}}
+        }))
+        .unwrap();
+        assert!(compat.normalize_tool_call_id(Some("openai")));
+        assert!(compat.normalize_tool_call_id(Some("openai-responses")));
+        assert!(!compat.normalize_tool_call_id(Some("claude")));
+        assert!(compat.normalize_tool_call_id(None));
+        assert!(!ModelCompat::default().normalize_tool_call_id(Some("openai")));
+        assert!(ModelCompat::default().is_empty());
+    }
+
     #[tokio::test]
     async fn sqlite_replicas_cannot_replace_each_others_model_edits() {
         let directory = tempfile::tempdir().unwrap();
@@ -224,6 +282,7 @@ mod tests {
             hidden: false,
             visibility_only: false,
             headers_only: false,
+            compat: None,
             headers_ciphertext: None,
             revision: 1,
         };

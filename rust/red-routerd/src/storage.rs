@@ -4,8 +4,8 @@
 //! back. Provider credentials are accepted here only as encrypted ciphertext.
 #[path = "provider_models_storage.rs"]
 mod provider_models_storage;
-pub use provider_models_storage::StoredProviderModel;
 pub(crate) use provider_models_storage::CREATE_ACTIVATION_DEFAULTS;
+pub use provider_models_storage::{ModelCompat, ModelCompatProtocol, StoredProviderModel};
 #[path = "model_aliases_storage.rs"]
 mod model_aliases_storage;
 pub use model_aliases_storage::StoredModelAlias;

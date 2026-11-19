@@ -374,7 +374,7 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
     .unwrap();
     sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
         .bind(
-            r#"[{"id":"gpt-headers","upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
+            r#"[{"id":"gpt-headers","normalizeToolCallId":true,"upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
                {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}},
                {"id":"custom-headers","upstreamHeaders":{"x-compat":"ignored"}}]"#,
         )
@@ -383,7 +383,7 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
         .unwrap();
     // The legacy reader takes a custom row's own headers over compat entries.
     sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)")
-        .bind(r#"[{"id":"custom-headers","source":"manual","upstreamHeaders":{"x-row":"row-secret"}}]"#)
+        .bind(r#"[{"id":"custom-headers","source":"manual","upstreamHeaders":{"x-row":"row-secret"},"compatByProtocol":{"openai":{"normalizeToolCallId":true}}}]"#)
         .execute(&mut legacy)
         .await
         .unwrap();
@@ -469,6 +469,14 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
         .find(|model| model.metadata.id == "custom-headers")
         .unwrap();
     assert!(!custom.visibility_only && !custom.headers_only);
+    let custom_compat = custom.compat.as_ref().unwrap();
+    assert!(custom_compat.normalize_tool_call_id(Some("openai")));
+    assert!(!custom_compat.normalize_tool_call_id(Some("claude")));
+    assert!(headers_only
+        .compat
+        .as_ref()
+        .unwrap()
+        .normalize_tool_call_id(None));
     let view: serde_json::Value = reqwest::Client::builder()
         .no_proxy()
         .build()

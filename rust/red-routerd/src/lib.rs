@@ -40,6 +40,7 @@ pub mod shared_budget;
 pub mod shared_usage;
 pub mod spa;
 pub mod storage;
+mod tool_call_ids;
 mod translation;
 mod usage_stream;
 mod wildcard_router;
@@ -621,6 +622,8 @@ pub(crate) struct ModelTarget {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+    /// The model's `normalizeToolCallId` compatibility flag for this route.
+    normalize_tool_call_id: bool,
 }
 
 impl ModelTarget {
@@ -1686,6 +1689,7 @@ impl ProxyState {
             circuit: provider.circuit.clone(),
             availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
+            normalize_tool_call_id: false,
         }
     }
 
@@ -2116,6 +2120,7 @@ impl ProxyState {
                     circuit: None,
                     availability: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
+                    normalize_tool_call_id: false,
                 });
             }
             if strategy == RouteStrategy::Weighted
@@ -5564,7 +5569,7 @@ fn inject_context_relay_handoff(
     let current_model = context_relay_xml(current_model);
     let content = handoff.map_or_else(
         || format!(
-            "<context_handoff>\n<transfer_reason>Model routing: {previous_model} → {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<note>No prior-session summary is available for this handoff. Use only the conversation context supplied by the client and do not invent missing details.</note>\n</context_handoff>"
+            "<context_handoff>\n<transfer_reason>Model routing: {previous_model} â†’ {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<note>No prior-session summary is available for this handoff. Use only the conversation context supplied by the client and do not invent missing details.</note>\n</context_handoff>"
         ),
         |handoff| {
             let decisions = handoff
@@ -5580,7 +5585,7 @@ fn inject_context_relay_handoff(
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "<context_handoff>\n<transfer_reason>Model routing: {previous_model} → {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<session_summary>{}</session_summary>\n<task_progress>{}</task_progress>\n<key_decisions>\n{decisions}\n</key_decisions>\n<active_context>{entities}</active_context>\n<messages_processed>{}</messages_processed>\n<summary_source_model>{}</summary_source_model>\n</context_handoff>\n\nContinue from the structured summary without inventing details that are not present in it or in the client conversation.",
+                "<context_handoff>\n<transfer_reason>Model routing: {previous_model} â†’ {current_model}</transfer_reason>\n<previous_model>{previous_model}</previous_model>\n<current_model>{current_model}</current_model>\n<session_summary>{}</session_summary>\n<task_progress>{}</task_progress>\n<key_decisions>\n{decisions}\n</key_decisions>\n<active_context>{entities}</active_context>\n<messages_processed>{}</messages_processed>\n<summary_source_model>{}</summary_source_model>\n</context_handoff>\n\nContinue from the structured summary without inventing details that are not present in it or in the client conversation.",
                 context_relay_xml(&handoff.summary),
                 context_relay_xml(&handoff.task_progress),
                 handoff.message_count,
@@ -6893,6 +6898,10 @@ async fn proxy_request(
                 } else {
                     if protocol != ProviderProtocol::Gemini {
                         attempt_parsed["model"] = serde_json::Value::String(target.model.clone());
+                    }
+                    if target.normalize_tool_call_id && attempt_protocol == ProviderProtocol::OpenAi
+                    {
+                        tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);
                     }
                     serde_json::to_vec(&attempt_parsed).map_err(|_| ())
                 };
@@ -8639,6 +8648,7 @@ mod address_tests {
             circuit: None,
             availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            normalize_tool_call_id: false,
         };
         assert!(target_quota(&target, 2).unwrap().limit_reached);
         assert!(!quota_preflight_allows(&target, 2, 20_000));
