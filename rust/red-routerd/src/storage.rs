@@ -21,6 +21,8 @@ mod banned_signals_storage;
 mod client_key_catalog_storage;
 #[path = "client_key_limits_storage.rs"]
 mod client_key_limits_storage;
+#[path = "global_settings_storage.rs"]
+mod global_settings_storage;
 #[path = "provider_concurrency_storage.rs"]
 mod provider_concurrency_storage;
 pub(crate) use provider_concurrency_storage::MAX_PROVIDER_CONCURRENCY;
@@ -836,6 +838,7 @@ impl Database {
                         client_key_catalog_storage::CREATE,
                         client_key_limits_storage::CREATE,
                         banned_signals_storage::CREATE,
+                        global_settings_storage::CREATE,
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_AUDIT_EVENTS,
@@ -992,6 +995,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(banned_signals_storage::CREATE)
                     .await?;
+                db.remote_schema_query(global_settings_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_AUDIT_EVENTS).await?;
@@ -1126,6 +1131,7 @@ impl Database {
                     client_key_catalog_storage::CREATE,
                     client_key_limits_storage::CREATE,
                     banned_signals_storage::CREATE,
+                    global_settings_storage::CREATE,
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_AUDIT_EVENTS,

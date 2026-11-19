@@ -12054,3 +12054,5 @@ include!("cases/client_key_limits.rs");
 include!("cases/banned_signals.rs");
 
 include!("cases/idempotency.rs");
+
+include!("cases/custom_system_prompt.rs");

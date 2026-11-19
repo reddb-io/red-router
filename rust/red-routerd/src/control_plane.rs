@@ -195,6 +195,7 @@ struct Inner {
     oauth_provider_ids: RwLock<HashSet<String>>,
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     runtime_settings: RwLock<RuntimeSettingsView>,
+    global_settings: RwLock<crate::global_settings::Snapshot>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     sqlite_changes: Option<tokio::sync::Mutex<SqliteChangeWatcher>>,
@@ -2221,8 +2222,13 @@ impl ControlPlane {
                 return Err("duplicate provider availability state");
             }
         }
-        // The operator's custom ban signals feed the failure classifier.
-        crate::resilience::set_custom_banned_signals(database.custom_banned_signals().await?);
+        // The operator's custom ban signals feed the process-wide classifier;
+        // an empty store leaves the current list alone.
+        let banned_signals = database.custom_banned_signals().await?;
+        if !banned_signals.is_empty() {
+            crate::resilience::set_custom_banned_signals(banned_signals);
+        }
+        let global_settings = crate::global_settings::snapshot(&database.global_settings().await?)?;
         let runtime_settings = database
             .runtime_settings()
             .await?
@@ -2347,6 +2353,7 @@ impl ControlPlane {
             oauth_provider_ids: RwLock::new(oauth_provider_ids),
             availability: RwLock::new(availability),
             runtime_settings: RwLock::new(runtime_settings),
+            global_settings: RwLock::new(global_settings),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
             sqlite_changes,
@@ -11517,6 +11524,48 @@ impl ControlPlane {
         Ok(signals)
     }
 
+    /// The operator's custom system prompt, when enabled.
+    pub(crate) async fn custom_system_prompt(&self) -> Option<String> {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .custom_system_prompt()
+            .map(str::to_owned)
+    }
+
+    async fn configure_global_setting_as(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+        actor: &str,
+    ) -> Result<serde_json::Value, &'static str> {
+        validate_actor(actor)?;
+        let value = crate::global_settings::validate(key, value)?;
+        let _mutation = self.0.mutation.lock().await;
+        let mut stored = self.0.database.global_settings().await?;
+        let before = stored.get(key).cloned();
+        self.0
+            .database
+            .upsert_global_setting(key, &value, revision()?)
+            .await?;
+        stored.insert(key.to_owned(), value.clone());
+        *self.0.global_settings.write().await = crate::global_settings::snapshot(&stored)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "global_setting.configure",
+                actor,
+                tenant_id: "red",
+                target: key,
+                resource_type: "global_setting",
+            },
+            before.as_ref(),
+            Some(&value),
+        )
+        .await;
+        Ok(value)
+    }
+
     async fn provider_health_snapshot(
         &self,
         provider: &StoredProvider,
@@ -15745,6 +15794,48 @@ pub async fn put_runtime_settings(
 #[serde(deny_unknown_fields)]
 pub struct BannedSignalsInput {
     pub signals: Vec<String>,
+}
+
+/// Global gateway settings (see `global_settings` for the accepted keys).
+pub async fn get_global_settings(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    if control.authorized_admin_actor(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.0.database.global_settings().await {
+        Ok(settings) => Json(serde_json::json!({"global_settings": settings})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Global settings storage unavailable",
+        ),
+    }
+}
+
+pub async fn put_global_setting(
+    State(state): State<ProxyState>,
+    Path(key): Path<String>,
+    headers: HeaderMap,
+    Json(value): Json<serde_json::Value>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .configure_global_setting_as(&key, value, &actor)
+        .await
+    {
+        Ok(value) => Json(serde_json::json!({"key": key, "value": value})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Global settings storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid global setting"),
+    }
 }
 
 /// The operator's custom account-ban signals (legacy `customBannedSignals`).

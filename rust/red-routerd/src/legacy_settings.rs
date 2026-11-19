@@ -356,6 +356,18 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 Err(reason) => SettingClass::Refused { reason },
             };
         }
+        // The pair imports onto the native custom system prompt setting.
+        "customSystemPromptEnabled" => return SettingClass::Imported,
+        "customSystemPrompt" => {
+            return match parse_value(raw) {
+                Value::String(prompt) if prompt.len() <= 100_000 && !prompt.contains(' ') => {
+                    SettingClass::Imported
+                }
+                _ => SettingClass::Refused {
+                    reason: "legacy custom system prompt is invalid",
+                },
+            };
+        }
         "customBannedSignals" => {
             return match custom_banned_signals(raw) {
                 Ok(_) => SettingClass::Imported,
@@ -403,6 +415,8 @@ pub struct SettingsImport {
     pub runtime_settings_imported: bool,
     /// Custom account-ban signals imported for the failure classifier.
     pub custom_banned_signals: usize,
+    /// Whether a configured custom system prompt was imported.
+    pub custom_system_prompt_imported: bool,
 }
 
 /// Offline cutover step: refuse unless every stored settings row is at its
@@ -447,10 +461,44 @@ pub async fn import(
             .upsert_custom_banned_signals(&signals, revision)
             .await?;
     }
+    // Legacy chatCore injects the prompt only when enabled is exactly true.
+    let prompt = crate::global_settings::CustomSystemPrompt {
+        enabled: rows.iter().any(|(key, raw)| {
+            key == "customSystemPromptEnabled" && parse_value(raw) == Value::Bool(true)
+        }),
+        prompt: rows
+            .iter()
+            .find(|(key, _)| key == "customSystemPrompt")
+            .and_then(|(_, raw)| parse_value(raw).as_str().map(str::to_owned))
+            .unwrap_or_default(),
+    };
+    let custom_system_prompt_imported =
+        prompt != crate::global_settings::CustomSystemPrompt::default();
+    if custom_system_prompt_imported {
+        if destination
+            .global_settings()
+            .await?
+            .contains_key(crate::global_settings::CUSTOM_SYSTEM_PROMPT)
+        {
+            return Err("destination custom system prompt is already configured");
+        }
+        let value = crate::global_settings::validate(
+            crate::global_settings::CUSTOM_SYSTEM_PROMPT,
+            serde_json::to_value(&prompt).map_err(|_| "invalid legacy custom system prompt")?,
+        )?;
+        destination
+            .upsert_global_setting(
+                crate::global_settings::CUSTOM_SYSTEM_PROMPT,
+                &value,
+                revision,
+            )
+            .await?;
+    }
     let Some(mapped) = mapped else {
         return Ok(SettingsImport {
             runtime_settings_imported: false,
             custom_banned_signals: signals.len(),
+            custom_system_prompt_imported,
         });
     };
     let [(oauth_base, oauth_hints, oauth_steps), (apikey_base, apikey_hints, apikey_steps)] =
@@ -480,6 +528,7 @@ pub async fn import(
     Ok(SettingsImport {
         runtime_settings_imported: true,
         custom_banned_signals: signals.len(),
+        custom_system_prompt_imported,
     })
 }
 

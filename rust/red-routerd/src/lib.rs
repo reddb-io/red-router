@@ -18,6 +18,7 @@ mod daily_quota_reset;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
+mod global_settings;
 mod icon_url;
 mod idempotency;
 mod kafka_export;
@@ -2652,6 +2653,14 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/runtime-settings",
             get(control_plane::get_runtime_settings).put(control_plane::put_runtime_settings),
+        )
+        .route(
+            "/api/admin/global-settings",
+            get(control_plane::get_global_settings),
+        )
+        .route(
+            "/api/admin/global-settings/{key}",
+            put(control_plane::put_global_setting),
         )
         .route(
             "/api/admin/banned-signals",
@@ -6154,6 +6163,19 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
+    // The operator's custom system prompt (legacy chatCore) on chat-like requests.
+    if matches!(
+        protocol,
+        ProviderProtocol::OpenAi | ProviderProtocol::Anthropic | ProviderProtocol::OpenAiResponses
+    ) {
+        let prompt = match &state.control_plane {
+            Some(control) => control.custom_system_prompt().await,
+            None => None,
+        };
+        if let Some(prompt) = prompt {
+            global_settings::inject_custom_system_prompt(&mut parsed, &prompt);
+        }
+    }
     let product_usage_accounting = state
         .product_connection
         .as_ref()

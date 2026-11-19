@@ -69,6 +69,8 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
         "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT);
          INSERT INTO key_value VALUES
            ('settings','theme','\"dark\"'),
+           ('settings','customSystemPromptEnabled','true'),
+           ('settings','customSystemPrompt','\"Be terse.\"'),
            ('settings','customBannedSignals','[\" Account Frozen \",\"\",\"tos strike\"]'),
            ('settings','resilienceSettings','{\"connectionCooldown\":{\"apikey\":{\"baseCooldownMs\":1500}},\"quotaPreflight\":{\"enabled\":true,\"defaultThresholdPercent\":5}}');",
     )
@@ -86,6 +88,11 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
         .unwrap();
     assert!(report.runtime_settings_imported);
     assert_eq!(report.custom_banned_signals, 2);
+    assert!(report.custom_system_prompt_imported);
+    assert_eq!(
+        destination.global_settings().await.unwrap()["custom_system_prompt"],
+        serde_json::json!({"enabled":true,"prompt":"Be terse."})
+    );
     assert_eq!(
         destination.custom_banned_signals().await.unwrap(),
         ["Account Frozen", "tos strike"]
