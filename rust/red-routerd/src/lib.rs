@@ -31,6 +31,7 @@ pub mod legacy_quota;
 mod model_alias_response;
 mod model_endpoint_policy;
 mod model_permissions;
+mod model_scope_providers;
 mod native_usage;
 mod oidc;
 mod openai_content;

@@ -92,10 +92,10 @@ pub(crate) fn authentication_failure_is_terminal(provider: Option<&str>) -> bool
     )
 }
 
-/// Keep the automatic 429/402 policy deliberately small and auditable. These
-/// provider families multiplex independently limited models behind one
-/// credential in the current RedRouter/OmniRoute catalog. Operators can
-/// override either way.
+/// The automatic 429/402 scope follows the legacy `hasPerModelQuota`:
+/// providers that multiplex independently limited models behind one
+/// credential (see `model_scope_providers`) lock the model, others the
+/// connection. Operators can override either way per account.
 pub(crate) fn quota_failure_scope(
     configured: RateLimitScope,
     provider: Option<&str>,
@@ -459,17 +459,7 @@ fn automatic_scope(provider: Option<&str>, headers: &HeaderMap) -> FailureScope 
     {
         return FailureScope::Model;
     }
-    if matches!(
-        provider.as_str(),
-        "openrouter"
-            | "gemini"
-            | "github"
-            | "codex"
-            | "antigravity"
-            | "agy"
-            | "kilo-gateway"
-            | "ollama-cloud"
-    ) {
+    if crate::model_scope_providers::has_per_model_quota(&provider) {
         FailureScope::Model
     } else {
         FailureScope::Connection
