@@ -196,11 +196,52 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     source_db.close().await.unwrap();
+    // The legacy router never consults provider-scoped aliases; they are kept
+    // verbatim in staging, and a repeat import accepts the identical row.
+    for _ in 0..2 {
+        let report = legacy_aliases::import(&source, &destination).await.unwrap();
+        assert_eq!(
+            (
+                report.imported,
+                report.already_present,
+                report.staged_provider_aliases
+            ),
+            // fast, other, openrouter-, deepseek-, array-, object-alias, a-new.
+            (0, 7, 1)
+        );
+    }
+    let mut dest_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let staged: (String, String) =
+        sqlx::query_as("SELECT provider,value FROM redrouter_legacy_provider_alias_records")
+            .fetch_one(&mut dest_db)
+            .await
+            .unwrap();
+    assert_eq!(
+        staged,
+        (
+            "openai".to_owned(),
+            r#"{"new-model":"different-model"}"#.to_owned()
+        )
+    );
+    dest_db.close().await.unwrap();
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='providerAliases'")
+        .bind(r#"{"new-model":"changed-model"}"#)
+        .execute(&mut source_db)
+        .await
+        .unwrap();
+    source_db.close().await.unwrap();
     assert_eq!(
         legacy_aliases::import(&source, &destination)
             .await
             .unwrap_err(),
-        "provider-scoped aliases require migration"
+        "destination contains conflicting provider-scoped aliases"
     );
     let mut source_db =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))

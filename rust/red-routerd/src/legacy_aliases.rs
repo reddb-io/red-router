@@ -1,9 +1,9 @@
 //! Strict offline import of legacy exact model aliases.
 //!
 //! Exact and glob (`settings.wildcardAliases`) aliases for built-in and
-//! verified custom OpenAI-compatible chat transports. Managed and
-//! provider-scoped aliases and unsupported protocols must be migrated
-//! separately.
+//! verified custom OpenAI-compatible chat transports. Provider-scoped
+//! aliases, which the legacy router never consults, are staged verbatim.
+//! Managed aliases and unsupported protocols must be migrated separately.
 use crate::{
     control_plane::{model_aliases, provider_nodes},
     storage::{StoredModelAlias, StoredProviderNode},
@@ -19,6 +19,9 @@ use std::{
 pub struct AliasImport {
     pub imported: u64,
     pub already_present: u64,
+    /// Legacy `providerAliases` rows copied verbatim to
+    /// `redrouter_legacy_provider_alias_records`; they have no runtime effect.
+    pub staged_provider_aliases: u64,
 }
 
 /// The legacy resolver accepts a string, a single-element string array, or
@@ -219,6 +222,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             let mut aliases = BTreeMap::new();
             let mut settings = None;
             let mut wildcards = None;
+            let mut provider_aliases = Vec::new();
             let mut managed = HashSet::new();
             let mut bytes = 0_usize;
             while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy aliases")? {
@@ -236,9 +240,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                     ("settings", "wildcardAliases") => { if wildcards.replace(value).is_some() { return Err("duplicate wildcard aliases"); } }
                     ("settings", "stripModelPrefix") => if value != serde_json::Value::Bool(false) && !value.is_null() { return Err("legacy prefix stripping requires migration"); },
                     ("providerAliases", _) => {
-                        if value.as_object().is_none_or(|aliases| !aliases.is_empty()) {
-                            return Err("provider-scoped aliases require migration");
-                        }
+                        // The legacy server writes and reads this namespace only
+                        // through its own setters; request routing never consults
+                        // it. Keep the rows verbatim in staging instead of
+                        // refusing the cutover over data with no runtime effect.
+                        let scoped = value.as_object().ok_or("invalid provider-scoped aliases")?;
+                        if scoped.values().any(|target| !target.is_string()) { return Err("invalid provider-scoped aliases"); }
+                        if !scoped.is_empty() { provider_aliases.push((key, raw)); }
                     }
                     ("managedModelAliasNames", "names") => {
                         let names = value.as_array().ok_or("invalid managed alias names")?;
@@ -303,7 +311,19 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             if imported + already_present > 0 {
                 sqlx::query("INSERT INTO redrouter_model_alias_state (id) VALUES ('configured') ON CONFLICT (id) DO NOTHING").execute(&mut *target).await.map_err(|_| "cannot persist alias routing state")?;
             }
-            Ok(AliasImport { imported, already_present })
+            let mut staged_provider_aliases = 0;
+            if !provider_aliases.is_empty() {
+                sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_alias_records (provider TEXT PRIMARY KEY, value TEXT NOT NULL)").execute(&mut *target).await.map_err(|_| "cannot initialize provider alias staging")?;
+                for (provider, raw) in &provider_aliases {
+                    let inserted = sqlx::query("INSERT INTO redrouter_legacy_provider_alias_records (provider,value) VALUES (?,?) ON CONFLICT (provider) DO NOTHING").bind(provider).bind(raw).execute(&mut *target).await.map_err(|_| "cannot stage provider-scoped aliases")?.rows_affected();
+                    if inserted == 0 {
+                        let existing: Option<String> = sqlx::query_scalar("SELECT value FROM redrouter_legacy_provider_alias_records WHERE provider=?").bind(provider).fetch_optional(&mut *target).await.map_err(|_| "cannot verify provider-scoped aliases")?;
+                        if existing.as_deref() != Some(raw.as_str()) { return Err("destination contains conflicting provider-scoped aliases"); }
+                    }
+                    staged_provider_aliases += 1;
+                }
+            }
+            Ok(AliasImport { imported, already_present, staged_provider_aliases })
         }.await;
         match inner {
             Ok(report) => {
