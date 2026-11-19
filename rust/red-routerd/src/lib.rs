@@ -11,6 +11,7 @@ mod catalog_listing;
 mod catalog_order;
 mod circuit;
 pub mod control_plane;
+mod daily_quota_reset;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
