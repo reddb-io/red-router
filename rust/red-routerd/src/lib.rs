@@ -19,6 +19,7 @@ pub mod legacy_aliases;
 pub mod legacy_archive;
 pub mod legacy_cutover;
 pub mod legacy_keys;
+mod legacy_model_index;
 pub mod legacy_models;
 pub mod legacy_payload_rules;
 pub mod legacy_preflight;
