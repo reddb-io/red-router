@@ -8,6 +8,8 @@
 //! - consumed: another importer reads and migrates (or refuses) it;
 //! - dashboard: a personal dashboard preference with no gateway behavior,
 //!   dropped;
+//! - diagnostic: an opt-in diagnostic that only adds log lines, dropped;
+//! - imported: migrated by this importer onto native runtime settings;
 //! - refused: a non-default value with no native equivalent yet, or a key
 //!   this inventory does not know. Each refusal blocks the cutover.
 
@@ -267,6 +269,15 @@ const DASHBOARD: &[&str] = &[
     "pinProviderQuotaToHome",
     "hideHealthCheckLogs",
     "setupComplete",
+    // Read only by the dashboard's debug card; no gateway path reads it.
+    "debugMode",
+];
+
+/// Opt-in diagnostics that only add log lines (dropped: the native gateway
+/// has its own logging).
+const DIAGNOSTIC: &[&str] = &[
+    // A per-request debug line summarizing tool sources (legacy chatCore).
+    "logToolSources",
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -277,6 +288,8 @@ pub enum SettingClass {
         importer: &'static str,
     },
     Dashboard,
+    /// An opt-in diagnostic log line, dropped.
+    Diagnostic,
     /// Migrated by this importer onto native runtime settings.
     Imported,
     Refused {
@@ -312,6 +325,9 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
     }
     if DASHBOARD.contains(&key) {
         return SettingClass::Dashboard;
+    }
+    if DIAGNOSTIC.contains(&key) {
+        return SettingClass::Diagnostic;
     }
     match key {
         "resilienceSettings" => {
@@ -480,6 +496,8 @@ mod tests {
             SettingClass::Refused { .. }
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
+        assert_eq!(classify("debugMode", "true"), SettingClass::Dashboard);
+        assert_eq!(classify("logToolSources", "true"), SettingClass::Diagnostic);
         assert_eq!(
             classify("payloadRules", "{}"),
             SettingClass::Consumed {
