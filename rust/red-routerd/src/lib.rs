@@ -44,6 +44,7 @@ pub mod shared_budget;
 pub mod shared_usage;
 pub mod spa;
 pub mod storage;
+mod strict_system_hoist;
 mod tool_call_ids;
 mod translation;
 mod usage_stream;
@@ -6991,6 +6992,10 @@ async fn proxy_request(
                                 &target.model,
                                 true,
                                 target.preserve_developer_role,
+                            );
+                            strict_system_hoist::hoist_leading_system_message(
+                                &mut attempt_parsed,
+                                provider,
                             );
                             if !openai_content::preserve_video_url(
                                 target.preserve_video_url,
