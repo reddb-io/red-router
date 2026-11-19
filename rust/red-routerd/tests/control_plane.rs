@@ -11373,8 +11373,10 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
         .iter()
         .find(|entry| entry["provider_id"] == "limited")
         .unwrap();
-    assert_eq!(limited["terminal_status"], serde_json::Value::Null);
-    assert_eq!(limited["ambiguous_auth_strikes"], 1);
+    // A bare Mistral 401 parks the connection as expired, as in the legacy
+    // router; the soft lockout is opt-in (MISTRAL_AMBIGUOUS_401_SOFT_LOCKOUT).
+    assert_eq!(limited["terminal_status"], "expired");
+    assert_eq!(limited["ambiguous_auth_strikes"], 0);
     assert_eq!(limited["ambiguous_auth_retry_limit"], 3);
     assert_eq!(limited["connection_last_status"], 401);
 

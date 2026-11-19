@@ -139,8 +139,12 @@ pub(crate) fn classify_provider_failure(
     if matches!(status.as_u16(), 401 | 403) && credential_failure_text(text) {
         return ProviderFailureClass::Expired;
     }
-    if ambiguous_auth_failure(provider, status, text) {
-        return ProviderFailureClass::AmbiguousExpired;
+    // Every other Mistral 401 parks the connection as expired, unless the
+    // legacy soft lockout is on for an ambiguous one (mistral_ambiguous_auth).
+    if status == StatusCode::UNAUTHORIZED
+        && provider.is_some_and(|provider| provider.eq_ignore_ascii_case("mistral"))
+    {
+        return mistral_401_class(text, crate::mistral_ambiguous_auth::soft_lockout_enabled());
     }
     let failed = status.is_client_error() || status.is_server_error();
     if failed && matches_any(&MOVED_ENDPOINT_PATTERNS, text) {
@@ -443,10 +447,14 @@ fn credential_failure_text(text: &str) -> bool {
     )
 }
 
-fn ambiguous_auth_failure(provider: Option<&str>, status: StatusCode, text: &str) -> bool {
-    status == StatusCode::UNAUTHORIZED
-        && provider.is_some_and(|provider| provider.eq_ignore_ascii_case("mistral"))
-        && matches!(text.trim(), "" | "unauthorized" | "unauthorized.")
+fn mistral_401_class(text: &str, soft_lockout: bool) -> ProviderFailureClass {
+    if soft_lockout
+        && crate::mistral_ambiguous_auth::is_mistral_ambiguous_401(Some("mistral"), text)
+    {
+        ProviderFailureClass::AmbiguousExpired
+    } else {
+        ProviderFailureClass::Expired
+    }
 }
 
 fn automatic_scope(provider: Option<&str>, headers: &HeaderMap) -> FailureScope {
@@ -801,7 +809,24 @@ mod tests {
                 &headers,
                 Some(br#"{"detail":"Unauthorized"}"#),
             ),
+            ProviderFailureClass::Expired
+        );
+        // With the legacy soft lockout on, an ambiguous body cools down instead.
+        assert_eq!(
+            mistral_401_class("unauthorized", true),
             ProviderFailureClass::AmbiguousExpired
+        );
+        assert_eq!(
+            mistral_401_class("quota window closed", true),
+            ProviderFailureClass::AmbiguousExpired
+        );
+        assert_eq!(
+            mistral_401_class("token revoked", true),
+            ProviderFailureClass::Expired
+        );
+        assert_eq!(
+            mistral_401_class("unauthorized", false),
+            ProviderFailureClass::Expired
         );
         assert_eq!(
             classify_provider_failure(

@@ -22,8 +22,8 @@ const MODEL_BASE_MS: u64 = 30_000;
 const MODEL_MAX_MS: u64 = 10 * 60 * 1_000;
 const MAX_BACKOFF_LEVEL: u32 = 16;
 const MAX_MODEL_LOCKOUTS: usize = 1_024;
-const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = 3;
-const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = 60 * 60 * 1_000;
+const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = crate::mistral_ambiguous_auth::MAX_SOFT_STRIKES;
+const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = crate::mistral_ambiguous_auth::STRIKE_WINDOW_MS;
 const TERMINAL_UNTIL_UNIX_MS: u64 = i64::MAX as u64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

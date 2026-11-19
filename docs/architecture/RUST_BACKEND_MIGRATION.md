@@ -467,8 +467,9 @@ to the dashboard, applied to immutable route snapshots and survives restart. Mod
 `429` state retains upstream retry hints without cooling sibling models. Terminal account
 states are persisted and exposed to the authenticated health API without provider error
 bodies or credentials. Mistral's byte-identical bare `401` for revoked credentials and
-exhausted quota receives three durable soft cooldown strikes per hour; the fourth failure
-converges to terminal expiry. Concurrent responses consume one generation, successful
+exhausted quota parks the connection as expired, as in the legacy router; with
+`MISTRAL_AMBIGUOUS_401_SOFT_LOCKOUT` on it receives three durable soft cooldown strikes
+per hour instead, and the fourth failure converges to terminal expiry. Concurrent responses consume one generation, successful
 recovery clears the strike state, old array-only availability snapshots remain readable,
 and the authenticated health API exposes only the count and limit. SQLite is
 the selected production backend for this slice, while the common repository contract is
