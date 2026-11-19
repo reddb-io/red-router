@@ -65,6 +65,34 @@ resolveWildcardAlias = "red_routerd::wildcard_router::resolve_wildcard_alias"
 wildcardMatch = "red_routerd::wildcard_router::wildcard_match"
 
 [[module]]
+ts = "open-sse/translator/helpers/openaiHelper.ts"
+status = "ported"
+rust = "openai_content.rs"
+module = "red_routerd::openai_content"
+ported_at = "2026-11-19T11:19:59Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/openai-developer-role-normalize.test.ts",
+    "tests/unit/translator-strip-client-metadata-1157.test.ts",
+    "tests/unit/translator-helper-tool-description-coercion.test.ts",
+    "tests/unit/strip-reasoning-blobs-agentic-context-1599.test.ts",
+]
+notes = "Applied to Chat Completions bodies sent to a target with a known provider. VALID_OPENAI_MESSAGE_TYPES has no reader in the filter. Reasoning replay uses the legacy provider list and model patterns without the registry interleavedField; cache_control follows the auto cache mode without per-connection overrides."
+
+[module.ts_blobs]
+"open-sse/translator/helpers/openaiHelper.ts" = "2a4a5feafce8c06f44e7070ec05ed2583d031f51"
+"tests/unit/openai-developer-role-normalize.test.ts" = "8d6d5190eee5aeb84626b564ef28f8620b0399b9"
+"tests/unit/strip-reasoning-blobs-agentic-context-1599.test.ts" = "8b3059236dd14f322048b056b46c1ab0722aa36f"
+"tests/unit/translator-helper-tool-description-coercion.test.ts" = "12e47f12ad82acbbe88735ebfb7ecffea7d296b3"
+"tests/unit/translator-strip-client-metadata-1157.test.ts" = "243b1407a3b035dccb8770cb30135638221ac6d8"
+
+[module.symbols]
+FilterToOpenAIFormatOptions = "red_routerd::openai_content::FilterOptions"
+VALID_OPENAI_CONTENT_TYPES = "red_routerd::openai_content::VALID_CONTENT_TYPES"
+VALID_OPENAI_MESSAGE_TYPES = "-"
+filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
+
+[[module]]
 ts = "src/app/api/v1/models/catalogCapabilities.ts"
 status = "ported"
 rust = "catalog_capabilities.rs"
