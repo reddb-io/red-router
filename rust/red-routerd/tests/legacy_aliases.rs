@@ -172,15 +172,30 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     source_db.close().await.unwrap();
+    // A managed alias routes like any other; only its provenance is staged.
+    let report = legacy_aliases::import(&source, &destination).await.unwrap();
     assert_eq!(
-        legacy_aliases::import(&source, &destination)
-            .await
-            .unwrap_err(),
-        "managed aliases require migration"
+        (
+            report.imported,
+            report.already_present,
+            report.staged_managed_alias_names
+        ),
+        (0, 7, 1)
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
     assert_eq!(db.model_aliases().await.unwrap().len(), 8);
     db.close().await.unwrap();
+    let mut dest_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let managed: Vec<String> =
+        sqlx::query_scalar("SELECT alias FROM redrouter_legacy_managed_alias_names")
+            .fetch_all(&mut dest_db)
+            .await
+            .unwrap();
+    assert_eq!(managed, ["fast"]);
+    dest_db.close().await.unwrap();
 
     let mut source_db =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))

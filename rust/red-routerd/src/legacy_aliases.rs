@@ -2,8 +2,9 @@
 //!
 //! Exact and glob (`settings.wildcardAliases`) aliases for built-in and
 //! verified custom OpenAI-compatible chat transports. Provider-scoped
-//! aliases, which the legacy router never consults, are staged verbatim.
-//! Managed aliases and unsupported protocols must be migrated separately.
+//! aliases, which the legacy router never consults, and the managed-alias
+//! provenance markers are staged verbatim. Prefix stripping and unsupported
+//! protocols must be migrated separately.
 use crate::{
     control_plane::{model_aliases, provider_nodes},
     storage::{StoredModelAlias, StoredProviderNode},
@@ -22,6 +23,9 @@ pub struct AliasImport {
     /// Legacy `providerAliases` rows copied verbatim to
     /// `redrouter_legacy_provider_alias_records`; they have no runtime effect.
     pub staged_provider_aliases: u64,
+    /// Legacy managed-alias provenance (`managedModelAliasNames`) copied to
+    /// `redrouter_legacy_managed_alias_names`; the aliases import as usual.
+    pub staged_managed_alias_names: u64,
 }
 
 /// The legacy resolver accepts a string, a single-element string array, or
@@ -272,7 +276,6 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                 }
             }
             if aliases.len() > 10_000 { return Err("too many legacy aliases"); }
-            if !managed.is_empty() { return Err("managed aliases require migration"); }
             let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id='red' AND enabled=1").fetch_one(&mut *target).await.map_err(|_| "destination tenant unavailable")?;
             if tenant_exists != 1 { return Err("destination tenant unavailable"); }
             if !aliases.is_empty() {
@@ -323,7 +326,20 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                     staged_provider_aliases += 1;
                 }
             }
-            Ok(AliasImport { imported, already_present, staged_provider_aliases })
+            // Managed names only mark aliases the legacy model sync generated and
+            // may prune; the aliases themselves route like any other. Rust has no
+            // managed sync, so keep the provenance for when it is ported.
+            let mut staged_managed_alias_names = 0;
+            if !managed.is_empty() {
+                sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_managed_alias_names (alias TEXT PRIMARY KEY)").execute(&mut *target).await.map_err(|_| "cannot initialize managed alias staging")?;
+                let mut names: Vec<_> = managed.into_iter().collect();
+                names.sort();
+                for name in &names {
+                    sqlx::query("INSERT INTO redrouter_legacy_managed_alias_names (alias) VALUES (?) ON CONFLICT (alias) DO NOTHING").bind(name).execute(&mut *target).await.map_err(|_| "cannot stage managed alias names")?;
+                    staged_managed_alias_names += 1;
+                }
+            }
+            Ok(AliasImport { imported, already_present, staged_provider_aliases, staged_managed_alias_names })
         }.await;
         match inner {
             Ok(report) => {
