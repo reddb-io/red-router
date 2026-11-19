@@ -88,6 +88,24 @@ fn merged(default: &Value, stored: &Value) -> Value {
     }
 }
 
+/// Legacy `normalizeRequestBodyLimitMb`: a number or numeric string, floored,
+/// within 1-500.
+fn legacy_body_size_mb(raw: &str) -> Option<u64> {
+    let parsed = match parse_value(raw) {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    }?;
+    let floored = parsed.is_finite().then(|| parsed.floor())?;
+    (1.0..=500.0).contains(&floored).then_some(floored as u64)
+}
+
+/// Legacy `resolveIdempotencyWindowMs`: a positive finite number, rounded up.
+fn legacy_idempotency_window_ms(raw: &str) -> Option<u64> {
+    let value = parse_value(raw).as_f64()?;
+    (value.is_finite() && value > 0.0).then(|| value.ceil() as u64)
+}
+
 /// Legacy `normalizeStringArray` over a `customBannedSignals` row: a list of
 /// trimmed, non-empty, distinct signals (anything but an array is none).
 pub(crate) fn custom_banned_signals(raw: &str) -> Result<Vec<String>, &'static str> {
@@ -356,11 +374,25 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 Err(reason) => SettingClass::Refused { reason },
             };
         }
+        // An explicit, valid value imports onto the native global setting; an
+        // invalid one is ignored by the legacy resolvers, like the default.
+        "maxBodySizeMb" => {
+            return match legacy_body_size_mb(raw) {
+                Some(_) => SettingClass::Imported,
+                None => SettingClass::AtDefault,
+            };
+        }
+        "idempotencyWindowMs" => {
+            return match legacy_idempotency_window_ms(raw) {
+                Some(_) => SettingClass::Imported,
+                None => SettingClass::AtDefault,
+            };
+        }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
         "customSystemPrompt" => {
             return match parse_value(raw) {
-                Value::String(prompt) if prompt.len() <= 100_000 && !prompt.contains(' ') => {
+                Value::String(prompt) if prompt.len() <= 100_000 && !prompt.contains('\0') => {
                     SettingClass::Imported
                 }
                 _ => SettingClass::Refused {
@@ -474,6 +506,36 @@ pub async fn import(
     };
     let custom_system_prompt_imported =
         prompt != crate::global_settings::CustomSystemPrompt::default();
+    let mut global = Vec::new();
+    if let Some(mb) = rows
+        .iter()
+        .find(|(key, _)| key == "maxBodySizeMb")
+        .and_then(|(_, raw)| legacy_body_size_mb(raw))
+    {
+        global.push((crate::global_settings::MAX_BODY_SIZE_MB, Value::from(mb)));
+    }
+    if let Some(ms) = rows
+        .iter()
+        .find(|(key, _)| key == "idempotencyWindowMs")
+        .and_then(|(_, raw)| legacy_idempotency_window_ms(raw))
+    {
+        global.push((
+            crate::global_settings::IDEMPOTENCY_WINDOW_MS,
+            Value::from(ms),
+        ));
+    }
+    if !global.is_empty() {
+        let configured = destination.global_settings().await?;
+        if global.iter().any(|(key, _)| configured.contains_key(*key)) {
+            return Err("destination global settings are already configured");
+        }
+    }
+    for (key, value) in global {
+        let value = crate::global_settings::validate(key, value)?;
+        destination
+            .upsert_global_setting(key, &value, revision)
+            .await?;
+    }
     if custom_system_prompt_imported {
         if destination
             .global_settings()
@@ -595,6 +657,20 @@ mod tests {
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
         assert_eq!(classify("debugMode", "true"), SettingClass::Dashboard);
+        assert_eq!(classify("maxBodySizeMb", "25"), SettingClass::Imported);
+        assert_eq!(classify("maxBodySizeMb", "0"), SettingClass::AtDefault);
+        assert_eq!(
+            classify("maxBodySizeMb", "\"abc\""),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("idempotencyWindowMs", "9000"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("idempotencyWindowMs", "\"9000\""),
+            SettingClass::AtDefault
+        );
         assert_eq!(
             classify("autoRefreshProviderQuota", "true"),
             SettingClass::Dashboard

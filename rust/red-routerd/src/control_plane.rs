@@ -11524,6 +11524,16 @@ impl ControlPlane {
         Ok(signals)
     }
 
+    /// The configured client request body limit (legacy `maxBodySizeMb`).
+    pub(crate) async fn max_body_size_bytes(&self) -> Option<usize> {
+        self.0.global_settings.read().await.max_body_size_bytes()
+    }
+
+    /// The idempotent replay window (legacy `idempotencyWindowMs`).
+    pub(crate) async fn idempotency_window_ms(&self) -> u64 {
+        self.0.global_settings.read().await.idempotency_window_ms()
+    }
+
     /// The operator's custom system prompt, when enabled.
     pub(crate) async fn custom_system_prompt(&self) -> Option<String> {
         self.0

@@ -69,6 +69,8 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
         "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT);
          INSERT INTO key_value VALUES
            ('settings','theme','\"dark\"'),
+           ('settings','maxBodySizeMb','\"25.7\"'),
+           ('settings','idempotencyWindowMs','1500.2'),
            ('settings','customSystemPromptEnabled','true'),
            ('settings','customSystemPrompt','\"Be terse.\"'),
            ('settings','customBannedSignals','[\" Account Frozen \",\"\",\"tos strike\"]'),
@@ -89,10 +91,14 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
     assert!(report.runtime_settings_imported);
     assert_eq!(report.custom_banned_signals, 2);
     assert!(report.custom_system_prompt_imported);
+    let global = destination.global_settings().await.unwrap();
     assert_eq!(
-        destination.global_settings().await.unwrap()["custom_system_prompt"],
+        global["custom_system_prompt"],
         serde_json::json!({"enabled":true,"prompt":"Be terse."})
     );
+    // Values are normalized as the legacy resolvers read them.
+    assert_eq!(global["max_body_size_mb"], 25);
+    assert_eq!(global["idempotency_window_ms"], 1501);
     assert_eq!(
         destination.custom_banned_signals().await.unwrap(),
         ["Account Frozen", "tos strike"]

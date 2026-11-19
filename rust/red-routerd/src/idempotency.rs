@@ -145,7 +145,7 @@ fn check(key: &str, now: u64) -> Option<axum::body::Bytes> {
     }
 }
 
-fn save(key: String, body: axum::body::Bytes, now: u64) {
+fn save(key: String, body: axum::body::Bytes, now: u64, window_ms: u64) {
     let Ok(mut store) = STORE.lock() else {
         return;
     };
@@ -155,7 +155,7 @@ fn save(key: String, body: axum::body::Bytes, now: u64) {
             key,
             Entry {
                 body,
-                expires_at_ms: now.saturating_add(WINDOW_MS),
+                expires_at_ms: now.saturating_add(window_ms),
             },
         );
     }
@@ -179,8 +179,19 @@ fn is_json(headers: &HeaderMap) -> bool {
         .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/json"))
 }
 
+/// The replay window and request body limit a control plane configures.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    pub window_ms: u64,
+    pub body_limit: Option<usize>,
+}
+
 /// Forward `request`, replaying a completed response for a repeated key.
-pub(crate) async fn with_idempotency<F, Fut>(request: Request, forward: F) -> Response
+pub(crate) async fn with_idempotency<F, Fut>(
+    request: Request,
+    limits: Limits,
+    forward: F,
+) -> Response
 where
     F: FnOnce(Request) -> Fut,
     Fut: Future<Output = Response>,
@@ -189,7 +200,7 @@ where
         return forward(request).await;
     }
     let (parts, body) = request.into_parts();
-    let limit = crate::body_limits::request_body_limit(parts.uri.path());
+    let limit = crate::body_limits::request_body_limit(parts.uri.path(), limits.body_limit);
     let Ok(bytes) = to_bytes(body, limit).await else {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -215,7 +226,7 @@ where
     let (parts, body) = response.into_parts();
     match to_bytes(body, MAX_RESPONSE_BYTES).await {
         Ok(stored) => {
-            save(key, stored.clone(), now_ms());
+            save(key, stored.clone(), now_ms(), limits.window_ms);
             Response::from_parts(parts, Body::from(stored))
         }
         Err(_) => (
@@ -283,7 +294,12 @@ mod tests {
     #[test]
     fn stored_responses_replay_only_inside_the_window() {
         let key = "unit-test-window-key".to_owned();
-        save(key.clone(), axum::body::Bytes::from_static(b"{}"), 1_000);
+        save(
+            key.clone(),
+            axum::body::Bytes::from_static(b"{}"),
+            1_000,
+            WINDOW_MS,
+        );
         assert!(check(&key, 1_000 + WINDOW_MS - 1).is_some());
         assert!(check(&key, 1_000 + WINDOW_MS).is_none());
         assert!(check(&key, 1_000).is_none(), "an expired entry is dropped");

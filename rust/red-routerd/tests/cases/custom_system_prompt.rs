@@ -149,6 +149,41 @@ async fn the_custom_system_prompt_reaches_chat_requests_when_enabled() {
         ])
     );
 
+    // A configured body limit applies to routes without the LLM floor
+    // (Messages; Chat Completions and Responses keep at least 50 MiB).
+    assert_eq!(
+        client
+            .put(format!(
+                "{restarted_base}/api/admin/global-settings/max_body_size_mb"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!(1))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let large = serde_json::json!({
+        "model":"prompt-combo",
+        "max_tokens":1,
+        "messages":[{"role":"user","content":"x".repeat(1_500_000)}]
+    })
+    .to_string();
+    assert_eq!(
+        client
+            .post(format!("{restarted_base}/v1/messages"))
+            .header("anthropic-version", "2023-06-01")
+            .bearer_auth(RUST_CLIENT_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(large)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+
     restarted_task.abort();
     upstream_task.abort();
 }

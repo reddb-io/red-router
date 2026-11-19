@@ -25,9 +25,11 @@ fn parse_limit(value: Option<&str>) -> usize {
 static CONFIGURED_LIMIT: LazyLock<usize> =
     LazyLock::new(|| parse_limit(std::env::var("MAX_BODY_SIZE_BYTES").ok().as_deref()));
 
-/// Legacy `getBodySizeLimit` for the routes the native gateway serves.
-pub(crate) fn request_body_limit(path: &str) -> usize {
-    limit_for(path, *CONFIGURED_LIMIT)
+/// Legacy `getBodySizeLimit` for the routes the native gateway serves. A
+/// configured `maxBodySizeMb` wins over the environment, as in the legacy
+/// `getConfiguredBodySizeLimitBytes`.
+pub(crate) fn request_body_limit(path: &str, configured: Option<usize>) -> usize {
+    limit_for(path, configured.unwrap_or(*CONFIGURED_LIMIT))
 }
 
 fn limit_for(path: &str, configured: usize) -> usize {

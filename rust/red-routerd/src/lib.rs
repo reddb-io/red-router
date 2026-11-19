@@ -3931,24 +3931,40 @@ fn availability_blocked_error(
     response
 }
 
+async fn idempotency_limits(state: &ProxyState) -> idempotency::Limits {
+    match &state.control_plane {
+        Some(control) => idempotency::Limits {
+            window_ms: control.idempotency_window_ms().await,
+            body_limit: control.max_body_size_bytes().await,
+        },
+        None => idempotency::Limits {
+            window_ms: idempotency::WINDOW_MS,
+            body_limit: None,
+        },
+    }
+}
+
 // Chat-like routes replay a completed request for a repeated idempotency key
 // (legacy chatCore idempotency).
 async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
-    idempotency::with_idempotency(request, |request| {
+    let limits = idempotency_limits(&state).await;
+    idempotency::with_idempotency(request, limits, |request| {
         proxy_request(state, request, ProviderProtocol::OpenAi, None)
     })
     .await
 }
 
 async fn messages(State(state): State<ProxyState>, request: Request) -> Response {
-    idempotency::with_idempotency(request, |request| {
+    let limits = idempotency_limits(&state).await;
+    idempotency::with_idempotency(request, limits, |request| {
         proxy_request(state, request, ProviderProtocol::Anthropic, None)
     })
     .await
 }
 
 async fn responses(State(state): State<ProxyState>, request: Request) -> Response {
-    idempotency::with_idempotency(request, |request| {
+    let limits = idempotency_limits(&state).await;
+    idempotency::with_idempotency(request, limits, |request| {
         proxy_request(state, request, ProviderProtocol::OpenAiResponses, None)
     })
     .await
@@ -6154,7 +6170,11 @@ async fn proxy_request(
         Err(()) => return error(StatusCode::TOO_MANY_REQUESTS, "Client is at capacity"),
     };
     let accept = request.headers().get(header::ACCEPT).cloned();
-    let body_limit = body_limits::request_body_limit(request.uri().path());
+    let configured_body_limit = match &state.control_plane {
+        Some(control) => control.max_body_size_bytes().await,
+        None => None,
+    };
+    let body_limit = body_limits::request_body_limit(request.uri().path(), configured_body_limit);
     let body = match to_bytes(request.into_body(), body_limit).await {
         Ok(body) => body,
         Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "Request body too large"),

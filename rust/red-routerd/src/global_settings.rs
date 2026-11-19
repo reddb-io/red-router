@@ -6,12 +6,22 @@
 //! - `custom_system_prompt`: the legacy `customSystemPromptEnabled` and
 //!   `customSystemPrompt`, injected into chat-like requests
 //!   (`injectCustomSystemPrompt`, open-sse/services/systemPrompt.ts).
+//! - `max_body_size_mb`: the legacy `maxBodySizeMb` (1-500 MiB), the
+//!   configured client request body limit (`body_limits`).
+//! - `idempotency_window_ms`: the legacy `idempotencyWindowMs`, the chat
+//!   replay window (`idempotency`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(crate) const CUSTOM_SYSTEM_PROMPT: &str = "custom_system_prompt";
+pub(crate) const MAX_BODY_SIZE_MB: &str = "max_body_size_mb";
+pub(crate) const IDEMPOTENCY_WINDOW_MS: &str = "idempotency_window_ms";
+/// Legacy `MIN_REQUEST_BODY_LIMIT_MB` and `MAX_REQUEST_BODY_LIMIT_MB`.
+pub(crate) const BODY_SIZE_MB_RANGE: std::ops::RangeInclusive<u64> = 1..=500;
+/// The longest replay window accepted (a year).
+const MAX_IDEMPOTENCY_WINDOW_MS: u64 = 365 * 24 * 60 * 60 * 1_000;
 const MAX_PROMPT_LEN: usize = 100_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +46,8 @@ impl CustomSystemPrompt {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
     custom_system_prompt: CustomSystemPrompt,
+    max_body_size_mb: Option<u64>,
+    idempotency_window_ms: Option<u64>,
 }
 
 impl Snapshot {
@@ -43,6 +55,18 @@ impl Snapshot {
     pub(crate) fn custom_system_prompt(&self) -> Option<&str> {
         let prompt = &self.custom_system_prompt;
         (prompt.enabled && !prompt.prompt.is_empty()).then_some(prompt.prompt.as_str())
+    }
+
+    /// The configured client request body limit, when set.
+    pub(crate) fn max_body_size_bytes(&self) -> Option<usize> {
+        self.max_body_size_mb
+            .and_then(|mb| usize::try_from(mb.saturating_mul(1024 * 1024)).ok())
+    }
+
+    /// The idempotent replay window (legacy default 5 s).
+    pub(crate) fn idempotency_window_ms(&self) -> u64 {
+        self.idempotency_window_ms
+            .unwrap_or(crate::idempotency::WINDOW_MS)
     }
 }
 
@@ -55,6 +79,16 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             prompt.validate()?;
             serde_json::to_value(prompt).map_err(|_| "invalid custom system prompt")
         }
+        MAX_BODY_SIZE_MB => value
+            .as_u64()
+            .filter(|mb| BODY_SIZE_MB_RANGE.contains(mb))
+            .map(Value::from)
+            .ok_or("invalid request body limit"),
+        IDEMPOTENCY_WINDOW_MS => value
+            .as_u64()
+            .filter(|ms| (1..=MAX_IDEMPOTENCY_WINDOW_MS).contains(ms))
+            .map(Value::from)
+            .ok_or("invalid idempotency window"),
         _ => Err("unknown global setting"),
     }
 }
@@ -65,9 +99,14 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
     let mut snapshot = Snapshot::default();
     for (key, value) in stored {
         let value = validate(key, value.clone())?;
-        if key == CUSTOM_SYSTEM_PROMPT {
-            snapshot.custom_system_prompt =
-                serde_json::from_value(value).map_err(|_| "invalid custom system prompt")?;
+        match key.as_str() {
+            CUSTOM_SYSTEM_PROMPT => {
+                snapshot.custom_system_prompt =
+                    serde_json::from_value(value).map_err(|_| "invalid custom system prompt")?;
+            }
+            MAX_BODY_SIZE_MB => snapshot.max_body_size_mb = value.as_u64(),
+            IDEMPOTENCY_WINDOW_MS => snapshot.idempotency_window_ms = value.as_u64(),
+            _ => {}
         }
     }
     Ok(snapshot)
@@ -201,5 +240,22 @@ mod tests {
         );
         assert!(validate(CUSTOM_SYSTEM_PROMPT, json!({"other":1})).is_err());
         assert!(validate("unknown", json!(1)).is_err());
+        assert_eq!(validate(MAX_BODY_SIZE_MB, json!(25)), Ok(json!(25)));
+        assert!(validate(MAX_BODY_SIZE_MB, json!(0)).is_err());
+        assert!(validate(MAX_BODY_SIZE_MB, json!(501)).is_err());
+        assert_eq!(
+            validate(IDEMPOTENCY_WINDOW_MS, json!(9000)),
+            Ok(json!(9000))
+        );
+        assert!(validate(IDEMPOTENCY_WINDOW_MS, json!(0)).is_err());
+        let stored = BTreeMap::from([
+            (MAX_BODY_SIZE_MB.to_owned(), json!(25)),
+            (IDEMPOTENCY_WINDOW_MS.to_owned(), json!(9000)),
+        ]);
+        let snapshot = snapshot(&stored).unwrap();
+        assert_eq!(snapshot.max_body_size_bytes(), Some(25 * 1024 * 1024));
+        assert_eq!(snapshot.idempotency_window_ms(), 9000);
+        assert_eq!(Snapshot::default().max_body_size_bytes(), None);
+        assert_eq!(Snapshot::default().idempotency_window_ms(), 5_000);
     }
 }
