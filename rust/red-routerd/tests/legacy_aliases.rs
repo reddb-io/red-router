@@ -131,11 +131,31 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         .await
         .unwrap();
     source_db.close().await.unwrap();
+    // Glob aliases fold in after exact names, keyed by their pattern.
+    let report = legacy_aliases::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (2, 6));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let aliases = db.model_aliases().await.unwrap();
+    let glob = aliases.iter().find(|a| a.alias == "fast-*").unwrap();
+    assert_eq!((&*glob.provider, &*glob.model), ("openai", "new"));
+    db.close().await.unwrap();
+    let mut source_db =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+            .await
+            .unwrap();
+    sqlx::query(
+        "UPDATE key_value SET value=? WHERE namespace='settings' AND key='wildcardAliases'",
+    )
+    .bind(r#"[{"pattern":"fast-*"}]"#)
+    .execute(&mut source_db)
+    .await
+    .unwrap();
+    source_db.close().await.unwrap();
     assert_eq!(
         legacy_aliases::import(&source, &destination)
             .await
             .unwrap_err(),
-        "legacy wildcard aliases require migration"
+        "legacy wildcard alias requires migration"
     );
 
     let mut source_db =
@@ -159,7 +179,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
         "managed aliases require migration"
     );
     let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
-    assert_eq!(db.model_aliases().await.unwrap().len(), 6);
+    assert_eq!(db.model_aliases().await.unwrap().len(), 8);
     db.close().await.unwrap();
 
     let mut source_db =
@@ -353,8 +373,9 @@ async fn migrated_custom_alias_routes_through_imported_node_in_two_instances() {
     .unwrap();
     sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key)); CREATE TABLE provider_nodes (id TEXT PRIMARY KEY, type TEXT, name TEXT, prefix TEXT, base_url TEXT, chat_path TEXT);").execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_nodes VALUES ('custom-node','openai-compatible','Private','private-api',?,'/custom')").bind(&upstream).execute(&mut input).await.unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','friendly',?)")
+    sqlx::query("INSERT INTO key_value VALUES ('modelAliases','friendly',?),('settings','wildcardAliases',?)")
         .bind(r#""private-api/model-x""#)
+        .bind(r#"[{"pattern":"friendly-*","target":"private-api/model-x"}]"#)
         .execute(&mut input)
         .await
         .unwrap();
@@ -404,19 +425,40 @@ async fn migrated_custom_alias_routes_through_imported_node_in_two_instances() {
         StatusCode::OK
     );
     assert_eq!(client.put(format!("{base}/api/admin/client-keys/client")).bearer_auth(ADMIN)
-        .json(&serde_json::json!({"label":"client","api_key":CLIENT,"scopes":["inference:chat"],"allowed_models":["friendly"]})).send().await.unwrap().status(), StatusCode::OK);
+        .json(&serde_json::json!({"label":"client","api_key":CLIENT,"scopes":["inference:chat"],"allowed_models":["friendly","friendly-v2"]})).send().await.unwrap().status(), StatusCode::OK);
     let (replica, replica_task) = start(database.clone()).await;
     for base in [base, replica] {
-        let response = client
-            .post(format!("{base}/v1/chat/completions"))
+        // The exact alias, then a name only the imported glob alias matches;
+        // the glob answers under the requested name, not its pattern.
+        for requested in ["friendly", "friendly-v2"] {
+            let response = client
+                .post(format!("{base}/v1/chat/completions"))
+                .bearer_auth(CLIENT)
+                .json(&serde_json::json!({"model":requested,"messages":[]}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{requested}");
+            let body: serde_json::Value = response.json().await.unwrap();
+            assert_eq!(body["model"], requested);
+        }
+        let listed: serde_json::Value = client
+            .get(format!("{base}/v1/models"))
             .bearer_auth(CLIENT)
-            .json(&serde_json::json!({"model":"friendly","messages":[]}))
             .send()
             .await
+            .unwrap()
+            .json()
+            .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(body["model"], "friendly");
+        assert!(
+            !listed["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|model| model["id"] == "friendly-*"),
+            "a glob alias is not a selectable model: {listed}"
+        );
     }
     task.abort();
     replica_task.abort();

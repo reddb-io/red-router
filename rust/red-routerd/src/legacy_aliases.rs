@@ -1,8 +1,9 @@
 //! Strict offline import of legacy exact model aliases.
 //!
-//! Exact aliases for built-in and verified custom OpenAI-compatible chat
-//! transports. Managed and wildcard aliases and unsupported protocols must be
-//! migrated separately.
+//! Exact and glob (`settings.wildcardAliases`) aliases for built-in and
+//! verified custom OpenAI-compatible chat transports. Managed and
+//! provider-scoped aliases and unsupported protocols must be migrated
+//! separately.
 use crate::{
     control_plane::{model_aliases, provider_nodes},
     storage::{StoredModelAlias, StoredProviderNode},
@@ -40,6 +41,28 @@ fn alias_destination(value: &serde_json::Value) -> Option<(&str, &str)> {
         _ => None,
     }?;
     qualified.split_once('/')
+}
+
+/// `settings.wildcardAliases` as written by the legacy Settings UI: an array
+/// of `{pattern, target}` objects. Anything else is refused rather than
+/// partially imported.
+fn wildcard_entries(value: &serde_json::Value) -> Result<Vec<(String, String)>, &'static str> {
+    let items = value.as_array().ok_or("invalid legacy wildcard aliases")?;
+    items
+        .iter()
+        .map(|item| {
+            let object = item
+                .as_object()
+                .filter(|object| object.len() == 2)
+                .ok_or("legacy wildcard alias requires migration")?;
+            let pattern = object.get("pattern").and_then(serde_json::Value::as_str);
+            let target = object.get("target").and_then(serde_json::Value::as_str);
+            match (pattern, target) {
+                (Some(pattern), Some(target)) => Ok((pattern.to_owned(), target.to_owned())),
+                _ => Err("legacy wildcard alias requires migration"),
+            }
+        })
+        .collect()
 }
 
 /// A legacy alias may address a custom node by its public prefix or node ID.
@@ -195,6 +218,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
             let mut row_count = 0_usize;
             let mut aliases = BTreeMap::new();
             let mut settings = None;
+            let mut wildcards = None;
             let mut managed = HashSet::new();
             let mut bytes = 0_usize;
             while let Some(row) = rows.try_next().await.map_err(|_| "cannot read legacy aliases")? {
@@ -209,7 +233,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                 match (namespace.as_str(),key.as_str()) {
                     ("modelAliases", _) => { if aliases.insert(key, value).is_some() { return Err("duplicate legacy alias"); } }
                     ("settings", "modelAliases") => { if settings.replace(value).is_some() { return Err("duplicate settings aliases"); } }
-                    ("settings", "wildcardAliases") => if value.as_array().is_none_or(|items| !items.is_empty()) && !value.is_null() { return Err("legacy wildcard aliases require migration"); },
+                    ("settings", "wildcardAliases") => { if wildcards.replace(value).is_some() { return Err("duplicate wildcard aliases"); } }
                     ("settings", "stripModelPrefix") => if value != serde_json::Value::Bool(false) && !value.is_null() { return Err("legacy prefix stripping requires migration"); },
                     ("providerAliases", _) => {
                         if value.as_object().is_none_or(|aliases| !aliases.is_empty()) {
@@ -230,6 +254,13 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                 for (key,value) in settings {
                     if !value.is_string() { return Err("legacy alias destination requires migration"); }
                     aliases.insert(key.clone(), value.clone());
+                }
+            }
+            // Legacy `buildWildcardAliasMap`: glob entries fold in last, keyed by
+            // pattern, and resolve after exact names at request time.
+            if let Some(wildcards) = wildcards.filter(|wildcards| !wildcards.is_null()) {
+                for (pattern, target) in wildcard_entries(&wildcards)? {
+                    aliases.insert(pattern, serde_json::Value::String(target));
                 }
             }
             if aliases.len() > 10_000 { return Err("too many legacy aliases"); }
@@ -258,7 +289,6 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                 };
                 let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider, alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
                 model_aliases::validate(&record)?;
-                if record.alias.contains(['*','?']) { return Err("legacy wildcard aliases require migration"); }
                 let collision: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_combos WHERE id IN (?,?)").bind(&record.id).bind(&record.alias).fetch_one(&mut *target).await.map_err(|_| "cannot inspect destination combos")?;
                 if collision != 0 { return Err("legacy alias conflicts with destination combo"); }
                 let namespace = serde_json::to_string(&(&record.tenant_id,&record.alias)).map_err(|_| "invalid alias identity")?;

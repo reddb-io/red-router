@@ -42,6 +42,7 @@ pub mod spa;
 pub mod storage;
 mod translation;
 mod usage_stream;
+mod wildcard_router;
 use axum::{
     body::{to_bytes, Body, Bytes},
     extract::{Path, Request, State},
@@ -2940,6 +2941,10 @@ fn listed_models(
     for id in route_ids {
         let route = &routes[id];
         let id = route.public_model_alias.as_deref().unwrap_or(id);
+        // A glob alias is a routing rule, not a model a client can select.
+        if route.public_model_alias.is_some() && wildcard_router::is_pattern(id) {
+            continue;
+        }
         if !policy.tenant_allowed(&route.tenant_id)
             || (route.public_model_alias.is_none() && !policy.combo_allowed(id))
             || !policy.endpoint_allowed(route_category(route.protocol))
@@ -6008,13 +6013,13 @@ async fn proxy_request(
             match &state.control_plane {
                 Some(control) => match control.model_aliases_snapshot().await {
                     Ok(aliases) => aliases
-                        .resolve(
+                        .resolve_route(
                             policy
                                 .identity()
                                 .map_or("red", |identity| identity.tenant_id.as_ref()),
                             &model,
                         )
-                        .map(str::to_owned),
+                        .map(|found| (found.id.to_owned(), found.by_pattern)),
                     Err(_) => {
                         return error(
                             StatusCode::SERVICE_UNAVAILABLE,
@@ -6028,7 +6033,11 @@ async fn proxy_request(
             None
         };
     let alias_was_resolved = alias_route.is_some();
-    let model = if let Some(alias) = alias_route {
+    // A glob alias answers under the requested name, not its pattern.
+    let alias_by_pattern = alias_route
+        .as_ref()
+        .is_some_and(|(_, by_pattern)| *by_pattern);
+    let model = if let Some((alias, _)) = alias_route {
         alias
     } else if !has_route(&model) {
         model
@@ -6084,12 +6093,14 @@ async fn proxy_request(
         None
     };
     let route = configured_route.or(direct_route.as_ref());
-    if route.is_some_and(|route| {
-        route
-            .public_model_alias
-            .as_deref()
-            .is_some_and(|name| name != requested_model)
-    }) {
+    if !alias_by_pattern
+        && route.is_some_and(|route| {
+            route
+                .public_model_alias
+                .as_deref()
+                .is_some_and(|name| name != requested_model)
+        })
+    {
         return error(StatusCode::NOT_FOUND, "Unknown model alias");
     }
     if state.product_combo.is_none()
@@ -7517,7 +7528,11 @@ async fn proxy_request(
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
-    let response_alias = route.and_then(|route| route.public_model_alias.as_deref());
+    let response_alias = if alias_by_pattern {
+        Some(requested_model.as_str())
+    } else {
+        route.and_then(|route| route.public_model_alias.as_deref())
+    };
     if final_antigravity_translated && response.status().is_success() {
         let signature_context = final_signature_context;
         let Some(response) = response.into_streaming() else {

@@ -9,7 +9,17 @@ pub(crate) struct AliasSnapshot {
     pub(crate) records: Vec<StoredModelAlias>,
     pub(crate) configured: bool,
     names: HashMap<String, HashMap<String, String>>,
+    /// Every alias name and record ID per organization, in record order, for
+    /// the legacy glob step.
+    ordered: HashMap<String, Vec<(String, String)>>,
     public_names: HashMap<String, String>,
+}
+/// An alias the dispatcher resolved, and whether it matched by glob (or by a
+/// case-insensitive name) rather than exactly. A glob match answers with the
+/// requested model name, not the alias pattern.
+pub(crate) struct AliasMatch<'a> {
+    pub(crate) id: &'a str,
+    pub(crate) by_pattern: bool,
 }
 pub(crate) fn record_id(tenant: &str, alias: &str) -> String {
     let mut digest = Sha256::new();
@@ -53,10 +63,15 @@ impl AliasSnapshot {
             return Err("Model alias snapshot exceeds its limit");
         }
         let mut names: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut ordered: HashMap<String, Vec<(String, String)>> = HashMap::new();
         let mut public_names = HashMap::new();
         for record in &records {
             validate(record)?;
             public_names.insert(record.id.clone(), record.alias.clone());
+            ordered
+                .entry(record.tenant_id.clone())
+                .or_default()
+                .push((record.alias.clone(), record.id.clone()));
             if names
                 .entry(record.tenant_id.clone())
                 .or_default()
@@ -70,12 +85,39 @@ impl AliasSnapshot {
         Ok(Self {
             records,
             names,
+            ordered,
             configured,
             public_names,
         })
     }
     pub(crate) fn resolve(&self, tenant: &str, name: &str) -> Option<&str> {
         self.names.get(tenant)?.get(name).map(String::as_str)
+    }
+    /// Legacy request resolution (`getModelInfoCore` with `resolveModel`): an
+    /// exact alias first, then the most specific glob over every alias name of
+    /// the organization. Like the legacy resolver, the glob step only applies
+    /// to names without a provider prefix.
+    pub(crate) fn resolve_route(&self, tenant: &str, name: &str) -> Option<AliasMatch<'_>> {
+        if let Some(id) = self.resolve(tenant, name) {
+            return Some(AliasMatch {
+                id,
+                by_pattern: false,
+            });
+        }
+        if name.contains('/') {
+            return None;
+        }
+        let entries = self.ordered.get(tenant)?;
+        crate::wildcard_router::resolve_wildcard_alias(
+            name,
+            entries
+                .iter()
+                .map(|(alias, id)| (alias.as_str(), id.as_str())),
+        )
+        .map(|(_, id)| AliasMatch {
+            id,
+            by_pattern: true,
+        })
     }
     pub(crate) fn public_name(&self, id: &str) -> Option<&str> {
         self.public_names.get(id).map(String::as_str)
@@ -106,8 +148,11 @@ impl AliasSnapshot {
                     .flatten()
                     .map(|provider| {
                         // The historical account default replaces a bare requested
-                        // alias; an explicitly qualified name keeps its target.
-                        let model = if alias.alias.contains('/') {
+                        // alias; an explicitly qualified name keeps its target, and
+                        // a glob pattern always routes to its configured target.
+                        let model = if alias.alias.contains('/')
+                            || crate::wildcard_router::is_pattern(&alias.alias)
+                        {
                             alias.model.as_str()
                         } else {
                             provider.default_model.as_deref().unwrap_or(&alias.model)
