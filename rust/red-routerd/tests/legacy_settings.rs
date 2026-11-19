@@ -69,6 +69,7 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
         "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT);
          INSERT INTO key_value VALUES
            ('settings','theme','\"dark\"'),
+           ('settings','customBannedSignals','[\" Account Frozen \",\"\",\"tos strike\"]'),
            ('settings','resilienceSettings','{\"connectionCooldown\":{\"apikey\":{\"baseCooldownMs\":1500}},\"quotaPreflight\":{\"enabled\":true,\"defaultThresholdPercent\":5}}');",
     )
     .execute(&mut db)
@@ -84,6 +85,11 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
         .await
         .unwrap();
     assert!(report.runtime_settings_imported);
+    assert_eq!(report.custom_banned_signals, 2);
+    assert_eq!(
+        destination.custom_banned_signals().await.unwrap(),
+        ["Account Frozen", "tos strike"]
+    );
     let stored = destination.runtime_settings().await.unwrap().unwrap();
     assert!(stored.quota_preflight_enabled);
     assert_eq!(stored.quota_preflight_threshold_ppm, 50_000);

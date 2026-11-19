@@ -387,19 +387,60 @@ fn model_failure_text(text: &str) -> bool {
         ))
 }
 
+/// The operator's custom ban signals (legacy `customBannedSignals`), merged
+/// with the built-in list like the legacy `getMergedBannedSignals`.
+static CUSTOM_BANNED_SIGNALS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Largest custom signal list and signal length the admin API accepts.
+pub(crate) const MAX_CUSTOM_BANNED_SIGNALS: usize = 500;
+pub(crate) const MAX_CUSTOM_BANNED_SIGNAL_LEN: usize = 512;
+
+/// Legacy `normalizeStringArray`: trimmed, non-empty, first occurrence kept.
+pub(crate) fn normalize_banned_signals(values: Vec<String>) -> Result<Vec<String>, &'static str> {
+    let mut signals = Vec::new();
+    for value in values {
+        let value = value.trim().to_owned();
+        if value.is_empty() || signals.contains(&value) {
+            continue;
+        }
+        if value.len() > MAX_CUSTOM_BANNED_SIGNAL_LEN || value.chars().any(char::is_control) {
+            return Err("invalid custom banned signal");
+        }
+        signals.push(value);
+    }
+    if signals.len() > MAX_CUSTOM_BANNED_SIGNALS {
+        return Err("too many custom banned signals");
+    }
+    Ok(signals)
+}
+
+/// Replace the custom signals the classifier uses (legacy
+/// `setCustomBannedSignals`).
+pub(crate) fn set_custom_banned_signals(signals: Vec<String>) {
+    if let Ok(mut current) = CUSTOM_BANNED_SIGNALS.write() {
+        *current = signals;
+    }
+}
+
 fn banned_text(text: &str) -> bool {
-    contains_any(
-        text,
-        &[
-            "account_deactivated",
-            "account has been deactivated",
-            "account has been disabled",
-            "your account has been suspended",
-            "this account is deactivated",
-            // Antigravity bans; legacy ACCOUNT_DEACTIVATED_SIGNALS lists both.
-            "service has been disabled in this account",
-        ],
-    )
+    // As in the legacy matcher, the body is lowercased but a custom signal is
+    // compared as stored.
+    let custom = CUSTOM_BANNED_SIGNALS
+        .read()
+        .is_ok_and(|signals| signals.iter().any(|signal| text.contains(signal.as_str())));
+    custom
+        || contains_any(
+            text,
+            &[
+                "account_deactivated",
+                "account has been deactivated",
+                "account has been disabled",
+                "your account has been suspended",
+                "this account is deactivated",
+                // Antigravity bans; legacy ACCOUNT_DEACTIVATED_SIGNALS lists both.
+                "service has been disabled in this account",
+            ],
+        )
 }
 
 fn credits_exhausted_text(text: &str) -> bool {
@@ -517,6 +558,40 @@ mod tests {
             ProviderFailureClass::Model
         );
         assert_eq!(class("xai", None), ProviderFailureClass::Model);
+    }
+
+    #[test]
+    fn custom_ban_signals_extend_the_built_in_list_like_the_legacy_merge() {
+        let class = |body: &[u8]| {
+            classify_provider_failure(
+                RateLimitScope::Connection,
+                Some("openai-compatible"),
+                StatusCode::FORBIDDEN,
+                &HeaderMap::new(),
+                Some(body),
+            )
+        };
+        let body = br#"{"error":{"message":"Zebra-Quartz embargo applies"}}"#;
+        assert_eq!(class(body), ProviderFailureClass::Transient);
+        assert_eq!(
+            normalize_banned_signals(vec![
+                " zebra-quartz embargo ".into(),
+                "".into(),
+                "zebra-quartz embargo".into(),
+            ]),
+            Ok(vec!["zebra-quartz embargo".to_owned()])
+        );
+        // The body is lowercased; a signal is compared as stored.
+        set_custom_banned_signals(vec!["Zebra-Quartz embargo".into()]);
+        assert_eq!(class(body), ProviderFailureClass::Transient);
+        set_custom_banned_signals(vec!["zebra-quartz embargo".into()]);
+        assert_eq!(class(body), ProviderFailureClass::Banned);
+        set_custom_banned_signals(Vec::new());
+        assert_eq!(class(body), ProviderFailureClass::Transient);
+        assert!(normalize_banned_signals(vec!["a
+b"
+        .into()])
+        .is_err());
     }
 
     #[test]

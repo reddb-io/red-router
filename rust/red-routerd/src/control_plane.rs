@@ -2221,6 +2221,8 @@ impl ControlPlane {
                 return Err("duplicate provider availability state");
             }
         }
+        // The operator's custom ban signals feed the failure classifier.
+        crate::resilience::set_custom_banned_signals(database.custom_banned_signals().await?);
         let runtime_settings = database
             .runtime_settings()
             .await?
@@ -11486,6 +11488,35 @@ impl ControlPlane {
         Ok(after)
     }
 
+    async fn configure_banned_signals_as(
+        &self,
+        signals: Vec<String>,
+        actor: &str,
+    ) -> Result<Vec<String>, &'static str> {
+        validate_actor(actor)?;
+        let signals = crate::resilience::normalize_banned_signals(signals)?;
+        let _mutation = self.0.mutation.lock().await;
+        let before = self.0.database.custom_banned_signals().await?;
+        self.0
+            .database
+            .upsert_custom_banned_signals(&signals, revision()?)
+            .await?;
+        crate::resilience::set_custom_banned_signals(signals.clone());
+        self.record_audit_event(
+            AuditContext {
+                action: "banned_signals.configure",
+                actor,
+                tenant_id: "red",
+                target: "global",
+                resource_type: "banned_signals",
+            },
+            Some(&before),
+            Some(&signals),
+        )
+        .await;
+        Ok(signals)
+    }
+
     async fn provider_health_snapshot(
         &self,
         provider: &StoredProvider,
@@ -15707,6 +15738,53 @@ pub async fn put_runtime_settings(
             "Runtime settings storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid runtime settings"),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BannedSignalsInput {
+    pub signals: Vec<String>,
+}
+
+/// The operator's custom account-ban signals (legacy `customBannedSignals`).
+pub async fn get_banned_signals(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    if control.authorized_admin_actor(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.0.database.custom_banned_signals().await {
+        Ok(signals) => Json(serde_json::json!({"banned_signals": signals})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Banned signals storage unavailable",
+        ),
+    }
+}
+
+pub async fn put_banned_signals(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<BannedSignalsInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .configure_banned_signals_as(input.signals, &actor)
+        .await
+    {
+        Ok(signals) => Json(serde_json::json!({"banned_signals": signals})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Banned signals storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid banned signals"),
     }
 }
 

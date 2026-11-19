@@ -12050,3 +12050,5 @@ include!("cases/client_key_catalog.rs");
 include!("cases/client_key_public_models.rs");
 
 include!("cases/client_key_limits.rs");
+
+include!("cases/banned_signals.rs");

@@ -29,8 +29,8 @@ pub mod legacy_payload_rules;
 pub mod legacy_preflight;
 pub mod legacy_provider_nodes;
 pub mod legacy_providers;
-pub mod legacy_settings;
 pub mod legacy_quota;
+pub mod legacy_settings;
 mod mistral_ambiguous_auth;
 mod model_alias_response;
 mod model_endpoint_policy;
@@ -2650,6 +2650,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/runtime-settings",
             get(control_plane::get_runtime_settings).put(control_plane::put_runtime_settings),
+        )
+        .route(
+            "/api/admin/banned-signals",
+            get(control_plane::get_banned_signals).put(control_plane::put_banned_signals),
         )
         .route(
             "/api/admin/provider-health/{id}",

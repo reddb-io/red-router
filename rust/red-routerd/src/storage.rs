@@ -15,6 +15,8 @@ pub use model_aliases_storage::StoredModelAlias;
 #[path = "provider_nodes_storage.rs"]
 mod provider_nodes_storage;
 pub use provider_nodes_storage::{StoredProviderNode, StoredProviderNodeHeaders};
+#[path = "banned_signals_storage.rs"]
+mod banned_signals_storage;
 #[path = "client_key_catalog_storage.rs"]
 mod client_key_catalog_storage;
 #[path = "client_key_limits_storage.rs"]
@@ -833,6 +835,7 @@ impl Database {
                         CREATE_CLIENT_KEY_COMBO_ACCESS,
                         client_key_catalog_storage::CREATE,
                         client_key_limits_storage::CREATE,
+                        banned_signals_storage::CREATE,
                         CREATE_TENANTS,
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_AUDIT_EVENTS,
@@ -987,6 +990,8 @@ impl Database {
                     .await?;
                 db.remote_schema_query(client_key_limits_storage::CREATE)
                     .await?;
+                db.remote_schema_query(banned_signals_storage::CREATE)
+                    .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_AUDIT_EVENTS).await?;
@@ -1120,6 +1125,7 @@ impl Database {
                     CREATE_CLIENT_KEY_COMBO_ACCESS,
                     client_key_catalog_storage::CREATE,
                     client_key_limits_storage::CREATE,
+                    banned_signals_storage::CREATE,
                     CREATE_TENANTS,
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_AUDIT_EVENTS,

@@ -88,6 +88,20 @@ fn merged(default: &Value, stored: &Value) -> Value {
     }
 }
 
+/// Legacy `normalizeStringArray` over a `customBannedSignals` row: a list of
+/// trimmed, non-empty, distinct signals (anything but an array is none).
+pub(crate) fn custom_banned_signals(raw: &str) -> Result<Vec<String>, &'static str> {
+    let Value::Array(values) = parse_value(raw) else {
+        return Ok(Vec::new());
+    };
+    crate::resilience::normalize_banned_signals(
+        values
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .collect(),
+    )
+}
+
 /// Map a legacy `resilienceSettings` row onto native runtime settings
 /// (legacy `resolveResilienceSettings`). Sections without a native
 /// equivalent must resolve to their defaults.
@@ -336,6 +350,12 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 Err(reason) => SettingClass::Refused { reason },
             };
         }
+        "customBannedSignals" => {
+            return match custom_banned_signals(raw) {
+                Ok(_) => SettingClass::Imported,
+                Err(reason) => SettingClass::Refused { reason },
+            };
+        }
         "modelLockout" => {
             let default = &SNAPSHOT.model_lockout_defaults;
             return if merged(default, &parse_value(raw)) == *default {
@@ -375,6 +395,8 @@ pub struct SettingsImport {
     /// settings (otherwise the native defaults, which match the legacy ones,
     /// stay in place).
     pub runtime_settings_imported: bool,
+    /// Custom account-ban signals imported for the failure classifier.
+    pub custom_banned_signals: usize,
 }
 
 /// Offline cutover step: refuse unless every stored settings row is at its
@@ -392,19 +414,39 @@ pub async fn import(
     {
         return Err("legacy settings require migration; nothing imported");
     }
-    let Some((_, raw)) = rows.iter().find(|(key, _)| key == "resilienceSettings") else {
-        return Ok(SettingsImport {
-            runtime_settings_imported: false,
-        });
-    };
-    let mapped = resilience_import(raw)?;
-    if destination.runtime_settings().await?.is_some() {
+    let mapped = rows
+        .iter()
+        .find(|(key, _)| key == "resilienceSettings")
+        .map(|(_, raw)| resilience_import(raw))
+        .transpose()?;
+    let signals = rows
+        .iter()
+        .find(|(key, _)| key == "customBannedSignals")
+        .map(|(_, raw)| custom_banned_signals(raw))
+        .transpose()?
+        .unwrap_or_default();
+    if mapped.is_some() && destination.runtime_settings().await?.is_some() {
         return Err("destination runtime settings are already configured");
+    }
+    if !signals.is_empty() && !destination.custom_banned_signals().await?.is_empty() {
+        return Err("destination banned signals are already configured");
     }
     let revision = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| "system clock is before the Unix epoch")?
         .as_millis();
+    let revision = i64::try_from(revision).map_err(|_| "invalid settings revision")?;
+    if !signals.is_empty() {
+        destination
+            .upsert_custom_banned_signals(&signals, revision)
+            .await?;
+    }
+    let Some(mapped) = mapped else {
+        return Ok(SettingsImport {
+            runtime_settings_imported: false,
+            custom_banned_signals: signals.len(),
+        });
+    };
     let [(oauth_base, oauth_hints, oauth_steps), (apikey_base, apikey_hints, apikey_steps)] =
         mapped.cooldown;
     let [(oauth_failure, oauth_degradation, oauth_reset), (apikey_failure, apikey_degradation, apikey_reset)] =
@@ -426,11 +468,12 @@ pub async fn import(
             apikey_breaker_failure_threshold: apikey_failure,
             apikey_breaker_degradation_threshold: apikey_degradation,
             apikey_breaker_reset_timeout_ms: apikey_reset,
-            revision: i64::try_from(revision).map_err(|_| "invalid settings revision")?,
+            revision,
         })
         .await?;
     Ok(SettingsImport {
         runtime_settings_imported: true,
+        custom_banned_signals: signals.len(),
     })
 }
 
