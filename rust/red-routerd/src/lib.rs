@@ -6997,6 +6997,11 @@ async fn proxy_request(
                                 &mut attempt_parsed,
                                 provider,
                             );
+                            openai_content::ensure_glm_user_turn(
+                                &mut attempt_parsed,
+                                provider,
+                                &target.model,
+                            );
                             if !openai_content::preserve_video_url(
                                 target.preserve_video_url,
                                 provider,
