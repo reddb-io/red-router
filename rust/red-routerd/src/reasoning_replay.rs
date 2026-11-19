@@ -157,34 +157,11 @@ fn replay_contract(provider: &str, model: &str, thinking: bool, legacy_fallback:
                 .any(|pattern| pattern.is_match(model)))
 }
 
-/// Internal sentinel for a replay turn whose reasoning is unavailable
-/// (legacy `NON_ANTHROPIC_THINKING_PLACEHOLDER`).
-pub(crate) const REASONING_PLACEHOLDER: &str = "(prior reasoning summary unavailable)";
-
-fn is_placeholder(value: Option<&Value>) -> bool {
-    value
-        .and_then(Value::as_str)
-        .is_some_and(|text| text.trim() == REASONING_PLACEHOLDER)
-}
-
-/// `true` when `model` starts with `name` or has a `/name` segment start.
-fn model_family(model: &str, name: &str) -> bool {
-    model.starts_with(name) || model.contains(&format!("/{name}"))
-}
-
-/// Legacy `requiresReasoningContentPresence`: upstreams that reject an absent
-/// `reasoning_content` on a replay turn, so the placeholder must survive a
-/// cache miss.
-fn requires_reasoning_content_presence(provider: &str, model: &str) -> bool {
-    let provider = provider.trim().to_lowercase();
-    let model = model.trim().to_lowercase();
-    provider == "xiaomi-mimo"
-        || model_family(&model, "mimo")
-        || matches!(
-            provider.as_str(),
-            "opencode" | "opencode-go" | "opencode-zen"
-        )
-}
+use crate::reasoning_placeholder::{
+    is_internal_reasoning_placeholder as is_placeholder, model_family,
+    requires_reasoning_content_presence,
+    NON_ANTHROPIC_THINKING_PLACEHOLDER as REASONING_PLACEHOLDER,
+};
 
 /// Legacy `isReasoningOnlyReplayTarget`: DeepSeek V4 and MiMo also need
 /// reasoning back on plain assistant turns.
