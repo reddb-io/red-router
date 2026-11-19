@@ -77,7 +77,10 @@ pub async fn adopt(
         let enabled: i64 = native.try_get("enabled").map_err(|_| "invalid migrated key")?;
         let tenant: String = native.try_get("tenant_id").map_err(|_| "invalid migrated key")?;
         if enabled != 0 || tenant.is_empty() { return Err("migrated key must remain disabled"); }
-        for field in ["max_rpm", "max_tokens_per_minute", "max_tokens_per_day", "max_monthly_microusd", "reservation_tokens", "reservation_microusd"] {
+        // The key importer already carries the key's own request limit; the
+        // quota table's limit applies alongside it, so the lower one wins.
+        let imported_rpm: i64 = native.try_get("max_rpm").map_err(|_| "invalid migrated key")?;
+        for field in ["max_tokens_per_minute", "max_tokens_per_day", "max_monthly_microusd", "reservation_tokens", "reservation_microusd"] {
             if native.try_get::<i64, _>(field).map_err(|_| "invalid migrated key")? != 0 { return Err("native quota limits already exist; nothing adopted"); }
         }
         for table in ["request_cost_ledger", "api_key_quota_limits", "api_key_daily_token_limits", "api_key_quota_counters", "api_key_usage_reservations"] {
@@ -103,6 +106,10 @@ pub async fn adopt(
         let monthly_limit = micros_floor_limit(usd_limit)?;
         if monthly_limit > 1_000_000_000_000 || reservation_microusd > 1_000_000_000_000 { return Err("legacy spend quota exceeds dashboard limits"); }
         let quota = crate::native_usage::NativeQuota { max_tokens_per_minute: tpm, max_tokens_per_day: daily_limit, max_monthly_microusd: monthly_limit, reservation_tokens, reservation_microusd }.validate()?;
+        let rpm = match (imported_rpm, rpm) {
+            (0, limit) | (limit, 0) => limit,
+            (imported, limit) => imported.min(limit),
+        };
         sqlx::query("UPDATE redrouter_control_client_keys SET max_rpm=? WHERE id=?")
             .bind(rpm).bind(key_id).execute(&mut db).await.map_err(|_| "cannot adopt legacy request limit")?;
         sqlx::query("UPDATE redrouter_control_client_key_quotas SET max_tokens_per_minute=?,max_tokens_per_day=?,max_monthly_microusd=?,reservation_tokens=?,reservation_microusd=? WHERE key_id=?")

@@ -190,9 +190,21 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             let tenant_enabled: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1")
                 .bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
             if tenant_enabled != 1 { return Err("legacy key tenant is unavailable; no keys imported"); }
-            for field in ["no_log", "auto_resolve", "max_requests_per_day", "max_requests_per_minute", "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
+            for field in ["no_log", "auto_resolve", "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
                 if number(field)?.unwrap_or(0) != 0 { return Err("legacy key policy is unsupported; no keys imported"); }
             }
+            // Legacy request limits (fixed 60-second and one-day windows, used
+            // while the key has no custom rate rules) become the native per-key
+            // limits, whose sliding windows never admit more requests.
+            let request_limit = |name: &str, max: i64| -> Result<i64, &'static str> {
+                match number(name)? {
+                    None => Ok(0),
+                    Some(value) if (0..=max).contains(&value) => Ok(value),
+                    Some(_) => Err("unsupported legacy request limit; no keys imported"),
+                }
+            };
+            let max_rpm = request_limit("max_requests_per_minute", 10_000)?;
+            let max_rpd = request_limit("max_requests_per_day", 10_000_000)?;
             for field in ["daily_usage_limit_usd", "weekly_usage_limit_usd"] {
                 if row.try_get::<Option<f64>, _>(field).map_err(|_| "invalid legacy key")?.is_some() {
                     return Err("legacy spending limits require migration; no keys imported");
@@ -251,8 +263,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if get("key_hash")?.is_some_and(|existing| !existing.is_empty() && existing != hash) || !hashes.insert(hash.clone()) {
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
-            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,?,0,0,0,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).bind(allowed_connections).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]','[]',?,?,?,0,?,?,1)")
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_models).bind(blocked_models).bind(allowed_connections).bind(max_rpm).bind(max_rpd).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;

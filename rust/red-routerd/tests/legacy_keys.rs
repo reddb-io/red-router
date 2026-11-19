@@ -336,7 +336,7 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now'));")
+    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET max_requests_per_minute=30,max_requests_per_day=1000 WHERE id='first';")
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
@@ -353,6 +353,10 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     assert_eq!(first.tenant_id, "red");
     assert_eq!(first.model_id_format, "flat");
     assert_eq!(first.expiry_unix, 1_893_456_000);
+    // Legacy per-key request limits carry over as native limits.
+    assert_eq!((first.max_rpm, first.max_rpd), (30, 1000));
+    let second = records.iter().find(|key| key.id == "second").unwrap();
+    assert_eq!((second.max_rpm, second.max_rpd), (0, 0));
     assert!(!first.enabled);
     assert_eq!(
         first.key_hash,
