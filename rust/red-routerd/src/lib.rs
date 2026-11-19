@@ -4676,6 +4676,21 @@ async fn record_internal_provider_health(
                 .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
                 .await
         }
+        resilience::ProviderFailureClass::RetiredModel => {
+            availability
+                .record_model_failure(
+                    permit,
+                    &target.model,
+                    status,
+                    Some(resilience::PERMANENT_FAILURE_LOCKOUT_MS),
+                )
+                .await
+        }
+        resilience::ProviderFailureClass::MovedEndpoint => {
+            availability
+                .record_connection_lockout(permit, status, resilience::PERMANENT_FAILURE_LOCKOUT_MS)
+                .await
+        }
         resilience::ProviderFailureClass::Transient
             if availability::connection_failure_status(status) =>
         {
@@ -7598,6 +7613,25 @@ async fn proxy_request(
                             target_model,
                             response.status(),
                             retry_after_hint_ms(response.headers()),
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::RetiredModel => {
+                    availability
+                        .record_model_failure(
+                            permit,
+                            target_model,
+                            response.status(),
+                            Some(resilience::PERMANENT_FAILURE_LOCKOUT_MS),
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::MovedEndpoint => {
+                    availability
+                        .record_connection_lockout(
+                            permit,
+                            response.status(),
+                            resilience::PERMANENT_FAILURE_LOCKOUT_MS,
                         )
                         .await
                 }

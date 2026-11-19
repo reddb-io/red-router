@@ -1,7 +1,13 @@
 //! Provider-specific resilience policy used by the Rust request path.
 
 use axum::http::{HeaderMap, StatusCode};
+use regex::Regex;
 use serde::Serialize;
+use std::sync::LazyLock;
+
+/// Fixed lockout for failures that repeat until an operator acts: a retired
+/// model or a moved endpoint (legacy `checkFallbackError`, 24 hours).
+pub(crate) const PERMANENT_FAILURE_LOCKOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -45,6 +51,12 @@ pub(crate) enum ProviderFailureClass {
     Expired,
     AmbiguousExpired,
     CreditsExhausted,
+    /// The provider retired the model (legacy
+    /// `MODEL_PERMANENTLY_UNAVAILABLE_PATTERNS` on a 404 or 410).
+    RetiredModel,
+    /// The provider moved its API endpoint (legacy
+    /// `ENDPOINT_PERMANENTLY_MOVED_PATTERNS`).
+    MovedEndpoint,
 }
 
 impl ProviderFailureClass {
@@ -113,6 +125,9 @@ pub(crate) fn classify_provider_failure(
     let normalized = normalized_error_evidence(body);
     let text = normalized.as_str();
 
+    if matches!(status.as_u16(), 404 | 410) && matches_any(&RETIRED_MODEL_PATTERNS, text) {
+        return ProviderFailureClass::RetiredModel;
+    }
     // A model-specific denial is safer to scope narrowly even when an
     // aggregator uses an authentication-looking HTTP status.
     if matches!(status.as_u16(), 400 | 401 | 403 | 404) && model_failure_text(text) {
@@ -126,6 +141,15 @@ pub(crate) fn classify_provider_failure(
     }
     if ambiguous_auth_failure(provider, status, text) {
         return ProviderFailureClass::AmbiguousExpired;
+    }
+    let failed = status.is_client_error() || status.is_server_error();
+    if failed && matches_any(&MOVED_ENDPOINT_PATTERNS, text) {
+        return ProviderFailureClass::MovedEndpoint;
+    }
+    // A billing suspension (unpaid invoice, spending limit) arrives on
+    // statuses nothing else classifies, such as Fireworks' 412.
+    if failed && matches_any(&BILLING_SUSPENSION_PATTERNS, text) {
+        return ProviderFailureClass::CreditsExhausted;
     }
     if matches!(status.as_u16(), 400 | 402 | 403 | 429) && credits_exhausted_text(text) {
         return if quota_failure_scope(configured, provider, StatusCode::PAYMENT_REQUIRED, headers)
@@ -158,6 +182,42 @@ pub(crate) fn classify_provider_failure(
         _ => ProviderFailureClass::Transient,
     }
 }
+
+fn compile(patterns: &[&str]) -> Vec<Regex> {
+    patterns
+        .iter()
+        .map(|pattern| Regex::new(pattern).expect("static pattern"))
+        .collect()
+}
+
+fn matches_any(patterns: &[Regex], text: &str) -> bool {
+    patterns.iter().any(|pattern| pattern.is_match(text))
+}
+
+static RETIRED_MODEL_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"(?i)\bno longer available\b",
+        r"(?i)\bno longer supported\b",
+        r"(?i)\bhas reached (?:its |the )?end.?of.?life\b",
+        r"(?i)\bmodel[\s\S]{0,40}?\b(?:deprecated|retired|discontinued|decommissioned)\b",
+        r"(?i)\b(?:deprecated|retired|discontinued|decommissioned)[\s\S]{0,40}?\bmodel\b",
+    ])
+});
+
+static MOVED_ENDPOINT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"(?i)\bendpoint has moved\b",
+        r"(?i)\bno longer works\b",
+        r"(?i)\bupdate your base.?url\b",
+    ])
+});
+
+static BILLING_SUSPENSION_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"(?i)\bsuspended\b[\s\S]{0,120}?\b(?:spending limit|billing|invoice|payment)\b",
+        r"(?i)\b(?:spending limit|billing|invoice|payment)\b[\s\S]{0,120}?\bsuspended\b",
+    ])
+});
 
 fn normalized_error_evidence(body: Option<&[u8]>) -> String {
     let Some(body) = body else {
@@ -394,6 +454,46 @@ mod tests {
             ),
             ProviderFailureClass::Banned
         ));
+    }
+
+    #[test]
+    fn retired_models_moved_endpoints_and_billing_suspensions_are_lasting() {
+        let class = |status: u16, body: &[u8]| {
+            classify_provider_failure(
+                RateLimitScope::Connection,
+                Some("openai-compatible"),
+                StatusCode::from_u16(status).unwrap(),
+                &HeaderMap::new(),
+                Some(body),
+            )
+        };
+        let retired = br#"{"error":{"message":"This model models/gemini-2.5-flash is no longer available to new users."}}"#;
+        assert_eq!(class(404, retired), ProviderFailureClass::RetiredModel);
+        assert_eq!(
+            class(
+                410,
+                br#"{"error":{"message":"The model has reached its end of life"}}"#
+            ),
+            ProviderFailureClass::RetiredModel
+        );
+        // The same text on another status is not a retirement.
+        assert_ne!(class(429, retired), ProviderFailureClass::RetiredModel);
+        assert_eq!(
+            class(
+                410,
+                br#"{"error":{"message":"This API endpoint has moved. Please update your base_url."}}"#
+            ),
+            ProviderFailureClass::MovedEndpoint
+        );
+        assert_eq!(
+            class(
+                412,
+                br#"{"error":{"message":"Account acme is suspended, possibly due to reaching the monthly spending limit"}}"#
+            ),
+            ProviderFailureClass::CreditsExhausted
+        );
+        assert!(ProviderFailureClass::RetiredModel.semantic_fallback());
+        assert!(ProviderFailureClass::MovedEndpoint.semantic_fallback());
     }
 
     #[test]

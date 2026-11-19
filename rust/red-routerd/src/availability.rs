@@ -206,7 +206,8 @@ impl ProviderAvailability {
             value => Some(
                 u16::try_from(value)
                     .ok()
-                    .filter(|status| matches!(*status, 401 | 402 | 403 | 429))
+                    // Fixed lockouts (moved endpoints) keep their own status.
+                    .filter(|status| (400..=599).contains(status))
                     .ok_or("invalid provider availability record")?,
             ),
         };
@@ -256,7 +257,7 @@ impl ProviderAvailability {
         for lockout in stored {
             validate_model(&lockout.model)?;
             if !seen_models.insert(lockout.model.clone())
-                || !matches!(lockout.status, 400 | 401 | 402 | 403 | 404 | 429)
+                || !matches!(lockout.status, 400 | 401 | 402 | 403 | 404 | 410 | 429)
                 || !(1..=MAX_BACKOFF_LEVEL).contains(&lockout.backoff_level)
             {
                 return Err("invalid provider availability record");
@@ -424,6 +425,40 @@ impl ProviderAvailability {
             retry_hint_ms,
             self.cooldown_profile(),
         );
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
+    /// Park the connection for a fixed window, whatever the cooldown profile,
+    /// after a failure every retry repeats until an operator acts (a moved
+    /// endpoint; legacy `checkFallbackError`).
+    pub(crate) async fn record_connection_lockout(
+        &self,
+        permit: AvailabilityPermit,
+        status: StatusCode,
+        duration_ms: u64,
+    ) -> Result<(), &'static str> {
+        if !(status.is_client_error() || status.is_server_error()) {
+            return Err("invalid provider connection failure status");
+        }
+        let now = unix_ms()?;
+        let mut inner = self.inner.lock().await;
+        if permit.connection_generation != inner.connection_generation
+            || inner.cooldown_until_unix_ms > now
+        {
+            return Ok(());
+        }
+        let mut candidate = inner.clone();
+        candidate.cooldown_until_unix_ms =
+            now.saturating_add(duration_ms.clamp(1_000, RETRY_HINT_MAX_MS));
+        candidate.backoff_level = candidate
+            .backoff_level
+            .saturating_add(1)
+            .min(MAX_BACKOFF_LEVEL);
+        candidate.last_status = Some(status.as_u16());
+        candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
         self.persist(&candidate, now).await?;
         *inner = candidate;
         self.publish(&inner);
@@ -748,7 +783,8 @@ pub(crate) fn model_failure_status(status: StatusCode) -> bool {
 }
 
 fn recordable_model_failure_status(status: StatusCode) -> bool {
-    matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 429)
+    // 410 is a retired model's end-of-life answer.
+    matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 410 | 429)
 }
 
 fn validate_provider_id(value: &str) -> Result<(), &'static str> {
