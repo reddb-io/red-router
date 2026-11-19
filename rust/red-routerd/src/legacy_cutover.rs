@@ -4,8 +4,8 @@
 //! a durable rollback boundary around them so a later unsupported slice cannot
 //! leave an operator with a partially migrated Rust database.
 use crate::{
-    legacy_aliases, legacy_archive, legacy_keys, legacy_models, legacy_preflight,
-    legacy_provider_nodes, legacy_providers,
+    legacy_aliases, legacy_archive, legacy_keys, legacy_models, legacy_payload_rules,
+    legacy_preflight, legacy_provider_nodes, legacy_providers,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -22,6 +22,7 @@ pub struct CutoverReport {
     pub provider_nodes: legacy_provider_nodes::ProviderNodeImport,
     pub custom_models: legacy_models::ModelImport,
     pub model_aliases: legacy_aliases::AliasImport,
+    pub payload_rules: legacy_payload_rules::PayloadRulesImport,
     pub providers: legacy_providers::ProviderStage,
     pub synced_models: legacy_preflight::SyncedModelStage,
     pub usage_archive: legacy_archive::ArchiveReport,
@@ -147,6 +148,10 @@ pub async fn migrate(
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "model aliases", error)),
     };
+    let payload_rules = match legacy_payload_rules::import(&source, &destination).await {
+        Ok(report) => report,
+        Err(error) => return Err(restore(&destination, &rollback, "payload rules", error)),
+    };
     let providers = match legacy_providers::stage(&source, &destination, storage_key).await {
         Ok(report) => report,
         Err(error) => return Err(restore(&destination, &rollback, "providers", error)),
@@ -174,6 +179,7 @@ pub async fn migrate(
         provider_nodes,
         custom_models,
         model_aliases,
+        payload_rules,
         providers,
         synced_models,
         usage_archive,

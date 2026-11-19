@@ -514,6 +514,74 @@ async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
 }
 
 #[tokio::test]
+async fn legacy_payload_rules_import_normalized_once() {
+    use red_routerd::{
+        legacy_payload_rules,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('settings','payloadRules',?)")
+        .bind(r#"{"override":[{"models":[{"name":"gpt-*"}],"params":{"temperature":0.1}},{"models":[],"params":{"x":1}}],"default-raw":[{"models":[{"name":"*"}],"params":{"stop":"[\"END\"]"}}]}"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let first = legacy_payload_rules::import(&source, &destination)
+        .await
+        .unwrap();
+    assert!(first.found && first.imported && !first.already_present);
+    let second = legacy_payload_rules::import(&source, &destination)
+        .await
+        .unwrap();
+    assert!(second.found && !second.imported && second.already_present);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let stored = db.payload_rules().await.unwrap().unwrap();
+    let rules: serde_json::Value = serde_json::from_str(&stored.config_json).unwrap();
+    // The rule without models is dropped; default-raw joins defaultRaw.
+    assert_eq!(rules["override"].as_array().unwrap().len(), 1);
+    assert_eq!(rules["defaultRaw"][0]["params"]["stop"], "[\"END\"]");
+    db.close().await.unwrap();
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='settings' AND key='payloadRules'")
+        .bind(r#"{"filter":[{"models":[{"name":"*"}],"params":["stream_options"]}]}"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_payload_rules::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "destination contains different payload rules"
+    );
+}
+
+#[tokio::test]
 async fn legacy_activation_is_migrated_for_each_provider_organization() {
     use red_routerd::{
         legacy_models,
