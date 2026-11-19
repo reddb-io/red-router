@@ -10,6 +10,9 @@
 //!   configured client request body limit (`body_limits`).
 //! - `idempotency_window_ms`: the legacy `idempotencyWindowMs`, the chat
 //!   replay window (`idempotency`).
+//! - `provider_strategies`: the legacy `fallbackStrategy`,
+//!   `stickyRoundRobinLimit` and `providerStrategies`, the account selection
+//!   inside a provider pool (`account_rotation`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,11 +21,68 @@ use std::collections::BTreeMap;
 pub(crate) const CUSTOM_SYSTEM_PROMPT: &str = "custom_system_prompt";
 pub(crate) const MAX_BODY_SIZE_MB: &str = "max_body_size_mb";
 pub(crate) const IDEMPOTENCY_WINDOW_MS: &str = "idempotency_window_ms";
+pub(crate) const PROVIDER_STRATEGIES: &str = "provider_strategies";
 /// Legacy `MIN_REQUEST_BODY_LIMIT_MB` and `MAX_REQUEST_BODY_LIMIT_MB`.
 pub(crate) const BODY_SIZE_MB_RANGE: std::ops::RangeInclusive<u64> = 1..=500;
 /// The longest replay window accepted (a year).
 const MAX_IDEMPOTENCY_WINDOW_MS: u64 = 365 * 24 * 60 * 60 * 1_000;
 const MAX_PROMPT_LEN: usize = 100_000;
+
+/// One account selection choice; unset fields inherit (legacy
+/// `providerOverride.x || settings.x`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyChoice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<crate::account_rotation::AccountStrategy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky_round_robin_limit: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderStrategies {
+    #[serde(default)]
+    pub default: StrategyChoice,
+    #[serde(default)]
+    pub providers: BTreeMap<String, StrategyChoice>,
+}
+
+impl ProviderStrategies {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        let limit_ok = |choice: &StrategyChoice| {
+            choice
+                .sticky_round_robin_limit
+                .is_none_or(|limit| limit <= 10_000)
+        };
+        if !limit_ok(&self.default)
+            || self.providers.len() > 1_000
+            || self.providers.iter().any(|(provider, choice)| {
+                provider.is_empty() || provider.len() > 128 || !limit_ok(choice)
+            })
+        {
+            return Err("invalid provider strategies");
+        }
+        Ok(())
+    }
+
+    /// The strategy and sticky limit for one provider's pool.
+    pub(crate) fn for_provider(
+        &self,
+        provider: &str,
+    ) -> (crate::account_rotation::AccountStrategy, u32) {
+        let own = self.providers.get(provider);
+        let strategy = own
+            .and_then(|choice| choice.strategy)
+            .or(self.default.strategy)
+            .unwrap_or_default();
+        let limit = own
+            .and_then(|choice| choice.sticky_round_robin_limit)
+            .or(self.default.sticky_round_robin_limit)
+            .unwrap_or(crate::account_rotation::DEFAULT_STICKY_LIMIT);
+        (strategy, limit)
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +108,7 @@ pub(crate) struct Snapshot {
     custom_system_prompt: CustomSystemPrompt,
     max_body_size_mb: Option<u64>,
     idempotency_window_ms: Option<u64>,
+    provider_strategies: ProviderStrategies,
 }
 
 impl Snapshot {
@@ -61,6 +122,14 @@ impl Snapshot {
     pub(crate) fn max_body_size_bytes(&self) -> Option<usize> {
         self.max_body_size_mb
             .and_then(|mb| usize::try_from(mb.saturating_mul(1024 * 1024)).ok())
+    }
+
+    /// The account selection strategy and sticky limit for a provider.
+    pub(crate) fn provider_strategy(
+        &self,
+        provider: &str,
+    ) -> (crate::account_rotation::AccountStrategy, u32) {
+        self.provider_strategies.for_provider(provider)
     }
 
     /// The idempotent replay window (legacy default 5 s).
@@ -89,6 +158,12 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|ms| (1..=MAX_IDEMPOTENCY_WINDOW_MS).contains(ms))
             .map(Value::from)
             .ok_or("invalid idempotency window"),
+        PROVIDER_STRATEGIES => {
+            let strategies: ProviderStrategies =
+                serde_json::from_value(value).map_err(|_| "invalid provider strategies")?;
+            strategies.validate()?;
+            serde_json::to_value(strategies).map_err(|_| "invalid provider strategies")
+        }
         _ => Err("unknown global setting"),
     }
 }
@@ -106,6 +181,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             MAX_BODY_SIZE_MB => snapshot.max_body_size_mb = value.as_u64(),
             IDEMPOTENCY_WINDOW_MS => snapshot.idempotency_window_ms = value.as_u64(),
+            PROVIDER_STRATEGIES => {
+                snapshot.provider_strategies =
+                    serde_json::from_value(value).map_err(|_| "invalid provider strategies")?;
+            }
             _ => {}
         }
     }
@@ -257,5 +336,36 @@ mod tests {
         assert_eq!(snapshot.idempotency_window_ms(), 9000);
         assert_eq!(Snapshot::default().max_body_size_bytes(), None);
         assert_eq!(Snapshot::default().idempotency_window_ms(), 5_000);
+        use crate::account_rotation::AccountStrategy;
+        let strategies = validate(
+            PROVIDER_STRATEGIES,
+            json!({
+                "default":{"strategy":"round-robin","sticky_round_robin_limit":5},
+                "providers":{"openai":{"strategy":"least-used"},"gemini":{"sticky_round_robin_limit":2}}
+            }),
+        )
+        .unwrap();
+        let snapshot = super::snapshot(&BTreeMap::from([(
+            PROVIDER_STRATEGIES.to_owned(),
+            strategies,
+        )]))
+        .unwrap();
+        assert_eq!(
+            snapshot.provider_strategy("openai"),
+            (AccountStrategy::LeastUsed, 5)
+        );
+        assert_eq!(
+            snapshot.provider_strategy("gemini"),
+            (AccountStrategy::RoundRobin, 2)
+        );
+        assert_eq!(
+            snapshot.provider_strategy("other"),
+            (AccountStrategy::RoundRobin, 5)
+        );
+        assert_eq!(
+            Snapshot::default().provider_strategy("any"),
+            (AccountStrategy::FillFirst, 3)
+        );
+        assert!(validate(PROVIDER_STRATEGIES, json!({"default":{"strategy":"p2c"}})).is_err());
     }
 }

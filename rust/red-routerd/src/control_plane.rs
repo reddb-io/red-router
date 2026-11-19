@@ -196,6 +196,7 @@ struct Inner {
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     runtime_settings: RwLock<RuntimeSettingsView>,
     global_settings: RwLock<crate::global_settings::Snapshot>,
+    account_rotation: crate::account_rotation::AccountRotation,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     sqlite_changes: Option<tokio::sync::Mutex<SqliteChangeWatcher>>,
@@ -2354,6 +2355,7 @@ impl ControlPlane {
             availability: RwLock::new(availability),
             runtime_settings: RwLock::new(runtime_settings),
             global_settings: RwLock::new(global_settings),
+            account_rotation: crate::account_rotation::AccountRotation::default(),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
             sqlite_changes,
@@ -4990,6 +4992,32 @@ impl ControlPlane {
             .collect::<Vec<_>>()
             .await;
         initialized.sort_by_key(|(index, _, _, _)| *index);
+        // The provider's account selection strategy picks the first account;
+        // the rest stay as the fallback order (legacy getProviderCredentials).
+        let (strategy, sticky_limit) = self
+            .0
+            .global_settings
+            .read()
+            .await
+            .provider_strategy(provider);
+        let ids: Vec<String> = initialized
+            .iter()
+            .map(|(_, account, _, _)| account.record.id.clone())
+            .collect();
+        let order = self.0.account_rotation.order(
+            tenant,
+            provider,
+            &ids,
+            strategy,
+            sticky_limit,
+            u64::try_from(now).unwrap_or_default(),
+        );
+        initialized.sort_by_key(|(_, account, _, _)| {
+            order
+                .iter()
+                .position(|id| *id == account.record.id)
+                .unwrap_or(usize::MAX)
+        });
         let model_overrides = self.provider_model_overrides().await?;
         let model_quotas = self.0.model_quotas.read().await;
         let targets = initialized

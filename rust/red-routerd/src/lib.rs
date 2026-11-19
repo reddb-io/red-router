@@ -1,4 +1,5 @@
 //! RedRouter's Rust proxy and production-backend migration target.
+pub mod account_rotation;
 pub mod accounting;
 mod anthropic_stream;
 mod antigravity_translation;

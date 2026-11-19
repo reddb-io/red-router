@@ -88,6 +88,77 @@ fn merged(default: &Value, stored: &Value) -> Value {
     }
 }
 
+/// One legacy strategy choice: a falsy strategy inherits, an unsupported one
+/// is refused; a present sticky limit goes through the legacy `toNumber(x, 3)`
+/// and the `count < limit` comparison (fractions round up, negatives are 0).
+fn legacy_strategy_choice(
+    strategy: Option<&Value>,
+    limit: Option<&Value>,
+) -> Result<crate::global_settings::StrategyChoice, &'static str> {
+    let strategy = match strategy {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => None,
+        Some(Value::String(name)) if name.is_empty() => None,
+        Some(Value::String(name)) => Some(
+            crate::account_rotation::AccountStrategy::parse_legacy(name)
+                .ok_or("legacy account selection strategy requires migration")?,
+        ),
+        Some(_) => return Err("invalid legacy account selection strategy"),
+    };
+    let sticky_round_robin_limit = match limit {
+        None | Some(Value::Null) => None,
+        Some(value) => {
+            let number = match value {
+                Value::Number(number) => number.as_f64(),
+                Value::String(text) if !text.trim().is_empty() => text.trim().parse::<f64>().ok(),
+                _ => None,
+            }
+            .filter(|number| number.is_finite())
+            .unwrap_or(f64::from(crate::account_rotation::DEFAULT_STICKY_LIMIT));
+            Some(number.ceil().clamp(0.0, 10_000.0) as u32)
+        }
+    };
+    Ok(crate::global_settings::StrategyChoice {
+        strategy,
+        sticky_round_robin_limit,
+    })
+}
+
+/// The legacy `fallbackStrategy`, `stickyRoundRobinLimit` and
+/// `providerStrategies` rows as native provider strategies.
+fn legacy_provider_strategies(
+    rows: &[(String, String)],
+) -> Result<crate::global_settings::ProviderStrategies, &'static str> {
+    let find = |name: &str| {
+        rows.iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, raw)| parse_value(raw))
+    };
+    let mut strategies = crate::global_settings::ProviderStrategies {
+        default: legacy_strategy_choice(
+            find("fallbackStrategy").as_ref(),
+            find("stickyRoundRobinLimit").as_ref(),
+        )?,
+        providers: BTreeMap::new(),
+    };
+    match find("providerStrategies") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(providers)) => {
+            for (provider, choice) in providers {
+                let choice = legacy_strategy_choice(
+                    choice.get("fallbackStrategy"),
+                    choice.get("stickyRoundRobinLimit"),
+                )?;
+                if choice != crate::global_settings::StrategyChoice::default() {
+                    strategies.providers.insert(provider, choice);
+                }
+            }
+        }
+        Some(_) => return Err("invalid legacy provider strategies"),
+    }
+    strategies.validate()?;
+    Ok(strategies)
+}
+
 /// Legacy `normalizeRequestBodyLimitMb`: a number or numeric string, floored,
 /// within 1-500.
 fn legacy_body_size_mb(raw: &str) -> Option<u64> {
@@ -374,6 +445,22 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 Err(reason) => SettingClass::Refused { reason },
             };
         }
+        // Account selection inside provider pools (account_rotation).
+        "fallbackStrategy" | "stickyRoundRobinLimit" | "providerStrategies" => {
+            let rows = [(key.to_owned(), raw.to_owned())];
+            return match legacy_provider_strategies(&rows) {
+                Ok(strategies)
+                    if strategies == crate::global_settings::ProviderStrategies::default()
+                        || (key == "stickyRoundRobinLimit"
+                            && strategies.default.sticky_round_robin_limit
+                                == Some(crate::account_rotation::DEFAULT_STICKY_LIMIT)) =>
+                {
+                    SettingClass::AtDefault
+                }
+                Ok(_) => SettingClass::Imported,
+                Err(reason) => SettingClass::Refused { reason },
+            };
+        }
         // An explicit, valid value imports onto the native global setting; an
         // invalid one is ignored by the legacy resolvers, like the default.
         "maxBodySizeMb" => {
@@ -524,6 +611,23 @@ pub async fn import(
             Value::from(ms),
         ));
     }
+    let strategies = legacy_provider_strategies(&rows)?;
+    // An explicit default sticky limit alone changes nothing.
+    let default_strategies = crate::global_settings::ProviderStrategies {
+        default: crate::global_settings::StrategyChoice {
+            strategy: None,
+            sticky_round_robin_limit: Some(crate::account_rotation::DEFAULT_STICKY_LIMIT),
+        },
+        providers: BTreeMap::new(),
+    };
+    if strategies != crate::global_settings::ProviderStrategies::default()
+        && strategies != default_strategies
+    {
+        global.push((
+            crate::global_settings::PROVIDER_STRATEGIES,
+            serde_json::to_value(&strategies).map_err(|_| "invalid legacy provider strategies")?,
+        ));
+    }
     if !global.is_empty() {
         let configured = destination.global_settings().await?;
         if global.iter().any(|(key, _)| configured.contains_key(*key)) {
@@ -657,6 +761,53 @@ mod tests {
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
         assert_eq!(classify("debugMode", "true"), SettingClass::Dashboard);
+        assert_eq!(
+            classify("fallbackStrategy", "\"round-robin\""),
+            SettingClass::Imported
+        );
+        assert!(matches!(
+            classify("fallbackStrategy", "\"p2c\""),
+            SettingClass::Refused { .. }
+        ));
+        assert_eq!(
+            classify("stickyRoundRobinLimit", "3"),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("stickyRoundRobinLimit", "5"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("providerStrategies", "{}"),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify(
+                "providerStrategies",
+                r#"{"openai":{"fallbackStrategy":"least-used","stickyRoundRobinLimit":"2.5"}}"#
+            ),
+            SettingClass::Imported
+        );
+        assert!(matches!(
+            classify(
+                "providerStrategies",
+                r#"{"x":{"fallbackStrategy":"health"}}"#
+            ),
+            SettingClass::Refused { .. }
+        ));
+        let rows = [
+            ("fallbackStrategy".to_owned(), "\"random\"".to_owned()),
+            (
+                "providerStrategies".to_owned(),
+                r#"{"openai":{"stickyRoundRobinLimit":"2.5"},"empty":{}}"#.to_owned(),
+            ),
+        ];
+        let strategies = legacy_provider_strategies(&rows).unwrap();
+        assert_eq!(
+            strategies.for_provider("openai"),
+            (crate::account_rotation::AccountStrategy::Random, 3)
+        );
+        assert_eq!(strategies.providers.len(), 1);
         assert_eq!(classify("maxBodySizeMb", "25"), SettingClass::Imported);
         assert_eq!(classify("maxBodySizeMb", "0"), SettingClass::AtDefault);
         assert_eq!(

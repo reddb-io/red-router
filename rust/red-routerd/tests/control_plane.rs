@@ -12056,3 +12056,5 @@ include!("cases/banned_signals.rs");
 include!("cases/idempotency.rs");
 
 include!("cases/custom_system_prompt.rs");
+
+include!("cases/provider_strategies.rs");
