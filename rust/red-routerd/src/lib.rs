@@ -2758,21 +2758,93 @@ fn apply_target_payload_rules(
     target: &ModelTarget,
     target_format: Option<&str>,
 ) {
+    apply_provider_payload_rules(
+        payload,
+        rules,
+        target.provider_name.as_deref(),
+        &target.model,
+        target_format,
+    );
+}
+
+fn apply_provider_payload_rules(
+    payload: &mut serde_json::Value,
+    rules: Option<&payload_rules::PayloadRulesConfig>,
+    provider_name: Option<&str>,
+    fallback_model: &str,
+    target_format: Option<&str>,
+) {
     let (Some(rules), Some(format)) = (rules.filter(|rules| !rules.is_empty()), target_format)
     else {
         return;
     };
-    let protocols = payload_rules::resolve_payload_rule_protocols(
-        target.provider_name.as_deref(),
-        Some(format),
-    );
+    let protocols = payload_rules::resolve_payload_rule_protocols(provider_name, Some(format));
     let model = payload
         .get("model")
         .and_then(serde_json::Value::as_str)
         .filter(|model| !model.is_empty())
-        .unwrap_or(&target.model)
+        .unwrap_or(fallback_model)
         .to_owned();
     payload_rules::apply_payload_rules(payload, &model, &protocols, rules);
+}
+
+/// Per-model compatibility flags that shape an OpenAI-format request.
+#[derive(Clone, Copy, Default)]
+struct OpenAiModelCompat {
+    normalize_tool_call_id: bool,
+    preserve_developer_role: Option<bool>,
+    preserve_video_url: Option<bool>,
+}
+
+/// Legacy `translateRequest` rules for a Chat Completions target. The
+/// provider-dependent steps run only when the account's provider is known.
+fn apply_openai_target_rules(
+    payload: &mut serde_json::Value,
+    provider: Option<&str>,
+    model: &str,
+    compat: OpenAiModelCompat,
+    claude_code_client: bool,
+) {
+    if let Some(provider) = provider {
+        let reasoner = reasoning_replay::requires_reasoning_replay(
+            provider,
+            model,
+            reasoning_replay::has_thinking_config(payload),
+        );
+        role_normalizer::normalize_roles(
+            payload,
+            provider,
+            model,
+            true,
+            compat.preserve_developer_role,
+        );
+        strict_system_hoist::hoist_leading_system_message(payload, provider);
+        openai_content::ensure_glm_user_turn(payload, provider, model);
+        openai_content::filter_to_openai_format(
+            payload,
+            openai_content::FilterOptions {
+                preserve_cache_control: openai_content::preserve_cache_control(
+                    claude_code_client,
+                    provider,
+                ),
+                preserve_video_url: openai_content::preserve_video_url(
+                    compat.preserve_video_url,
+                    provider,
+                ),
+                preserve_reasoning_content: reasoner,
+            },
+        );
+        tool_schemas::sanitize_tools(payload);
+        if !reasoner {
+            openai_content::strip_echo_fields(payload);
+        }
+        // The filter maps `developer` to `system`; strict providers still
+        // need a single leading one.
+        strict_system_hoist::hoist_leading_system_message(payload, provider);
+    }
+    if compat.normalize_tool_call_id {
+        tool_call_ids::normalize_tool_call_ids(payload);
+    }
 }
 
 fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option<&str>) {
@@ -6990,58 +7062,17 @@ async fn proxy_request(
                         payload_rule_format(attempt_protocol),
                     );
                     if attempt_protocol == ProviderProtocol::OpenAi {
-                        // Legacy translateRequest: roles for an OpenAI-format target,
-                        // when the account's provider is known.
-                        if let Some(provider) = target.provider_name.as_deref() {
-                            let reasoner = reasoning_replay::requires_reasoning_replay(
-                                provider,
-                                &target.model,
-                                reasoning_replay::has_thinking_config(&attempt_parsed),
-                            );
-                            role_normalizer::normalize_roles(
-                                &mut attempt_parsed,
-                                provider,
-                                &target.model,
-                                true,
-                                target.preserve_developer_role,
-                            );
-                            strict_system_hoist::hoist_leading_system_message(
-                                &mut attempt_parsed,
-                                provider,
-                            );
-                            openai_content::ensure_glm_user_turn(
-                                &mut attempt_parsed,
-                                provider,
-                                &target.model,
-                            );
-                            openai_content::filter_to_openai_format(
-                                &mut attempt_parsed,
-                                openai_content::FilterOptions {
-                                    preserve_cache_control: openai_content::preserve_cache_control(
-                                        claude_code_client,
-                                        provider,
-                                    ),
-                                    preserve_video_url: openai_content::preserve_video_url(
-                                        target.preserve_video_url,
-                                        provider,
-                                    ),
-                                    preserve_reasoning_content: reasoner,
-                                },
-                            );
-                            tool_schemas::sanitize_tools(&mut attempt_parsed);
-                            if !reasoner {
-                                openai_content::strip_echo_fields(&mut attempt_parsed);
-                            }
-                            // The filter maps `developer` to `system`; strict
-                            // providers still need a single leading one.
-                            strict_system_hoist::hoist_leading_system_message(
-                                &mut attempt_parsed,
-                                provider,
-                            );
-                        }
-                        if target.normalize_tool_call_id {
-                            tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);
-                        }
+                        apply_openai_target_rules(
+                            &mut attempt_parsed,
+                            target.provider_name.as_deref(),
+                            &target.model,
+                            OpenAiModelCompat {
+                                normalize_tool_call_id: target.normalize_tool_call_id,
+                                preserve_developer_role: target.preserve_developer_role,
+                                preserve_video_url: target.preserve_video_url,
+                            },
+                            claude_code_client,
+                        );
                     }
                     serde_json::to_vec(&attempt_parsed).map_err(|_| ())
                 };
@@ -7065,7 +7096,38 @@ async fn proxy_request(
                         parsed["project"] = serde_json::Value::String(project.to_owned());
                     }
                 }
-                let payload = if state.product_client_keys {
+                // The active provider's Chat Completions requests get the same
+                // legacy rules as routed targets, without per-model flags.
+                let live_openai_provider = live_provider
+                    .as_ref()
+                    .filter(|_| protocol == ProviderProtocol::OpenAi)
+                    .and_then(|provider| provider.provider_name.as_deref());
+                let payload = if let Some(provider) = live_openai_provider {
+                    let mut live_parsed = parsed.clone();
+                    let model = live_parsed
+                        .get("model")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    apply_provider_payload_rules(
+                        &mut live_parsed,
+                        payload_rules.as_deref(),
+                        Some(provider),
+                        &model,
+                        payload_rule_format(protocol),
+                    );
+                    apply_openai_target_rules(
+                        &mut live_parsed,
+                        Some(provider),
+                        &model,
+                        OpenAiModelCompat::default(),
+                        claude_code_client,
+                    );
+                    match serde_json::to_vec(&live_parsed) {
+                        Ok(payload) => payload,
+                        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
+                    }
+                } else if state.product_client_keys {
                     match serde_json::to_vec(&parsed) {
                         Ok(payload) => payload,
                         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),

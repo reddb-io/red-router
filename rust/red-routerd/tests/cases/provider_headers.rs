@@ -10,10 +10,14 @@ async fn provider_custom_headers_persist_dispatch_and_never_expose_values() {
     let (base, gateway_task) = gateway(control).await;
     let seen = Arc::new(Mutex::new(Vec::<HeaderMap>::new()));
     let captured = seen.clone();
-    let app = Router::new().route("/v1/chat/completions", post(move |headers: HeaderMap| {
+    let forwarded = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let captured_bodies = forwarded.clone();
+    let app = Router::new().route("/v1/chat/completions", post(move |headers: HeaderMap, body: String| {
         let captured = captured.clone();
+        let captured_bodies = captured_bodies.clone();
         async move {
             captured.lock().unwrap().push(headers);
+            captured_bodies.lock().unwrap().push(serde_json::from_str(&body).unwrap_or_default());
             Json(serde_json::json!({"id":"fixture", "object":"chat.completion", "model":"fixture-model", "choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}))
         }
     }));
@@ -74,6 +78,29 @@ async fn provider_custom_headers_persist_dispatch_and_never_expose_values() {
     assert_eq!(
         chat(&client, &base, CLIENT_KEY).await.status(),
         StatusCode::OK
+    );
+    // Requests for the active provider get the legacy OpenAI-format rules
+    // too: `developer` maps to `system`, empty turns and Claude-only fields go.
+    assert_eq!(
+        chat_model_with_body(
+            &client,
+            &base,
+            CLIENT_KEY,
+            serde_json::json!({"model":"fixture-model","metadata":{"trace":"client"},"messages":[
+                {"role":"developer","content":"policy"},
+                {"role":"user","content":"  "},
+                {"role":"user","content":"hi"}
+            ]}),
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let sent = forwarded.lock().unwrap().last().unwrap().clone();
+    assert!(sent.get("metadata").is_none());
+    assert_eq!(
+        sent["messages"],
+        serde_json::json!([{"role":"system","content":"policy"},{"role":"user","content":"hi"}])
     );
     {
         let requests = seen.lock().unwrap();
