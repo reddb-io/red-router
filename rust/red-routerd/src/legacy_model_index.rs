@@ -7,9 +7,6 @@
 //! `scripts/research/legacy-model-providers.ts`; each model lists its
 //! providers in registry order, which the inference relies on.
 
-// The bare-name provider inference that consumes this index is ported next.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -33,7 +30,8 @@ pub(crate) fn static_providers_for_model(model: &str) -> &'static [String] {
         .unwrap_or(&[])
 }
 
-/// Legacy `KNOWN_MODEL_IDS`.
+/// Legacy `KNOWN_MODEL_IDS`, read by the exact-model-id rule (not ported yet).
+#[allow(dead_code)]
 pub(crate) fn is_known_model(model: &str) -> bool {
     MODEL_TO_PROVIDERS.contains_key(model)
 }

@@ -477,6 +477,17 @@ fn uses_local_account_inventory(provider: &str) -> bool {
     )
 }
 
+/// Legacy `OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS`; the
+/// database setting of the same name is not ported.
+fn prefer_claude_code_for_unprefixed_claude_models() -> bool {
+    std::env::var("OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
 
 #[derive(Clone)]
@@ -4665,8 +4676,70 @@ impl ControlPlane {
         Ok(())
     }
 
+    /// The provider and provider-scoped model the legacy inference picks for a
+    /// bare model name, when that provider has accounts for the tenant. An
+    /// operator-selected active provider keeps receiving bare names, and any
+    /// other outcome (ambiguous, unknown or inactive) leaves the request to
+    /// the existing path.
+    async fn infer_bare_model_provider(
+        &self,
+        tenant: &str,
+        requested: &str,
+    ) -> Result<Option<(String, String)>, &'static str> {
+        if self.0.current.read().await.is_some() {
+            return Ok(None);
+        }
+        if !crate::valid_model_identifier(requested)
+            || requested.trim() != requested
+            || !model_aliases::valid_model_name(requested)
+        {
+            return Ok(None);
+        }
+        let (active, synced) = {
+            let snapshot = self.0.routes.read().await;
+            let pools = match &*snapshot {
+                RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+                // Bare names never depended on the account snapshot before.
+                RouteSnapshot::Unavailable => return Ok(None),
+            };
+            let mut active = HashSet::new();
+            let mut synced = Vec::new();
+            for ((owner, provider), accounts) in pools.iter() {
+                if owner != tenant || accounts.is_empty() {
+                    continue;
+                }
+                active.insert(provider.clone());
+                if accounts.iter().any(|account| {
+                    account
+                        .synced_models
+                        .as_ref()
+                        .is_some_and(|inventory| inventory.models.contains_key(requested))
+                }) {
+                    synced.push(provider.clone());
+                }
+            }
+            // Pool iteration order is arbitrary; keep candidates deterministic.
+            synced.sort();
+            (active, synced)
+        };
+        let context = crate::provider_inference::InferenceContext {
+            active: Some(&active),
+            synced: &synced,
+            prefer_claude_code: prefer_claude_code_for_unprefixed_claude_models(),
+        };
+        match crate::provider_inference::infer_provider(requested, &context) {
+            crate::provider_inference::Inference::Provider { provider, model }
+                if active.contains(&provider) && model_aliases::valid_model_name(&model) =>
+            {
+                Ok(Some((provider, model)))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Compile a provider/model request against the current tenant's account
     /// pool. Provider clients are cached per snapshot, not recreated per call.
+    /// A bare model name takes the provider the legacy inference picks.
     pub(crate) async fn direct_provider_route(
         &self,
         tenant: &str,
@@ -4674,8 +4747,16 @@ impl ControlPlane {
         request_protocol: ProviderProtocol,
         policy: &ClientPolicy,
     ) -> Result<Option<Arc<ModelRoute>>, &'static str> {
-        let Some((prefix, model)) = requested.split_once('/') else {
-            return Ok(None);
+        let inferred;
+        let (prefix, model) = match requested.split_once('/') {
+            Some(parts) => parts,
+            None => {
+                let Some(found) = self.infer_bare_model_provider(tenant, requested).await? else {
+                    return Ok(None);
+                };
+                inferred = found;
+                (inferred.0.as_str(), inferred.1.as_str())
+            }
         };
         if !crate::valid_model_identifier(requested)
             || requested.trim() != requested

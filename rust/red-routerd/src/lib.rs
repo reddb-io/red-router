@@ -37,6 +37,7 @@ mod policy;
 pub mod product;
 pub mod product_combo;
 pub mod product_provider;
+mod provider_inference;
 mod provider_quota;
 mod reasoning_replay;
 pub mod reconcile;
