@@ -1426,7 +1426,8 @@ async fn authenticates_separates_credentials_and_streams_incrementally() {
         client
             .post(&url)
             .bearer_auth("local-client-key-123")
-            .body("x".repeat(2 * 1024 * 1024 + 1))
+            // Chat Completions accept the legacy LLM API limit of 50 MiB.
+            .body("x".repeat(50 * 1024 * 1024 + 1))
             .send()
             .await
             .unwrap()

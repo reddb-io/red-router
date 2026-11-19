@@ -4,6 +4,7 @@ mod anthropic_stream;
 mod antigravity_translation;
 pub mod audit_export;
 mod availability;
+mod body_limits;
 pub mod catalog;
 mod catalog_capabilities;
 mod catalog_combo_routing;
@@ -6132,7 +6133,8 @@ async fn proxy_request(
         Err(()) => return error(StatusCode::TOO_MANY_REQUESTS, "Client is at capacity"),
     };
     let accept = request.headers().get(header::ACCEPT).cloned();
-    let body = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
+    let body_limit = body_limits::request_body_limit(request.uri().path());
+    let body = match to_bytes(request.into_body(), body_limit).await {
         Ok(body) => body,
         Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "Request body too large"),
     };
