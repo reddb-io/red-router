@@ -48,6 +48,7 @@ mod resilience;
 mod role_normalizer;
 pub mod shared_budget;
 pub mod shared_usage;
+mod shared_wallet_credits;
 pub mod spa;
 pub mod storage;
 mod strict_system_hoist;

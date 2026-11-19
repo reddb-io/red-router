@@ -151,6 +151,18 @@ pub(crate) fn classify_provider_failure(
     if failed && matches_any(&BILLING_SUSPENSION_PATTERNS, text) {
         return ProviderFailureClass::CreditsExhausted;
     }
+    // A shared-wallet 402 empties the whole account, whatever scope the
+    // operator configured for model-level quota failures.
+    // Only an empty raw body counts as "no detail"; a body whose JSON carries
+    // no error text still has to show the balance signal.
+    let raw_empty = body.is_none_or(|body| body.trim_ascii().is_empty());
+    if crate::shared_wallet_credits::is_shared_wallet_credits_402(
+        provider,
+        status.as_u16(),
+        (!raw_empty).then_some(text),
+    ) {
+        return ProviderFailureClass::CreditsExhausted;
+    }
     if matches!(status.as_u16(), 400 | 402 | 403 | 429) && credits_exhausted_text(text) {
         return if quota_failure_scope(configured, provider, StatusCode::PAYMENT_REQUIRED, headers)
             == FailureScope::Model
@@ -475,6 +487,39 @@ fn any_model_exhausted(value: &str) -> bool {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn a_shared_wallet_402_exhausts_the_account_even_under_model_scope() {
+        let class = |provider: &str, body: Option<&[u8]>| {
+            classify_provider_failure(
+                RateLimitScope::Model,
+                Some(provider),
+                StatusCode::PAYMENT_REQUIRED,
+                &HeaderMap::new(),
+                body,
+            )
+        };
+        for body in [
+            None,
+            Some(&b"  "[..]),
+            Some(br#"{"error":{"message":"Usage balance exhausted"}}"#),
+        ] {
+            assert_eq!(
+                class("grok-cli", body),
+                ProviderFailureClass::CreditsExhausted
+            );
+        }
+        // Without the balance signal, or for another provider, the configured
+        // model scope still applies.
+        assert_eq!(
+            class(
+                "xai-oauth",
+                Some(br#"{"error":{"message":"model not enabled"}}"#)
+            ),
+            ProviderFailureClass::Model
+        );
+        assert_eq!(class("xai", None), ProviderFailureClass::Model);
+    }
 
     #[test]
     fn credit_and_ban_signals_follow_the_legacy_lists() {
