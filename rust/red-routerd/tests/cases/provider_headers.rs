@@ -424,7 +424,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let edited: serde_json::Value = edited.json().await.unwrap();
     let flagged = admin_put(
         format!("{base}/api/admin/provider-models/{id}"),
-        serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model","name":"Fixture"},"compat":{"normalize_tool_call_id":true,"preserve_openai_developer_role":false},"revision":edited["model"]["revision"]}),
+        serde_json::json!({"provider":"openai-compatible","metadata":{"id":"fixture-model","name":"Fixture"},"compat":{"normalize_tool_call_id":true,"preserve_openai_developer_role":false,"preserve_video_url":true},"revision":edited["model"]["revision"]}),
     )
     .await;
     assert_eq!(flagged.status(), StatusCode::OK);
@@ -432,7 +432,7 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     assert_eq!(edited["model"]["compat"]["normalize_tool_call_id"], true);
     let history = serde_json::json!({"model":"model-headers","messages":[
         {"role":"developer","content":"policy"},
-        {"role":"user","content":"hi"},
+        {"role":"user","content":[{"type":"text","text":"hi"},{"type":"video_url","video_url":{"url":"https://example.test/clip.mp4"}}]},
         {"role":"assistant","tool_calls":[{"id":"call_long_client_identifier","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
         {"role":"tool","tool_call_id":"call_long_client_identifier","content":"result"}
     ]});
@@ -443,7 +443,9 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         StatusCode::OK
     );
     let sent = bodies.lock().unwrap().last().unwrap().clone();
-    assert_eq!(sent["messages"][0]["role"], "system");.as_str().unwrap().to_owned();
+    assert_eq!(sent["messages"][0]["role"], "system");
+    // preserve_video_url keeps the video block for this model.
+    assert_eq!(sent["messages"][1]["content"][1]["type"], "video_url");.as_str().unwrap().to_owned();
     assert_eq!(id.len(), 9);
     assert!(id.bytes().all(|byte| byte.is_ascii_alphanumeric()));
     assert_eq!(sent["messages"][3]["tool_call_id"], id.as_str());
@@ -461,8 +463,13 @@ async fn model_headers_override_account_headers_for_that_model_only() {
         sent["messages"][2]["tool_calls"][0]["id"],
         "call_long_client_identifier"
     );
-    // An openai-compatible provider keeps the developer role by default.
+    // An openai-compatible provider keeps the developer role by default, and
+    // drops Moonshot's video block unless the model keeps it.
     assert_eq!(sent["messages"][0]["role"], "developer");
+    assert_eq!(
+        sent["messages"][1]["content"],
+        serde_json::json!([{"type":"text","text":"hi"}])
+    );
     // Clearing the model headers falls back to the account's.
     assert_eq!(
         admin_put(

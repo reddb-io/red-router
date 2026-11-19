@@ -87,6 +87,7 @@ fn compat_settings(
     let mut compat = ModelCompat {
         normalize_tool_call_id: flag(object.get("normalizeToolCallId"))?,
         preserve_openai_developer_role: flag(object.get("preserveOpenAIDeveloperRole"))?,
+        preserve_video_url: flag(object.get("preserveVideoUrl"))?,
         ..ModelCompat::default()
     };
     let mut by_protocol = BTreeMap::new();
@@ -99,11 +100,16 @@ fn compat_settings(
             if entry.keys().any(|key| {
                 !matches!(
                     key.as_str(),
-                    "upstreamHeaders" | "normalizeToolCallId" | "preserveOpenAIDeveloperRole"
+                    "upstreamHeaders"
+                        | "normalizeToolCallId"
+                        | "preserveOpenAIDeveloperRole"
+                        | "preserveVideoUrl"
                 )
             }) {
                 return None;
             }
+            // The legacy reader consults preserveVideoUrl model-wide only.
+            flag(entry.get("preserveVideoUrl"))?;
             // The legacy reader only looks up known protocol keys.
             if !matches!(protocol.as_str(), "openai" | "openai-responses" | "claude") {
                 continue;
@@ -137,6 +143,7 @@ fn is_compat_setting(key: &str) -> bool {
             | "compatByProtocol"
             | "normalizeToolCallId"
             | "preserveOpenAIDeveloperRole"
+            | "preserveVideoUrl"
     )
 }
 

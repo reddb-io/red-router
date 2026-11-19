@@ -429,6 +429,7 @@ impl ModelOverrides {
             compat.is_some_and(|compat| compat.normalize_tool_call_id(protocol));
         target.preserve_developer_role =
             compat.and_then(|compat| compat.preserve_openai_developer_role(protocol));
+        target.preserve_video_url = compat.and_then(|compat| compat.preserve_video_url);
         let Some(maps) = self.headers.get(&id) else {
             return;
         };

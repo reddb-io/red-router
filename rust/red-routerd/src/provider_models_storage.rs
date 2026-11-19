@@ -26,6 +26,11 @@ pub struct ModelCompat {
     /// (`preserveOpenAIDeveloperRole`); unset uses the provider default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preserve_openai_developer_role: Option<bool>,
+    /// Keep Moonshot's non-standard `video_url` content blocks
+    /// (`preserveVideoUrl`); unset keeps them only for Moonshot and Kimi.
+    /// The legacy reader consults it model-wide only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_video_url: Option<bool>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub by_protocol: std::collections::BTreeMap<String, ModelCompatProtocol>,
 }
@@ -49,6 +54,7 @@ impl ModelCompat {
     pub fn is_empty(&self) -> bool {
         self.normalize_tool_call_id.is_none()
             && self.preserve_openai_developer_role.is_none()
+            && self.preserve_video_url.is_none()
             && self.by_protocol.values().all(ModelCompatProtocol::is_empty)
     }
 

@@ -29,6 +29,7 @@ mod model_endpoint_policy;
 mod model_permissions;
 mod native_usage;
 mod oidc;
+mod openai_content;
 mod policy;
 pub mod product;
 pub mod product_combo;
@@ -628,6 +629,8 @@ pub(crate) struct ModelTarget {
     /// The model's `preserveOpenAIDeveloperRole` flag; unset uses the
     /// provider default.
     preserve_developer_role: Option<bool>,
+    /// The model's `preserveVideoUrl` flag; unset uses the provider default.
+    preserve_video_url: Option<bool>,
 }
 
 impl ModelTarget {
@@ -1695,6 +1698,7 @@ impl ProxyState {
             in_flight: provider.in_flight.clone(),
             normalize_tool_call_id: false,
             preserve_developer_role: None,
+            preserve_video_url: None,
         }
     }
 
@@ -2127,6 +2131,7 @@ impl ProxyState {
                     in_flight: Arc::new(AtomicUsize::new(0)),
                     normalize_tool_call_id: false,
                     preserve_developer_role: None,
+                    preserve_video_url: None,
                 });
             }
             if strategy == RouteStrategy::Weighted
@@ -6916,6 +6921,12 @@ async fn proxy_request(
                                 true,
                                 target.preserve_developer_role,
                             );
+                            if !openai_content::preserve_video_url(
+                                target.preserve_video_url,
+                                provider,
+                            ) {
+                                openai_content::drop_video_url_blocks(&mut attempt_parsed);
+                            }
                         }
                         if target.normalize_tool_call_id {
                             tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);
@@ -8668,6 +8679,7 @@ mod address_tests {
             in_flight: Arc::new(AtomicUsize::new(0)),
             normalize_tool_call_id: false,
             preserve_developer_role: None,
+            preserve_video_url: None,
         };
         assert!(target_quota(&target, 2).unwrap().limit_reached);
         assert!(!quota_preflight_allows(&target, 2, 20_000));
