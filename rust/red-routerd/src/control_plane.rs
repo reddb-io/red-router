@@ -488,6 +488,21 @@ fn prefer_claude_code_for_unprefixed_claude_models() -> bool {
     })
 }
 
+/// Legacy `resolveBareModelToConnectionDefault` (#474): a bare requested
+/// name takes the account's default model; an explicit `provider/model`
+/// keeps the requested one.
+fn account_model<'a>(bare_request: bool, account: &'a DirectAccount, model: &'a str) -> &'a str {
+    if !bare_request {
+        return model;
+    }
+    account
+        .record
+        .default_model
+        .as_deref()
+        .filter(|default| !default.is_empty())
+        .unwrap_or(model)
+}
+
 type DirectPools = HashMap<(String, String), Vec<Arc<DirectAccount>>>;
 
 #[derive(Clone)]
@@ -4834,8 +4849,10 @@ impl ControlPlane {
             .as_ref()
             .and_then(|entry| entry.limit.as_ref())
             .and_then(|limit| limit.context);
+        let bare_request = !requested.contains('/');
         let mut initialized = futures_util::stream::iter(accounts.into_iter().enumerate())
             .map(|(index, account)| async move {
+                let model = account_model(bare_request, &account, model);
                 let configured = ProviderProtocol::from_configuration(
                     &account.record.upstream_url,
                     &account.record.protocol,
@@ -4873,6 +4890,7 @@ impl ControlPlane {
         let targets = initialized
             .into_iter()
             .map(|(_, account, live, protocol)| {
+                let model = account_model(bare_request, &account, model);
                 let model_quota = model_quotas
                     .get(&(account.record.id.clone(), model.to_owned()))
                     .cloned();
