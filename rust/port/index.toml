@@ -1,6 +1,24 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/services/accountFallback/sharedWalletCredits.ts"
+status = "ported"
+rust = "shared_wallet_credits.rs"
+module = "red_routerd::shared_wallet_credits"
+ported_at = "2026-11-19T19:16:10Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "The failure classifier parks the account on a shared-wallet 402 whatever scope is configured; an unrelated 402 from these providers takes the per-model scope (model_scope_providers)."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/sharedWalletCredits.ts" = "d24341bfc06e0fd6e0a6d78dd09b32b72ef78b2a"
+
+[module.symbols]
+GROK_BUILD_USAGE_BALANCE_SIGNAL = "red_routerd::shared_wallet_credits::GROK_BUILD_USAGE_BALANCE_SIGNAL"
+isCreditsExhaustedWithSharedWallet = "red_routerd::shared_wallet_credits::is_credits_exhausted_with_shared_wallet"
+isSharedWalletCredits402 = "red_routerd::shared_wallet_credits::is_shared_wallet_credits_402"
+matchesSharedWalletCreditsBody = "red_routerd::shared_wallet_credits::matches_shared_wallet_credits_body"
+
+[[module]]
 ts = "open-sse/services/dailyQuotaReset.ts"
 status = "ported"
 rust = "daily_quota_reset.rs"
