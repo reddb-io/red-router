@@ -190,7 +190,11 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             let tenant_enabled: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1")
                 .bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
             if tenant_enabled != 1 { return Err("legacy key tenant is unavailable; no keys imported"); }
-            for field in ["no_log", "auto_resolve", "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
+            // no_log only kept request/response bodies out of the legacy call
+            // and detail logs. The native gateway persists no payload for any
+            // key, so the opt-out already holds; only a boolean is accepted.
+            if !matches!(number("no_log")?, None | Some(0 | 1)) { return Err("invalid legacy key logging policy; no keys imported"); }
+            for field in ["auto_resolve", "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
                 if number(field)?.unwrap_or(0) != 0 { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             // Legacy request limits (fixed 60-second and one-day windows, used

@@ -336,7 +336,7 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET max_requests_per_minute=30,max_requests_per_day=1000,allowed_endpoints='[\"chat\",\"models\",\"chat\"]' WHERE id='first';")
+    sqlx::raw_sql("INSERT INTO api_key_token_limits VALUES ('model-limit','first','model','gpt-4',500,'daily','00:00',1,datetime('now'),datetime('now')); UPDATE api_keys SET no_log=1,max_requests_per_minute=30,max_requests_per_day=1000,allowed_endpoints='[\"chat\",\"models\",\"chat\"]' WHERE id='first';")
         .execute(&mut input).await.unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
@@ -391,6 +391,19 @@ async fn imports_unrestricted_keys_as_hashes_and_preserves_status_tenant_and_for
 async fn any_unsupported_policy_rolls_back_all_keys_and_unknown_schema_fails_closed() {
     let (_dir, source, dest, url) = fixture().await;
     let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    // no_log is a boolean; any other value is refused for every key.
+    sqlx::query("UPDATE api_keys SET no_log=2 WHERE id='first'")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_keys::import(&source, &dest).await.err(),
+        Some("invalid legacy key logging policy; no keys imported")
+    );
+    sqlx::query("UPDATE api_keys SET no_log=1 WHERE id='first'")
+        .execute(&mut input)
         .await
         .unwrap();
     sqlx::query("UPDATE api_keys SET allowed_models='[42]' WHERE id='second'")
