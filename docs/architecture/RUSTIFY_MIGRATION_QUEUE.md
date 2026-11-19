@@ -64,7 +64,7 @@ Decision rows now carry `availability: "not_probed"` and
 `supported_endpoints: ["systemone", "decisions"]` as in the legacy listing (Rust
 CI 44413597902). Direct model rows now list the metadata `name`, normalized for
 display (vendor prefix removed, id-like names humanized), as the legacy default
-`MODEL_CATALOG_INCLUDE_NAMES` does (CI pending). Turning names off,
+`MODEL_CATALOG_INCLUDE_NAMES` does (Rust CI 44421233164). Turning names off,
 `disambiguateCatalogModelNames` and names for combo and alias rows are not
 ported. Provider metadata is descriptive and must not itself grant
 access to inference or guarantee upstream entitlement. SQLite instances now
