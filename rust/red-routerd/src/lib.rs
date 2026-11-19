@@ -37,6 +37,7 @@ pub mod product;
 pub mod product_combo;
 pub mod product_provider;
 mod provider_quota;
+mod reasoning_replay;
 pub mod reconcile;
 mod resilience;
 mod role_normalizer;
@@ -5819,6 +5820,11 @@ async fn proxy_request(
     gemini: Option<(String, bool)>,
 ) -> Response {
     let original_headers = request.headers().clone();
+    let claude_code_client = openai_content::is_claude_code_client(
+        original_headers
+            .get(header::USER_AGENT)
+            .and_then(|value| value.to_str().ok()),
+    );
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -6986,6 +6992,11 @@ async fn proxy_request(
                         // Legacy translateRequest: roles for an OpenAI-format target,
                         // when the account's provider is known.
                         if let Some(provider) = target.provider_name.as_deref() {
+                            let reasoner = reasoning_replay::requires_reasoning_replay(
+                                provider,
+                                &target.model,
+                                reasoning_replay::has_thinking_config(&attempt_parsed),
+                            );
                             role_normalizer::normalize_roles(
                                 &mut attempt_parsed,
                                 provider,
@@ -7002,12 +7013,29 @@ async fn proxy_request(
                                 provider,
                                 &target.model,
                             );
-                            if !openai_content::preserve_video_url(
-                                target.preserve_video_url,
-                                provider,
-                            ) {
-                                openai_content::drop_video_url_blocks(&mut attempt_parsed);
+                            openai_content::filter_to_openai_format(
+                                &mut attempt_parsed,
+                                openai_content::FilterOptions {
+                                    preserve_cache_control: openai_content::preserve_cache_control(
+                                        claude_code_client,
+                                        provider,
+                                    ),
+                                    preserve_video_url: openai_content::preserve_video_url(
+                                        target.preserve_video_url,
+                                        provider,
+                                    ),
+                                    preserve_reasoning_content: reasoner,
+                                },
+                            );
+                            if !reasoner {
+                                openai_content::strip_echo_fields(&mut attempt_parsed);
                             }
+                            // The filter maps `developer` to `system`; strict
+                            // providers still need a single leading one.
+                            strict_system_hoist::hoist_leading_system_message(
+                                &mut attempt_parsed,
+                                provider,
+                            );
                         }
                         if target.normalize_tool_call_id {
                             tool_call_ids::normalize_tool_call_ids(&mut attempt_parsed);

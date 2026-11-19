@@ -506,6 +506,11 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     );
     let mut ruled = other.clone();
     ruled["stream_options"] = serde_json::json!({"include_usage": true});
+    ruled["max_output_tokens"] = serde_json::json!(32);
+    ruled["metadata"] = serde_json::json!({"trace":"client"});
+    ruled["tools"] = serde_json::json!([{"name":"lookup","input_schema":{"type":"object"}}]);
+    ruled["tool_choice"] = serde_json::json!({"type":"auto"});
+    ruled["messages"][2]["reasoning_content"] = serde_json::json!("long reasoning");
     assert_eq!(
         chat_model_with_body(&client, &base, CLIENT_KEY, ruled)
             .await
@@ -515,9 +520,20 @@ async fn model_headers_override_account_headers_for_that_model_only() {
     let ruled_sent = bodies.lock().unwrap().last().unwrap().clone();
     assert_eq!(ruled_sent["temperature"], 0.1);
     assert!(ruled_sent.get("stream_options").is_none());
-    // An openai-compatible provider keeps the developer role by default, and
-    // drops Moonshot's video block unless the model keeps it.
-    assert_eq!(sent["messages"][0]["role"], "developer");
+    // The legacy OpenAI-format filter cleans Claude-style fields and tools,
+    // and drops tool-turn reasoning for providers without reasoning replay.
+    assert_eq!(ruled_sent["max_tokens"], 32);
+    assert!(ruled_sent.get("max_output_tokens").is_none());
+    assert!(ruled_sent.get("metadata").is_none());
+    assert_eq!(
+        ruled_sent["tools"],
+        serde_json::json!([{"type":"function","function":{"name":"lookup","description":"","parameters":{"type":"object"}}}])
+    );
+    assert_eq!(ruled_sent["tool_choice"], "auto");
+    assert!(ruled_sent["messages"][2].get("reasoning_content").is_none());
+    // The filter maps `developer` to `system` for every OpenAI-format target,
+    // and drops Moonshot's video block unless the model keeps it.
+    assert_eq!(sent["messages"][0]["role"], "system");
     assert_eq!(
         sent["messages"][1]["content"],
         serde_json::json!([{"type":"text","text":"hi"}])
