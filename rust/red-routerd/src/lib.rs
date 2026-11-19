@@ -2805,6 +2805,9 @@ fn apply_openai_target_rules(
     compat: OpenAiModelCompat,
     claude_code_client: bool,
 ) {
+    // Every call gets an ID and a result, and stale results go, before the
+    // role and content rules; the pass repeats on the final body.
+    tool_call_ids::repair_tool_calls(payload, false);
     if let Some(provider) = provider {
         let reasoner = reasoning_replay::requires_reasoning_replay(
             provider,
@@ -2842,9 +2845,7 @@ fn apply_openai_target_rules(
         // need a single leading one.
         strict_system_hoist::hoist_leading_system_message(payload, provider);
     }
-    if compat.normalize_tool_call_id {
-        tool_call_ids::normalize_tool_call_ids(payload);
-    }
+    tool_call_ids::repair_tool_calls(payload, compat.normalize_tool_call_id);
 }
 
 fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option<&str>) {
