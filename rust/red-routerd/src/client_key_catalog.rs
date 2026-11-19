@@ -1,7 +1,8 @@
 //! A client key's model catalog policy (legacy `api_keys.catalog_scope` and
 //! `allow_auto_combos`, applied by the legacy `/v1/models` builder in
-//! `src/app/api/v1/models/catalog.ts`). It shapes what the key lists; routing
-//! permissions stay with the key's model and combo grants.
+//! `src/app/api/v1/models/catalog.ts`), and whether the key reaches only
+//! published models (legacy `disable_non_public_models`). Listing rules never
+//! change routing; the published-models restriction applies to both.
 
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +42,10 @@ pub struct CatalogPolicy {
     /// Whether `auto` and `auto/*` combos are listed (legacy `allowAutoCombos`).
     #[serde(default = "listed_by_default")]
     pub list_auto_combos: bool,
+    /// Only published models are reachable (legacy `disableNonPublicModels`):
+    /// see `PublishedModels`.
+    #[serde(default)]
+    pub public_models_only: bool,
 }
 
 impl Default for CatalogPolicy {
@@ -48,6 +53,7 @@ impl Default for CatalogPolicy {
         Self {
             catalog_scope: CatalogScope::All,
             list_auto_combos: true,
+            public_models_only: false,
         }
     }
 }
@@ -73,6 +79,25 @@ impl CatalogPolicy {
     /// Whether model (non-combo) rows are listed.
     pub(crate) fn lists_models(&self) -> bool {
         self.catalog_scope != CatalogScope::Combos
+    }
+}
+
+/// The published models a public-models-only key may reach, keyed by
+/// tenant, provider and provider-scoped model id.
+#[derive(Default)]
+pub(crate) struct PublishedModels {
+    models: std::collections::HashSet<(String, String, String)>,
+}
+
+impl PublishedModels {
+    pub(crate) fn insert(&mut self, tenant: &str, provider: &str, model: &str) {
+        self.models
+            .insert((tenant.to_owned(), provider.to_owned(), model.to_owned()));
+    }
+
+    pub(crate) fn contains(&self, tenant: &str, provider: &str, model: &str) -> bool {
+        self.models
+            .contains(&(tenant.to_owned(), provider.to_owned(), model.to_owned()))
     }
 }
 

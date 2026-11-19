@@ -3094,6 +3094,7 @@ fn listed_models(
     policy: &policy::ClientPolicy,
     catalog: &catalog::ModelCatalog,
     overrides: Option<&control_plane::provider_models::ModelOverrides>,
+    published: Option<&client_key_catalog::PublishedModels>,
 ) -> Result<Vec<ListedModel>, &'static str> {
     let created = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3119,6 +3120,13 @@ fn listed_models(
         if !listed {
             continue;
         }
+        // Public-models-only keys list only published targets, except in a
+        // curated combo granted by name.
+        let published = published.filter(|_| {
+            !(route.public_model_alias.is_none()
+                && !route.provider_direct
+                && policy.combo_explicitly_granted(id))
+        });
         if !policy.tenant_allowed(&route.tenant_id)
             || (route.public_model_alias.is_none() && !policy.combo_allowed(id))
             || !policy.endpoint_allowed(route_category(route.protocol))
@@ -3135,6 +3143,11 @@ fn listed_models(
                     && target.provider_name.as_deref().is_none_or(|provider| {
                         overrides.is_none_or(|models| {
                             !models.is_hidden(&route.tenant_id, provider, &target.model)
+                        })
+                    })
+                    && published.is_none_or(|models| {
+                        target.provider_name.as_deref().is_some_and(|provider| {
+                            models.contains(&route.tenant_id, provider, &target.model)
                         })
                     })
             })
@@ -3437,12 +3450,14 @@ async fn authorized_models(
                     "Product combo changed or is unavailable; restart required",
                 )));
             }
-            return listed_models(state.routes.as_ref(), policy, &catalog, None).map_err(|_| {
-                Box::new(error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Model catalog unavailable",
-                ))
-            });
+            return listed_models(state.routes.as_ref(), policy, &catalog, None, None).map_err(
+                |_| {
+                    Box::new(error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Model catalog unavailable",
+                    ))
+                },
+            );
         }
         // Direct provider mode has no durable, entitlement-scoped inventory.
         // Never turn the descriptive models.dev catalog into an allow-list.
@@ -3487,13 +3502,28 @@ async fn authorized_models(
         })?),
         None => None,
     };
-    let mut models =
-        listed_models(routes, policy, &catalog, overrides.as_deref()).map_err(|_| {
+    let published = match (&state.control_plane, policy.public_models_only()) {
+        (Some(control), true) => Some(control.published_models().await.map_err(|_| {
             Box::new(error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Model catalog unavailable",
             ))
-        })?;
+        })?),
+        _ => None,
+    };
+    let mut models = listed_models(
+        routes,
+        policy,
+        &catalog,
+        overrides.as_deref(),
+        published.as_ref(),
+    )
+    .map_err(|_| {
+        Box::new(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Model catalog unavailable",
+        ))
+    })?;
     if let (Some(control), Some(overrides)) = (&state.control_plane, overrides.as_deref()) {
         let aliases = control.model_aliases_snapshot().await.map_err(|_| {
             Box::new(error(
@@ -6519,6 +6549,31 @@ async fn proxy_request(
                     "Provider route unavailable",
                 );
             }
+        }
+    }
+    // A key restricted to public models reaches only published ones (legacy
+    // `disableNonPublicModels`); a curated combo granted by name is admitted
+    // without judging its targets, as in the legacy combo gate.
+    if policy.public_models_only()
+        && !route.is_some_and(|route| {
+            route.public_model_alias.is_none()
+                && !route.provider_direct
+                && policy.combo_explicitly_granted(&requested_model)
+        })
+    {
+        let (Some(route), Some(control)) = (route, state.control_plane.as_ref()) else {
+            return error(StatusCode::FORBIDDEN, "Model is not allowed");
+        };
+        let Ok(published) = control.published_models().await else {
+            return error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable");
+        };
+        eligible.retain(|target| {
+            target.provider_name.as_deref().is_some_and(|provider| {
+                published.contains(&route.tenant_id, provider, &target.model)
+            })
+        });
+        if eligible.is_empty() {
+            return error(StatusCode::FORBIDDEN, "Model is not allowed");
         }
     }
     if let Some(threshold_ppm) = match &state.control_plane {

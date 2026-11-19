@@ -645,6 +645,24 @@ impl ClientPolicy {
         self.catalog.lists_combo(combo)
     }
 
+    /// Whether the key reaches only published models.
+    pub(crate) fn public_models_only(&self) -> bool {
+        self.catalog.public_models_only
+    }
+
+    /// A curated (non-auto) combo the key was granted by name, which the
+    /// legacy public-models gate admits without judging its targets.
+    pub(crate) fn combo_explicitly_granted(&self, combo: &str) -> bool {
+        let name = combo_name(combo);
+        name != "auto"
+            && !name.starts_with("auto/")
+            && self.allowed_combos.as_ref().is_some_and(|grants| {
+                grants
+                    .iter()
+                    .any(|rule| rule == "combo/*" || combo_name(rule) == name)
+            })
+    }
+
     /// Whether the key's `/v1/models` lists model (non-combo) rows.
     pub(crate) fn catalog_lists_models(&self) -> bool {
         self.catalog.lists_models()

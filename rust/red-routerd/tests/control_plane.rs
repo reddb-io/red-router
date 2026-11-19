@@ -12044,3 +12044,5 @@ include!("cases/provider_concurrency.rs");
 include!("cases/provider_daily_quota.rs");
 
 include!("cases/client_key_catalog.rs");
+
+include!("cases/client_key_public_models.rs");

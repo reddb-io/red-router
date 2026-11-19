@@ -887,6 +887,8 @@ pub struct ClientKeyInput {
     pub catalog_scope: Option<crate::client_key_catalog::CatalogScope>,
     /// Omitted keeps whether `auto` combos are listed.
     pub list_auto_combos: Option<bool>,
+    /// Omitted keeps whether only published models are reachable.
+    pub public_models_only: Option<bool>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -924,6 +926,8 @@ pub struct ClientKeyIssueInput {
     pub catalog_scope: Option<crate::client_key_catalog::CatalogScope>,
     /// Omitted keeps whether `auto` combos are listed.
     pub list_auto_combos: Option<bool>,
+    /// Omitted keeps whether only published models are reachable.
+    pub public_models_only: Option<bool>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -1077,6 +1081,7 @@ impl ClientKeyIssueInput {
             allowed_combos: self.allowed_combos,
             catalog_scope: self.catalog_scope,
             list_auto_combos: self.list_auto_combos,
+            public_models_only: self.public_models_only,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
             access_schedule: self.access_schedule,
@@ -1109,6 +1114,7 @@ pub struct ClientKeyView {
     pub allowed_combos: Option<Vec<String>>,
     pub catalog_scope: crate::client_key_catalog::CatalogScope,
     pub list_auto_combos: bool,
+    pub public_models_only: bool,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub access_schedule: Option<AccessScheduleConfig>,
@@ -4698,6 +4704,37 @@ impl ControlPlane {
         }))
     }
 
+    /// The tenant's published models (legacy `findPublishedModel`): what an
+    /// account's synchronized catalog lists or a custom model declares,
+    /// minus models hidden from chat. Keys restricted to public models only
+    /// reach these.
+    pub(crate) async fn published_models(
+        &self,
+    ) -> Result<crate::client_key_catalog::PublishedModels, &'static str> {
+        let overrides = self.provider_model_overrides().await?;
+        let snapshot = self.0.routes.read().await;
+        let pools = match &*snapshot {
+            RouteSnapshot::Legacy(pools) | RouteSnapshot::Current(_, pools) => pools,
+            RouteSnapshot::Unavailable => return Err("provider route snapshot unavailable"),
+        };
+        let mut published = crate::client_key_catalog::PublishedModels::default();
+        for ((tenant, provider), accounts) in pools.iter() {
+            let synced = accounts
+                .iter()
+                .filter_map(|account| account.synced_models.as_ref())
+                .flat_map(|inventory| inventory.models.keys().map(String::as_str));
+            let custom = overrides
+                .configured_models(tenant, provider)
+                .map(|model| model.id.as_str());
+            for model in synced.chain(custom) {
+                if !overrides.is_hidden(tenant, provider, model) {
+                    published.insert(tenant, provider, model);
+                }
+            }
+        }
+        Ok(published)
+    }
+
     pub(crate) async fn filter_local_route_targets(
         &self,
         tenant: &str,
@@ -8252,6 +8289,9 @@ impl ControlPlane {
                 }
                 if let Some(listed) = input.list_auto_combos {
                     catalog.list_auto_combos = listed;
+                }
+                if let Some(restricted) = input.public_models_only {
+                    catalog.public_models_only = restricted;
                 }
                 catalog.encode()
             },
@@ -12085,6 +12125,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         allowed_combos: decode_combo_grants(&record.allowed_combos_json)?,
         catalog_scope: catalog.catalog_scope,
         list_auto_combos: catalog.list_auto_combos,
+        public_models_only: catalog.public_models_only,
         blocked_models: parse_list(&record.blocked_models_json)?,
         allowed_provider_ids: parse_list(&record.allowed_provider_ids_json)?,
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
@@ -13000,6 +13041,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         catalog: crate::client_key_catalog::CatalogPolicy {
             catalog_scope: view.catalog_scope,
             list_auto_combos: view.list_auto_combos,
+            public_models_only: view.public_models_only,
         },
         key_hash,
         enabled: record.enabled,
