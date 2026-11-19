@@ -217,14 +217,18 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                     return Err("legacy spending limits require migration; no keys imported");
                 }
             }
-            if number("compression_enabled")? != Some(1) || number("allow_auto_combos")? != Some(1) {
+            // compression_enabled=0 and cache_default_mode='bypass' opt a key
+            // out of prompt compression and the semantic cache. The native
+            // gateway has neither, so both opt-outs already hold for every key
+            // (any such feature added later must honor a per-key opt-out).
+            if !matches!(number("compression_enabled")?, Some(0 | 1)) || number("allow_auto_combos")? != Some(1) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             for field in ["ip_allowlist", "scopes", "rate_limits", "allowed_quotas"] {
                 if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             let allowed_endpoints = import_endpoint_grants(get("allowed_endpoints")?.as_deref())?;
-            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy")) {
+            if !matches!(get("model_access_mode")?.as_deref(), Some("all" | "restricted")) || !matches!(get("catalog_scope")?.as_deref(), Some("all")) || !matches!(get("stream_default_mode")?.as_deref(), Some("legacy")) || !matches!(get("cache_default_mode")?.as_deref(), Some("legacy" | "bypass")) {
                 return Err("legacy key behavior is unsupported; no keys imported");
             }
             let raw_combos = get("allowed_combos")?;
