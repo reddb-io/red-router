@@ -5,6 +5,47 @@ use sqlx::{sqlite::SqliteConnectOptions, Connection, Row, SqliteConnection};
 use std::path::Path;
 use zeroize::Zeroizing;
 
+/// The native terminal availability status (the HTTP status the Rust
+/// availability record keeps) for a terminal legacy `test_status`; transient
+/// health states import with fresh availability.
+fn terminal_status_code(status: Option<&str>) -> Result<Option<i64>, &'static str> {
+    match status.map(str::trim) {
+        None
+        | Some(
+            "" | "untested" | "success" | "active" | "unknown" | "unavailable" | "degraded"
+            | "error" | "refreshing",
+        ) => Ok(None),
+        Some("expired") => Ok(Some(401)),
+        Some("credits_exhausted") => Ok(Some(402)),
+        Some("banned" | "deactivated") => Ok(Some(403)),
+        Some(_) => Err("legacy provider health requires migration"),
+    }
+}
+
+/// Record a terminal legacy health state as the connection's native
+/// terminal availability, which only an operator reset clears.
+async fn record_terminal_status(
+    db: &mut SqliteConnection,
+    id: &str,
+    status: Option<i64>,
+) -> Result<(), &'static str> {
+    let Some(status) = status else {
+        return Ok(());
+    };
+    sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_provider_availability (provider_id TEXT PRIMARY KEY, cooldown_until_unix_ms BIGINT NOT NULL, backoff_level BIGINT NOT NULL, last_status BIGINT NOT NULL, model_lockouts_json TEXT NOT NULL, revision BIGINT NOT NULL)")
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot initialize provider availability")?;
+    sqlx::query("INSERT INTO redrouter_provider_availability (provider_id,cooldown_until_unix_ms,backoff_level,last_status,model_lockouts_json,revision) VALUES (?,?,1,?,'[]',1)")
+        .bind(id)
+        .bind(i64::MAX)
+        .bind(status)
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot write provider availability")?;
+    Ok(())
+}
+
 fn valid_uuid(value: &str) -> bool {
     value.len() == 36
         && value.bytes().enumerate().all(|(index, byte)| match index {
@@ -216,7 +257,7 @@ async fn adopt_oauth(
         for field in ["group", "api_key"] {
             if text(field)?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy provider configuration requires migration"); }
         }
-        if text("test_status")?.is_some_and(|status| !matches!(status, "" | "untested" | "success" | "active")) { return Err("legacy provider health requires migration"); }
+        let terminal = terminal_status_code(text("test_status")?)?;
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(tenant).fetch_one(&mut db).await.map_err(|_| "destination tenant unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
@@ -385,6 +426,7 @@ async fn adopt_oauth(
         sqlx::query("CREATE TABLE IF NOT EXISTS redrouter_legacy_provider_migration (provider_id TEXT PRIMARY KEY,source_enabled BIGINT NOT NULL)").execute(&mut db).await.map_err(|_| "cannot initialize provider migration state")?;
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration VALUES (?,?)").bind(id).bind(i64::from(active)).execute(&mut db).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
+        record_terminal_status(&mut db, id, terminal).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
         }
@@ -627,9 +669,7 @@ pub async fn import(
                 Err(_) => return Err("invalid legacy provider policy"),
             }
         }
-        if text("test_status")?.is_some_and(|status| !matches!(status.as_str(), "" | "untested" | "success" | "active")) {
-            return Err("legacy provider health requires migration");
-        }
+        let terminal = terminal_status_code(text("test_status")?.as_deref())?;
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
@@ -672,6 +712,7 @@ pub async fn import(
         sqlx::query("INSERT INTO redrouter_legacy_provider_migration (provider_id,source_enabled) VALUES (?,?)").bind(id).bind(i64::from(source_enabled)).execute(&mut *target).await.map_err(|_| "provider migration state already exists")?;
         sqlx::query("INSERT INTO redrouter_control_providers (id,provider,upstream_url,credential_ciphertext,enabled,revision) VALUES (?,?,?,?,0,1)")
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
+        record_terminal_status(&mut target, id, terminal).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
         }

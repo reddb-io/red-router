@@ -368,7 +368,7 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     }
     let legacy_label = "é".repeat(200);
     sqlx::query(
-        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model'",
+        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model', test_status='expired'",
     )
     .execute(&mut input)
     .await
@@ -410,6 +410,16 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         providers[0].default_model.as_deref(),
         Some("legacy-openrouter-model")
     );
+    // A terminal legacy health state becomes the native terminal availability.
+    let mut health = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let availability: (i64, i64) = sqlx::query_as("SELECT cooldown_until_unix_ms,last_status FROM redrouter_provider_availability WHERE provider_id='provider-1'")
+        .fetch_one(&mut health)
+        .await
+        .unwrap();
+    assert_eq!(availability, (i64::MAX, 401));
+    health.close().await.unwrap();
     assert_eq!(providers[0].tenant_id, "red");
     assert_eq!(
         providers[0].upstream_url,
