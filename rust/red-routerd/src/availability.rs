@@ -135,6 +135,10 @@ pub(crate) struct ProviderAvailability {
     cooldown_base_ms: AtomicU64,
     cooldown_retry_hints: AtomicBool,
     cooldown_max_backoff_steps: AtomicU32,
+    /// The account's node clock (IANA timezone, local hour) for daily quota
+    /// resets, and whether the account is OAuth (legacy provider category).
+    daily_reset: std::sync::Mutex<(Option<String>, Option<u8>)>,
+    oauth: AtomicBool,
 }
 
 #[derive(Clone, Copy)]
@@ -305,6 +309,8 @@ impl ProviderAvailability {
             cooldown_base_ms: AtomicU64::new(CONNECTION_BASE_MS),
             cooldown_retry_hints: AtomicBool::new(true),
             cooldown_max_backoff_steps: AtomicU32::new(5),
+            daily_reset: std::sync::Mutex::new((None, None)),
+            oauth: AtomicBool::new(false),
             inner: Mutex::new(inner),
             persistence_ok: AtomicBool::new(true),
         }
@@ -326,6 +332,55 @@ impl ProviderAvailability {
         self.cooldown_max_backoff_steps
             .store(profile.max_backoff_steps, Ordering::Release);
         Ok(())
+    }
+
+    /// Set the account's daily quota clock (from its provider node) and
+    /// whether it is an OAuth account.
+    pub(crate) fn configure_daily_reset(
+        &self,
+        timezone: Option<&str>,
+        hour: Option<u8>,
+        oauth: bool,
+    ) -> Result<(), &'static str> {
+        let mut clock = self
+            .daily_reset
+            .lock()
+            .map_err(|_| "provider daily reset clock unavailable")?;
+        *clock = (timezone.map(str::to_owned), hour);
+        self.oauth.store(oauth, Ordering::Release);
+        Ok(())
+    }
+
+    /// OAuth accounts keep quota semantics on a 429 (legacy
+    /// `shouldPreserveQuotaSignals`).
+    pub(crate) fn preserves_quota_signals(&self) -> bool {
+        self.oauth.load(Ordering::Acquire)
+    }
+
+    /// The legacy daily-quota cooldown. A TPD limit waits for the upstream
+    /// reset hint, else the node clock, else nothing (the caller keeps the
+    /// short 429 cooldown); other daily-quota text waits for the node clock,
+    /// else the host's next midnight, capped at 24 hours.
+    pub(crate) fn daily_quota_lockout_ms(
+        &self,
+        tpd: bool,
+        reset_hint_ms: Option<u64>,
+    ) -> Option<u64> {
+        let now = i64::try_from(unix_ms().ok()?).ok()?;
+        let (timezone, hour) = self.daily_reset.lock().ok()?.clone();
+        let configured = crate::daily_quota_reset::next_configured_reset_ms(
+            timezone.as_deref(),
+            hour.map(i64::from),
+            now,
+        );
+        if tpd {
+            return reset_hint_ms.filter(|hint| *hint > 0).or(configured);
+        }
+        Some(
+            configured
+                .unwrap_or_else(|| crate::daily_quota_reset::ms_until_host_midnight(now))
+                .min(24 * 60 * 60 * 1_000),
+        )
     }
 
     fn cooldown_profile(&self) -> ConnectionCooldownProfile {

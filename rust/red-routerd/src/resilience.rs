@@ -194,6 +194,67 @@ fn matches_any(patterns: &[Regex], text: &str) -> bool {
     patterns.iter().any(|pattern| pattern.is_match(text))
 }
 
+/// Legacy `QUOTA_PATTERNS` (`src/shared/utils/classify429.ts`): text an
+/// upstream uses when a long-period cap, not a short rate limit, was hit.
+static QUOTA_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    compile(&[
+        r"(?i)daily.*limit",
+        r"(?i)daily.*quota",
+        r"(?i)per.?day.*limit",
+        r"(?i)monthly.*limit",
+        r"(?i)monthly.*quota",
+        r"(?i)per.?month.*limit",
+        r"(?i)(?:api\s+)?calls?\s*/\s*month",
+        r"(?i)requests?\s*/\s*month",
+        r"(?i)limited\s+to\s+[\d,]+.*(?:calls?|requests?).*per\s+month",
+        r"(?i)quota.*exceed",
+        r"(?i)exceed.*quota",
+        r"(?i)insufficient.*quota",
+        r"(?i)billing.*cap",
+        r"(?i)credit.*exhaust",
+        r"(?i)exhausted.*credits",
+        r"(?i)out of credits",
+        r"(?i)hard.?limit",
+        r"(?i)plan.*limit",
+        r"(?i)individual quota reached",
+        r"(?i)enable overages",
+        r"(?i)INSUFFICIENT_G1_CREDITS_BALANCE",
+        r"(?i)resource has been exhausted.*reset after",
+        r"(?i)daily free allocation",
+        r"(?i)have exhausted their quota",
+        r#"(?i)"error"\s*:\s*"usage limit reached[.\s]*""#,
+    ])
+});
+
+/// Legacy `looksLikeQuotaExhausted` over the raw body text.
+pub(crate) fn looks_like_quota_exhausted(body: Option<&[u8]>) -> bool {
+    body.is_some_and(|body| matches_any(&QUOTA_PATTERNS, &String::from_utf8_lossy(body)))
+}
+
+/// The legacy `checkFallbackError` daily-quota rule: `Some(true)` for a TPD
+/// ("tokens per day") limit, `Some(false)` for other daily-quota text, when
+/// quota signals apply. They apply to every failure but a 429, and to a 429
+/// only for OAuth accounts or an explicit long-period quota body (legacy
+/// `shouldPreserveQuotaSignals`).
+pub(crate) fn daily_quota_failure(
+    status: StatusCode,
+    body: Option<&[u8]>,
+    oauth: bool,
+) -> Option<bool> {
+    if !(status.is_client_error() || status.is_server_error()) {
+        return None;
+    }
+    let normalized = normalized_error_evidence(body);
+    let text = normalized.as_str();
+    if !crate::daily_quota_reset::is_daily_quota_exhausted(text) {
+        return None;
+    }
+    if status == StatusCode::TOO_MANY_REQUESTS && !oauth && !looks_like_quota_exhausted(body) {
+        return None;
+    }
+    Some(crate::daily_quota_reset::is_tpd_rate_limit(text))
+}
+
 static RETIRED_MODEL_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     compile(&[
         r"(?i)\bno longer available\b",
@@ -494,6 +555,44 @@ mod tests {
         );
         assert!(ProviderFailureClass::RetiredModel.semantic_fallback());
         assert!(ProviderFailureClass::MovedEndpoint.semantic_fallback());
+    }
+
+    #[test]
+    fn daily_quota_signals_apply_off_429_and_for_oauth_or_explicit_quota_bodies() {
+        let tpd = br#"{"error":{"message":"TPD rate limit reached, limit: 1000"}}"#;
+        assert_eq!(
+            daily_quota_failure(StatusCode::FORBIDDEN, Some(tpd), false),
+            Some(true)
+        );
+        // An API-key 429 without long-period wording stays a short limit.
+        assert_eq!(
+            daily_quota_failure(StatusCode::TOO_MANY_REQUESTS, Some(tpd), false),
+            None
+        );
+        assert_eq!(
+            daily_quota_failure(StatusCode::TOO_MANY_REQUESTS, Some(tpd), true),
+            Some(true)
+        );
+        let daily = br#"{"error":{"message":"You have exceeded your daily quota"}}"#;
+        assert_eq!(
+            daily_quota_failure(StatusCode::TOO_MANY_REQUESTS, Some(daily), false),
+            Some(false)
+        );
+        assert_eq!(daily_quota_failure(StatusCode::OK, Some(daily), true), None);
+        assert_eq!(
+            daily_quota_failure(
+                StatusCode::TOO_MANY_REQUESTS,
+                Some(br#"{"error":"slow down"}"#),
+                true
+            ),
+            None
+        );
+        assert!(looks_like_quota_exhausted(Some(
+            br#"{"error":"usage limit reached."}"#
+        )));
+        assert!(!looks_like_quota_exhausted(Some(
+            br#"{"error":"Per-minute usage limit reached"}"#
+        )));
     }
 
     #[test]

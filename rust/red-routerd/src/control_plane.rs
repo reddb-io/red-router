@@ -2535,13 +2535,39 @@ impl ControlPlane {
             .map(|record| record.provider_id)
             .collect();
         let settings = self.0.runtime_settings.read().await.clone();
+        // An account bound to a reusable definition takes that node's daily
+        // quota reset clock (legacy resolveDailyResetForProvider).
+        let nodes = self.0.database.provider_nodes().await?;
+        let clocks: HashMap<String, (Option<String>, Option<u8>)> = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .filter_map(|provider| {
+                let node_id = provider.node_id.as_deref()?;
+                let node = nodes
+                    .iter()
+                    .find(|node| node.id == node_id && node.tenant_id == provider.tenant_id)?;
+                Some((
+                    provider.id,
+                    (
+                        node.daily_quota_reset_timezone.clone(),
+                        node.daily_quota_reset_hour,
+                    ),
+                ))
+            })
+            .collect();
         for (provider_id, availability) in self.0.availability.read().await.iter() {
-            let configured = if oauth_provider_ids.contains(provider_id) {
+            let oauth = oauth_provider_ids.contains(provider_id);
+            let configured = if oauth {
                 &settings.oauth_connection_cooldown
             } else {
                 &settings.apikey_connection_cooldown
             };
             availability.configure_cooldown(connection_cooldown_profile(configured)?)?;
+            let (timezone, hour) = clocks.get(provider_id).cloned().unwrap_or_default();
+            availability.configure_daily_reset(timezone.as_deref(), hour, oauth)?;
         }
         Ok(())
     }

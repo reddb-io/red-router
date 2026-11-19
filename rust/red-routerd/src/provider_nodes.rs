@@ -309,6 +309,8 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        // Linked accounts take the definition's daily quota clock at once.
+        self.refresh_availability_profiles().await?;
         Ok(node)
     }
 }

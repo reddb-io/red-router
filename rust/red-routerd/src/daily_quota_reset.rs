@@ -7,7 +7,8 @@
 //! until the `Reset` header or that clock; other daily-quota text uses the
 //! clock or, unconfigured, the host's next midnight.
 
-// The failure classifier reads these once node clocks are stored.
+// `nodeDailyResetConfigured` and `parseTpdLimitFromText` keep their legacy
+// counterparts' names for the port index; only the tests read them today.
 #![allow(dead_code)]
 
 use chrono::{Datelike, LocalResult, NaiveDate, TimeZone};

@@ -4617,6 +4617,27 @@ async fn generate_context_relay_summary(
     })
 }
 
+/// The legacy daily-quota and TPD cooldown for a failure that is not
+/// already terminal (banned, expired, out of credits, retired model, moved
+/// endpoint), as `checkFallbackError` orders them.
+fn daily_quota_lockout(
+    class: resilience::ProviderFailureClass,
+    availability: &availability::ProviderAvailability,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+) -> Option<u64> {
+    if !matches!(
+        class,
+        resilience::ProviderFailureClass::Transient | resilience::ProviderFailureClass::Model
+    ) {
+        return None;
+    }
+    let tpd =
+        resilience::daily_quota_failure(status, body, availability.preserves_quota_signals())?;
+    availability.daily_quota_lockout_ms(tpd, retry_after_hint_ms(headers))
+}
+
 async fn record_internal_provider_health(
     target: &ContextRelaySummaryTarget,
     circuit_permit: Option<circuit::CircuitPermit>,
@@ -4651,6 +4672,13 @@ async fn record_internal_provider_health(
         headers,
         error_body,
     );
+    if let Some(lockout_ms) =
+        daily_quota_lockout(failure_class, availability, status, headers, error_body)
+    {
+        return availability
+            .record_connection_lockout(permit, status, lockout_ms)
+            .await;
+    }
     match failure_class {
         resilience::ProviderFailureClass::Banned => {
             availability
@@ -7579,7 +7607,23 @@ async fn proxy_request(
             response.error_body(),
         );
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
+            let daily_lockout = daily_quota_lockout(
+                failure_class,
+                availability,
+                response.status(),
+                response.headers(),
+                response.error_body(),
+            );
             let recorded = match failure_class {
+                _ if daily_lockout.is_some() => {
+                    availability
+                        .record_connection_lockout(
+                            permit,
+                            response.status(),
+                            daily_lockout.unwrap_or_default(),
+                        )
+                        .await
+                }
                 resilience::ProviderFailureClass::Banned => {
                     availability
                         .record_terminal_failure(permit, availability::TerminalStatus::Banned)
