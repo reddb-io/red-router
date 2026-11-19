@@ -4995,6 +4995,10 @@ async fn execute_fusion_panel_target(
     attribution: native_usage::UsageAttribution,
     credits_mode: AntigravityCreditsMode,
 ) -> Result<FusionPanelAnswer, InternalTargetFailure> {
+    let payload_rules = match &control {
+        Some(control) => Some(control.payload_rules().await),
+        None => None,
+    };
     let object = body
         .as_object_mut()
         .ok_or_else(InternalTargetFailure::internal)?;
@@ -5032,6 +5036,25 @@ async fn execute_fusion_panel_target(
             ProviderProtocol::Gemini | ProviderProtocol::Antigravity
         ) {
             body["model"] = serde_json::Value::String(target.model.clone());
+        }
+        // Each panel member is a routed request in the legacy router, with
+        // the operator payload rules and the OpenAI-format rules applied.
+        let provider = Some(target.provider_name.as_str()).filter(|name| !name.is_empty());
+        apply_provider_payload_rules(
+            &mut body,
+            payload_rules.as_deref(),
+            provider,
+            &target.model,
+            payload_rule_format(target.protocol),
+        );
+        if target.protocol == ProviderProtocol::OpenAi {
+            apply_openai_target_rules(
+                &mut body,
+                provider,
+                &target.model,
+                OpenAiModelCompat::default(),
+                false,
+            );
         }
         serde_json::to_vec(&body).map_err(|_| ())
     };

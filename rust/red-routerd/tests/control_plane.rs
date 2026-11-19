@@ -5634,7 +5634,8 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
                 "model":"fusion-combo",
                 "messages":[{"role":"user","content":"compare the options"}],
                 "stream":true,
-                "stream_options":{"include_usage":true}
+                "stream_options":{"include_usage":true},
+                "metadata":{"trace":"client"}
             }),
         )
         .await;
@@ -5656,6 +5657,8 @@ async fn fusion_fans_out_with_quorum_accounts_each_call_and_preserves_tool_calls
         assert_eq!(panel["stream"], false);
         assert!(panel.get("tools").is_none());
         assert!(panel.get("stream_options").is_none());
+        // Panel members get the legacy OpenAI-format rules.
+        assert!(panel.get("metadata").is_none());
         let judge = bodies
             .iter()
             .find(|body| body["messages"].as_array().unwrap().len() == 2)
