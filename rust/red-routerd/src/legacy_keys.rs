@@ -194,7 +194,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             // and detail logs. The native gateway persists no payload for any
             // key, so the opt-out already holds; only a boolean is accepted.
             if !matches!(number("no_log")?, None | Some(0 | 1)) { return Err("invalid legacy key logging policy; no keys imported"); }
-            for field in ["auto_resolve", "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
+            // auto_resolve is stored and shown by the legacy dashboard, but no
+            // legacy routing path reads the key's value; only a boolean imports.
+            if !matches!(number("auto_resolve")?, None | Some(0 | 1)) { return Err("invalid legacy key resolution flag; no keys imported"); }
+            for field in [ "throttle_delay_ms", "max_sessions", "disable_non_public_models", "allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
                 if number(field)?.unwrap_or(0) != 0 { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             // Legacy request limits (fixed 60-second and one-day windows, used
