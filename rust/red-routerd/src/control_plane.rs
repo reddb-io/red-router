@@ -5012,12 +5012,25 @@ impl ControlPlane {
             .iter()
             .map(|(_, account, _, _)| account.record.id.clone())
             .collect();
+        // Least-used reads each account's backoff level (legacy #12279).
+        let mut backoff = Vec::new();
+        if strategy == crate::account_rotation::AccountStrategy::LeastUsed {
+            for (_, _, live, _) in &initialized {
+                backoff.push(match live.availability.as_ref() {
+                    Some(availability) => availability
+                        .status()
+                        .await
+                        .map_or(0, |status| status.connection_backoff_level),
+                    None => 0,
+                });
+            }
+        }
         let order = self.0.account_rotation.order(
-            tenant,
-            provider,
+            (tenant, provider),
             &ids,
             strategy,
             sticky_limit,
+            &backoff,
             u64::try_from(now).unwrap_or_default(),
         );
         initialized.sort_by_key(|(_, account, _, _)| {

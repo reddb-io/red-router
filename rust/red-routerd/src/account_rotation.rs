@@ -78,16 +78,33 @@ fn lru_order(ids: &[String], last_used: &HashMap<String, u64>) -> Vec<String> {
     ordered.into_iter().map(|(_, id)| id.clone()).collect()
 }
 
+/// Legacy least-used (#12279): accounts without backoff first, then least
+/// recently used, so a failover does not land on an account that just
+/// failed and recovered from its cooldown.
+fn least_used(ids: &[String], last_used: &HashMap<String, u64>, backoff: &[u32]) -> String {
+    ids.iter()
+        .enumerate()
+        .min_by_key(|(index, id)| {
+            (
+                backoff.get(*index).copied().unwrap_or(0),
+                last_used.get(*id).copied().unwrap_or(0),
+                *index,
+            )
+        })
+        .map(|(_, id)| id.clone())
+        .unwrap_or_default()
+}
+
 impl AccountRotation {
     /// Order a pool's accounts (`ids`, in priority order) for one request
     /// and record the selection, as the legacy selection commits `lastUsedAt`.
     pub(crate) fn order(
         &self,
-        tenant: &str,
-        provider: &str,
+        (tenant, provider): (&str, &str),
         ids: &[String],
         strategy: AccountStrategy,
         sticky_limit: u32,
+        backoff: &[u32],
         now_ms: u64,
     ) -> Vec<String> {
         if ids.len() <= 1
@@ -122,7 +139,7 @@ impl AccountRotation {
                     }
                 }
             }
-            AccountStrategy::LeastUsed => lru_order(ids, &pool.last_used)[0].clone(),
+            AccountStrategy::LeastUsed => least_used(ids, &pool.last_used, backoff),
             AccountStrategy::Random => ids[random_index(ids.len())].clone(),
             AccountStrategy::StrictRandom => {
                 pool.deck.retain(|id| ids.contains(id));
@@ -169,15 +186,19 @@ mod tests {
     fn fill_first_keeps_priority_order() {
         let rotation = AccountRotation::default();
         for strategy in [AccountStrategy::FillFirst, AccountStrategy::CostOptimized] {
-            assert_eq!(rotation.order("t", "p", &ids(), strategy, 3, 1), ids());
+            assert_eq!(
+                rotation.order(("t", "p"), &ids(), strategy, 3, &[], 1),
+                ids()
+            );
         }
     }
 
     #[test]
     fn round_robin_stays_for_the_sticky_limit_then_moves_to_the_least_recent() {
         let rotation = AccountRotation::default();
-        let first =
-            |now| rotation.order("t", "p", &ids(), AccountStrategy::RoundRobin, 2, now)[0].clone();
+        let first = |now| {
+            rotation.order(("t", "p"), &ids(), AccountStrategy::RoundRobin, 2, &[], now)[0].clone()
+        };
         assert_eq!(first(1), "a");
         assert_eq!(first(2), "a");
         // The streak reached the limit: the least recently used account next.
@@ -187,11 +208,18 @@ mod tests {
         assert_eq!(first(6), "c");
         assert_eq!(first(7), "a");
         // The fallback order behind the selection is least recent first.
-        let order = rotation.order("t", "p", &ids(), AccountStrategy::RoundRobin, 2, 8);
+        let order = rotation.order(("t", "p"), &ids(), AccountStrategy::RoundRobin, 2, &[], 8);
         assert_eq!(order, ["a", "b", "c"]);
         // Pools are independent.
         assert_eq!(
-            rotation.order("t", "other", &ids(), AccountStrategy::RoundRobin, 2, 9)[0],
+            rotation.order(
+                ("t", "other"),
+                &ids(),
+                AccountStrategy::RoundRobin,
+                2,
+                &[],
+                9
+            )[0],
             "a"
         );
     }
@@ -201,20 +229,46 @@ mod tests {
         let rotation = AccountRotation::default();
         let firsts: Vec<String> = (1..=3)
             .map(|now| {
-                rotation.order("t", "p", &ids(), AccountStrategy::LeastUsed, 3, now)[0].clone()
+                rotation.order(("t", "p"), &ids(), AccountStrategy::LeastUsed, 3, &[], now)[0]
+                    .clone()
             })
             .collect();
         assert_eq!(firsts, ["a", "b", "c"]);
+        // An account with backoff comes after every account without, however
+        // long ago it was used (legacy #12279).
+        let rotation = AccountRotation::default();
+        let firsts: Vec<String> = (1..=3)
+            .map(|now| {
+                rotation.order(
+                    ("t", "p"),
+                    &ids(),
+                    AccountStrategy::LeastUsed,
+                    3,
+                    &[1, 0, 0],
+                    now,
+                )[0]
+                .clone()
+            })
+            .collect();
+        assert_eq!(firsts, ["b", "c", "b"]);
 
         let rotation = AccountRotation::default();
         let mut deck: Vec<String> = (1..=3)
             .map(|now| {
-                rotation.order("t", "p", &ids(), AccountStrategy::StrictRandom, 3, now)[0].clone()
+                rotation.order(
+                    ("t", "p"),
+                    &ids(),
+                    AccountStrategy::StrictRandom,
+                    3,
+                    &[],
+                    now,
+                )[0]
+                .clone()
             })
             .collect();
         deck.sort();
         assert_eq!(deck, ids());
-        let order = rotation.order("t", "p", &ids(), AccountStrategy::Random, 3, 4);
+        let order = rotation.order(("t", "p"), &ids(), AccountStrategy::Random, 3, &[], 4);
         assert_eq!(order.len(), 3);
         assert!(ids().contains(&order[0]));
     }
