@@ -1048,16 +1048,31 @@ fn apply_connection_cooldown(
     candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
 }
 
+/// Legacy `capScaledCooldownMs` (#8396): an exponentially scaled cooldown is
+/// bounded by the configured ceiling, else the fallback; it is never widened.
+pub(crate) fn cap_scaled_cooldown_ms(
+    cooldown_ms: u64,
+    max_cooldown_ms: Option<u64>,
+    fallback_max_ms: u64,
+) -> u64 {
+    cooldown_ms.min(
+        max_cooldown_ms
+            .filter(|cap| *cap > 0)
+            .unwrap_or(fallback_max_ms),
+    )
+}
+
 fn connection_cooldown_duration(
     profile: ConnectionCooldownProfile,
     backoff_level: u32,
     retry_hint_ms: Option<u64>,
 ) -> u64 {
     let exponent = backoff_level.min(profile.max_backoff_steps);
-    let exponential = profile
-        .base_cooldown_ms
-        .saturating_mul(1_u64 << exponent)
-        .min(profile.max_cooldown_ms);
+    let exponential = cap_scaled_cooldown_ms(
+        profile.base_cooldown_ms.saturating_mul(1_u64 << exponent),
+        Some(profile.max_cooldown_ms),
+        DEFAULT_CONNECTION_MAX_COOLDOWN_MS,
+    );
     let hinted = profile
         .use_upstream_retry_hints
         .then_some(retry_hint_ms)
@@ -1226,6 +1241,22 @@ mod tests {
     use crate::storage::Backend;
     use tempfile::TempDir;
     use url::Url;
+
+    // Ported from tests/unit/thundering-herd.test.ts and
+    // tests/unit/error-classification.test.ts (#8396).
+    #[test]
+    fn scaled_cooldowns_are_capped_but_never_widened() {
+        assert_eq!(
+            cap_scaled_cooldown_ms(5_000 * (1 << 15), None, 120_000),
+            120_000
+        );
+        assert_eq!(cap_scaled_cooldown_ms(5_000, Some(60_000), 120_000), 5_000);
+        assert_eq!(
+            cap_scaled_cooldown_ms(900_000, Some(60_000), 120_000),
+            60_000
+        );
+        assert_eq!(cap_scaled_cooldown_ms(900_000, Some(0), 120_000), 120_000);
+    }
 
     #[test]
     fn the_scaled_cooldown_reaches_the_legacy_ceiling() {

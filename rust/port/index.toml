@@ -66,6 +66,21 @@ poolReselectKeyOf = "-"
 proxyKeyOf = "-"
 
 [[module]]
+ts = "open-sse/services/accountFallback/cooldownCap.ts"
+status = "ported"
+rust = "availability.rs"
+module = "red_routerd::availability"
+ported_at = "2026-11-20T22:17:13Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "connection_cooldown_duration applies it with the connection cooldown ceiling (modelLockout.maxCooldownMs, default 30 minutes) and that default as the fallback."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/cooldownCap.ts" = "66a50da03bb7e6d6298cca15c5de006f5833f754"
+
+[module.symbols]
+capScaledCooldownMs = "red_routerd::availability::cap_scaled_cooldown_ms"
+
+[[module]]
 ts = "open-sse/services/accountFallback/mistralAmbiguousAuth.ts"
 status = "ported"
 rust = "mistral_ambiguous_auth.rs"
