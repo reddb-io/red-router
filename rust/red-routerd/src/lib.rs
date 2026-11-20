@@ -65,6 +65,7 @@ mod request_queue;
 mod request_resource_errors;
 mod resilience;
 mod responses_state;
+pub mod retained_size;
 mod role_normalizer;
 mod session_stickiness;
 pub mod shared_budget;

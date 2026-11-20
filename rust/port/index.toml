@@ -428,6 +428,33 @@ catalogVersionFromBody = "red_routerd::catalog_version::catalog_version_from_bod
 computeCatalogVersion = "red_routerd::catalog_version::compute_catalog_version"
 
 [[module]]
+ts = "src/lib/healthzLag.ts"
+status = "skipped"
+ported_at = "2026-11-20T21:36:30Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "Measures Node event-loop delay for the /healthz warning; the Rust daemon runs on tokio and has no single event loop to sample."
+
+[module.ts_blobs]
+"src/lib/healthzLag.ts" = "fb4f17567ec47c3acd33c85666b0da9752a93bdf"
+
+[[module]]
+ts = "src/lib/retainedSize.ts"
+status = "ported"
+rust = "retained_size.rs"
+module = "red_routerd::retained_size"
+ported_at = "2026-11-20T21:31:42Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/retained-size.test.ts"]
+notes = "Walks serde_json values, so getters, cycles, buffers and exotic types cannot occur; over budget or deeper than 64 levels is None (the legacy Infinity)."
+
+[module.ts_blobs]
+"src/lib/retainedSize.ts" = "29e33ace3f29a0276071ea747907837098cfc1dc"
+"tests/redrouter/native/retained-size.test.ts" = "98c025afb5d8eefce53ec3944a3f7a99b174482b"
+
+[module.symbols]
+estimateRetainedBytes = "red_routerd::retained_size::estimate_retained_bytes"
+
+[[module]]
 ts = "src/shared/validation/iconUrl.ts"
 status = "ported"
 rust = "icon_url.rs"
