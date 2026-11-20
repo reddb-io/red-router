@@ -19,6 +19,7 @@ mod codex_request;
 pub mod control_plane;
 mod cooldown_retry;
 mod daily_quota_reset;
+pub mod data_paths;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;

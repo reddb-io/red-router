@@ -445,6 +445,29 @@ catalogVersionFromBody = "red_routerd::catalog_version::catalog_version_from_bod
 computeCatalogVersion = "red_routerd::catalog_version::compute_catalog_version"
 
 [[module]]
+ts = "src/lib/dataPaths.ts"
+status = "ported"
+rust = "data_paths.rs"
+module = "red_routerd::data_paths"
+ported_at = "2026-11-20T22:09:38Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/data-dir-writable-fallback.test.ts"]
+notes = "The environment is an explicit DataDirEnv. The Node test and eval-probe guard (isTestContext, #10428) is a Node process concern: Rust tests pass their own directories, so it is not ported."
+
+[module.ts_blobs]
+"src/lib/dataPaths.ts" = "5ab6ee0623c88187648b5b8119913311a267ca24"
+"tests/unit/data-dir-writable-fallback.test.ts" = "57cbf1def82b622ce28538baffc2dccf7b9d3635"
+
+[module.symbols]
+APP_NAME = "red_routerd::data_paths::APP_NAME"
+getDefaultDataDir = "red_routerd::data_paths::default_data_dir"
+getLegacyDotDataDir = "red_routerd::data_paths::legacy_dot_data_dir"
+isSamePath = "red_routerd::data_paths::is_same_path"
+isTestContext = "-"
+resolveDataDir = "red_routerd::data_paths::resolve_data_dir"
+resolveWritableDataDir = "red_routerd::data_paths::resolve_writable_data_dir"
+
+[[module]]
 ts = "src/lib/healthzLag.ts"
 status = "skipped"
 ported_at = "2026-11-20T21:36:30Z"
