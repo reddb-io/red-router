@@ -271,11 +271,9 @@ fn legacy_request_queue_section(
     let fallback_gap = fallback("minTimeBetweenRequests", 350, 0, 3_600_000);
     let fallback_concurrency = fallback("concurrentRequests", 6, 1, 10_000);
     let field = |name: &str| stored.get(name);
-    if to_integer(field("globalConcurrentRequests"), 0, 0, 100_000) != 0
-        || to_integer(field("executionMaxWaitMs"), 600_000, 1, 86_400_000) != 600_000
-    {
-        return Err("legacy request queue setting has no native equivalent yet");
-    }
+    // executionMaxWaitMs is inert on the request path: the legacy limiter
+    // raises the execution backstop to the upstream timeout, which the
+    // executor call already enforces.
     let number =
         |name: &str, fallback: i64, min: i64, max: i64| to_integer(field(name), fallback, min, max);
     Ok(crate::request_queue::RequestQueue {
@@ -298,6 +296,13 @@ fn legacy_request_queue_section(
         .unwrap_or_default(),
         max_wait_ms: u64::try_from(number("maxWaitMs", 30_000, 0, 86_400_000)).unwrap_or_default(),
         max_queue_depth: u32::try_from(number("maxQueueDepth", 0, 0, 100_000)).unwrap_or_default(),
+        global_concurrent_requests: u32::try_from(number(
+            "globalConcurrentRequests",
+            0,
+            0,
+            100_000,
+        ))
+        .unwrap_or_default(),
     })
 }
 
@@ -1510,6 +1515,7 @@ mod tests {
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
         assert!(resilience_import(r#"{"quotaShareConcurrencyLimit":{"enabled":false}}"#).is_ok());
         assert!(resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#).is_ok());
+        assert!(resilience_import(r#"{"requestQueue":{"executionMaxWaitMs":5000}}"#).is_ok());
         // Old providerProfiles rows are the cooldown and breaker fallback.
         let profiles = serde_json::json!({
             "apikey":{"transientCooldown":2000,"rateLimitCooldown":4000,"maxBackoffLevel":3,"circuitBreakerThreshold":9,"circuitBreakerReset":20000}
@@ -1538,7 +1544,7 @@ mod tests {
             }
         );
         assert_eq!(classify("rateLimitDefaults", "{}"), SettingClass::AtDefault);
-        assert!(resilience_import(r#"{"requestQueue":{"globalConcurrentRequests":2}}"#).is_err());
+        assert!(resilience_import(r#"{"requestQueue":{"globalConcurrentRequests":2}}"#).is_ok());
         assert_eq!(
             legacy_request_queue(&[]).unwrap(),
             crate::request_queue::RequestQueue {

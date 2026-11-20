@@ -49,8 +49,9 @@ fn legacy_concurrency(value: Option<i64>) -> Result<Option<u32>, &'static str> {
 /// Write an imported connection's concurrency cap for its first revision.
 /// Legacy `rateLimitProtection` and `rateLimitOverrides` of a connection as
 /// its native request queue policy, none when neither is set. Only positive
-/// overrides count (legacy `resolveOverride`); an execution backstop has no
-/// native equivalent yet.
+/// overrides count (legacy `resolveOverride`). An `executionMaxWaitMs` is
+/// inert on the request path: the legacy limiter raises the backstop to the
+/// upstream timeout, which the executor call already enforces.
 fn legacy_queue_policy(
     protection: bool,
     overrides: Option<&str>,
@@ -69,9 +70,6 @@ fn legacy_queue_policy(
             .filter(|value| value.is_finite() && *value >= 1.0)
             .map(|value| value.floor() as u64)
     };
-    if positive("executionMaxWaitMs").is_some() {
-        return Err("legacy provider policy requires migration");
-    }
     let policy = crate::request_queue::ConnectionQueuePolicy {
         protection,
         requests_per_minute: positive("rpm").map(|rpm| u32::try_from(rpm).unwrap_or(u32::MAX)),
@@ -974,7 +972,10 @@ mod tests {
                 max_wait_ms: Some(9_000),
             }))
         );
-        assert!(legacy_queue_policy(false, Some(r#"{"executionMaxWaitMs":5}"#)).is_err());
+        assert_eq!(
+            legacy_queue_policy(false, Some(r#"{"executionMaxWaitMs":5}"#)),
+            Ok(None)
+        );
         assert!(legacy_queue_policy(false, Some("[1]")).is_err());
     }
 

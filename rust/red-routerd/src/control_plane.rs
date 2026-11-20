@@ -11600,6 +11600,16 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
+    /// The process-wide gate (legacy `globalConcurrentRequests`), if capped.
+    pub(crate) async fn global_request_gate(&self) -> Option<crate::request_queue::RequestQueue> {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .request_queue()
+            .global_gate()
+    }
+
     /// The request queue a connection goes through (legacy `requestQueue`,
     /// `rateLimitProtection` and `rateLimitOverrides`). Legacy
     /// `getProviderCategory(provider) === "apikey"` is a connection without

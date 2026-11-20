@@ -35,6 +35,11 @@ pub struct RequestQueue {
     pub concurrent_requests: u32,
     pub max_wait_ms: u64,
     pub max_queue_depth: u32,
+    /// Legacy `globalConcurrentRequests`: requests in flight across every
+    /// connection, whether or not the per-connection queue is on (zero is
+    /// no cap).
+    #[serde(default)]
+    pub global_concurrent_requests: u32,
 }
 
 impl Default for RequestQueue {
@@ -46,6 +51,7 @@ impl Default for RequestQueue {
             concurrent_requests: 6,
             max_wait_ms: 30_000,
             max_queue_depth: 0,
+            global_concurrent_requests: 0,
         }
     }
 }
@@ -58,7 +64,25 @@ impl RequestQueue {
             && (1..=10_000).contains(&self.concurrent_requests)
             && self.max_wait_ms <= 24 * 60 * MINUTE_MS
             && self.max_queue_depth <= 100_000
+            && self.global_concurrent_requests <= 100_000
     }
+
+    /// The process-wide gate (legacy `acquireConcurrencyGates` "global"),
+    /// when capped: concurrency only, with the queue's wait and depth.
+    pub(crate) fn global_gate(&self) -> Option<Self> {
+        (self.global_concurrent_requests > 0).then_some(Self {
+            enabled: true,
+            requests_per_minute: 1_000_000,
+            min_time_between_requests_ms: 0,
+            concurrent_requests: self.global_concurrent_requests.min(10_000),
+            ..*self
+        })
+    }
+}
+
+/// The process-wide gate's limiter.
+pub(crate) fn global_limiter() -> Arc<ConnectionLimiter> {
+    limiter("\0global")
 }
 
 /// Legacy per-connection `rateLimitProtection` and `rateLimitOverrides`:
@@ -499,6 +523,25 @@ mod tests {
             ..settings()
         }
         .valid());
+    }
+
+    #[test]
+    fn the_global_gate_caps_concurrency_only() {
+        assert_eq!(RequestQueue::default().global_gate(), None);
+        let gate = RequestQueue {
+            global_concurrent_requests: 4,
+            ..RequestQueue::default()
+        }
+        .global_gate()
+        .unwrap();
+        assert_eq!(
+            (
+                gate.concurrent_requests,
+                gate.min_time_between_requests_ms,
+                gate.max_wait_ms
+            ),
+            (4, 0, 30_000)
+        );
     }
 
     #[test]

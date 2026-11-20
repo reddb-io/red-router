@@ -8050,6 +8050,21 @@ async fn proxy_request(
             });
         // Legacy withRateLimit: an API-key connection waits for its turn in
         // its request queue; the slot is held until the upstream answers.
+        // Legacy acquireConcurrencyGates: the process-wide cap comes first.
+        let global_gate = match &state.control_plane {
+            Some(control) => control.global_request_gate().await,
+            None => None,
+        };
+        let _global_request_slot = match global_gate {
+            Some(gate) => match request_queue::global_limiter().acquire(&gate).await {
+                Ok(slot) => Some(slot),
+                Err(rejection) => {
+                    saw_queue_rejection = Some(rejection);
+                    continue;
+                }
+            },
+            None => None,
+        };
         let queue_settings = match (
             target.and_then(|target| target.provider_id.as_deref()),
             &state.control_plane,

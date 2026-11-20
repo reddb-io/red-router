@@ -241,6 +241,11 @@ impl Snapshot {
             .clamp(1, 1_000)
     }
 
+    /// The global request queue settings.
+    pub(crate) fn request_queue(&self) -> crate::request_queue::RequestQueue {
+        self.request_queue
+    }
+
     /// The request queue a connection goes through, if any.
     pub(crate) fn request_queue_for(
         &self,
