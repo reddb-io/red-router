@@ -4693,7 +4693,9 @@ impl ControlPlane {
                 let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                 runtime.in_flight = circuit.in_flight();
                 runtime.circuit = Some(circuit);
-                runtime.availability = Some(self.availability_for(&provider.id).await);
+                let availability = self.availability_for(&provider.id).await;
+                availability.set_lock_family(&provider.provider);
+                runtime.availability = Some(availability);
                 Ok(runtime)
             })
             .await
@@ -9996,7 +9998,9 @@ impl ControlPlane {
                 let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
                 live.in_flight = circuit.in_flight();
                 live.circuit = Some(circuit);
-                live.availability = Some(self.availability_for(&record.id).await);
+                let availability = self.availability_for(&record.id).await;
+                availability.set_lock_family(&record.provider);
+                live.availability = Some(availability);
                 live.antigravity_project = antigravity_projects
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
@@ -10240,7 +10244,9 @@ impl ControlPlane {
                     let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                     runtime.in_flight = circuit.in_flight();
                     runtime.circuit = Some(circuit);
-                    runtime.availability = Some(self.availability_for(&provider.id).await);
+                    let availability = self.availability_for(&provider.id).await;
+                    availability.set_lock_family(&provider.provider);
+                    runtime.availability = Some(availability);
                     live.insert(provider.id.clone(), runtime);
                 }
                 if live

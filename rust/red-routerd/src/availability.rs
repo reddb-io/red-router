@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering},
         Arc,
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -235,6 +235,9 @@ pub(crate) struct ProviderAvailability {
     cooldown_until_unix_ms: AtomicU64,
     connection_generation: AtomicU64,
     has_model_lockouts: AtomicBool,
+    /// How a quota failure groups this provider's models (legacy
+    /// `getModelLockKey`): exact models, Codex scopes or Antigravity families.
+    lock_family: AtomicU8,
     needs_recovery: AtomicBool,
     cooldown_base_ms: AtomicU64,
     cooldown_retry_hints: AtomicBool,
@@ -250,6 +253,8 @@ pub(crate) struct ProviderAvailability {
 pub(crate) struct AvailabilityPermit {
     connection_generation: u64,
     model_generation: Option<u64>,
+    /// The generation of the model's quota-family lockout, if any.
+    family_generation: Option<u64>,
 }
 
 pub(crate) enum AvailabilityDecision {
@@ -368,7 +373,8 @@ impl ProviderAvailability {
         for lockout in stored {
             validate_model(&lockout.model)?;
             if !seen_models.insert(lockout.model.clone())
-                || !matches!(lockout.status, 400 | 401 | 402 | 403 | 404 | 410 | 429)
+                || !(matches!(lockout.status, 400 | 401 | 402 | 403 | 404 | 410 | 429)
+                    || (500..=599).contains(&lockout.status))
                 || !(1..=MAX_BACKOFF_LEVEL).contains(&lockout.backoff_level)
             {
                 return Err("invalid provider availability record");
@@ -412,6 +418,7 @@ impl ProviderAvailability {
             cooldown_until_unix_ms: AtomicU64::new(inner.cooldown_until_unix_ms),
             connection_generation: AtomicU64::new(inner.connection_generation),
             has_model_lockouts: AtomicBool::new(has_model_lockouts),
+            lock_family: AtomicU8::new(LOCK_FAMILY_EXACT),
             needs_recovery: AtomicBool::new(needs_recovery),
             cooldown_base_ms: AtomicU64::new(CONNECTION_BASE_MS),
             cooldown_retry_hints: AtomicBool::new(true),
@@ -531,6 +538,7 @@ impl ProviderAvailability {
                 return Ok(AvailabilityDecision::Permit(AvailabilityPermit {
                     connection_generation: generation,
                     model_generation: None,
+                    family_generation: None,
                 }));
             }
         }
@@ -543,10 +551,13 @@ impl ProviderAvailability {
                 last_status: inner.last_status,
             });
         }
-        if let Some(lockout) = inner
-            .model_lockouts
-            .get(model)
+        let family = self.family_key(model);
+        if let Some(lockout) = [Some(model), family.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(|key| inner.model_lockouts.get(key))
             .filter(|lockout| lockout.until_unix_ms > now)
+            .max_by_key(|lockout| lockout.until_unix_ms)
         {
             return Ok(AvailabilityDecision::Blocked {
                 retry_after_ms: lockout.until_unix_ms.saturating_sub(now),
@@ -561,7 +572,51 @@ impl ProviderAvailability {
                 .model_lockouts
                 .get(model)
                 .map(|lockout| lockout.generation),
+            family_generation: family
+                .as_deref()
+                .and_then(|key| inner.model_lockouts.get(key))
+                .map(|lockout| lockout.generation),
         }))
+    }
+
+    /// Sets the provider whose models this connection groups by quota family.
+    pub(crate) fn set_lock_family(&self, provider: &str) {
+        let family = match provider {
+            "codex" => LOCK_FAMILY_CODEX,
+            "antigravity" | "agy" => LOCK_FAMILY_ANTIGRAVITY,
+            _ => LOCK_FAMILY_EXACT,
+        };
+        self.lock_family.store(family, Ordering::Release);
+    }
+
+    /// Legacy `getModelLockKey` without the exact-model cases: the Codex
+    /// quota scope, or the Antigravity quota family.
+    fn family_key(&self, model: &str) -> Option<String> {
+        match self.lock_family.load(Ordering::Acquire) {
+            LOCK_FAMILY_CODEX => Some(format!("scope:{}", codex_scope(model))),
+            LOCK_FAMILY_ANTIGRAVITY => {
+                antigravity_family(model).map(|family| format!("family:{family}"))
+            }
+            _ => None,
+        }
+    }
+
+    /// Legacy `resolveLockoutScope`: a 402, 403 or 429 locks the model's
+    /// quota family; a 404 (the model itself is missing) and other statuses
+    /// lock the exact model. Returns the key and the permit generation that
+    /// guards it.
+    fn lock_key(
+        &self,
+        permit: AvailabilityPermit,
+        model: &str,
+        status: StatusCode,
+    ) -> (String, Option<u64>) {
+        if matches!(status.as_u16(), 402 | 403 | 429) {
+            if let Some(family) = self.family_key(model) {
+                return (family, permit.family_generation);
+            }
+        }
+        (model.to_owned(), permit.model_generation)
     }
 
     pub(crate) async fn record_connection_failure(
@@ -717,10 +772,12 @@ impl ProviderAvailability {
             return Err("invalid provider model failure status");
         }
         validate_model(model)?;
+        let (key, expected) = self.lock_key(permit, model, status);
+        let model = key.as_str();
         let now = unix_ms()?;
         let mut inner = self.inner.lock().await;
         let current = inner.model_lockouts.get(model);
-        if current.map(|lockout| lockout.generation) != permit.model_generation
+        if current.map(|lockout| lockout.generation) != expected
             || current.is_some_and(|lockout| lockout.until_unix_ms > now)
         {
             return Ok(());
@@ -766,11 +823,13 @@ impl ProviderAvailability {
         failure_window_ms: u64,
     ) -> Result<(), &'static str> {
         validate_model(model)?;
+        let (key, expected) = self.lock_key(permit, model, status);
+        let model = key.as_str();
         let now = unix_ms()?;
         let profile = self.cooldown_profile();
         let mut inner = self.inner.lock().await;
         let current = inner.model_lockouts.get(model);
-        if current.map(|lockout| lockout.generation) != permit.model_generation
+        if current.map(|lockout| lockout.generation) != expected
             || current.is_some_and(|lockout| lockout.until_unix_ms > now)
         {
             return Ok(());
@@ -840,6 +899,19 @@ impl ProviderAvailability {
         }) {
             candidate.model_lockouts.remove(model);
             changed = true;
+        }
+        if let Some(family) = self.family_key(model) {
+            if candidate
+                .model_lockouts
+                .get(&family)
+                .is_some_and(|lockout| {
+                    Some(lockout.generation) == permit.family_generation
+                        && lockout.until_unix_ms <= now
+                })
+            {
+                candidate.model_lockouts.remove(&family);
+                changed = true;
+            }
         }
         if !changed {
             return Ok(());
@@ -1003,6 +1075,45 @@ pub(crate) fn model_failure_status(status: StatusCode) -> bool {
     matches!(status.as_u16(), 402 | 404 | 429)
 }
 
+const LOCK_FAMILY_EXACT: u8 = 0;
+const LOCK_FAMILY_CODEX: u8 = 1;
+const LOCK_FAMILY_ANTIGRAVITY: u8 = 2;
+
+/// Legacy `getCodexModelScope`: Spark-scope models have their own quota.
+fn codex_scope(model: &str) -> &'static str {
+    let model = model.to_ascii_lowercase();
+    if model.contains("spark") || model.contains("bengalfox") {
+        "spark"
+    } else {
+        "codex"
+    }
+}
+
+/// Legacy `getAntigravityQuotaFamily`: Gemini and Claude models share a
+/// family quota; other models stay exact.
+fn antigravity_family(model: &str) -> Option<&'static str> {
+    let normalized = model.trim().to_ascii_lowercase();
+    let normalized = normalized
+        .strip_prefix("antigravity/")
+        .or_else(|| normalized.strip_prefix("agy/"))
+        .unwrap_or(&normalized);
+    let bare = normalized
+        .split_once('/')
+        .map_or(normalized, |(_, rest)| rest);
+    if bare.contains("gemini") {
+        Some("gemini")
+    } else if bare.starts_with("claude-")
+        || bare.starts_with("cloud-")
+        || bare.contains("/claude-")
+        || bare.contains("/cloud-")
+        || bare.contains("anthropic")
+    {
+        Some("claude")
+    } else {
+        None
+    }
+}
+
 fn recordable_model_failure_status(status: StatusCode) -> bool {
     // 410 is a retired model's end-of-life answer.
     matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 410 | 429)
@@ -1047,6 +1158,24 @@ fn unix_ms() -> Result<u64, &'static str> {
 #[cfg(test)]
 mod lockout_policy_tests {
     use super::*;
+
+    // Ported from tests/unit/model-lockout-5xx-exact-scope.test.ts and the
+    // Codex and Antigravity quota scope helpers.
+    #[test]
+    fn quota_failures_lock_the_model_family() {
+        assert_eq!(codex_scope("gpt-5.5"), "codex");
+        assert_eq!(codex_scope("gpt-5.3-codex-spark"), "spark");
+        assert_eq!(antigravity_family("gemini-3-pro"), Some("gemini"));
+        assert_eq!(
+            antigravity_family("antigravity/claude-sonnet-4-5"),
+            Some("claude")
+        );
+        assert_eq!(
+            antigravity_family("google/gemini-2.5-flash"),
+            Some("gemini")
+        );
+        assert_eq!(antigravity_family("gpt-oss-120b"), None);
+    }
 
     // Ported from tests/unit/combo-model-lockout-honors-reset-1308.test.ts and
     // model-lockout-max-cooldown.test.ts: selectLockoutCooldownMs
@@ -1129,6 +1258,103 @@ mod tests {
             60_000
         );
         assert_eq!(connection_cooldown_duration(api_key, 10, None), 96_000);
+    }
+
+    // Ported from tests/unit/model-lockout-5xx-exact-scope.test.ts: a quota
+    // failure locks the Codex scope, a missing model or a 5xx the exact model,
+    // and a policy lockout on a 5xx survives a reload.
+    #[tokio::test]
+    async fn codex_quota_failures_lock_the_scope() {
+        let directory = TempDir::new().unwrap();
+        let file = Url::from_file_path(directory.path().join("family.sqlite")).unwrap();
+        let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let availability = ProviderAvailability::new("codex-account", database.clone());
+        availability.set_lock_family("codex");
+        let permit = |decision| match decision {
+            AvailabilityDecision::Permit(permit) => permit,
+            AvailabilityDecision::Blocked { .. } => panic!("expected a permit"),
+        };
+        let blocked = |decision: AvailabilityDecision| {
+            matches!(
+                decision,
+                AvailabilityDecision::Blocked {
+                    model_scope: true,
+                    ..
+                }
+            )
+        };
+        let first = permit(availability.try_acquire("gpt-5.5").await.unwrap());
+        availability
+            .record_model_failure(first, "gpt-5.5", StatusCode::TOO_MANY_REQUESTS, None)
+            .await
+            .unwrap();
+        assert!(blocked(availability.try_acquire("gpt-5.5").await.unwrap()));
+        assert!(blocked(
+            availability.try_acquire("gpt-5.4-mini").await.unwrap()
+        ));
+        let spark = permit(
+            availability
+                .try_acquire("gpt-5.3-codex-spark")
+                .await
+                .unwrap(),
+        );
+        availability
+            .record_model_failure(spark, "gpt-5.3-codex-spark", StatusCode::NOT_FOUND, None)
+            .await
+            .unwrap();
+        assert!(blocked(
+            availability
+                .try_acquire("gpt-5.3-codex-spark")
+                .await
+                .unwrap()
+        ));
+        assert!(!blocked(
+            availability
+                .try_acquire("gpt-5.3-codex-spark-mini")
+                .await
+                .unwrap()
+        ));
+        let models: Vec<_> = availability
+            .status()
+            .await
+            .unwrap()
+            .model_lockouts
+            .into_iter()
+            .map(|lockout| lockout.model)
+            .collect();
+        assert_eq!(models, ["gpt-5.3-codex-spark", "scope:codex"]);
+
+        // A policy lockout on a 5xx persists and reloads.
+        let exact = ProviderAvailability::new("exact-account", database.clone());
+        let policy = ModelLockoutPolicy {
+            enabled: true,
+            ..ModelLockoutPolicy::default()
+        };
+        let granted = permit(exact.try_acquire("model-a").await.unwrap());
+        exact
+            .record_policy_model_lockout(
+                granted,
+                "model-a",
+                StatusCode::SERVICE_UNAVAILABLE,
+                &policy,
+                None,
+                30_000,
+            )
+            .await
+            .unwrap();
+        let stored = database
+            .provider_availability()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|record| record.provider_id == "exact-account")
+            .unwrap();
+        let restored = ProviderAvailability::from_stored(&stored, database.clone()).unwrap();
+        let status = restored.status().await.unwrap();
+        assert_eq!(status.model_lockouts[0].status, 503);
+        assert!(status.model_lockouts[0].retry_after_ms > 100_000);
+        database.close().await.unwrap();
     }
 
     #[tokio::test]
