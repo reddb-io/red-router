@@ -345,6 +345,12 @@ pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static 
         ) {
             continue;
         }
+        // The kill switch only gates the quota-share combo strategy, which the
+        // native combo compiler refuses, so it is inert for any importable
+        // combo set.
+        if section == "quotaShareConcurrencyLimit" {
+            continue;
+        }
         if merged(default, value) != *default {
             return Err("legacy resilience section has no native equivalent yet");
         }
@@ -1183,6 +1189,7 @@ mod tests {
         assert_eq!(mapped.quota_preflight_threshold_percent, 5);
         // A section without a native equivalent must stay at its default.
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
+        assert!(resilience_import(r#"{"quotaShareConcurrencyLimit":{"enabled":false}}"#).is_ok());
         assert_eq!(
             resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#),
             Err("legacy resilience section has no native equivalent yet")
