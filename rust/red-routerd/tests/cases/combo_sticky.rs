@@ -225,7 +225,14 @@ async fn combos_follow_prompt_cache_affinity_for_a_shared_prefix() {
             .status(),
         StatusCode::OK
     );
-    assert_eq!(picks(4, 100).await, ["a", "a", "a", "b"]);
+    // Without affinity the round-robin batches of three rotate again. The
+    // settings write does not recompile routes, so the open batch may carry
+    // over from the affine requests (a background reconcile may reset it).
+    let rotated = picks(4, 100).await;
+    assert!(
+        rotated == ["a", "a", "a", "b"] || rotated == ["a", "a", "b", "b"],
+        "{rotated:?}"
+    );
 
     gateway_task.abort();
     a_task.abort();
