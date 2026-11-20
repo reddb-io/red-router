@@ -12085,3 +12085,5 @@ include!("cases/cooldown_wait.rs");
 include!("cases/request_resource_errors.rs");
 
 include!("cases/combo_sticky.rs");
+
+include!("cases/request_queue.rs");

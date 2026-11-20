@@ -254,6 +254,51 @@ fn legacy_combo_sticky_limit(raw: &str) -> Option<u32> {
     })
 }
 
+/// Legacy `normalizeRequestQueueSettings` over a stored `requestQueue`
+/// section (the fallback is the legacy default, auto-enabled). A global
+/// concurrency cap or an execution backstop other than the default has no
+/// native equivalent yet.
+fn legacy_request_queue_section(
+    stored: &Value,
+) -> Result<crate::request_queue::RequestQueue, &'static str> {
+    let field = |name: &str| stored.get(name);
+    if to_integer(field("globalConcurrentRequests"), 0, 0, 100_000) != 0
+        || to_integer(field("executionMaxWaitMs"), 600_000, 1, 86_400_000) != 600_000
+    {
+        return Err("legacy request queue setting has no native equivalent yet");
+    }
+    let number =
+        |name: &str, fallback: i64, min: i64, max: i64| to_integer(field(name), fallback, min, max);
+    Ok(crate::request_queue::RequestQueue {
+        enabled: !matches!(field("autoEnableApiKeyProviders"), Some(Value::Bool(false))),
+        requests_per_minute: u32::try_from(number("requestsPerMinute", 60, 1, 1_000_000))
+            .unwrap_or_default(),
+        min_time_between_requests_ms: u64::try_from(number(
+            "minTimeBetweenRequestsMs",
+            350,
+            0,
+            3_600_000,
+        ))
+        .unwrap_or_default(),
+        concurrent_requests: u32::try_from(number("concurrentRequests", 6, 1, 10_000))
+            .unwrap_or_default(),
+        max_wait_ms: u64::try_from(number("maxWaitMs", 30_000, 0, 86_400_000)).unwrap_or_default(),
+        max_queue_depth: u32::try_from(number("maxQueueDepth", 0, 0, 100_000)).unwrap_or_default(),
+    })
+}
+
+/// The legacy effective request queue, auto-enabled unless configured off.
+fn legacy_request_queue(
+    rows: &[(String, String)],
+) -> Result<crate::request_queue::RequestQueue, &'static str> {
+    let stored = rows
+        .iter()
+        .find(|(key, _)| key == "resilienceSettings")
+        .and_then(|(_, raw)| parse_value(raw).get("requestQueue").cloned())
+        .unwrap_or(Value::Null);
+    legacy_request_queue_section(&stored)
+}
+
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
 fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
     match parse_value(raw).as_str()? {
@@ -387,6 +432,10 @@ pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static 
                 | "comboCooldownWait"
                 | "providerCooldown"
         ) {
+            continue;
+        }
+        if section == "requestQueue" {
+            legacy_request_queue_section(value)?;
             continue;
         }
         // The kill switch only gates the quota-share combo strategy, which the
@@ -895,6 +944,15 @@ pub async fn import(
             Value::Bool(false),
         ));
     }
+    // The legacy queue is on by default, the native one off: the cutover
+    // carries the legacy effective configuration.
+    let request_queue = legacy_request_queue(&rows)?;
+    if request_queue != crate::request_queue::RequestQueue::default() {
+        global.push((
+            crate::global_settings::REQUEST_QUEUE,
+            serde_json::to_value(request_queue).map_err(|_| "invalid legacy request queue")?,
+        ));
+    }
     let provider_cooldown = legacy_provider_cooldown(&rows);
     if provider_cooldown != crate::provider_cooldown::ProviderCooldown::default() {
         global.push((
@@ -1341,6 +1399,15 @@ mod tests {
         // A section without a native equivalent must stay at its default.
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
         assert!(resilience_import(r#"{"quotaShareConcurrencyLimit":{"enabled":false}}"#).is_ok());
+        assert!(resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#).is_ok());
+        assert!(resilience_import(r#"{"requestQueue":{"globalConcurrentRequests":2}}"#).is_err());
+        assert_eq!(
+            legacy_request_queue(&[]).unwrap(),
+            crate::request_queue::RequestQueue {
+                enabled: true,
+                ..crate::request_queue::RequestQueue::default()
+            }
+        );
         assert_eq!(
             legacy_provider_cooldown(&[(
                 "resilienceSettings".to_owned(),
@@ -1354,7 +1421,7 @@ mod tests {
             }
         );
         assert_eq!(
-            resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#),
+            resilience_import(r#"{"streamRecovery":{"enabled":true}}"#),
             Err("legacy resilience section has no native equivalent yet")
         );
         assert_eq!(

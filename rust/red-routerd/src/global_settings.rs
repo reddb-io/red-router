@@ -35,6 +35,8 @@
 //!   default), the prompt-cache ranking of combo targets.
 //! - `session_stickiness`: the negation of the legacy `disableSessionStickiness`,
 //!   which sends a combo conversation back to the connection that served it.
+//! - `request_queue`: the legacy `requestQueue` resilience section, the
+//!   per-connection limiter of API-key accounts (`request_queue`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,6 +55,7 @@ pub(crate) const PROVIDER_COOLDOWN: &str = "provider_cooldown";
 pub(crate) const COMBO_STICKY_ROUND_ROBIN_LIMIT: &str = "combo_sticky_round_robin_limit";
 pub(crate) const PROMPT_CACHE_AFFINITY: &str = "prompt_cache_affinity";
 pub(crate) const SESSION_STICKINESS: &str = "session_stickiness";
+pub(crate) const REQUEST_QUEUE: &str = "request_queue";
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
 const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
@@ -190,6 +193,7 @@ pub(crate) struct Snapshot {
     combo_sticky_round_robin_limit: Option<u32>,
     prompt_cache_affinity_disabled: bool,
     session_stickiness_disabled: bool,
+    request_queue: crate::request_queue::RequestQueue,
 }
 
 impl Snapshot {
@@ -230,6 +234,11 @@ impl Snapshot {
             .or(self.provider_strategies.default.sticky_round_robin_limit)
             .unwrap_or(crate::account_rotation::DEFAULT_STICKY_LIMIT)
             .clamp(1, 1_000)
+    }
+
+    /// The per-connection request queue of API-key accounts.
+    pub(crate) fn request_queue(&self) -> crate::request_queue::RequestQueue {
+        self.request_queue
     }
 
     /// Whether combos send a conversation back to its connection.
@@ -315,6 +324,11 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|limit| (1..=MAX_COMBO_STICKY_LIMIT).contains(limit))
             .map(Value::from)
             .ok_or("invalid combo sticky round-robin limit"),
+        REQUEST_QUEUE => serde_json::from_value::<crate::request_queue::RequestQueue>(value)
+            .ok()
+            .filter(crate::request_queue::RequestQueue::valid)
+            .and_then(|queue| serde_json::to_value(queue).ok())
+            .ok_or("invalid request queue"),
         SESSION_STICKINESS => value
             .is_boolean()
             .then_some(value)
@@ -387,6 +401,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             COMBO_STICKY_ROUND_ROBIN_LIMIT => {
                 snapshot.combo_sticky_round_robin_limit =
                     value.as_u64().and_then(|limit| u32::try_from(limit).ok());
+            }
+            REQUEST_QUEUE => {
+                snapshot.request_queue =
+                    serde_json::from_value(value).map_err(|_| "invalid request queue")?;
             }
             SESSION_STICKINESS => {
                 snapshot.session_stickiness_disabled = value == Value::Bool(false);

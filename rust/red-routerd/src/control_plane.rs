@@ -11600,6 +11600,17 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
+    /// The per-connection request queue (legacy `requestQueue`).
+    pub(crate) async fn request_queue(&self) -> crate::request_queue::RequestQueue {
+        self.0.global_settings.read().await.request_queue()
+    }
+
+    /// Legacy `getProviderCategory(provider) === "apikey"`: the queue
+    /// applies to connections without OAuth credentials.
+    pub(crate) async fn request_queue_applies(&self, provider_id: &str) -> bool {
+        !self.0.oauth_provider_ids.read().await.contains(provider_id)
+    }
+
     /// Whether combos keep a conversation on its connection (legacy
     /// `disableSessionStickiness`, negated).
     pub(crate) async fn session_stickiness(&self) -> bool {

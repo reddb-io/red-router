@@ -57,6 +57,7 @@ mod provider_quota;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
+mod request_queue;
 mod request_resource_errors;
 mod resilience;
 mod role_normalizer;
@@ -4065,6 +4066,21 @@ async fn combo_cooldown_wait_ms<'a>(
     settings.wait_ms(shortest?.max(hint_ms), attempt, budget_left_ms)
 }
 
+/// Legacy local rate-limit failures: a full queue is a 429, an exhausted
+/// wait budget a 503.
+fn request_queue_error(rejection: request_queue::Rejection) -> Response {
+    match rejection {
+        request_queue::Rejection::QueueFull => error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "The provider request queue is full",
+        ),
+        request_queue::Rejection::QueueTimeout => error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Request exceeded the provider request queue wait budget",
+        ),
+    }
+}
+
 fn availability_blocked_error(
     retry_after_ms: u64,
     model_scope: bool,
@@ -6272,6 +6288,10 @@ async fn proxy_request(
         Some(control) => control.prompt_cache_affinity().await,
         None => false,
     };
+    let request_queue = match &state.control_plane {
+        Some(control) => control.request_queue().await,
+        None => request_queue::RequestQueue::default(),
+    };
     let session_stickiness_enabled = match &state.control_plane {
         Some(control) => control.session_stickiness().await,
         None => false,
@@ -7206,6 +7226,7 @@ async fn proxy_request(
     let mut combo_wait_budget_ms = combo_cooldown_wait.budget_ms;
     let mut combo_pass_dispatched = false;
     let mut combo_pass_retry_hint_ms: Option<u64> = None;
+    let mut saw_queue_rejection: Option<request_queue::Rejection> = None;
     // Legacy providerCooldown applies to combo targets only.
     let provider_cooldown_applies = provider_cooldown.enabled
         && state.product_combo.is_none()
@@ -7240,6 +7261,7 @@ async fn proxy_request(
             closest_circuit_retry_ms = None;
             combo_pass_dispatched = false;
             combo_pass_retry_hint_ms = None;
+            saw_queue_rejection = None;
             offsets = 0..attempts;
         };
     }
@@ -8030,6 +8052,29 @@ async fn proxy_request(
                     .as_ref()
                     .and_then(|provider| provider.circuit.as_ref())
             });
+        // Legacy withRateLimit: an API-key connection waits for its turn in
+        // its request queue; the slot is held until the upstream answers.
+        let _request_queue_slot = match (
+            request_queue.enabled,
+            target.and_then(|target| target.provider_id.as_deref()),
+            &state.control_plane,
+        ) {
+            (true, Some(connection), Some(control))
+                if control.request_queue_applies(connection).await =>
+            {
+                match request_queue::limiter(connection)
+                    .acquire(&request_queue)
+                    .await
+                {
+                    Ok(slot) => Some(slot),
+                    Err(rejection) => {
+                        saw_queue_rejection = Some(rejection);
+                        continue;
+                    }
+                }
+            }
+            _ => None,
+        };
         let circuit_permit = if let Some(circuit) = circuit {
             match circuit.try_acquire().await {
                 Ok(circuit::CircuitDecision::Permit(permit)) => Some(permit),
@@ -8570,6 +8615,9 @@ async fn proxy_request(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Provider credentials expired",
             );
+        }
+        if let Some(rejection) = saw_queue_rejection {
+            return request_queue_error(rejection);
         }
         if saw_availability_block {
             return availability_blocked_error(
