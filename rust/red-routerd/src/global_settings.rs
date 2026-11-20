@@ -263,12 +263,16 @@ impl Snapshot {
                 api_key,
             )
         });
-        crate::request_queue::AdmissionPlan::new(
+        let mut plan = crate::request_queue::AdmissionPlan::new(
             &self.request_queue,
             provider,
             provider_override,
             queue,
-        )
+        );
+        plan.queue_rpm_overridden = provider_id
+            .and_then(|id| self.request_queue_connections.get(id))
+            .is_some_and(|policy| policy.requests_per_minute.is_some());
+        plan
     }
 
     /// Whether combos send a conversation back to its connection.

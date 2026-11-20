@@ -57,6 +57,7 @@ mod provider_quota;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
+mod request_cap;
 mod request_queue;
 mod request_resource_errors;
 mod resilience;
@@ -8235,17 +8236,20 @@ async fn proxy_request(
             }
         }
         // Legacy updateFromHeaders: the upstream's rate headers tune the queue.
-        if let Some(settings) = admission
-            .as_ref()
-            .and_then(|admission| admission.queue.as_ref())
-        {
+        if let Some((settings, rpm_overridden)) = admission.as_ref().and_then(|admission| {
+            admission
+                .queue
+                .map(|queue| (queue, admission.rpm_overridden))
+        }) {
             if let Some(target) = target {
                 if let Some(connection) = target.provider_id.as_deref() {
                     request_queue::limiter(connection).learn_from_headers(
                         target.provider_name.as_deref(),
                         response.status().as_u16(),
                         response.headers(),
-                        settings,
+                        &settings,
+                        response.error_body(),
+                        rpm_overridden,
                     );
                 }
             }

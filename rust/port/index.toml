@@ -121,6 +121,27 @@ isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_open
 isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
 
 [[module]]
+ts = "open-sse/services/rateLimitManager/requestCap.ts"
+status = "ported"
+rust = "request_cap.rs"
+module = "red_routerd::request_cap"
+ported_at = "2026-11-20T13:10:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/rate-limit-learned-cap-13594.test.ts"]
+notes = "The cap-word lookahead is checked per cap word, as the regex crate has no lookaround. requestCapSettings reduces to the gap: the request queue applies the refill and interval of the cap itself when a 429 states it (or a learned cap rebuilds the limiter), skipping a cap whose gap exceeds the queue wait budget as the legacy capSettingsWithinBudget does."
+
+[module.ts_blobs]
+"open-sse/services/rateLimitManager/requestCap.ts" = "84b558df2d5ddb2d4f77ea66edb2ef4c4033cb50"
+"tests/unit/rate-limit-learned-cap-13594.test.ts" = "e826fc22167b4fb333299cb5b34a701fb6cac7d6"
+
+[module.symbols]
+RequestCap = "red_routerd::request_cap::RequestCap"
+RequestCapSettings = "-"
+isValidRequestCap = "red_routerd::request_cap::is_valid_request_cap"
+parseRequestCapFromBody = "red_routerd::request_cap::parse_request_cap_from_body"
+requestCapSettings = "red_routerd::request_cap::request_cap_min_time_ms"
+
+[[module]]
 ts = "open-sse/services/requestResourceErrors.ts"
 status = "ported"
 rust = "request_resource_errors.rs"

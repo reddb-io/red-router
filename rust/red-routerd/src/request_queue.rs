@@ -125,6 +125,9 @@ pub(crate) struct AdmissionPlan {
     pub(crate) provider_shared: Option<RequestQueue>,
     pub(crate) provider_rpm: Option<u32>,
     pub(crate) queue: Option<RequestQueue>,
+    /// Whether the connection overrides the rate (a learned cap then only
+    /// spends the window, legacy `hasRpmOverride`).
+    pub(crate) queue_rpm_overridden: bool,
     pub(crate) connection_cap: Option<RequestQueue>,
 }
 
@@ -134,6 +137,7 @@ pub(crate) struct Admission {
     slots: Vec<Slot>,
     /// The connection queue settings, for learning from the answer.
     pub(crate) queue: Option<RequestQueue>,
+    pub(crate) rpm_overridden: bool,
 }
 
 fn concurrency_gate(concurrent: u32, max_wait_ms: u64, max_queue_depth: u32) -> RequestQueue {
@@ -168,6 +172,7 @@ impl AdmissionPlan {
                 .rpm
                 .or(nvidia.then_some(NVIDIA_DEFAULT_RPM)),
             queue,
+            queue_rpm_overridden: false,
             connection_cap: nvidia.then(|| {
                 concurrency_gate(
                     provider_override
@@ -212,6 +217,7 @@ impl AdmissionPlan {
                 .slots
                 .push(limiter(connection).acquire(&settings).await?);
             admission.queue = Some(settings);
+            admission.rpm_overridden = self.queue_rpm_overridden;
         }
         if let (Some(gate), Some(connection)) = (self.connection_cap, connection) {
             admission.slots.push(
@@ -399,6 +405,8 @@ struct State {
     reservoir: Option<Reservoir>,
     /// A gap learned from upstream headers (legacy `updateLimiterSettings`).
     learned_min_time_ms: Option<u64>,
+    /// A cap stated in a 429 body (legacy `learnedLimits` `capRequests`).
+    learned_cap: Option<crate::request_cap::RequestCap>,
     in_flight: u32,
     queued: u32,
     /// The settings the limiter was configured for.
@@ -617,6 +625,8 @@ impl ConnectionLimiter {
         status: u16,
         headers: &HeaderMap,
         settings: &RequestQueue,
+        body: Option<&[u8]>,
+        rpm_overridden: bool,
     ) {
         let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
         let [limit_name, remaining_name, reset_name] =
@@ -630,11 +640,54 @@ impl ConnectionLimiter {
         };
         if state.settings != Some(*settings) {
             state.configure(settings);
+            state.learned_cap = None;
         }
-        // A 429 starts the limiter over (the legacy limiter is evicted).
+        // A 429 starts the limiter over (the legacy limiter is evicted), then
+        // a cap stated in its body, or one learned before, paces it (legacy
+        // updateFromResponseBody and the learned-cap rebuild).
         if status == 429 {
+            let learned = state.learned_cap;
             state.configure(settings);
             state.next_start_ms = 0;
+            let stated = body.and_then(|body| {
+                crate::request_cap::parse_request_cap_from_body(&String::from_utf8_lossy(body))
+            });
+            let Some(cap) = stated.or(learned) else {
+                return;
+            };
+            let min_time = crate::request_cap::request_cap_min_time_ms(cap)
+                .max(settings.min_time_between_requests_ms);
+            // Legacy capSettingsWithinBudget: a cap the queue budget cannot
+            // honour is left unlearned.
+            if min_time > settings.max_wait_ms {
+                state.learned_cap = learned;
+                return;
+            }
+            state.learned_cap = Some(cap);
+            let now = now_ms();
+            if rpm_overridden {
+                // The operator's rate keeps its pacing; the window is spent.
+                if stated.is_some() {
+                    state.reservoir = Some(Reservoir {
+                        start_ms: now,
+                        used: 0,
+                        capacity: Some(0),
+                        refill: settings.requests_per_minute,
+                        interval_ms: MINUTE_MS,
+                    });
+                }
+                return;
+            }
+            state.learned_min_time_ms = Some(min_time);
+            // A stated cap means this window is spent; a remembered one
+            // rebuilds the limiter full.
+            state.reservoir = Some(Reservoir {
+                start_ms: now,
+                used: 0,
+                capacity: Some(if stated.is_some() { 0 } else { cap.requests }),
+                refill: cap.requests,
+                interval_ms: cap.window_ms,
+            });
             return;
         }
         // Fireworks' soft warning near capacity.
@@ -857,6 +910,8 @@ mod tests {
                 ("x-ratelimit-reset-requests", "20s"),
             ]),
             &settings,
+            None,
+            false,
         );
         assert_eq!(state(&limiter), (Some(590), Some(Some(5))));
         // Plenty of headroom lifts the reservoir and keeps the configured gap.
@@ -868,6 +923,8 @@ mod tests {
                 ("x-ratelimit-remaining-requests", "90"),
             ]),
             &settings,
+            None,
+            false,
         );
         assert_eq!(state(&limiter), (Some(350), None));
         // Anthropic reads its own header names.
@@ -876,6 +933,8 @@ mod tests {
             200,
             &headers(&[("anthropic-ratelimit-requests-limit", "50")]),
             &settings,
+            None,
+            false,
         );
         assert_eq!(state(&limiter).0, Some(1_190));
         limiter.learn_from_headers(
@@ -883,10 +942,54 @@ mod tests {
             200,
             &headers(&[("x-ratelimit-over-limit", "yes")]),
             &settings,
+            None,
+            false,
         );
         assert_eq!(state(&limiter).0, Some(200));
         // A 429 restores the configured limiter.
-        limiter.learn_from_headers(Some("openai"), 429, &HeaderMap::new(), &settings);
+        limiter.learn_from_headers(
+            Some("openai"),
+            429,
+            &HeaderMap::new(),
+            &settings,
+            None,
+            false,
+        );
+        assert_eq!(state(&limiter), (None, Some(Some(60))));
+        // A cap stated in a 429 body spends the window and spreads the cap.
+        let body = br#"{"error":{"message":"Maximum 5 requests within 1 minutes"}}"#;
+        limiter.learn_from_headers(
+            Some("openai"),
+            429,
+            &HeaderMap::new(),
+            &settings,
+            Some(body),
+            false,
+        );
+        assert_eq!(state(&limiter), (Some(12_000), Some(Some(0))));
+        // The next 429 rebuilds it from the learned cap, full.
+        limiter.learn_from_headers(
+            Some("openai"),
+            429,
+            &HeaderMap::new(),
+            &settings,
+            None,
+            false,
+        );
+        assert_eq!(state(&limiter), (Some(12_000), Some(Some(5))));
+        // A cap the wait budget cannot honour is not applied.
+        let tight = RequestQueue {
+            max_wait_ms: 1_000,
+            ..settings
+        };
+        limiter.learn_from_headers(
+            Some("openai"),
+            429,
+            &HeaderMap::new(),
+            &tight,
+            Some(body),
+            false,
+        );
         assert_eq!(state(&limiter), (None, Some(Some(60))));
     }
 
