@@ -45,6 +45,8 @@
 //!   `codexFastServiceTier`), the service tier Codex requests get.
 //! - `antigravity_signature_cache_mode`: the legacy
 //!   `antigravitySignatureCacheMode` (enabled, bypass, bypass-strict).
+//! - `claude_classifier_compat`: the legacy `claudeClassifierCompat` (off,
+//!   auto, always).
 //! - `credential_redaction`: the legacy `credentialRedactionEnabled`, the
 //!   credential masker guardrail (`credential_masker`).
 //! - `combo_auto_promote`: the legacy `comboAutoPromoteEnabled`, which moves
@@ -78,6 +80,7 @@ pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
 pub(crate) const COMBO_AUTO_PROMOTE: &str = "combo_auto_promote";
 pub(crate) const CREDENTIAL_REDACTION: &str = "credential_redaction";
+pub(crate) const CLAUDE_CLASSIFIER_COMPAT: &str = "claude_classifier_compat";
 pub(crate) const ANTIGRAVITY_SIGNATURE_CACHE_MODE: &str = "antigravity_signature_cache_mode";
 pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
 const MAX_QUEUE_POLICIES: usize = 10_000;
@@ -216,6 +219,7 @@ pub(crate) struct Snapshot {
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
     combo_auto_promote: bool,
     credential_redaction: bool,
+    claude_classifier_compat: crate::claude_classifier_compat::ClaudeClassifierCompatMode,
     signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
     previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
@@ -331,6 +335,13 @@ impl Snapshot {
         &self,
     ) -> crate::antigravity_translation::SignatureCacheMode {
         self.signature_cache_mode
+    }
+
+    /// The Claude Code classifier compat mode.
+    pub(crate) fn claude_classifier_compat(
+        &self,
+    ) -> crate::claude_classifier_compat::ClaudeClassifierCompatMode {
+        self.claude_classifier_compat
     }
 
     /// Whether the credential masker guardrail is on.
@@ -462,6 +473,13 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .is_boolean()
             .then_some(value)
             .ok_or("invalid combo auto promote"),
+        CLAUDE_CLASSIFIER_COMPAT => serde_json::from_value::<
+            crate::claude_classifier_compat::ClaudeClassifierCompatMode,
+        >(value)
+        .map_err(|_| "invalid Claude classifier compat mode")
+        .and_then(|mode| {
+            serde_json::to_value(mode).map_err(|_| "invalid Claude classifier compat mode")
+        }),
         CREDENTIAL_REDACTION => value
             .is_boolean()
             .then_some(value)
@@ -569,6 +587,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             SESSION_STICKINESS => {
                 snapshot.session_stickiness_disabled = value == Value::Bool(false);
+            }
+            CLAUDE_CLASSIFIER_COMPAT => {
+                snapshot.claude_classifier_compat = serde_json::from_value(value)
+                    .map_err(|_| "invalid Claude classifier compat mode")?;
             }
             CREDENTIAL_REDACTION => {
                 snapshot.credential_redaction = value == Value::Bool(true);

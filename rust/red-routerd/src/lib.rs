@@ -13,6 +13,7 @@ mod catalog_listing;
 mod catalog_order;
 pub mod catalog_version;
 mod circuit;
+pub mod claude_classifier_compat;
 pub mod client_key_catalog;
 pub mod client_key_limits;
 mod codex_request;
@@ -6454,6 +6455,34 @@ async fn proxy_request(
             Json(responses_state::not_found_body()),
         )
             .into_response();
+    }
+    // Legacy claudeClassifierCompat: Claude Code's auto-mode security
+    // classifier gets a synthetic ALLOW answer without calling the upstream.
+    let classifier_mode = match &state.control_plane {
+        Some(control) => control.claude_classifier_compat().await,
+        None => claude_classifier_compat::ClaudeClassifierCompatMode::default(),
+    };
+    if claude_classifier_compat::should_default_allow(
+        classifier_mode,
+        protocol == ProviderProtocol::Anthropic,
+        &parsed,
+    ) {
+        let Ok(id) = request_uuid_v4() else {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Request identity unavailable",
+            );
+        };
+        let message = claude_classifier_compat::default_allow_message(
+            &id.replace('-', ""),
+            parsed.get("model").and_then(serde_json::Value::as_str),
+            claude_classifier_compat::severity_format(&parsed),
+        );
+        let mut response = (StatusCode::OK, Json(message)).into_response();
+        response
+            .headers_mut()
+            .insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        return response;
     }
     // A no-thinking alias resolves to the real model with reasoning suppressed
     // before routing sees it (legacy chat handler).

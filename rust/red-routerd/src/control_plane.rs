@@ -11689,6 +11689,17 @@ impl ControlPlane {
         self.0.global_settings.read().await.signature_cache_mode()
     }
 
+    /// The Claude Code classifier compat mode (legacy `claudeClassifierCompat`).
+    pub(crate) async fn claude_classifier_compat(
+        &self,
+    ) -> crate::claude_classifier_compat::ClaudeClassifierCompatMode {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .claude_classifier_compat()
+    }
+
     /// Whether the credential masker guardrail is on (legacy
     /// `credentialRedactionEnabled`).
     pub(crate) async fn credential_redaction(&self) -> bool {

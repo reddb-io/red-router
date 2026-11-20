@@ -12095,3 +12095,5 @@ include!("cases/model_lockout_policy.rs");
 include!("cases/combo_auto_promote.rs");
 
 include!("cases/credential_masker.rs");
+
+include!("cases/claude_classifier_compat.rs");

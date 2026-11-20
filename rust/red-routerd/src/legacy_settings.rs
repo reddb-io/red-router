@@ -968,6 +968,17 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
             };
         }
         // Only an explicit false turns the affinity off.
+        // An unknown classifier compat mode is off, as the legacy detector reads it.
+        "claudeClassifierCompat" => {
+            return match crate::claude_classifier_compat::ClaudeClassifierCompatMode::normalize(
+                &parse_value(raw),
+            ) {
+                crate::claude_classifier_compat::ClaudeClassifierCompatMode::Off => {
+                    SettingClass::AtDefault
+                }
+                _ => SettingClass::Imported,
+            };
+        }
         "credentialRedactionEnabled" => {
             return if parse_value(raw) == Value::Bool(true) {
                 SettingClass::Imported
@@ -1358,6 +1369,22 @@ pub async fn import(
             serde_json::to_value(mode).map_err(|_| "invalid legacy signature cache mode")?,
         ));
     }
+    if let Some(mode) = rows
+        .iter()
+        .find(|(key, _)| key == "claudeClassifierCompat")
+        .map(|(_, raw)| {
+            crate::claude_classifier_compat::ClaudeClassifierCompatMode::normalize(&parse_value(
+                raw,
+            ))
+        })
+        .filter(|mode| *mode != crate::claude_classifier_compat::ClaudeClassifierCompatMode::Off)
+    {
+        global.push((
+            crate::global_settings::CLAUDE_CLASSIFIER_COMPAT,
+            serde_json::to_value(mode)
+                .map_err(|_| "invalid legacy Claude classifier compat mode")?,
+        ));
+    }
     let codex_service_tier = legacy_codex_service_tier(&rows);
     if codex_service_tier != crate::codex_request::CodexServiceTier::default() {
         global.push((
@@ -1736,6 +1763,18 @@ mod tests {
                 "{raw}"
             );
         }
+        assert_eq!(
+            classify("claudeClassifierCompat", r#""off""#),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("claudeClassifierCompat", r#""auto""#),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("claudeClassifierCompat", r#""always""#),
+            SettingClass::Imported
+        );
         assert_eq!(
             classify("credentialRedactionEnabled", "true"),
             SettingClass::Imported
