@@ -18,6 +18,7 @@ pub mod client_key_limits;
 mod codex_request;
 pub mod control_plane;
 mod cooldown_retry;
+pub mod credential_patterns;
 mod daily_quota_reset;
 pub mod data_paths;
 pub mod fastllm_control;

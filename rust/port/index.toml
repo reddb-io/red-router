@@ -295,6 +295,22 @@ VALID_OPENAI_MESSAGE_TYPES = "-"
 filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
 
 [[module]]
+ts = "open-sse/utils/credentialPatterns.ts"
+status = "ported"
+rust = "credential_patterns.rs"
+module = "red_routerd::credential_patterns"
+ported_at = "2026-11-20T23:05:09Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = 'JavaScript \b is an ASCII word boundary ((?-u:\b)); the openai_compatible lookbehind is a scanner that takes the leftmost valid key as the JavaScript engine does. redact_credentials (legacy credentialMasker.ts) applies the catalog in order.'
+
+[module.ts_blobs]
+"open-sse/utils/credentialPatterns.ts" = "24083675c11db579c00b162acb697dc576636742"
+
+[module.symbols]
+CREDENTIAL_PATTERNS = "red_routerd::credential_patterns::CREDENTIAL_PATTERNS"
+CredentialPattern = "red_routerd::credential_patterns::CredentialPattern"
+
+[[module]]
 ts = "open-sse/utils/jsonHash.ts"
 status = "ported"
 rust = "json_hash.rs"
