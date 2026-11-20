@@ -951,7 +951,47 @@ impl ModelRoute {
         }
     }
 
+    /// Legacy `applyPromptCacheStage` (combo/targetResolution.ts) and its
+    /// round-robin twin: with a prompt-cache key, a combo whose strategy does
+    /// not keep the operator's order follows the rendezvous ranking of its
+    /// connections; auto, lkgp and quota-weighted keep their first choice
+    /// and rank the rest. Priority, weighted and fill-first only reorder the
+    /// accounts of one model, and native combo targets (one connection each)
+    /// never share one.
     fn attempt_order(
+        &self,
+        eligible: &[&ModelTarget],
+        cache_affinity_key: Option<&str>,
+        sticky_limit: u32,
+        prompt_cache_affinity: Option<&str>,
+    ) -> [usize; MAX_ROUTE_TARGETS] {
+        let mut order = self.strategy_order(eligible, cache_affinity_key, sticky_limit);
+        let Some(key) = prompt_cache_affinity else {
+            return order;
+        };
+        let protect_first = match self.strategy {
+            RouteStrategy::RoundRobin
+            | RouteStrategy::Random
+            | RouteStrategy::StrictRandom
+            | RouteStrategy::LeastUsed
+            | RouteStrategy::P2c
+            | RouteStrategy::CostOptimized
+            | RouteStrategy::ContextOptimized
+            | RouteStrategy::ResetAware
+            | RouteStrategy::ResetWindow
+            | RouteStrategy::Headroom => false,
+            RouteStrategy::Auto | RouteStrategy::Lkgp | RouteStrategy::QuotaWeighted => true,
+            _ => return order,
+        };
+        let fixed = usize::from(protect_first).min(eligible.len());
+        // A stable sort keeps the strategy's order between equal scores.
+        order[fixed..eligible.len()].sort_by_cached_key(|index| {
+            std::cmp::Reverse(prompt_cache_rendezvous_score(key, eligible[*index]))
+        });
+        order
+    }
+
+    fn strategy_order(
         &self,
         eligible: &[&ModelTarget],
         cache_affinity_key: Option<&str>,
@@ -6217,6 +6257,10 @@ async fn proxy_request(
         // Static route configuration keeps its per-request rotation.
         None => 1,
     };
+    let prompt_cache_affinity = match &state.control_plane {
+        Some(control) => control.prompt_cache_affinity().await,
+        None => false,
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -6980,13 +7024,26 @@ async fn proxy_request(
     let cache_affinity_key = route
         .filter(|route| route.strategy == RouteStrategy::CacheOptimized)
         .and_then(|_| prompt_cache_affinity_key(&parsed));
+    let combo_prompt_cache_key = route
+        .filter(|route| {
+            prompt_cache_affinity
+                && route.strategy != RouteStrategy::CacheOptimized
+                && route.public_model_alias.is_none()
+                && !route.provider_direct
+        })
+        .and_then(|_| prompt_cache_affinity_key(&parsed));
     // Alias pools are direct priority lists, not the fixed-size combo strategy deck.
     let direct_alias =
         route.is_some_and(|route| route.public_model_alias.is_some() || route.provider_direct);
     let mut attempt_order = route
         .filter(|route| route.public_model_alias.is_none() && !route.provider_direct)
         .map(|route| {
-            route.attempt_order(&eligible, cache_affinity_key.as_deref(), combo_sticky_limit)
+            route.attempt_order(
+                &eligible,
+                cache_affinity_key.as_deref(),
+                combo_sticky_limit,
+                combo_prompt_cache_key.as_deref(),
+            )
         });
     if let Some(preparation) = fusion_preparation {
         attempt_order = Some(preparation.attempt_order);

@@ -667,6 +667,14 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Only an explicit false turns the affinity off.
+        "promptCacheAffinityEnabled" => {
+            return if parse_value(raw) == Value::Bool(false) {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         // Unset (null) inherits the provider pools' sticky limit.
         "comboStickyRoundRobinLimit" => {
             return if legacy_combo_sticky_limit(raw).is_some() {
@@ -848,6 +856,14 @@ pub async fn import(
         global.push((
             crate::global_settings::COMBO_STICKY_ROUND_ROBIN_LIMIT,
             Value::from(limit),
+        ));
+    }
+    if rows.iter().any(|(key, raw)| {
+        key == "promptCacheAffinityEnabled" && parse_value(raw) == Value::Bool(false)
+    }) {
+        global.push((
+            crate::global_settings::PROMPT_CACHE_AFFINITY,
+            Value::Bool(false),
         ));
     }
     let provider_cooldown = legacy_provider_cooldown(&rows);
@@ -1056,6 +1072,14 @@ mod tests {
             SettingClass::AtDefault
         );
         assert_eq!(legacy_combo_sticky_limit("5"), Some(5));
+        assert_eq!(
+            classify("promptCacheAffinityEnabled", "false"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("promptCacheAffinityEnabled", "\"no\""),
+            SettingClass::AtDefault
+        );
         assert_eq!(legacy_combo_sticky_limit("\"2.7\""), Some(2));
         assert_eq!(legacy_combo_sticky_limit("5000"), Some(1_000));
         assert_eq!(legacy_combo_sticky_limit("\"x\""), Some(1));

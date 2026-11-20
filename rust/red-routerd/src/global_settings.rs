@@ -31,6 +31,8 @@
 //! - `combo_sticky_round_robin_limit`: the legacy `comboStickyRoundRobinLimit`,
 //!   the batch a round-robin combo sends to one target before rotating
 //!   (unset, the provider pools' `stickyRoundRobinLimit`).
+//! - `prompt_cache_affinity`: the legacy `promptCacheAffinityEnabled` (on by
+//!   default), the prompt-cache ranking of combo targets.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,6 +49,7 @@ pub(crate) const WAIT_FOR_COOLDOWN: &str = "wait_for_cooldown";
 pub(crate) const COMBO_COOLDOWN_WAIT: &str = "combo_cooldown_wait";
 pub(crate) const PROVIDER_COOLDOWN: &str = "provider_cooldown";
 pub(crate) const COMBO_STICKY_ROUND_ROBIN_LIMIT: &str = "combo_sticky_round_robin_limit";
+pub(crate) const PROMPT_CACHE_AFFINITY: &str = "prompt_cache_affinity";
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
 const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
@@ -182,6 +185,7 @@ pub(crate) struct Snapshot {
     combo_cooldown_wait: crate::cooldown_retry::ComboCooldownWait,
     provider_cooldown: crate::provider_cooldown::ProviderCooldown,
     combo_sticky_round_robin_limit: Option<u32>,
+    prompt_cache_affinity_disabled: bool,
 }
 
 impl Snapshot {
@@ -222,6 +226,11 @@ impl Snapshot {
             .or(self.provider_strategies.default.sticky_round_robin_limit)
             .unwrap_or(crate::account_rotation::DEFAULT_STICKY_LIMIT)
             .clamp(1, 1_000)
+    }
+
+    /// Whether combos rank their targets by prompt-cache affinity.
+    pub(crate) fn prompt_cache_affinity(&self) -> bool {
+        !self.prompt_cache_affinity_disabled
     }
 
     /// The combo provider cooldown policy.
@@ -297,6 +306,10 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|limit| (1..=MAX_COMBO_STICKY_LIMIT).contains(limit))
             .map(Value::from)
             .ok_or("invalid combo sticky round-robin limit"),
+        PROMPT_CACHE_AFFINITY => value
+            .is_boolean()
+            .then_some(value)
+            .ok_or("invalid prompt cache affinity"),
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -361,6 +374,9 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             COMBO_STICKY_ROUND_ROBIN_LIMIT => {
                 snapshot.combo_sticky_round_robin_limit =
                     value.as_u64().and_then(|limit| u32::try_from(limit).ok());
+            }
+            PROMPT_CACHE_AFFINITY => {
+                snapshot.prompt_cache_affinity_disabled = value == Value::Bool(false);
             }
             CLAUDE_FAST_MODE => {
                 snapshot.claude_fast_mode =
@@ -540,6 +556,8 @@ mod tests {
         };
         assert!(custom.applies_to("claude-x") && !custom.applies_to("claude-opus-4-8"));
         assert_eq!(Snapshot::default().combo_sticky_limit(), 3);
+        assert!(Snapshot::default().prompt_cache_affinity());
+        assert!(validate(PROMPT_CACHE_AFFINITY, json!("off")).is_err());
         assert!(validate(COMBO_STICKY_ROUND_ROBIN_LIMIT, json!(1_001)).is_err());
         assert!(validate(COMBO_STICKY_ROUND_ROBIN_LIMIT, json!(0)).is_err());
         assert_eq!(

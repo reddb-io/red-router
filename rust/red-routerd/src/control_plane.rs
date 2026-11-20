@@ -11587,6 +11587,12 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
+    /// Whether combos rank by prompt-cache affinity (legacy
+    /// `promptCacheAffinityEnabled`).
+    pub(crate) async fn prompt_cache_affinity(&self) -> bool {
+        self.0.global_settings.read().await.prompt_cache_affinity()
+    }
+
     /// The combo provider cooldown policy (legacy `providerCooldown`).
     pub(crate) async fn provider_cooldown(&self) -> crate::provider_cooldown::ProviderCooldown {
         self.0.global_settings.read().await.provider_cooldown()
