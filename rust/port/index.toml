@@ -1,6 +1,43 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/executors/codex/reasoningSuffix.ts"
+status = "ported"
+rust = "codex_request.rs"
+module = "red_routerd::codex_request"
+ported_at = "2026-11-20T19:10:18Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/codex-reasoning-suffix.test.ts"]
+notes = "The alias effort cap is folded into clamp_effort, which also applies the legacy MAX_EFFORT_BY_MODEL caps; effort levels are plain strings in Rust."
+
+[module.ts_blobs]
+"open-sse/executors/codex/reasoningSuffix.ts" = "22b9d9f8a47191960be27f666e2a419da4163667"
+"tests/unit/codex-reasoning-suffix.test.ts" = "5ade599beae5a73e6751d43a6a392fd9b999c2ef"
+
+[module.symbols]
+CODEX_EFFORT_ORDER = "red_routerd::codex_request::EFFORT_ORDER"
+CODEX_MAX_ALIAS_MODELS = "red_routerd::codex_request::MAX_ALIAS_MODELS"
+CODEX_ULTRA_ALIAS_MODELS = "red_routerd::codex_request::ULTRA_ALIAS_MODELS"
+CodexEffortLevel = "-"
+getCodexAliasEffortCap = "red_routerd::codex_request::clamp_effort"
+splitCodexReasoningSuffix = "red_routerd::codex_request::split_reasoning_suffix"
+
+[[module]]
+ts = "open-sse/executors/codex/toolCallRepair.ts"
+status = "ported"
+rust = "codex_request.rs"
+module = "red_routerd::codex_request"
+ported_at = "2026-11-20T19:15:02Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "Runs inside codex_request::shape_passthrough after the orphaned function_call_output strip, as in the legacy transformRequest."
+
+[module.ts_blobs]
+"open-sse/executors/codex/toolCallRepair.ts" = "b2a4a49c9e4460141ea76e6c5fef745a9a686ea7"
+
+[module.symbols]
+repairMissingCodexToolCallOutputs = "red_routerd::codex_request::repair_missing_tool_call_outputs"
+
+[[module]]
 ts = "open-sse/executors/opencodeGeoBlock.ts"
 status = "ported"
 rust = "opencode_geo_block.rs"

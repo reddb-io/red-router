@@ -14,6 +14,7 @@ mod catalog_order;
 mod circuit;
 pub mod client_key_catalog;
 pub mod client_key_limits;
+mod codex_request;
 pub mod control_plane;
 mod cooldown_retry;
 mod daily_quota_reset;
@@ -290,6 +291,9 @@ pub(crate) struct LiveProvider {
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<ClaudeIdentity>>,
+    /// The ChatGPT workspace a Codex account is bound to (legacy
+    /// `providerSpecificData.workspaceId`).
+    codex_account_id: Option<Arc<str>>,
     tenant_id: Arc<str>,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
@@ -646,6 +650,7 @@ pub(crate) struct ModelTarget {
     model_rules: Option<Arc<control_plane::provider_rules::ModelRules>>,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<ClaudeIdentity>>,
+    codex_account_id: Option<Arc<str>>,
     rate_limit_scope: resilience::RateLimitScope,
     weight: u32,
     input_cost_per_million: Option<f64>,
@@ -1801,6 +1806,7 @@ impl ProxyState {
             provider_name: None,
             antigravity_project: None,
             claude_identity: None,
+            codex_account_id: None,
             tenant_id: Arc::from("red"),
             protocol,
             auth_scheme: auth_scheme.resolve(protocol)?,
@@ -1835,6 +1841,7 @@ impl ProxyState {
             model_rules: None,
             antigravity_project: provider.antigravity_project.clone(),
             claude_identity: provider.claude_identity.clone(),
+            codex_account_id: provider.codex_account_id.clone(),
             rate_limit_scope: provider.rate_limit_scope,
             weight: config.weight,
             input_cost_per_million: config.input_cost_per_million,
@@ -2269,6 +2276,7 @@ impl ProxyState {
                     model_rules: None,
                     antigravity_project: None,
                     claude_identity: None,
+                    codex_account_id: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
                     weight,
                     input_cost_per_million,
@@ -6389,6 +6397,7 @@ async fn proxy_request(
         Err(()) => return error(StatusCode::TOO_MANY_REQUESTS, "Client is at capacity"),
     };
     let accept = request.headers().get(header::ACCEPT).cloned();
+    let codex_client_version = codex_request::client_version_from_headers(request.headers());
     let configured_body_limit = match &state.control_plane {
         Some(control) => control.max_body_size_bytes().await,
         None => None,
@@ -7188,6 +7197,8 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_antigravity_translated = false;
+    // A Codex answer streamed for a client that asked for one object.
+    let mut final_codex_folded = false;
     let mut final_accounting = None;
     let mut final_served_model = None;
     let mut final_load_guard = None;
@@ -7846,6 +7857,39 @@ async fn proxy_request(
                 }
             };
         }
+        let codex_attempt = attempt_protocol == ProviderProtocol::OpenAiResponses
+            && target
+                .and_then(|target| target.provider_name.as_deref())
+                .or_else(|| {
+                    live_provider
+                        .as_ref()
+                        .and_then(|provider| provider.provider_name.as_deref())
+                })
+                == Some("codex");
+        let codex_account_id = target
+            .and_then(|target| target.codex_account_id.as_deref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.codex_account_id.as_deref())
+            });
+        // Legacy CodexExecutor: the backend only streams, so a client that
+        // asked for one object gets the stream folded back.
+        let codex_folded = codex_attempt
+            && parsed.get("stream").and_then(serde_json::Value::as_bool) != Some(true);
+        if codex_attempt {
+            let shaped = serde_json::from_slice::<serde_json::Value>(&payload)
+                .map_err(|_| ())
+                .and_then(|mut value| {
+                    let routed = target.map_or(model.as_str(), |target| target.model.as_str());
+                    codex_request::shape_passthrough(&mut value, routed, codex_account_id)?;
+                    serde_json::to_vec(&value).map_err(|_| ())
+                });
+            payload = match shaped {
+                Ok(payload) => payload,
+                Err(()) => return error(StatusCode::BAD_REQUEST, "Invalid Codex request body"),
+            };
+        }
         let claude_identity = target
             .and_then(|target| target.claude_identity.as_deref())
             .or_else(|| {
@@ -8017,8 +8061,16 @@ async fn proxy_request(
                         upstream = upstream.header("x-goog-user-project", project);
                     }
                 }
-            } else if let Some(accept) = &accept {
+            } else if let Some(accept) = accept.as_ref().filter(|_| !codex_attempt) {
                 upstream = upstream.header(header::ACCEPT, accept.clone());
+            }
+            // The Codex executor sends its own Accept and identity headers.
+            if codex_attempt {
+                for (name, value) in
+                    codex_request::headers(codex_client_version.as_deref(), codex_account_id)
+                {
+                    upstream = upstream.header(name, value);
+                }
             }
             if let Some(headers) = target
                 .map(|t| &t.custom_headers)
@@ -8611,6 +8663,7 @@ async fn proxy_request(
         }
         final_translated = translate_anthropic;
         final_antigravity_translated = translate_antigravity;
+        final_codex_folded = codex_folded;
         final_accounting = accounting_attempt;
         final_served_model = response
             .status()
@@ -8652,6 +8705,41 @@ async fn proxy_request(
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
+    let response = if final_codex_folded && response.status().is_success() {
+        let status = response.status();
+        let Some(stream) = response.into_body_stream() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
+        let read = async {
+            let mut bytes = Vec::new();
+            let mut stream = stream;
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let value = codex_request::responses_from_sse(&bytes, &model).ok_or(())?;
+            serde_json::to_vec(&value).map_err(|_| ())
+        };
+        let body = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+            Ok(Ok(body)) => body,
+            _ => return error(StatusCode::BAD_GATEWAY, "Invalid Codex response stream"),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        ProviderResponse::Buffered(BufferedProviderResponse {
+            status,
+            headers,
+            body: Some(Bytes::from(body)),
+        })
+    } else {
+        response
+    };
     let response_alias = if alias_by_pattern {
         Some(requested_model.as_str())
     } else {
@@ -8838,10 +8926,10 @@ async fn proxy_request(
         if let Some(accounting_attempt) = final_accounting {
             let status = response.status();
             let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
-            let Some(response) = response.into_streaming() else {
-                return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
-            };
             if accounting_stream {
+                let Some(response) = response.into_streaming() else {
+                    return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+                };
                 let event_stream = content_type
                     .as_ref()
                     .and_then(|v| v.to_str().ok())
@@ -8924,9 +9012,11 @@ async fn proxy_request(
                 attach_served_model(&mut result, final_served_model.as_ref());
                 return model_alias_response::rewrite(result, response_alias).await;
             }
+            let Some(mut stream) = response.into_body_stream() else {
+                return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+            };
             let read = async {
                 let mut bytes = Vec::new();
-                let mut stream = response.bytes_stream();
                 while let Some(chunk) = stream.next().await {
                     let chunk = chunk.map_err(|_| ())?;
                     if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
@@ -9747,6 +9837,7 @@ mod address_tests {
             model_rules: None,
             antigravity_project: None,
             claude_identity: None,
+            codex_account_id: None,
             rate_limit_scope: resilience::RateLimitScope::Model,
             weight: 1,
             input_cost_per_million: None,

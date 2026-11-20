@@ -426,6 +426,7 @@ struct DirectAccount {
     rate_limit_scope: RateLimitScope,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
+    codex_account_id: Option<Arc<str>>,
     quota: Arc<TargetQuota>,
     synced_models: Option<Arc<SyncedModelInventory>>,
     model_rules: Option<Arc<provider_rules::ModelRules>>,
@@ -3150,22 +3151,7 @@ impl ControlPlane {
             self.0.encryption_key.as_str(),
         )
         .await?;
-        let metadata: serde_json::Value =
-            serde_json::from_str(metadata.as_str()).map_err(|_| "session_unavailable")?;
-        let id_token =
-            json_non_empty_string(metadata.get("id_token")).ok_or("session_unavailable")?;
-        let claims = decode_unverified_jwt_payload(id_token).ok_or("session_unavailable")?;
-        let auth = claims
-            .get("https://api.openai.com/auth")
-            .and_then(serde_json::Value::as_object);
-        let account_id = auth
-            .and_then(|auth| json_non_empty_string(auth.get("chatgpt_account_id")))
-            .or_else(|| auth.and_then(|auth| json_non_empty_string(auth.get("account_id"))))
-            .ok_or("session_unavailable")?;
-        if account_id.len() > 512 || account_id.chars().any(char::is_control) {
-            return Err("session_unavailable");
-        }
-        Ok(account_id.to_owned())
+        codex_session_account_id(metadata.as_str()).ok_or("session_unavailable")
     }
 
     async fn refresh_provider_oauth_as(
@@ -4703,6 +4689,7 @@ impl ControlPlane {
                 runtime.rate_limit_scope = account.rate_limit_scope;
                 runtime.antigravity_project = account.antigravity_project.clone();
                 runtime.claude_identity = account.claude_identity.clone();
+                runtime.codex_account_id = account.codex_account_id.clone();
                 let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                 runtime.in_flight = circuit.in_flight();
                 runtime.circuit = Some(circuit);
@@ -9978,6 +9965,7 @@ impl ControlPlane {
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
         let claude_identities = self.claude_identities().await?;
+        let codex_accounts = self.codex_accounts().await?;
         let live = match self.0.database.active_provider().await? {
             Some(record) => {
                 let rate_limit_scope = resilience
@@ -10013,6 +10001,9 @@ impl ControlPlane {
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
                 live.claude_identity = claude_identities
+                    .get(&(record.id.clone(), record.updated_at))
+                    .cloned();
+                live.codex_account_id = codex_accounts
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
                 live.custom_headers = self.request_headers(&record).await?;
@@ -10151,6 +10142,7 @@ impl ControlPlane {
         let auth = self.auth_settings().await?;
         let antigravity_projects = self.antigravity_projects().await?;
         let claude_identities = self.claude_identities().await?;
+        let codex_accounts = self.codex_accounts().await?;
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -10235,6 +10227,9 @@ impl ControlPlane {
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
                     runtime.claude_identity = claude_identities
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .cloned();
+                    runtime.codex_account_id = codex_accounts
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
                     runtime.tenant_id = Arc::from(provider.tenant_id.clone());
@@ -10426,6 +10421,7 @@ impl ControlPlane {
                 rate_limit_scope: resilience.get(&key).copied().unwrap_or_default(),
                 antigravity_project: antigravity_projects.get(&key).cloned(),
                 claude_identity: claude_identities.get(&key).cloned(),
+                codex_account_id: codex_accounts.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
                 synced_models,
                 model_rules: model_rules.get(&provider.id).cloned(),
@@ -10933,6 +10929,29 @@ impl ControlPlane {
             }
         }
         Ok(identities)
+    }
+
+    /// The ChatGPT workspace each Codex session is bound to, read from its
+    /// ID token (legacy `providerSpecificData.workspaceId`). A session
+    /// without one keeps routing, unbound, as the legacy executor did.
+    async fn codex_accounts(&self) -> Result<HashMap<(String, i64), Arc<str>>, &'static str> {
+        let mut accounts = HashMap::new();
+        for record in self.0.database.provider_sessions().await? {
+            if record.provider != "codex" {
+                continue;
+            }
+            let aad = format!("{}:oauth-session", record.provider_id);
+            let metadata = decrypt_async(
+                &record.session_ciphertext,
+                &aad,
+                self.0.encryption_key.as_str(),
+            )
+            .await?;
+            if let Some(account_id) = codex_session_account_id(metadata.as_str()) {
+                accounts.insert((record.provider_id, record.revision), Arc::from(account_id));
+            }
+        }
+        Ok(accounts)
     }
 
     async fn oauth_status_settings(
@@ -14311,6 +14330,21 @@ fn extract_auth_zip(body: Vec<u8>) -> Result<Vec<AuthZipEntry>, AuthZipError> {
         return Err(AuthZipError::NoJsonFiles);
     }
     Ok(entries)
+}
+
+/// The ChatGPT account a Codex session's ID token names.
+fn codex_session_account_id(metadata: &str) -> Option<String> {
+    let metadata: serde_json::Value = serde_json::from_str(metadata).ok()?;
+    let id_token = json_non_empty_string(metadata.get("id_token"))?;
+    let claims = decode_unverified_jwt_payload(id_token)?;
+    let auth = claims
+        .get("https://api.openai.com/auth")
+        .and_then(serde_json::Value::as_object);
+    let account_id = auth
+        .and_then(|auth| json_non_empty_string(auth.get("chatgpt_account_id")))
+        .or_else(|| auth.and_then(|auth| json_non_empty_string(auth.get("account_id"))))?;
+    (account_id.len() <= 512 && !account_id.chars().any(char::is_control))
+        .then(|| account_id.to_owned())
 }
 
 fn json_non_empty_string(value: Option<&serde_json::Value>) -> Option<&str> {
