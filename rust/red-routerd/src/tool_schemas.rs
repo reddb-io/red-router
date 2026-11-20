@@ -137,6 +137,49 @@ fn keep_opaque_object_schemas_open(schema: &mut Map<String, Value>) {
 }
 
 /// Legacy `coerceSchemaNumericFields`.
+/// Legacy `stripUnsupportedRegexPatterns`: drops every `pattern` using regex
+/// lookaround, which the Codex/OpenAI Responses API rejects.
+pub(crate) fn strip_unsupported_regex_patterns(schema: Value) -> Value {
+    let mut schema = match schema {
+        Value::Array(entries) => {
+            return Value::Array(
+                entries
+                    .into_iter()
+                    .map(strip_unsupported_regex_patterns)
+                    .collect(),
+            )
+        }
+        Value::Object(schema) => schema,
+        other => return other,
+    };
+    if has_regex_lookaround(schema.get("pattern")) {
+        schema.remove("pattern");
+    }
+    let walk = |value: &mut Value| *value = strip_unsupported_regex_patterns(value.take());
+    for field in ["properties", "patternProperties", "definitions", "$defs"] {
+        if let Some(Value::Object(entries)) = schema.get_mut(field) {
+            entries.values_mut().for_each(walk);
+        }
+    }
+    for field in SCHEMA_LIST_FIELDS {
+        if let Some(Value::Array(entries)) = schema.get_mut(field) {
+            entries.iter_mut().for_each(walk);
+        }
+    }
+    if let Some(items) = schema.get_mut("items") {
+        walk(items);
+    }
+    if let Some(value @ (Value::Object(_) | Value::Array(_))) =
+        schema.get_mut("additionalProperties")
+    {
+        walk(value);
+    }
+    if let Some(value @ Value::Object(_)) = schema.get_mut("not") {
+        walk(value);
+    }
+    Value::Object(schema)
+}
+
 pub(crate) fn coerce_schema_numeric_fields(schema: Value) -> Value {
     let mut schema = match schema {
         Value::Array(entries) => {

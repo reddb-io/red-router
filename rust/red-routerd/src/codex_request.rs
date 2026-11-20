@@ -91,6 +91,8 @@ pub(crate) struct CodexAccount {
     pub(crate) account_id: Option<String>,
     pub(crate) reasoning_effort: Option<&'static str>,
     pub(crate) service_tier: Option<&'static str>,
+    /// Legacy `isCodexFreePlan`: free accounts cannot run `image_generation`.
+    pub(crate) free_plan: bool,
 }
 
 impl CodexAccount {
@@ -98,8 +100,19 @@ impl CodexAccount {
     /// imported `legacyCodex` session metadata.
     pub(crate) fn new(account_id: Option<String>, session: &Value) -> Self {
         let defaults = session.pointer("/legacyCodex/requestDefaults");
+        // Legacy isCodexFreePlan over the imported workspacePlanType (else
+        // chatgptPlanType), or the plan the ID token names.
+        let legacy = session.get("legacyCodex");
+        let plan = match legacy.and_then(|data| data.get("workspacePlanType")) {
+            Some(Value::String(plan)) => Some(plan.as_str()),
+            _ => legacy
+                .and_then(|data| data.get("chatgptPlanType"))
+                .and_then(Value::as_str),
+        };
+        let plan = plan.map(str::to_owned).or_else(|| id_token_plan(session));
         Self {
             account_id,
+            free_plan: plan.is_some_and(|plan| plan.trim().eq_ignore_ascii_case("free")),
             reasoning_effort: normalize_codex_reasoning_effort(
                 defaults.and_then(|value| value.get("reasoningEffort")),
             ),
@@ -107,6 +120,258 @@ impl CodexAccount {
                 defaults.and_then(|value| value.get("serviceTier")),
             ),
         }
+    }
+}
+
+/// The `chatgpt_plan_type` claim of the session's ID token (the legacy Codex
+/// OAuth import stores it as `workspacePlanType`).
+fn id_token_plan(session: &Value) -> Option<String> {
+    use base64::Engine as _;
+    let token = session.get("id_token")?.as_str()?;
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
+    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    claims
+        .pointer("/https:~1~1api.openai.com~1auth/chatgpt_plan_type")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Legacy `getCodexModelScope` is spark: Spark-scope models reject the
+/// `image_generation` hosted tool on every plan (#6651).
+fn spark_scope(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    model.contains("spark") || model.contains("bengalfox")
+}
+
+/// Legacy `CODEX_HOSTED_TOOL_TYPES`.
+const HOSTED_TOOL_TYPES: [&str; 9] = [
+    "tool_search",
+    "image_generation",
+    "web_search",
+    "web_search_preview",
+    "file_search",
+    "computer",
+    "computer_use_preview",
+    "code_interpreter",
+    "mcp",
+];
+
+/// Legacy `maybeStripRedundantOneOf`: a `oneOf` of string `const` branches
+/// that exactly repeats a sibling string `enum` is dropped.
+fn strip_redundant_one_of(node: &mut Map<String, Value>) {
+    let (Some(Value::Array(branches)), Some(Value::Array(values))) =
+        (node.get("oneOf"), node.get("enum"))
+    else {
+        return;
+    };
+    if branches.is_empty() || values.is_empty() {
+        return;
+    }
+    let mut consts = Vec::new();
+    for branch in branches {
+        let Some(branch) = branch.as_object() else {
+            return;
+        };
+        if !branch.contains_key("const")
+            || !branch
+                .keys()
+                .all(|key| matches!(key.as_str(), "const" | "description" | "title" | "$comment"))
+        {
+            return;
+        }
+        let Some(value) = branch.get("const").and_then(Value::as_str) else {
+            return;
+        };
+        consts.push(value);
+    }
+    let Some(values) = values
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<HashSet<_>>>()
+    else {
+        return;
+    };
+    let unique: HashSet<_> = consts.iter().copied().collect();
+    if unique.len() != consts.len()
+        || values.len() != consts.len()
+        || !consts.iter().all(|value| values.contains(value))
+    {
+        return;
+    }
+    node.remove("oneOf");
+}
+
+/// Legacy `stripRedundantOneOfConstEnum`.
+pub(crate) fn strip_redundant_one_of_const_enum(schema: Value) -> Value {
+    let mut schema = match schema {
+        Value::Array(entries) => {
+            return Value::Array(
+                entries
+                    .into_iter()
+                    .map(strip_redundant_one_of_const_enum)
+                    .collect(),
+            )
+        }
+        Value::Object(schema) => schema,
+        other => return other,
+    };
+    strip_redundant_one_of(&mut schema);
+    let walk = |value: &mut Value| *value = strip_redundant_one_of_const_enum(value.take());
+    for field in ["properties", "patternProperties", "$defs", "definitions"] {
+        if let Some(Value::Object(entries)) = schema.get_mut(field) {
+            entries.values_mut().for_each(walk);
+        }
+    }
+    for field in ["prefixItems", "oneOf", "anyOf", "allOf"] {
+        if let Some(Value::Array(entries)) = schema.get_mut(field) {
+            entries.iter_mut().for_each(walk);
+        }
+    }
+    for field in ["items", "additionalProperties", "not", "if", "then", "else"] {
+        if let Some(value) = schema.get_mut(field) {
+            walk(value);
+        }
+    }
+    Value::Object(schema)
+}
+
+fn tool_name(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_str)
+        .map(|name| name.trim().chars().take(128).collect())
+        .unwrap_or_default()
+}
+
+/// Legacy `normalizeCodexTools` for a native passthrough (custom tools kept,
+/// no default `strict`): Codex accepts flat function tools with a name,
+/// namespaces, native custom tools and hosted tools.
+pub(crate) fn normalize_tools(body: &mut Map<String, Value>, drop_image_generation: bool) {
+    let Some(Value::Array(tools)) = body.get_mut("tools") else {
+        return;
+    };
+    let mut names = HashSet::new();
+    tools.retain_mut(|tool| {
+        let Some(record) = tool.as_object_mut() else {
+            return false;
+        };
+        let kind = record
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if kind == "namespace" {
+            if let Some(Value::Array(children)) = record.get("tools") {
+                for child in children.iter().filter_map(Value::as_object) {
+                    let name = tool_name(child.get("name"));
+                    if !name.is_empty() {
+                        names.insert(name);
+                    }
+                }
+            }
+            return true;
+        }
+        if kind == "custom" {
+            let name = tool_name(record.get("name"));
+            if name.is_empty() {
+                return false;
+            }
+            record.insert("name".to_owned(), json!(name));
+            names.insert(name);
+            return true;
+        }
+        let function = record.get("function").and_then(Value::as_object).cloned();
+        if kind != "function" {
+            let has_function = record.get("function").is_some_and(|value| {
+                truthy(Some(value)) && (value.is_object() || value.is_array())
+            });
+            if kind.is_empty() || has_function || record.get("name").is_some_and(Value::is_string) {
+                return false;
+            }
+            return HOSTED_TOOL_TYPES.contains(&kind.as_str())
+                && !(kind == "image_generation" && drop_image_generation);
+        }
+        let raw_name = match record.get("name") {
+            Some(Value::String(name)) => name.clone(),
+            _ => function
+                .as_ref()
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+        };
+        let name = raw_name.trim().to_owned();
+        if name.is_empty() {
+            return false;
+        }
+        let description = match record.get("description") {
+            Some(Value::String(text)) => text.clone(),
+            _ => function
+                .as_ref()
+                .and_then(|function| function.get("description"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+        };
+        let parameters = record
+            .get("parameters")
+            .filter(|value| value.is_object())
+            .or_else(|| {
+                function
+                    .as_ref()
+                    .and_then(|function| function.get("parameters"))
+                    .filter(|value| value.is_object())
+            })
+            .cloned()
+            .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
+        let strict = record
+            .get("strict")
+            .filter(|value| value.is_boolean())
+            .or_else(|| {
+                function
+                    .as_ref()
+                    .and_then(|function| function.get("strict"))
+                    .filter(|value| value.is_boolean())
+            })
+            .cloned();
+        let parameters = strip_redundant_one_of_const_enum(
+            crate::tool_schemas::strip_unsupported_regex_patterns(parameters),
+        );
+        record.clear();
+        record.insert("type".to_owned(), json!("function"));
+        record.insert(
+            "name".to_owned(),
+            json!(name.chars().take(128).collect::<String>()),
+        );
+        if !description.is_empty() {
+            record.insert("description".to_owned(), json!(description));
+        }
+        record.insert("parameters".to_owned(), parameters);
+        if let Some(strict) = strict {
+            record.insert("strict".to_owned(), strict);
+        }
+        names.insert(name);
+        true
+    });
+    let drop_choice = match body.get("tool_choice").and_then(Value::as_object) {
+        Some(choice) => match choice.get("type").and_then(Value::as_str) {
+            Some("function") => {
+                let name = choice
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                name.is_empty() || !names.contains(name)
+            }
+            Some("local_shell") => true,
+            _ => false,
+        },
+        None => false,
+    };
+    if drop_choice {
+        body.remove("tool_choice");
     }
 }
 
@@ -700,6 +965,10 @@ pub(crate) fn shape_passthrough(
         body.insert("instructions".to_owned(), json!(PASSTHROUGH_INSTRUCTIONS));
     }
     body.insert("store".to_owned(), Value::Bool(false));
+    normalize_tools(
+        body,
+        account.is_some_and(|account| account.free_plan) || spark_scope(model),
+    );
     body.remove("messages");
     body.remove("prompt");
 
@@ -1578,6 +1847,143 @@ mod tests {
         )
         .unwrap();
         assert_eq!(body["reasoning"]["effort"], json!("low"));
+    }
+
+    // Ported from tests/unit/codex-free-plan-image-generation.test.ts,
+    // codex-spark-image-generation.test.ts, codex-tools-redundant-oneof-enum.test.ts,
+    // codex-tools-regex-lookaround.test.ts and codex-tools-strict-default.test.ts.
+    #[test]
+    fn tools_are_normalized_for_the_codex_backend() {
+        let tools = |tools: Value, model: &str, free: bool| {
+            let mut body = json!({"input": "x", "tools": tools});
+            let account = CodexAccount {
+                free_plan: free,
+                ..CodexAccount::default()
+            };
+            shape_passthrough(
+                &mut body,
+                model,
+                Some(&account),
+                &CodexServiceTier::default(),
+            )
+            .unwrap();
+            body
+        };
+        let hosted = json!([
+            {"type": "image_generation", "output_format": "png"},
+            {"type": "function", "name": "foo", "parameters": {"type": "object"}}
+        ]);
+        assert_eq!(
+            tools(hosted.clone(), "gpt-5.5", true)["tools"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            tools(hosted.clone(), "gpt-5.5", false)["tools"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            tools(hosted, "gpt-5.3-codex-spark", false)["tools"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let body = tools(
+            json!([
+                {"type": "function", "function": {"name": " read ", "description": "Read", "parameters": {"type": "object", "properties": {"email": {"type": "string", "pattern": "^(?=.*@).+$"}}}, "strict": true}},
+                {"type": "function", "name": "  "},
+                {"type": "custom", "name": "apply_patch", "format": {"type": "grammar"}},
+                {"type": "namespace", "name": "mcp__x__", "tools": [{"name": "inner"}]},
+                {"type": "web_search"},
+                {"type": "unknown_hosted"},
+                {"type": "local_shell", "name": "sh"},
+                "not a tool",
+                {"type": "function", "name": "bare"}
+            ]),
+            "gpt-5.5",
+            false,
+        );
+        assert_eq!(
+            body["tools"],
+            json!([
+                {"type": "function", "name": "read", "description": "Read", "parameters": {"type": "object", "properties": {"email": {"type": "string"}}}, "strict": true},
+                {"type": "custom", "name": "apply_patch", "format": {"type": "grammar"}},
+                {"type": "namespace", "name": "mcp__x__", "tools": [{"name": "inner"}]},
+                {"type": "web_search"},
+                {"type": "function", "name": "bare", "parameters": {"type": "object", "properties": {}}}
+            ])
+        );
+
+        // A tool choice must name a kept tool.
+        for (choice, kept) in [
+            (json!({"type": "function", "name": "read"}), true),
+            (json!({"type": "function", "name": "inner"}), true),
+            (json!({"type": "function", "name": "missing"}), false),
+            (json!({"type": "local_shell"}), false),
+            (json!("auto"), true),
+        ] {
+            let mut body = json!({"input": "x", "tools": [{"type": "function", "name": "read"}, {"type": "namespace", "tools": [{"name": "inner"}]}], "tool_choice": choice});
+            shape(&mut body, "gpt-5.5", None).unwrap();
+            assert_eq!(body.get("tool_choice").is_some(), kept, "{choice}");
+        }
+
+        // A oneOf that only repeats its sibling enum is dropped.
+        let schema = |one_of: Value, values: Value| {
+            strip_redundant_one_of_const_enum(
+                json!({"type": "string", "oneOf": one_of, "enum": values}),
+            )
+            .get("oneOf")
+            .cloned()
+        };
+        assert_eq!(
+            schema(
+                json!([{"const": "a", "description": "A"}, {"const": "b"}]),
+                json!(["b", "a"])
+            ),
+            None
+        );
+        for (one_of, values) in [
+            (json!([{"const": "a"}, {"const": "b"}]), json!(["a", "c"])),
+            (json!([{"const": "a"}]), json!(["a", "b"])),
+            (json!([{"const": "a"}, {"const": "a"}]), json!(["a"])),
+            (json!([{"const": "a", "minLength": 1}]), json!(["a"])),
+            (json!([{"type": "string"}]), json!(["a"])),
+            (json!([]), json!(["a"])),
+            (json!([{"const": 1}]), json!([1])),
+        ] {
+            assert!(schema(one_of.clone(), values).is_some(), "{one_of}");
+        }
+        let nested = strip_redundant_one_of_const_enum(
+            json!({"properties": {"action": {"oneOf": [{"const": "go"}], "enum": ["go"]}}, "anyOf": [{"oneOf": [{"const": "x"}], "enum": ["x"]}]}),
+        );
+        assert!(nested["properties"]["action"].get("oneOf").is_none());
+        assert!(nested["anyOf"][0].get("oneOf").is_none());
+
+        let free = CodexAccount::new(None, &json!({"legacyCodex": {"workspacePlanType": "FREE"}}));
+        assert!(free.free_plan);
+        assert!(
+            CodexAccount::new(None, &json!({"legacyCodex": {"chatgptPlanType": "free"}})).free_plan
+        );
+        assert!(
+            !CodexAccount::new(
+                None,
+                &json!({"legacyCodex": {"workspacePlanType": "team", "chatgptPlanType": "free"}})
+            )
+            .free_plan
+        );
+        use base64::Engine as _;
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"https://api.openai.com/auth":{"chatgpt_plan_type":"free"}}"#);
+        assert!(
+            CodexAccount::new(None, &json!({"id_token": format!("e30.{claims}.sig")})).free_plan
+        );
     }
 
     // Ported from tests/unit/codex-orphaned-tool-outputs-2928.test.ts and the
