@@ -398,9 +398,15 @@ async fn adopt_oauth(
             None | Some(serde_json::Value::Null) => None,
             Some(value) => Some(value.as_i64().ok_or("invalid legacy provider global priority")?),
         })?;
-        for field in ["per_key_proxy_enabled", "proxy_enabled", "rate_limit_protection"] {
+        for field in ["per_key_proxy_enabled", "proxy_enabled"] {
             match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
         }
+        // Request queue protection imports onto the connection queue policy.
+        let rate_limit_protection = match object.get("rate_limit_protection") {
+            Some(serde_json::Value::Null) => false,
+            Some(value) => value.as_i64().ok_or("legacy provider policy requires migration")? != 0,
+            None => return Err("legacy provider policy requires migration"),
+        };
         let max_concurrent = legacy_concurrency(match object.get("max_concurrent") {
             None | Some(serde_json::Value::Null) => None,
             Some(value) => Some(value.as_i64().ok_or("invalid legacy provider concurrency")?),
@@ -412,9 +418,8 @@ async fn adopt_oauth(
             Some(value) => value.as_i64().filter(|level| *level >= 0).ok_or("invalid legacy provider backoff")?,
         };
         let cooldown_until = pending_cooldown_ms(text("rate_limited_until")?, unix_now_ms()?);
-        for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
-            if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
-        }
+        if text("quota_window_thresholds_json")?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider policy requires migration"); }
+        let queue_policy = legacy_queue_policy(rate_limit_protection, text("rate_limit_overrides_json")?)?;
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
         // A transient cooldown (rate_limited_until) and the last error's
@@ -594,6 +599,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         record_imported_availability(&mut db, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut db, id, max_concurrent).await?;
+        record_imported_queue_policy(&mut db, id, queue_policy).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
         }
