@@ -11600,30 +11600,24 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
-    /// The process-wide gate (legacy `globalConcurrentRequests`), if capped.
-    pub(crate) async fn global_request_gate(&self) -> Option<crate::request_queue::RequestQueue> {
-        self.0
-            .global_settings
-            .read()
-            .await
-            .request_queue()
-            .global_gate()
-    }
-
-    /// The request queue a connection goes through (legacy `requestQueue`,
-    /// `rateLimitProtection` and `rateLimitOverrides`). Legacy
-    /// `getProviderCategory(provider) === "apikey"` is a connection without
-    /// OAuth credentials.
-    pub(crate) async fn request_queue_for(
+    /// The gates a request passes (legacy `globalConcurrentRequests`,
+    /// `providerQuotaOverrides`, `requestQueue`, `rateLimitProtection` and
+    /// `rateLimitOverrides`). Legacy `getProviderCategory(provider) ===
+    /// "apikey"` is a connection without OAuth credentials.
+    pub(crate) async fn request_admission(
         &self,
-        provider_id: &str,
-    ) -> Option<crate::request_queue::RequestQueue> {
-        let api_key = !self.0.oauth_provider_ids.read().await.contains(provider_id);
+        provider_id: Option<&str>,
+        provider: Option<&str>,
+    ) -> crate::request_queue::AdmissionPlan {
+        let api_key = match provider_id {
+            Some(id) => !self.0.oauth_provider_ids.read().await.contains(id),
+            None => false,
+        };
         self.0
             .global_settings
             .read()
             .await
-            .request_queue_for(provider_id, api_key)
+            .request_admission(provider_id, provider, api_key)
     }
 
     /// Whether combos keep a conversation on its connection (legacy

@@ -18,7 +18,7 @@
 
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -80,9 +80,190 @@ impl RequestQueue {
     }
 }
 
-/// The process-wide gate's limiter.
-pub(crate) fn global_limiter() -> Arc<ConnectionLimiter> {
-    limiter("\0global")
+/// Legacy `ProviderQuotaOverrideSettings`, by provider
+/// (`providerQuotaOverrides`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderQuotaOverride {
+    /// Replaces the provider's default sliding-window requests per minute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpm: Option<u32>,
+    /// Replaces the provider's default per-connection concurrency cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<u32>,
+    /// A concurrency cap shared by every connection of the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_concurrency: Option<u32>,
+}
+
+impl ProviderQuotaOverride {
+    pub(crate) fn valid(&self) -> bool {
+        self.rpm.is_none_or(|rpm| (1..=1_000_000).contains(&rpm))
+            && self
+                .concurrency
+                .is_none_or(|count| (1..=10_000).contains(&count))
+            && self
+                .provider_concurrency
+                .is_none_or(|count| count <= 100_000)
+    }
+}
+
+/// Legacy `PROVIDER_DEFAULT_RATE_LIMITS` and `PROVIDER_DEFAULT_CONCURRENCY_CAP`.
+const NVIDIA: &str = "nvidia";
+const NVIDIA_DEFAULT_RPM: u32 = 40;
+const NVIDIA_DEFAULT_CONCURRENCY: u32 = 6;
+/// Legacy `NVIDIA_ACQUIRE_TIMEOUT_MS`.
+const NVIDIA_ACQUIRE_TIMEOUT_MS: u64 = 30_000;
+
+/// Every gate a request passes before its upstream call, in the legacy
+/// order: the process-wide cap, the provider's shared cap
+/// (`acquireConcurrencyGates`), the provider's default sliding window and
+/// the connection's queue (`withRateLimit`), then the NVIDIA executor cap.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AdmissionPlan {
+    pub(crate) global: Option<RequestQueue>,
+    pub(crate) provider_shared: Option<RequestQueue>,
+    pub(crate) provider_rpm: Option<u32>,
+    pub(crate) queue: Option<RequestQueue>,
+    pub(crate) connection_cap: Option<RequestQueue>,
+}
+
+/// The held slots of an admitted request.
+#[derive(Default)]
+pub(crate) struct Admission {
+    slots: Vec<Slot>,
+    /// The connection queue settings, for learning from the answer.
+    pub(crate) queue: Option<RequestQueue>,
+}
+
+fn concurrency_gate(concurrent: u32, max_wait_ms: u64, max_queue_depth: u32) -> RequestQueue {
+    RequestQueue {
+        enabled: true,
+        requests_per_minute: 1_000_000,
+        min_time_between_requests_ms: 0,
+        concurrent_requests: concurrent.clamp(1, 10_000),
+        max_wait_ms,
+        max_queue_depth,
+        global_concurrent_requests: 0,
+    }
+}
+
+impl AdmissionPlan {
+    pub(crate) fn new(
+        global: &RequestQueue,
+        provider: Option<&str>,
+        provider_override: ProviderQuotaOverride,
+        queue: Option<RequestQueue>,
+    ) -> Self {
+        let nvidia = provider == Some(NVIDIA);
+        Self {
+            global: global.global_gate(),
+            provider_shared: provider_override
+                .provider_concurrency
+                .filter(|count| *count > 0)
+                .map(|count| concurrency_gate(count, global.max_wait_ms, global.max_queue_depth)),
+            // Legacy getProviderDefaultRateLimit: an rpm override applies to
+            // any provider, the static default only to NVIDIA.
+            provider_rpm: provider_override
+                .rpm
+                .or(nvidia.then_some(NVIDIA_DEFAULT_RPM)),
+            queue,
+            connection_cap: nvidia.then(|| {
+                concurrency_gate(
+                    provider_override
+                        .concurrency
+                        .unwrap_or(NVIDIA_DEFAULT_CONCURRENCY),
+                    NVIDIA_ACQUIRE_TIMEOUT_MS,
+                    0,
+                )
+            }),
+        }
+    }
+
+    /// Pass every gate, holding each slot until the upstream answers.
+    pub(crate) async fn admit(
+        self,
+        connection: Option<&str>,
+        provider: Option<&str>,
+    ) -> Result<Admission, Rejection> {
+        let mut admission = Admission::default();
+        if let Some(gate) = self.global {
+            admission
+                .slots
+                .push(limiter("\0global").acquire(&gate).await?);
+        }
+        if let (Some(gate), Some(provider)) = (self.provider_shared, provider) {
+            admission.slots.push(
+                limiter(&format!("\0provider:{provider}"))
+                    .acquire(&gate)
+                    .await?,
+            );
+        }
+        if let (Some(settings), Some(connection)) = (self.queue, connection) {
+            if let Some(rpm) = self.provider_rpm {
+                await_provider_window(
+                    &format!("{}:{connection}", provider.unwrap_or_default()),
+                    rpm,
+                    settings.max_wait_ms,
+                )
+                .await?;
+            }
+            admission
+                .slots
+                .push(limiter(connection).acquire(&settings).await?);
+            admission.queue = Some(settings);
+        }
+        if let (Some(gate), Some(connection)) = (self.connection_cap, connection) {
+            admission.slots.push(
+                limiter(&format!("\0nvidia:{connection}"))
+                    .acquire(&gate)
+                    .await?,
+            );
+        }
+        Ok(admission)
+    }
+}
+
+static WINDOWS: LazyLock<Mutex<HashMap<String, VecDeque<u64>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Legacy `awaitProviderDefaultSlot`: a sliding one-minute window of
+/// `requests`, waited for at most the queue budget and one window.
+async fn await_provider_window(
+    key: &str,
+    requests: u32,
+    max_wait_ms: u64,
+) -> Result<(), Rejection> {
+    let budget = if max_wait_ms == 0 {
+        MINUTE_MS
+    } else {
+        max_wait_ms.min(MINUTE_MS)
+    };
+    let started = now_ms();
+    loop {
+        let now = now_ms();
+        let wait = {
+            let Ok(mut windows) = WINDOWS.lock() else {
+                return Err(Rejection::QueueTimeout);
+            };
+            let window = windows.entry(key.to_owned()).or_default();
+            while window.front().is_some_and(|at| at + MINUTE_MS <= now) {
+                window.pop_front();
+            }
+            if window.len() < requests as usize {
+                window.push_back(now);
+                return Ok(());
+            }
+            window
+                .front()
+                .map_or(1, |oldest| (oldest + MINUTE_MS).saturating_sub(now).max(1))
+        };
+        let elapsed = now.saturating_sub(started);
+        if elapsed >= budget {
+            return Err(Rejection::QueueTimeout);
+        }
+        tokio::time::sleep(Duration::from_millis(wait.min(budget - elapsed))).await;
+    }
 }
 
 /// Legacy per-connection `rateLimitProtection` and `rateLimitOverrides`:
@@ -523,6 +704,53 @@ mod tests {
             ..settings()
         }
         .valid());
+    }
+
+    #[tokio::test]
+    async fn provider_defaults_follow_the_legacy_tables() {
+        let global = RequestQueue::default();
+        let nvidia = AdmissionPlan::new(
+            &global,
+            Some("nvidia"),
+            ProviderQuotaOverride::default(),
+            None,
+        );
+        assert_eq!(nvidia.provider_rpm, Some(40));
+        assert_eq!(
+            nvidia.connection_cap.map(|gate| gate.concurrent_requests),
+            Some(6)
+        );
+        assert_eq!(nvidia.provider_shared, None);
+        let overridden = AdmissionPlan::new(
+            &global,
+            Some("groq"),
+            ProviderQuotaOverride {
+                rpm: Some(5),
+                concurrency: Some(2),
+                provider_concurrency: Some(3),
+            },
+            None,
+        );
+        // The concurrency override only feeds the NVIDIA executor cap.
+        assert_eq!(
+            (
+                overridden.provider_rpm,
+                overridden.connection_cap,
+                overridden
+                    .provider_shared
+                    .map(|gate| gate.concurrent_requests)
+            ),
+            (Some(5), None, Some(3))
+        );
+        // The window admits its requests, then refuses within the budget.
+        let key = "window-test:connection";
+        for _ in 0..2 {
+            assert_eq!(await_provider_window(key, 2, 50).await, Ok(()));
+        }
+        assert_eq!(
+            await_provider_window(key, 2, 50).await,
+            Err(Rejection::QueueTimeout)
+        );
     }
 
     #[test]

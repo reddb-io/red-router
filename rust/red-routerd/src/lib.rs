@@ -8050,42 +8050,27 @@ async fn proxy_request(
             });
         // Legacy withRateLimit: an API-key connection waits for its turn in
         // its request queue; the slot is held until the upstream answers.
-        // Legacy acquireConcurrencyGates: the process-wide cap comes first.
-        let global_gate = match &state.control_plane {
-            Some(control) => control.global_request_gate().await,
-            None => None,
-        };
-        let _global_request_slot = match global_gate {
-            Some(gate) => match request_queue::global_limiter().acquire(&gate).await {
-                Ok(slot) => Some(slot),
-                Err(rejection) => {
-                    saw_queue_rejection = Some(rejection);
-                    continue;
-                }
-            },
-            None => None,
-        };
-        let queue_settings = match (
-            target.and_then(|target| target.provider_id.as_deref()),
-            &state.control_plane,
-        ) {
-            (Some(connection), Some(control)) => control
-                .request_queue_for(connection)
-                .await
-                .map(|settings| (connection, settings)),
-            _ => None,
-        };
-        let request_queue_slot = match queue_settings {
-            Some((connection, settings)) => {
-                match request_queue::limiter(connection).acquire(&settings).await {
-                    Ok(slot) => Some((slot, settings)),
+        // Legacy acquireConcurrencyGates and withRateLimit: the process-wide
+        // and provider caps, the provider's default window and the
+        // connection queue; each slot is held until the upstream answers.
+        let admission = match &state.control_plane {
+            Some(control) => {
+                let connection = target.and_then(|target| target.provider_id.as_deref());
+                let provider = target.and_then(|target| target.provider_name.as_deref());
+                match control
+                    .request_admission(connection, provider)
+                    .await
+                    .admit(connection, provider)
+                    .await
+                {
+                    Ok(admission) => Some(admission),
                     Err(rejection) => {
                         saw_queue_rejection = Some(rejection);
                         continue;
                     }
                 }
             }
-            _ => None,
+            None => None,
         };
         let circuit_permit = if let Some(circuit) = circuit {
             match circuit.try_acquire().await {
@@ -8250,7 +8235,10 @@ async fn proxy_request(
             }
         }
         // Legacy updateFromHeaders: the upstream's rate headers tune the queue.
-        if let Some((_, settings)) = &request_queue_slot {
+        if let Some(settings) = admission
+            .as_ref()
+            .and_then(|admission| admission.queue.as_ref())
+        {
             if let Some(target) = target {
                 if let Some(connection) = target.provider_id.as_deref() {
                     request_queue::limiter(connection).learn_from_headers(

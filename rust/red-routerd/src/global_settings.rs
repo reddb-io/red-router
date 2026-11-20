@@ -39,6 +39,8 @@
 //!   per-connection limiter of API-key accounts (`request_queue`).
 //! - `request_queue_connections`: the legacy per-connection
 //!   `rateLimitProtection` and `rateLimitOverrides`, by provider id.
+//! - `provider_quota_overrides`: the legacy `providerQuotaOverrides`
+//!   resilience section, by provider name.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -59,6 +61,7 @@ pub(crate) const PROMPT_CACHE_AFFINITY: &str = "prompt_cache_affinity";
 pub(crate) const SESSION_STICKINESS: &str = "session_stickiness";
 pub(crate) const REQUEST_QUEUE: &str = "request_queue";
 pub(crate) const REQUEST_QUEUE_CONNECTIONS: &str = "request_queue_connections";
+pub(crate) const PROVIDER_QUOTA_OVERRIDES: &str = "provider_quota_overrides";
 const MAX_QUEUE_POLICIES: usize = 10_000;
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
 const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
@@ -199,6 +202,7 @@ pub(crate) struct Snapshot {
     session_stickiness_disabled: bool,
     request_queue: crate::request_queue::RequestQueue,
     request_queue_connections: BTreeMap<String, crate::request_queue::ConnectionQueuePolicy>,
+    provider_quota_overrides: BTreeMap<String, crate::request_queue::ProviderQuotaOverride>,
 }
 
 impl Snapshot {
@@ -241,21 +245,29 @@ impl Snapshot {
             .clamp(1, 1_000)
     }
 
-    /// The global request queue settings.
-    pub(crate) fn request_queue(&self) -> crate::request_queue::RequestQueue {
-        self.request_queue
-    }
-
-    /// The request queue a connection goes through, if any.
-    pub(crate) fn request_queue_for(
+    /// The gates a request to this connection and provider passes.
+    pub(crate) fn request_admission(
         &self,
-        provider_id: &str,
+        provider_id: Option<&str>,
+        provider: Option<&str>,
         api_key: bool,
-    ) -> Option<crate::request_queue::RequestQueue> {
-        crate::request_queue::effective(
+    ) -> crate::request_queue::AdmissionPlan {
+        let provider_override = provider
+            .and_then(|provider| self.provider_quota_overrides.get(provider))
+            .copied()
+            .unwrap_or_default();
+        let queue = provider_id.and_then(|id| {
+            crate::request_queue::effective(
+                &self.request_queue,
+                self.request_queue_connections.get(id),
+                api_key,
+            )
+        });
+        crate::request_queue::AdmissionPlan::new(
             &self.request_queue,
-            self.request_queue_connections.get(provider_id),
-            api_key,
+            provider,
+            provider_override,
+            queue,
         )
     }
 
@@ -342,6 +354,18 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|limit| (1..=MAX_COMBO_STICKY_LIMIT).contains(limit))
             .map(Value::from)
             .ok_or("invalid combo sticky round-robin limit"),
+        PROVIDER_QUOTA_OVERRIDES => serde_json::from_value::<
+            BTreeMap<String, crate::request_queue::ProviderQuotaOverride>,
+        >(value)
+        .ok()
+        .filter(|overrides| {
+            overrides.len() <= MAX_QUEUE_POLICIES
+                && overrides
+                    .iter()
+                    .all(|(provider, entry)| (1..=128).contains(&provider.len()) && entry.valid())
+        })
+        .and_then(|overrides| serde_json::to_value(overrides).ok())
+        .ok_or("invalid provider quota overrides"),
         REQUEST_QUEUE_CONNECTIONS => serde_json::from_value::<
             BTreeMap<String, crate::request_queue::ConnectionQueuePolicy>,
         >(value)
@@ -435,6 +459,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             COMBO_STICKY_ROUND_ROBIN_LIMIT => {
                 snapshot.combo_sticky_round_robin_limit =
                     value.as_u64().and_then(|limit| u32::try_from(limit).ok());
+            }
+            PROVIDER_QUOTA_OVERRIDES => {
+                snapshot.provider_quota_overrides = serde_json::from_value(value)
+                    .map_err(|_| "invalid provider quota overrides")?;
             }
             REQUEST_QUEUE_CONNECTIONS => {
                 snapshot.request_queue_connections = serde_json::from_value(value)

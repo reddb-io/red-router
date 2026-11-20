@@ -306,6 +306,54 @@ fn legacy_request_queue_section(
     })
 }
 
+/// Legacy `normalizeProviderQuotaOverrides`: per provider, a positive `rpm`
+/// and `concurrency` and a non-negative `providerConcurrency`, truncated;
+/// providers without a valid value are dropped.
+fn legacy_provider_quota_overrides(
+    stored: &Value,
+) -> Result<
+    std::collections::BTreeMap<String, crate::request_queue::ProviderQuotaOverride>,
+    &'static str,
+> {
+    let Value::Object(providers) = stored else {
+        return Ok(std::collections::BTreeMap::new());
+    };
+    let number = |value: Option<&Value>| {
+        match value {
+            Some(Value::Number(number)) => number.as_f64(),
+            Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
+            _ => None,
+        }
+        .filter(|value| value.is_finite())
+    };
+    let mut out = std::collections::BTreeMap::new();
+    for (provider, entry) in providers {
+        if provider.is_empty() || !entry.is_object() {
+            continue;
+        }
+        let positive = |name: &str| {
+            number(entry.get(name))
+                .filter(|value| *value >= 1.0)
+                .map(|value| u32::try_from(value.trunc() as u64).unwrap_or(u32::MAX))
+        };
+        let parsed = crate::request_queue::ProviderQuotaOverride {
+            rpm: positive("rpm"),
+            concurrency: positive("concurrency"),
+            provider_concurrency: number(entry.get("providerConcurrency"))
+                .filter(|value| *value >= 0.0)
+                .map(|value| u32::try_from(value.trunc() as u64).unwrap_or(u32::MAX)),
+        };
+        if parsed == crate::request_queue::ProviderQuotaOverride::default() {
+            continue;
+        }
+        if !parsed.valid() {
+            return Err("legacy provider quota override exceeds the native range");
+        }
+        out.insert(provider.clone(), parsed);
+    }
+    Ok(out)
+}
+
 /// The legacy effective request queue, auto-enabled unless configured off.
 fn legacy_request_queue(
     rows: &[(String, String)],
@@ -517,6 +565,10 @@ pub(crate) fn resilience_import_with(
                 | "comboCooldownWait"
                 | "providerCooldown"
         ) {
+            continue;
+        }
+        if section == "providerQuotaOverrides" {
+            legacy_provider_quota_overrides(value)?;
             continue;
         }
         if section == "requestQueue" {
@@ -1068,6 +1120,20 @@ pub async fn import(
             serde_json::to_value(request_queue).map_err(|_| "invalid legacy request queue")?,
         ));
     }
+    let provider_quota_overrides = legacy_provider_quota_overrides(
+        &rows
+            .iter()
+            .find(|(key, _)| key == "resilienceSettings")
+            .and_then(|(_, raw)| parse_value(raw).get("providerQuotaOverrides").cloned())
+            .unwrap_or(Value::Null),
+    )?;
+    if !provider_quota_overrides.is_empty() {
+        global.push((
+            crate::global_settings::PROVIDER_QUOTA_OVERRIDES,
+            serde_json::to_value(provider_quota_overrides)
+                .map_err(|_| "invalid legacy provider quota overrides")?,
+        ));
+    }
     let provider_cooldown = legacy_provider_cooldown(&rows);
     if provider_cooldown != crate::provider_cooldown::ProviderCooldown::default() {
         global.push((
@@ -1516,6 +1582,23 @@ mod tests {
         assert!(resilience_import(r#"{"quotaShareConcurrencyLimit":{"enabled":false}}"#).is_ok());
         assert!(resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#).is_ok());
         assert!(resilience_import(r#"{"requestQueue":{"executionMaxWaitMs":5000}}"#).is_ok());
+        assert_eq!(
+            legacy_provider_quota_overrides(&serde_json::json!({
+                "nvidia":{"rpm":"30","concurrency":2.9,"providerConcurrency":0},
+                "groq":{"rpm":0},
+                "bad":7
+            }))
+            .unwrap(),
+            std::collections::BTreeMap::from([(
+                "nvidia".to_owned(),
+                crate::request_queue::ProviderQuotaOverride {
+                    rpm: Some(30),
+                    concurrency: Some(2),
+                    provider_concurrency: Some(0),
+                }
+            )])
+        );
+        assert!(resilience_import(r#"{"providerQuotaOverrides":{"nvidia":{"rpm":30}}}"#).is_ok());
         // Old providerProfiles rows are the cooldown and breaker fallback.
         let profiles = serde_json::json!({
             "apikey":{"transientCooldown":2000,"rateLimitCooldown":4000,"maxBackoffLevel":3,"circuitBreakerThreshold":9,"circuitBreakerReset":20000}
