@@ -25,6 +25,7 @@ pub mod fastllm_supervisor;
 mod global_settings;
 mod icon_url;
 mod idempotency;
+pub mod ip_utils;
 mod kafka_export;
 pub mod legacy_aliases;
 pub mod legacy_archive;

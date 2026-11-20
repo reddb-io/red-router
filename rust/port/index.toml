@@ -438,6 +438,30 @@ notes = "Measures Node event-loop delay for the /healthz warning; the Rust daemo
 "src/lib/healthzLag.ts" = "fb4f17567ec47c3acd33c85666b0da9752a93bdf"
 
 [[module]]
+ts = "src/lib/ipUtils.ts"
+status = "ported"
+rust = "ip_utils.rs"
+module = "red_routerd::ip_utils"
+ported_at = "2026-11-20T21:45:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/ipUtils.test.ts",
+    "tests/unit/8336-audit-loopback-login.test.ts",
+]
+notes = "The request is its headers and the TCP peer address; addresses are validated with std::net, so Node isIP IPv6 zone suffixes are not literals."
+
+[module.ts_blobs]
+"src/lib/ipUtils.ts" = "66e016555e186d1e6a9ab13f192b51d67d1b66c2"
+"tests/unit/8336-audit-loopback-login.test.ts" = "038311cf1be12d3f2abcdd0ed4a8b4fe1e039620"
+"tests/unit/ipUtils.test.ts" = "cb1c83f63848fa89369b96c14edd5957f853d26d"
+
+[module.symbols]
+IpScope = "red_routerd::ip_utils::IpScope"
+classifyIpScope = "red_routerd::ip_utils::classify_ip_scope"
+extractClientIp = "red_routerd::ip_utils::extract_client_ip"
+getClientIpFromRequest = "red_routerd::ip_utils::client_ip_from_request"
+
+[[module]]
 ts = "src/lib/retainedSize.ts"
 status = "ported"
 rust = "retained_size.rs"
