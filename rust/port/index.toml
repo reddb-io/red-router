@@ -410,6 +410,24 @@ normalizeCatalogDisplayName = "red_routerd::catalog_listing::normalize_catalog_d
 normalizeCatalogModelNames = "red_routerd::catalog_listing::normalize_catalog_model_names"
 
 [[module]]
+ts = "src/lib/catalogVersion.ts"
+status = "ported"
+rust = "catalog_version.rs"
+module = "red_routerd::catalog_version"
+ported_at = "2026-11-20T21:24:19Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-version.test.ts"]
+notes = "serde_json sorts object keys, so the digest differs from the legacy one for the same catalog; it is opaque and only compared against what the same server served, so clients re-read once after the cutover."
+
+[module.ts_blobs]
+"src/lib/catalogVersion.ts" = "63313ac26219e81ec6d89eaebd483c23b33aded7"
+"tests/redrouter/native/catalog-version.test.ts" = "3afc2166ca08d865021555892ee03cce1cbd6e12"
+
+[module.symbols]
+catalogVersionFromBody = "red_routerd::catalog_version::catalog_version_from_body"
+computeCatalogVersion = "red_routerd::catalog_version::compute_catalog_version"
+
+[[module]]
 ts = "src/shared/validation/iconUrl.ts"
 status = "ported"
 rust = "icon_url.rs"

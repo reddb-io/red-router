@@ -11,6 +11,7 @@ mod catalog_capabilities;
 mod catalog_combo_routing;
 mod catalog_listing;
 mod catalog_order;
+pub mod catalog_version;
 mod circuit;
 pub mod client_key_catalog;
 pub mod client_key_limits;
@@ -3039,12 +3040,10 @@ fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option
 }
 
 fn model_catalog_version(data: &[ListedModel]) -> Option<String> {
-    let mut stable = serde_json::to_value(data).ok()?;
-    for entry in stable.as_array_mut()? {
-        entry.as_object_mut()?.remove("created");
-    }
-    let digest = Sha256::digest(serde_json::to_vec(&stable).ok()?);
-    Some(hex::encode(digest)[..16].to_owned())
+    let serde_json::Value::Array(models) = serde_json::to_value(data).ok()? else {
+        return None;
+    };
+    catalog_version::compute_catalog_version(&models)
 }
 
 fn validate_discovery_query(uri: &Uri) -> bool {
