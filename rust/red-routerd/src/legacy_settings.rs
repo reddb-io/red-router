@@ -260,7 +260,16 @@ fn legacy_combo_sticky_limit(raw: &str) -> Option<u32> {
 /// native equivalent yet.
 fn legacy_request_queue_section(
     stored: &Value,
+    rate_limit_defaults: &Value,
 ) -> Result<crate::request_queue::RequestQueue, &'static str> {
+    // Legacy buildLegacyFallback: an old rateLimitDefaults row is the
+    // fallback for the rate, gap and concurrency.
+    let fallback = |name: &str, default: i64, min: i64, max: i64| {
+        to_integer(rate_limit_defaults.get(name), default, min, max)
+    };
+    let fallback_rpm = fallback("requestsPerMinute", 60, 1, 1_000_000);
+    let fallback_gap = fallback("minTimeBetweenRequests", 350, 0, 3_600_000);
+    let fallback_concurrency = fallback("concurrentRequests", 6, 1, 10_000);
     let field = |name: &str| stored.get(name);
     if to_integer(field("globalConcurrentRequests"), 0, 0, 100_000) != 0
         || to_integer(field("executionMaxWaitMs"), 600_000, 1, 86_400_000) != 600_000
@@ -271,17 +280,22 @@ fn legacy_request_queue_section(
         |name: &str, fallback: i64, min: i64, max: i64| to_integer(field(name), fallback, min, max);
     Ok(crate::request_queue::RequestQueue {
         enabled: !matches!(field("autoEnableApiKeyProviders"), Some(Value::Bool(false))),
-        requests_per_minute: u32::try_from(number("requestsPerMinute", 60, 1, 1_000_000))
+        requests_per_minute: u32::try_from(number("requestsPerMinute", fallback_rpm, 1, 1_000_000))
             .unwrap_or_default(),
         min_time_between_requests_ms: u64::try_from(number(
             "minTimeBetweenRequestsMs",
-            350,
+            fallback_gap,
             0,
             3_600_000,
         ))
         .unwrap_or_default(),
-        concurrent_requests: u32::try_from(number("concurrentRequests", 6, 1, 10_000))
-            .unwrap_or_default(),
+        concurrent_requests: u32::try_from(number(
+            "concurrentRequests",
+            fallback_concurrency,
+            1,
+            10_000,
+        ))
+        .unwrap_or_default(),
         max_wait_ms: u64::try_from(number("maxWaitMs", 30_000, 0, 86_400_000)).unwrap_or_default(),
         max_queue_depth: u32::try_from(number("maxQueueDepth", 0, 0, 100_000)).unwrap_or_default(),
     })
@@ -296,7 +310,11 @@ fn legacy_request_queue(
         .find(|(key, _)| key == "resilienceSettings")
         .and_then(|(_, raw)| parse_value(raw).get("requestQueue").cloned())
         .unwrap_or(Value::Null);
-    legacy_request_queue_section(&stored)
+    let rate_limit_defaults = rows
+        .iter()
+        .find(|(key, _)| key == "rateLimitDefaults")
+        .map_or(Value::Null, |(_, raw)| parse_value(raw));
+    legacy_request_queue_section(&stored, &rate_limit_defaults)
 }
 
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
@@ -415,7 +433,69 @@ pub(crate) fn custom_banned_signals(raw: &str) -> Result<Vec<String>, &'static s
 /// (legacy `resolveResilienceSettings`). Sections without a native
 /// equivalent must resolve to their defaults.
 pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static str> {
-    let defaults = &SNAPSHOT.resilience_defaults;
+    resilience_import_with(raw, None)
+}
+
+/// Legacy `buildLegacyFallback` for the cooldown and breaker profiles: an
+/// old `providerProfiles` row is the fallback the stored resilience
+/// sections resolve over (`normalizeLegacyConnectionCooldownProfile`).
+fn profile_defaults(profiles: Option<&Value>) -> Value {
+    let mut defaults = SNAPSHOT.resilience_defaults.clone();
+    let Some(profiles) = profiles else {
+        return defaults;
+    };
+    for category in ["oauth", "apikey"] {
+        let record = profiles.get(category).cloned().unwrap_or(Value::Null);
+        let cooldown = &mut defaults["connectionCooldown"][category];
+        let transient = to_integer(
+            record.get("transientCooldown"),
+            cooldown["baseCooldownMs"].as_i64().unwrap_or_default(),
+            0,
+            86_400_000,
+        );
+        let rate_limit = to_integer(record.get("rateLimitCooldown"), transient, 0, 86_400_000);
+        let hints = match record.get("rateLimitCooldown") {
+            Some(Value::Number(number)) => number.as_f64() == Some(0.0),
+            _ => cooldown["useUpstreamRetryHints"]
+                .as_bool()
+                .unwrap_or_default(),
+        };
+        let steps = to_integer(
+            record.get("maxBackoffLevel"),
+            cooldown["maxBackoffSteps"].as_i64().unwrap_or_default(),
+            0,
+            32,
+        );
+        cooldown["baseCooldownMs"] = Value::from(if hints {
+            transient
+        } else {
+            transient.max(rate_limit)
+        });
+        cooldown["useUpstreamRetryHints"] = Value::Bool(hints);
+        cooldown["maxBackoffSteps"] = Value::from(steps);
+        let breaker = &mut defaults["providerBreaker"][category];
+        breaker["failureThreshold"] = Value::from(to_integer(
+            record.get("circuitBreakerThreshold"),
+            breaker["failureThreshold"].as_i64().unwrap_or(1),
+            1,
+            1_000,
+        ));
+        breaker["resetTimeoutMs"] = Value::from(to_integer(
+            record.get("circuitBreakerReset"),
+            breaker["resetTimeoutMs"].as_i64().unwrap_or(1_000),
+            1_000,
+            86_400_000,
+        ));
+    }
+    defaults
+}
+
+/// [`resilience_import`] over the legacy `providerProfiles` fallback.
+pub(crate) fn resilience_import_with(
+    raw: &str,
+    profiles: Option<&Value>,
+) -> Result<ResilienceImport, &'static str> {
+    let defaults = &profile_defaults(profiles);
     let Value::Object(stored) = parse_value(raw) else {
         return Err("legacy resilience settings are not an object");
     };
@@ -435,7 +515,7 @@ pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static 
             continue;
         }
         if section == "requestQueue" {
-            legacy_request_queue_section(value)?;
+            legacy_request_queue_section(value, &Value::Null)?;
             continue;
         }
         // The kill switch only gates the quota-share combo strategy, which the
@@ -753,6 +833,24 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 SettingClass::AtDefault
             };
         }
+        // The cooldown and breaker fallback of old databases.
+        "providerProfiles" => {
+            let profiles = parse_value(raw);
+            return match resilience_import_with("{}", Some(&profiles)) {
+                Ok(mapped) if Ok(mapped) == resilience_import("{}") => SettingClass::AtDefault,
+                Ok(_) => SettingClass::Imported,
+                Err(reason) => SettingClass::Refused { reason },
+            };
+        }
+        // The request queue fallback of old databases.
+        "rateLimitDefaults" => {
+            let rows = [(key.to_owned(), raw.to_owned())];
+            return match (legacy_request_queue(&rows), legacy_request_queue(&[])) {
+                (Ok(own), Ok(default)) if own == default => SettingClass::AtDefault,
+                (Ok(_), _) => SettingClass::Imported,
+                (Err(reason), _) => SettingClass::Refused { reason },
+            };
+        }
         // The fallback for an unset `waitForCooldown` resilience section.
         "requestRetry" | "maxRetryIntervalSec" => {
             return if legacy_wait_for_cooldown(&[(key.to_owned(), raw.to_owned())])
@@ -860,11 +958,23 @@ pub async fn import(
     {
         return Err("legacy settings require migration; nothing imported");
     }
-    let mapped = rows
+    // An old providerProfiles row resolves the cooldown and breaker profiles
+    // even without a stored resilienceSettings row.
+    let profiles = rows
+        .iter()
+        .find(|(key, _)| key == "providerProfiles")
+        .map(|(_, raw)| parse_value(raw));
+    let resilience = rows
         .iter()
         .find(|(key, _)| key == "resilienceSettings")
-        .map(|(_, raw)| resilience_import(raw))
-        .transpose()?;
+        .map(|(_, raw)| raw.as_str());
+    let mapped = match (resilience, &profiles) {
+        (None, None) => None,
+        (raw, profiles) => Some(resilience_import_with(
+            raw.unwrap_or("{}"),
+            profiles.as_ref(),
+        )?),
+    };
     let signals = rows
         .iter()
         .find(|(key, _)| key == "customBannedSignals")
@@ -1400,6 +1510,34 @@ mod tests {
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
         assert!(resilience_import(r#"{"quotaShareConcurrencyLimit":{"enabled":false}}"#).is_ok());
         assert!(resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#).is_ok());
+        // Old providerProfiles rows are the cooldown and breaker fallback.
+        let profiles = serde_json::json!({
+            "apikey":{"transientCooldown":2000,"rateLimitCooldown":4000,"maxBackoffLevel":3,"circuitBreakerThreshold":9,"circuitBreakerReset":20000}
+        });
+        let mapped = resilience_import_with("{}", Some(&profiles)).unwrap();
+        // A non-zero rateLimitCooldown turns the upstream hints off and
+        // raises the base to the larger cooldown.
+        assert_eq!(mapped.cooldown[1], (4_000, false, 3));
+        assert_eq!((mapped.breaker[1].0, mapped.breaker[1].2), (9, 20_000));
+        assert_eq!(
+            classify("providerProfiles", &profiles.to_string()),
+            SettingClass::Imported
+        );
+        assert_eq!(classify("providerProfiles", "{}"), SettingClass::AtDefault);
+        assert_eq!(
+            legacy_request_queue(&[(
+                "rateLimitDefaults".to_owned(),
+                r#"{"requestsPerMinute":30,"minTimeBetweenRequests":100}"#.to_owned(),
+            )])
+            .unwrap(),
+            crate::request_queue::RequestQueue {
+                enabled: true,
+                requests_per_minute: 30,
+                min_time_between_requests_ms: 100,
+                ..crate::request_queue::RequestQueue::default()
+            }
+        );
+        assert_eq!(classify("rateLimitDefaults", "{}"), SettingClass::AtDefault);
         assert!(resilience_import(r#"{"requestQueue":{"globalConcurrentRequests":2}}"#).is_err());
         assert_eq!(
             legacy_request_queue(&[]).unwrap(),
