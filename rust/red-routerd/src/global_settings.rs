@@ -25,6 +25,9 @@
 //! - `combo_cooldown_wait`: the legacy `comboCooldownWait` resilience
 //!   section, the wait for a short rate-limit lockout or open circuit
 //!   before a combo answers with its failure.
+//! - `provider_cooldown`: the legacy opt-in `providerCooldown` section, the
+//!   growing cooldown a failed combo target's connection gets
+//!   (`provider_cooldown`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,6 +42,7 @@ pub(crate) const CACHE_CONTROL_MODE: &str = "cache_control_mode";
 pub(crate) const CLAUDE_FAST_MODE: &str = "claude_fast_mode";
 pub(crate) const WAIT_FOR_COOLDOWN: &str = "wait_for_cooldown";
 pub(crate) const COMBO_COOLDOWN_WAIT: &str = "combo_cooldown_wait";
+pub(crate) const PROVIDER_COOLDOWN: &str = "provider_cooldown";
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
 pub(crate) const CLAUDE_FAST_MODE_DEFAULT_MODELS: &[&str] = &[
     "claude-fable-5",
@@ -170,6 +174,7 @@ pub(crate) struct Snapshot {
     claude_fast_mode: ClaudeFastMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
     combo_cooldown_wait: crate::cooldown_retry::ComboCooldownWait,
+    provider_cooldown: crate::provider_cooldown::ProviderCooldown,
 }
 
 impl Snapshot {
@@ -201,6 +206,11 @@ impl Snapshot {
     /// The cooldown wait policy for combos.
     pub(crate) fn combo_cooldown_wait(&self) -> crate::cooldown_retry::ComboCooldownWait {
         self.combo_cooldown_wait
+    }
+
+    /// The combo provider cooldown policy.
+    pub(crate) fn provider_cooldown(&self) -> crate::provider_cooldown::ProviderCooldown {
+        self.provider_cooldown
     }
 
     /// The Claude Fast Mode request policy.
@@ -259,6 +269,13 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
                 .and_then(|wait| serde_json::to_value(wait).ok())
                 .ok_or("invalid combo cooldown wait")
         }
+        PROVIDER_COOLDOWN => {
+            serde_json::from_value::<crate::provider_cooldown::ProviderCooldown>(value)
+                .ok()
+                .filter(crate::provider_cooldown::ProviderCooldown::valid)
+                .and_then(|cooldown| serde_json::to_value(cooldown).ok())
+                .ok_or("invalid provider cooldown")
+        }
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -315,6 +332,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             COMBO_COOLDOWN_WAIT => {
                 snapshot.combo_cooldown_wait =
                     serde_json::from_value(value).map_err(|_| "invalid combo cooldown wait")?;
+            }
+            PROVIDER_COOLDOWN => {
+                snapshot.provider_cooldown =
+                    serde_json::from_value(value).map_err(|_| "invalid provider cooldown")?;
             }
             CLAUDE_FAST_MODE => {
                 snapshot.claude_fast_mode =

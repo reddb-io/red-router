@@ -11580,6 +11580,11 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_cooldown_wait()
     }
 
+    /// The combo provider cooldown policy (legacy `providerCooldown`).
+    pub(crate) async fn provider_cooldown(&self) -> crate::provider_cooldown::ProviderCooldown {
+        self.0.global_settings.read().await.provider_cooldown()
+    }
+
     /// The Claude Fast Mode request policy (legacy `claudeFastMode`).
     pub(crate) async fn claude_fast_mode(&self) -> crate::global_settings::ClaudeFastMode {
         self.0

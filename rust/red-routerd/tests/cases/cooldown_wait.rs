@@ -232,3 +232,130 @@ async fn combos_wait_for_a_short_rate_limit_lockout() {
     gateway_task.abort();
     upstream_task.abort();
 }
+
+#[tokio::test]
+async fn combos_skip_a_target_in_its_provider_cooldown() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("provider-cooldown.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (failing_url, failing_requests, _status, _body, failing_task) =
+        counted_status_provider("pc-failing-secret", StatusCode::INTERNAL_SERVER_ERROR, None)
+            .await;
+    let (serving_url, serving_task) = provider("pc-serving-secret", "served").await;
+    for (id, upstream, credential) in [
+        ("pc-failing", &failing_url, "pc-failing-secret"),
+        ("pc-serving", &serving_url, "pc-serving-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":upstream,
+                    "api_key":credential
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/pc-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Provider cooldown client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["pc-combo","upstream-model"],
+                "allowed_provider_ids":["pc-failing","pc-serving"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/pc-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"priority",
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"pc-failing","model":"upstream-model"},
+                    {"provider_id":"pc-serving","model":"upstream-model"}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let cooldown = |enabled: bool| {
+        client
+            .put(format!("{base}/api/admin/global-settings/provider_cooldown"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "enabled":enabled,
+                "min_retry_cooldown_ms":60000,
+                "max_retry_cooldown_ms":300000
+            }))
+            .send()
+    };
+    let served = |expected_failing: usize| {
+        let client = client.clone();
+        let base = base.clone();
+        let failing_requests = failing_requests.clone();
+        async move {
+            let response = chat_model(&client, &base, RUST_CLIENT_KEY, "pc-combo").await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.text().await.unwrap(), "served");
+            assert_eq!(failing_requests.load(Ordering::SeqCst), expected_failing);
+        }
+    };
+    // On, one 500 parks the failing target for the base cooldown. (Loopback
+    // upstreams take the local breaker profile, which opens after two
+    // failures, so the test stays below that.)
+    assert_eq!(cooldown(true).await.unwrap().status(), StatusCode::OK);
+    served(1).await;
+    served(1).await;
+    // Off (the default), the target is tried on every request.
+    assert_eq!(cooldown(false).await.unwrap().status(), StatusCode::OK);
+    served(2).await;
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/global-settings/provider_cooldown"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "enabled":true,
+                "min_retry_cooldown_ms":10,
+                "max_retry_cooldown_ms":9
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    gateway_task.abort();
+    failing_task.abort();
+    serving_task.abort();
+}

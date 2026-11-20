@@ -51,6 +51,7 @@ mod policy;
 pub mod product;
 pub mod product_combo;
 pub mod product_provider;
+mod provider_cooldown;
 mod provider_inference;
 mod provider_quota;
 mod reasoning_placeholder;
@@ -6139,6 +6140,10 @@ async fn proxy_request(
         Some(control) => control.combo_cooldown_wait().await,
         None => cooldown_retry::ComboCooldownWait::default(),
     };
+    let provider_cooldown = match &state.control_plane {
+        Some(control) => control.provider_cooldown().await,
+        None => provider_cooldown::ProviderCooldown::default(),
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -7002,6 +7007,11 @@ async fn proxy_request(
     let mut combo_wait_budget_ms = combo_cooldown_wait.budget_ms;
     let mut combo_pass_dispatched = false;
     let mut combo_pass_retry_hint_ms: Option<u64> = None;
+    // Legacy providerCooldown applies to combo targets only.
+    let provider_cooldown_applies = provider_cooldown.enabled
+        && state.product_combo.is_none()
+        && product_access.is_none()
+        && route.is_some_and(|route| !route.provider_direct && route.public_model_alias.is_none());
     let mut cooldown_wait_attempt = 0_u32;
     let mut cooldown_wait_restarts = 0_u32;
     let mut cooldown_wait_budget_ms = wait_for_cooldown.budget_ms;
@@ -7062,6 +7072,33 @@ async fn proxy_request(
             }
         }
         let target = target_at(offset);
+        // Legacy executeTargetGates: skip a combo target whose connection
+        // is in its provider cooldown.
+        if let Some((provider, connection)) =
+            target
+                .filter(|_| provider_cooldown_applies)
+                .and_then(|target| {
+                    target
+                        .provider_name
+                        .as_deref()
+                        .zip(target.provider_id.as_deref())
+                })
+        {
+            if let Some(remaining_ms) = provider_cooldown::remaining_ms(
+                provider,
+                connection,
+                &provider_cooldown,
+                u64::try_from(unix_time_ms()).unwrap_or_default(),
+            ) {
+                saw_availability_block = true;
+                availability_model_scope = false;
+                closest_availability_retry_ms = Some(
+                    closest_availability_retry_ms
+                        .map_or(remaining_ms, |current| current.min(remaining_ms)),
+                );
+                continue;
+            }
+        }
         if offset > 0 && activation.is_some() {
             if let (Some(control), Some(route), Some(target)) =
                 (&state.control_plane, route, target)
@@ -8208,6 +8245,33 @@ async fn proxy_request(
             if let Some(hint_ms) = retry_after_hint_ms(response.headers()) {
                 combo_pass_retry_hint_ms =
                     Some(combo_pass_retry_hint_ms.map_or(hint_ms, |current| current.min(hint_ms)));
+            }
+        }
+        // Legacy recordProviderCooldown and recordProviderSuccess.
+        if let Some((provider, connection)) =
+            target
+                .filter(|_| provider_cooldown_applies)
+                .and_then(|target| {
+                    target
+                        .provider_name
+                        .as_deref()
+                        .zip(target.provider_id.as_deref())
+                })
+        {
+            if response.status().is_success() {
+                provider_cooldown::record_success(provider, connection);
+            } else if provider_cooldown::counts_as_failure(
+                provider,
+                response.status().as_u16(),
+                failure_class,
+                response.error_body(),
+            ) {
+                provider_cooldown::record_failure(
+                    provider,
+                    connection,
+                    &provider_cooldown,
+                    u64::try_from(unix_time_ms()).unwrap_or_default(),
+                );
             }
         }
         if retryable && offset + 1 == attempts && combo_wait_eligible {
