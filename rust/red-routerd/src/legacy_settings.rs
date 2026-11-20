@@ -235,6 +235,25 @@ pub(crate) fn legacy_provider_cooldown(
     }
 }
 
+/// Legacy `comboStickyRoundRobinLimit` through
+/// `clampStickyRoundRobinTargetLimit`: unset when null or absent.
+fn legacy_combo_sticky_limit(raw: &str) -> Option<u32> {
+    let value = parse_value(raw);
+    if value.is_null() {
+        return None;
+    }
+    let number = match &value {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        Value::Bool(flag) => Some(f64::from(u8::from(*flag))),
+        _ => None,
+    };
+    Some(match number.filter(|number| number.is_finite()) {
+        Some(number) => number.floor().clamp(1.0, 1_000.0) as u32,
+        None => 1,
+    })
+}
+
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
 fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
     match parse_value(raw).as_str()? {
@@ -648,6 +667,14 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Unset (null) inherits the provider pools' sticky limit.
+        "comboStickyRoundRobinLimit" => {
+            return if legacy_combo_sticky_limit(raw).is_some() {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         // The fallback for an unset `waitForCooldown` resilience section.
         "requestRetry" | "maxRetryIntervalSec" => {
             return if legacy_wait_for_cooldown(&[(key.to_owned(), raw.to_owned())])
@@ -811,6 +838,16 @@ pub async fn import(
         global.push((
             crate::global_settings::IDEMPOTENCY_WINDOW_MS,
             Value::from(ms),
+        ));
+    }
+    if let Some(limit) = rows
+        .iter()
+        .find(|(key, _)| key == "comboStickyRoundRobinLimit")
+        .and_then(|(_, raw)| legacy_combo_sticky_limit(raw))
+    {
+        global.push((
+            crate::global_settings::COMBO_STICKY_ROUND_ROBIN_LIMIT,
+            Value::from(limit),
         ));
     }
     let provider_cooldown = legacy_provider_cooldown(&rows);
@@ -1014,6 +1051,14 @@ mod tests {
             SettingClass::AtDefault
         );
         assert_eq!(classify("requestRetry", "5"), SettingClass::Imported);
+        assert_eq!(
+            classify("comboStickyRoundRobinLimit", "null"),
+            SettingClass::AtDefault
+        );
+        assert_eq!(legacy_combo_sticky_limit("5"), Some(5));
+        assert_eq!(legacy_combo_sticky_limit("\"2.7\""), Some(2));
+        assert_eq!(legacy_combo_sticky_limit("5000"), Some(1_000));
+        assert_eq!(legacy_combo_sticky_limit("\"x\""), Some(1));
         assert_eq!(
             classify("maxRetryIntervalSec", "30"),
             SettingClass::AtDefault

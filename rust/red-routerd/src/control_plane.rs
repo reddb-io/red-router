@@ -5083,6 +5083,7 @@ impl ControlPlane {
             cursor: std::sync::atomic::AtomicUsize::new(0),
             seed: crate::route_seed(requested),
             last_good: std::sync::atomic::AtomicUsize::new(crate::NO_ROUTE_TARGET),
+            sticky: std::sync::atomic::AtomicU64::new(0),
         })))
     }
 
@@ -10346,6 +10347,7 @@ impl ControlPlane {
                     last_good: std::sync::atomic::AtomicUsize::new(
                         last_good.unwrap_or(crate::NO_ROUTE_TARGET),
                     ),
+                    sticky: std::sync::atomic::AtomicU64::new(0),
                 }),
             );
         }
@@ -11578,6 +11580,11 @@ impl ControlPlane {
     /// The combo cooldown wait policy (legacy `comboCooldownWait`).
     pub(crate) async fn combo_cooldown_wait(&self) -> crate::cooldown_retry::ComboCooldownWait {
         self.0.global_settings.read().await.combo_cooldown_wait()
+    }
+
+    /// The round-robin combo batch size (legacy `comboStickyRoundRobinLimit`).
+    pub(crate) async fn combo_sticky_limit(&self) -> u32 {
+        self.0.global_settings.read().await.combo_sticky_limit()
     }
 
     /// The combo provider cooldown policy (legacy `providerCooldown`).

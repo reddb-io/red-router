@@ -28,6 +28,9 @@
 //! - `provider_cooldown`: the legacy opt-in `providerCooldown` section, the
 //!   growing cooldown a failed combo target's connection gets
 //!   (`provider_cooldown`).
+//! - `combo_sticky_round_robin_limit`: the legacy `comboStickyRoundRobinLimit`,
+//!   the batch a round-robin combo sends to one target before rotating
+//!   (unset, the provider pools' `stickyRoundRobinLimit`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,6 +46,9 @@ pub(crate) const CLAUDE_FAST_MODE: &str = "claude_fast_mode";
 pub(crate) const WAIT_FOR_COOLDOWN: &str = "wait_for_cooldown";
 pub(crate) const COMBO_COOLDOWN_WAIT: &str = "combo_cooldown_wait";
 pub(crate) const PROVIDER_COOLDOWN: &str = "provider_cooldown";
+pub(crate) const COMBO_STICKY_ROUND_ROBIN_LIMIT: &str = "combo_sticky_round_robin_limit";
+/// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
+const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
 pub(crate) const CLAUDE_FAST_MODE_DEFAULT_MODELS: &[&str] = &[
     "claude-fable-5",
@@ -175,6 +181,7 @@ pub(crate) struct Snapshot {
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
     combo_cooldown_wait: crate::cooldown_retry::ComboCooldownWait,
     provider_cooldown: crate::provider_cooldown::ProviderCooldown,
+    combo_sticky_round_robin_limit: Option<u32>,
 }
 
 impl Snapshot {
@@ -206,6 +213,15 @@ impl Snapshot {
     /// The cooldown wait policy for combos.
     pub(crate) fn combo_cooldown_wait(&self) -> crate::cooldown_retry::ComboCooldownWait {
         self.combo_cooldown_wait
+    }
+
+    /// Legacy `resolveComboStickyRoundRobinLimit` without a per-combo value:
+    /// `comboStickyRoundRobinLimit`, else `stickyRoundRobinLimit`, clamped.
+    pub(crate) fn combo_sticky_limit(&self) -> u32 {
+        self.combo_sticky_round_robin_limit
+            .or(self.provider_strategies.default.sticky_round_robin_limit)
+            .unwrap_or(crate::account_rotation::DEFAULT_STICKY_LIMIT)
+            .clamp(1, 1_000)
     }
 
     /// The combo provider cooldown policy.
@@ -276,6 +292,11 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
                 .and_then(|cooldown| serde_json::to_value(cooldown).ok())
                 .ok_or("invalid provider cooldown")
         }
+        COMBO_STICKY_ROUND_ROBIN_LIMIT => value
+            .as_u64()
+            .filter(|limit| (1..=MAX_COMBO_STICKY_LIMIT).contains(limit))
+            .map(Value::from)
+            .ok_or("invalid combo sticky round-robin limit"),
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -336,6 +357,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             PROVIDER_COOLDOWN => {
                 snapshot.provider_cooldown =
                     serde_json::from_value(value).map_err(|_| "invalid provider cooldown")?;
+            }
+            COMBO_STICKY_ROUND_ROBIN_LIMIT => {
+                snapshot.combo_sticky_round_robin_limit =
+                    value.as_u64().and_then(|limit| u32::try_from(limit).ok());
             }
             CLAUDE_FAST_MODE => {
                 snapshot.claude_fast_mode =
@@ -514,6 +539,9 @@ mod tests {
             supported_models: vec!["claude-x".to_owned()],
         };
         assert!(custom.applies_to("claude-x") && !custom.applies_to("claude-opus-4-8"));
+        assert_eq!(Snapshot::default().combo_sticky_limit(), 3);
+        assert!(validate(COMBO_STICKY_ROUND_ROBIN_LIMIT, json!(1_001)).is_err());
+        assert!(validate(COMBO_STICKY_ROUND_ROBIN_LIMIT, json!(0)).is_err());
         assert_eq!(
             Snapshot::default().wait_for_cooldown(),
             crate::cooldown_retry::WaitForCooldown::default()

@@ -529,6 +529,9 @@ pub(crate) struct ModelRoute {
     cursor: AtomicUsize,
     seed: usize,
     last_good: AtomicUsize,
+    /// The round-robin sticky batch (legacy `rrStickyTargets`): the target
+    /// index plus one in the high half, its successes in the low half.
+    sticky: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Clone, Copy)]
@@ -808,13 +811,76 @@ impl ModelRoute {
             policy.combo_provider_target_allowed(public_model, model, provider)
         }
     }
-    fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
+    /// Legacy `getStickyRoundRobinStartIndex`: the sticky target while its
+    /// batch is open, else the rotation counter, which only a completed
+    /// batch advances.
+    fn sticky_round_robin_start(&self, eligible: &[&ModelTarget], sticky_limit: u32) -> usize {
+        let sticky = self.sticky.load(Ordering::Acquire);
+        let (target, successes) = ((sticky >> 32) as usize, sticky as u32);
+        if target > 0 && successes < sticky_limit {
+            if let Some(position) = self.targets.get(target - 1).and_then(|target| {
+                eligible
+                    .iter()
+                    .position(|candidate| std::ptr::eq(*candidate, target))
+            }) {
+                return position;
+            }
+        }
+        self.cursor.load(Ordering::Relaxed) % eligible.len()
+    }
+
+    /// Legacy `recordStickyRoundRobinSuccess`: count the served target's
+    /// batch and rotate past it once the batch is full.
+    fn record_round_robin_success(
+        &self,
+        target: &ModelTarget,
+        eligible: &[&ModelTarget],
+        sticky_limit: u32,
+    ) {
+        if self.strategy != RouteStrategy::RoundRobin || sticky_limit <= 1 {
+            return;
+        }
+        let Some(index) = self
+            .targets
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, target))
+        else {
+            return;
+        };
+        let sticky = self.sticky.load(Ordering::Acquire);
+        let successes = if (sticky >> 32) as usize == index + 1 {
+            (sticky as u32).saturating_add(1)
+        } else {
+            1
+        };
+        if successes >= sticky_limit {
+            let next = eligible
+                .iter()
+                .position(|candidate| std::ptr::eq(*candidate, target))
+                .map_or_else(
+                    || self.cursor.load(Ordering::Relaxed) + 1,
+                    |served| served + 1,
+                );
+            self.cursor.store(next, Ordering::Relaxed);
+            self.sticky.store(0, Ordering::Release);
+        } else {
+            self.sticky.store(
+                ((index as u64 + 1) << 32) | u64::from(successes),
+                Ordering::Release,
+            );
+        }
+    }
+
+    fn selection_start(&self, eligible: &[&ModelTarget], sticky_limit: u32) -> usize {
         match self.strategy {
             RouteStrategy::Priority
             | RouteStrategy::FillFirst
             | RouteStrategy::ContextRelay
             | RouteStrategy::Fusion
             | RouteStrategy::Pipeline => 0,
+            RouteStrategy::RoundRobin if sticky_limit > 1 => {
+                self.sticky_round_robin_start(eligible, sticky_limit)
+            }
             RouteStrategy::RoundRobin => {
                 self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
             }
@@ -889,6 +955,7 @@ impl ModelRoute {
         &self,
         eligible: &[&ModelTarget],
         cache_affinity_key: Option<&str>,
+        sticky_limit: u32,
     ) -> [usize; MAX_ROUTE_TARGETS] {
         if self.strategy == RouteStrategy::StrictRandom {
             return strict_random_order(
@@ -982,7 +1049,7 @@ impl ModelRoute {
             }
             return order;
         }
-        let start = self.selection_start(eligible);
+        let start = self.selection_start(eligible, sticky_limit);
         let mut order = [0; MAX_ROUTE_TARGETS];
         for (offset, slot) in order.iter_mut().take(eligible.len()).enumerate() {
             *slot = (start + offset) % eligible.len();
@@ -2193,6 +2260,7 @@ impl ProxyState {
                             route_seed(alias)
                         },
                         last_good: AtomicUsize::new(NO_ROUTE_TARGET),
+                        sticky: std::sync::atomic::AtomicU64::new(0),
                     }),
                 )
                 .is_some()
@@ -6144,6 +6212,11 @@ async fn proxy_request(
         Some(control) => control.provider_cooldown().await,
         None => provider_cooldown::ProviderCooldown::default(),
     };
+    let combo_sticky_limit = match &state.control_plane {
+        Some(control) => control.combo_sticky_limit().await,
+        // Static route configuration keeps its per-request rotation.
+        None => 1,
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -6912,7 +6985,9 @@ async fn proxy_request(
         route.is_some_and(|route| route.public_model_alias.is_some() || route.provider_direct);
     let mut attempt_order = route
         .filter(|route| route.public_model_alias.is_none() && !route.provider_direct)
-        .map(|route| route.attempt_order(&eligible, cache_affinity_key.as_deref()));
+        .map(|route| {
+            route.attempt_order(&eligible, cache_affinity_key.as_deref(), combo_sticky_limit)
+        });
     if let Some(preparation) = fusion_preparation {
         attempt_order = Some(preparation.attempt_order);
     }
@@ -8152,6 +8227,9 @@ async fn proxy_request(
                         || availability::model_failure_status(response.status()))));
         if let Some(target) = target {
             if response.status().is_success() {
+                if let Some(route) = route {
+                    route.record_round_robin_success(target, &eligible, combo_sticky_limit);
+                }
                 record_route_outcome(
                     &state,
                     route.map(|route| route.as_ref()),
