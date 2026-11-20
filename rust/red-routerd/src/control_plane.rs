@@ -11570,6 +11570,11 @@ impl ControlPlane {
         self.0.global_settings.read().await.idempotency_window_ms()
     }
 
+    /// The cooldown wait policy (legacy `waitForCooldown`).
+    pub(crate) async fn wait_for_cooldown(&self) -> crate::cooldown_retry::WaitForCooldown {
+        self.0.global_settings.read().await.wait_for_cooldown()
+    }
+
     /// The Claude Fast Mode request policy (legacy `claudeFastMode`).
     pub(crate) async fn claude_fast_mode(&self) -> crate::global_settings::ClaudeFastMode {
         self.0

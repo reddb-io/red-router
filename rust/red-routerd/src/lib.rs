@@ -15,6 +15,7 @@ mod circuit;
 pub mod client_key_catalog;
 pub mod client_key_limits;
 pub mod control_plane;
+mod cooldown_retry;
 mod daily_quota_reset;
 pub mod fastllm_control;
 pub mod fastllm_plan;
@@ -6090,6 +6091,10 @@ async fn proxy_request(
         Some(control) => control.claude_fast_mode().await,
         None => global_settings::ClaudeFastMode::default(),
     };
+    let wait_for_cooldown = match &state.control_plane {
+        Some(control) => control.wait_for_cooldown().await,
+        None => cooldown_retry::WaitForCooldown::default(),
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -6929,6 +6934,15 @@ async fn proxy_request(
     let mut closest_availability_retry_ms: Option<u64> = None;
     let mut availability_model_scope = true;
     let mut saw_terminal_availability = false;
+    let mut closest_availability_status: Option<u16> = None;
+    // Legacy waitForCooldown: a direct provider route whose connections are
+    // all cooling down waits for the earliest to recover and selects again
+    // (combos have their own wait in the legacy combo loop).
+    let cooldown_wait_eligible = state.product_combo.is_none()
+        && product_access.is_none()
+        && route.is_none_or(|route| route.provider_direct);
+    let mut cooldown_wait_attempt = 0_u32;
+    let mut cooldown_wait_budget_ms = wait_for_cooldown.budget_ms;
     let mut saw_expired_credential = false;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
@@ -6936,7 +6950,8 @@ async fn proxy_request(
             "No active provider configuration",
         );
     }
-    for offset in 0..attempts {
+    let mut offsets = 0..attempts;
+    while let Some(offset) = offsets.next() {
         let product_index = selected_product + offset;
         if state.product_combo.is_none() && product_access.is_some() && offset > 0 {
             let Some(primary) = &state.product_connection else {
@@ -7053,6 +7068,7 @@ async fn proxy_request(
                     retry_after_ms,
                     model_scope,
                     terminal_status,
+                    last_status,
                 }) => {
                     if let Some(target) = target {
                         record_route_outcome(
@@ -7068,10 +7084,40 @@ async fn proxy_request(
                     saw_availability_block = true;
                     availability_model_scope &= model_scope;
                     saw_terminal_availability |= terminal_status.is_some();
+                    if !matches!(closest_availability_retry_ms, Some(current) if current <= retry_after_ms)
+                    {
+                        closest_availability_status = last_status;
+                    }
                     closest_availability_retry_ms = Some(
                         closest_availability_retry_ms
                             .map_or(retry_after_ms, |current| current.min(retry_after_ms)),
                     );
+                    // Every candidate was blocked: wait for the earliest
+                    // cooldown when it is short enough, then select again.
+                    if offset + 1 == attempts
+                        && cooldown_wait_eligible
+                        && last_retry_response.is_none()
+                        && !saw_expired_credential
+                        && !saw_open_circuit
+                        && !saw_terminal_availability
+                    {
+                        if let Some(wait_ms) = wait_for_cooldown.wait_ms(
+                            closest_availability_retry_ms.unwrap_or_default(),
+                            cooldown_wait_attempt,
+                            cooldown_wait_budget_ms,
+                            closest_availability_status,
+                        ) {
+                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                            cooldown_wait_attempt += 1;
+                            cooldown_wait_budget_ms =
+                                cooldown_wait_budget_ms.saturating_sub(wait_ms);
+                            saw_availability_block = false;
+                            closest_availability_retry_ms = None;
+                            closest_availability_status = None;
+                            availability_model_scope = true;
+                            offsets = 0..attempts;
+                        }
+                    }
                     continue;
                 }
                 Err(_) => {

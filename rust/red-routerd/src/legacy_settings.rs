@@ -155,6 +155,40 @@ fn legacy_claude_fast_mode(raw: &str) -> crate::global_settings::ClaudeFastMode 
     }
 }
 
+/// Legacy `resolveResilienceSettings(...).waitForCooldown`: the stored
+/// `resilienceSettings.waitForCooldown` fields over the fallback built from
+/// `requestRetry` and `maxRetryIntervalSec`, whose settings defaults (3 and
+/// 30) apply when the rows are absent.
+pub(crate) fn legacy_wait_for_cooldown(
+    rows: &[(String, String)],
+) -> crate::cooldown_retry::WaitForCooldown {
+    let row = |name: &str| {
+        rows.iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, raw)| parse_value(raw))
+    };
+    let fallback_retries =
+        row("requestRetry").map_or(3, |value| to_integer(Some(&value), 5, 0, 10));
+    let fallback_wait_sec =
+        row("maxRetryIntervalSec").map_or(30, |value| to_integer(Some(&value), 90, 0, 300));
+    let stored = row("resilienceSettings")
+        .and_then(|settings| settings.get("waitForCooldown").cloned())
+        .unwrap_or(Value::Null);
+    let wait_sec = to_integer(stored.get("maxRetryWaitSec"), fallback_wait_sec, 0, 300);
+    let retries = to_integer(stored.get("maxRetries"), fallback_retries, 0, 10);
+    let budget_ms = to_integer(stored.get("budgetMs"), 300_000, wait_sec * 1_000, 300_000);
+    let enabled = match stored.get("enabled") {
+        Some(Value::Bool(enabled)) => *enabled,
+        _ => fallback_retries > 0 && fallback_wait_sec > 0,
+    };
+    crate::cooldown_retry::WaitForCooldown {
+        enabled: enabled && retries > 0 && wait_sec > 0,
+        max_retries: u32::try_from(retries).unwrap_or_default(),
+        max_retry_wait_sec: u32::try_from(wait_sec).unwrap_or_default(),
+        budget_ms: u64::try_from(budget_ms).unwrap_or_default(),
+    }
+}
+
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
 fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
     match parse_value(raw).as_str()? {
@@ -281,7 +315,7 @@ pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static 
         };
         if matches!(
             section.as_str(),
-            "connectionCooldown" | "providerBreaker" | "quotaPreflight"
+            "connectionCooldown" | "providerBreaker" | "quotaPreflight" | "waitForCooldown"
         ) {
             continue;
         }
@@ -557,6 +591,16 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // The fallback for an unset `waitForCooldown` resilience section.
+        "requestRetry" | "maxRetryIntervalSec" => {
+            return if legacy_wait_for_cooldown(&[(key.to_owned(), raw.to_owned())])
+                == crate::cooldown_retry::WaitForCooldown::default()
+            {
+                SettingClass::AtDefault
+            } else {
+                SettingClass::Imported
+            };
+        }
         // Disabled fast mode has no effect whatever its model list.
         "claudeFastMode" => {
             return if legacy_claude_fast_mode(raw).enabled {
@@ -710,6 +754,13 @@ pub async fn import(
         global.push((
             crate::global_settings::IDEMPOTENCY_WINDOW_MS,
             Value::from(ms),
+        ));
+    }
+    let wait_for_cooldown = legacy_wait_for_cooldown(&rows);
+    if wait_for_cooldown != crate::cooldown_retry::WaitForCooldown::default() {
+        global.push((
+            crate::global_settings::WAIT_FOR_COOLDOWN,
+            serde_json::to_value(wait_for_cooldown).map_err(|_| "invalid legacy cooldown wait")?,
         ));
     }
     if let Some(fast_mode) = rows
@@ -889,8 +940,30 @@ mod tests {
             classify("comboStrategy", "fallback"),
             SettingClass::AtDefault
         );
+        assert_eq!(classify("requestRetry", "5"), SettingClass::Imported);
+        assert_eq!(
+            classify("maxRetryIntervalSec", "30"),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            legacy_wait_for_cooldown(&[
+                ("requestRetry".to_owned(), "0".to_owned()),
+                (
+                    "resilienceSettings".to_owned(),
+                    r#"{"waitForCooldown":{"maxRetries":4,"maxRetryWaitSec":"60","budgetMs":1}}"#
+                        .to_owned(),
+                ),
+            ]),
+            crate::cooldown_retry::WaitForCooldown {
+                // The fallback with no retries leaves the section disabled.
+                enabled: false,
+                max_retries: 4,
+                max_retry_wait_sec: 60,
+                budget_ms: 60_000,
+            }
+        );
         assert!(matches!(
-            classify("requestRetry", "5"),
+            classify("comboStrategy", "\"round-robin\""),
             SettingClass::Refused { .. }
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
@@ -1065,7 +1138,7 @@ mod tests {
         // A section without a native equivalent must stay at its default.
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
         assert_eq!(
-            resilience_import(r#"{"waitForCooldown":{"enabled":false}}"#),
+            resilience_import(r#"{"comboCooldownWait":{"enabled":false}}"#),
             Err("legacy resilience section has no native equivalent yet")
         );
         assert_eq!(

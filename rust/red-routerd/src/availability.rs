@@ -164,6 +164,8 @@ pub(crate) enum AvailabilityDecision {
         retry_after_ms: u64,
         model_scope: bool,
         terminal_status: Option<TerminalStatus>,
+        /// The failure status behind the cooldown or lockout.
+        last_status: Option<u16>,
     },
 }
 
@@ -422,15 +424,9 @@ impl ProviderAvailability {
         loop {
             let generation = self.connection_generation.load(Ordering::Acquire);
             let cooldown_until = self.cooldown_until_unix_ms.load(Ordering::Acquire);
+            // The locked path reports the status behind an active cooldown.
             if cooldown_until > now {
-                if cooldown_until == TERMINAL_UNTIL_UNIX_MS {
-                    break;
-                }
-                return Ok(AvailabilityDecision::Blocked {
-                    retry_after_ms: cooldown_until.saturating_sub(now),
-                    model_scope: false,
-                    terminal_status: None,
-                });
+                break;
             }
             if self.has_model_lockouts.load(Ordering::Acquire) {
                 break;
@@ -450,6 +446,7 @@ impl ProviderAvailability {
                 retry_after_ms: inner.cooldown_until_unix_ms.saturating_sub(now),
                 model_scope: false,
                 terminal_status: inner.terminal_status,
+                last_status: inner.last_status,
             });
         }
         if let Some(lockout) = inner
@@ -461,6 +458,7 @@ impl ProviderAvailability {
                 retry_after_ms: lockout.until_unix_ms.saturating_sub(now),
                 model_scope: true,
                 terminal_status: None,
+                last_status: Some(lockout.status),
             });
         }
         Ok(AvailabilityDecision::Permit(AvailabilityPermit {

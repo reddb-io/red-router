@@ -19,6 +19,9 @@
 //!   always, never).
 //! - `claude_fast_mode`: the legacy `claudeFastMode`, which asks a paired
 //!   CLIProxyAPI to route supported `claude` models to Anthropic Fast Mode.
+//! - `wait_for_cooldown`: the legacy `waitForCooldown` resilience section
+//!   (or its `requestRetry` and `maxRetryIntervalSec` fallback), the wait
+//!   for a short cooldown on direct provider routes (`cooldown_retry`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,6 +34,7 @@ pub(crate) const PROVIDER_STRATEGIES: &str = "provider_strategies";
 pub(crate) const CONNECTION_MAX_COOLDOWN_MS: &str = "connection_max_cooldown_ms";
 pub(crate) const CACHE_CONTROL_MODE: &str = "cache_control_mode";
 pub(crate) const CLAUDE_FAST_MODE: &str = "claude_fast_mode";
+pub(crate) const WAIT_FOR_COOLDOWN: &str = "wait_for_cooldown";
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
 pub(crate) const CLAUDE_FAST_MODE_DEFAULT_MODELS: &[&str] = &[
     "claude-fable-5",
@@ -160,6 +164,7 @@ pub(crate) struct Snapshot {
     connection_max_cooldown_ms: Option<u64>,
     cache_control_mode: crate::openai_content::CacheControlMode,
     claude_fast_mode: ClaudeFastMode,
+    wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
 }
 
 impl Snapshot {
@@ -181,6 +186,11 @@ impl Snapshot {
         provider: &str,
     ) -> (crate::account_rotation::AccountStrategy, u32) {
         self.provider_strategies.for_provider(provider)
+    }
+
+    /// The cooldown wait policy for direct provider routes.
+    pub(crate) fn wait_for_cooldown(&self) -> crate::cooldown_retry::WaitForCooldown {
+        self.wait_for_cooldown
     }
 
     /// The Claude Fast Mode request policy.
@@ -225,6 +235,13 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|ms| (1..=MAX_IDEMPOTENCY_WINDOW_MS).contains(ms))
             .map(Value::from)
             .ok_or("invalid idempotency window"),
+        WAIT_FOR_COOLDOWN => {
+            serde_json::from_value::<crate::cooldown_retry::WaitForCooldown>(value)
+                .ok()
+                .filter(crate::cooldown_retry::WaitForCooldown::valid)
+                .and_then(|wait| serde_json::to_value(wait).ok())
+                .ok_or("invalid cooldown wait")
+        }
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -274,6 +291,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             MAX_BODY_SIZE_MB => snapshot.max_body_size_mb = value.as_u64(),
             IDEMPOTENCY_WINDOW_MS => snapshot.idempotency_window_ms = value.as_u64(),
             CONNECTION_MAX_COOLDOWN_MS => snapshot.connection_max_cooldown_ms = value.as_u64(),
+            WAIT_FOR_COOLDOWN => {
+                snapshot.wait_for_cooldown =
+                    serde_json::from_value(value).map_err(|_| "invalid cooldown wait")?;
+            }
             CLAUDE_FAST_MODE => {
                 snapshot.claude_fast_mode =
                     serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -451,6 +472,20 @@ mod tests {
             supported_models: vec!["claude-x".to_owned()],
         };
         assert!(custom.applies_to("claude-x") && !custom.applies_to("claude-opus-4-8"));
+        assert_eq!(
+            Snapshot::default().wait_for_cooldown(),
+            crate::cooldown_retry::WaitForCooldown::default()
+        );
+        assert!(validate(
+            WAIT_FOR_COOLDOWN,
+            json!({"enabled":true,"max_retries":5,"max_retry_wait_sec":90,"budget_ms":300000})
+        )
+        .is_ok());
+        assert!(validate(
+            WAIT_FOR_COOLDOWN,
+            json!({"enabled":true,"max_retries":5,"max_retry_wait_sec":90,"budget_ms":1000})
+        )
+        .is_err());
         assert!(validate(
             CLAUDE_FAST_MODE,
             json!({"enabled":true,"supported_models":[" "]})
