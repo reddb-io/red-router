@@ -8054,7 +8054,7 @@ async fn proxy_request(
             });
         // Legacy withRateLimit: an API-key connection waits for its turn in
         // its request queue; the slot is held until the upstream answers.
-        let _request_queue_slot = match (
+        let request_queue_slot = match (
             request_queue.enabled,
             target.and_then(|target| target.provider_id.as_deref()),
             &state.control_plane,
@@ -8235,6 +8235,19 @@ async fn proxy_request(
             .await
             {
                 response = inspect_provider_response(credits_response).await;
+            }
+        }
+        // Legacy updateFromHeaders: the upstream's rate headers tune the queue.
+        if request_queue_slot.is_some() {
+            if let Some(target) = target {
+                if let Some(connection) = target.provider_id.as_deref() {
+                    request_queue::limiter(connection).learn_from_headers(
+                        target.provider_name.as_deref(),
+                        response.status().as_u16(),
+                        response.headers(),
+                        &request_queue,
+                    );
+                }
             }
         }
         if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
