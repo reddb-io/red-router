@@ -45,6 +45,7 @@ mod native_usage;
 mod no_thinking_alias;
 mod oidc;
 mod openai_content;
+mod opencode_geo_block;
 mod payload_rules;
 mod policy;
 pub mod product;
@@ -4873,7 +4874,8 @@ async fn record_internal_provider_health(
             availability.record_success(permit, &target.model).await
         }
         resilience::ProviderFailureClass::Transient
-        | resilience::ProviderFailureClass::RequestScoped => Ok(()),
+        | resilience::ProviderFailureClass::RequestScoped
+        | resilience::ProviderFailureClass::RequestRefusal => Ok(()),
     }
 }
 
@@ -8093,7 +8095,8 @@ async fn proxy_request(
                     availability.record_success(permit, target_model).await
                 }
                 resilience::ProviderFailureClass::Transient
-                | resilience::ProviderFailureClass::RequestScoped => Ok(()),
+                | resilience::ProviderFailureClass::RequestScoped
+                | resilience::ProviderFailureClass::RequestRefusal => Ok(()),
             };
             if recorded.is_err() {
                 return error(

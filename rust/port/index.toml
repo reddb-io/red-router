@@ -1,6 +1,34 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/executors/opencodeGeoBlock.ts"
+status = "ported"
+rust = "opencode_geo_block.rs"
+module = "red_routerd::opencode_geo_block"
+ported_at = "2026-11-20T02:51:08Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/opencode-free-tier-refusal-predicate.test.ts",
+    "tests/unit/opencode-geo-block-predicate.test.ts",
+    "tests/unit/opencode-user-blocked-predicate.test.ts",
+]
+notes = "The free-tier refusal gives the request-refusal failure class: the next account is tried and nothing is recorded on the connection or model, as the legacy auth guard does. The geo and user-blocked predicates are ported for the OpenCode executor; proxyKeyOf and poolReselectKeyOf key the egress proxy pool reselection, which has no Rust counterpart yet (egress proxies are not ported). The lookbehind boundaries of the legacy regexes are matched explicitly, as the regex crate has no lookaround."
+
+[module.ts_blobs]
+"open-sse/executors/opencodeGeoBlock.ts" = "32ec130d7b9c6ad66b51b8add7a4df3be9bbbab8"
+"tests/unit/opencode-free-tier-refusal-predicate.test.ts" = "0e3928d19bd369e402486c418244986a1588d2fe"
+"tests/unit/opencode-geo-block-predicate.test.ts" = "50d8e2c037ee91373c46ce0af374e8b527da0d1d"
+"tests/unit/opencode-user-blocked-predicate.test.ts" = "0799a51d7f170383489d842a13f768896adc7f8f"
+
+[module.symbols]
+isOpencodeFreeTierRefusal = "red_routerd::opencode_geo_block::is_opencode_free_tier_refusal"
+isOpencodeFreeTierRefusalForProvider = "red_routerd::opencode_geo_block::is_opencode_free_tier_refusal_for_provider"
+isOpencodeGeoBlocked = "red_routerd::opencode_geo_block::is_opencode_geo_blocked"
+isOpencodeUserBlocked = "red_routerd::opencode_geo_block::is_opencode_user_blocked"
+poolReselectKeyOf = "-"
+proxyKeyOf = "-"
+
+[[module]]
 ts = "open-sse/services/accountFallback/mistralAmbiguousAuth.ts"
 status = "ported"
 rust = "mistral_ambiguous_auth.rs"

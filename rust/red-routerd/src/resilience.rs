@@ -60,6 +60,9 @@ pub(crate) enum ProviderFailureClass {
     /// The request names a resource the provider does not have (legacy
     /// `request_resource_not_found`): no fallback, cooldown or lockout.
     RequestScoped,
+    /// The provider refused this request, not the account (legacy OpenCode
+    /// free-tier refusal): the next account is tried, nothing is recorded.
+    RequestRefusal,
 }
 
 impl ProviderFailureClass {
@@ -127,14 +130,20 @@ pub(crate) fn classify_provider_failure(
 ) -> ProviderFailureClass {
     // Legacy checkFallbackError classifies a missing conversation or file
     // reference before every generic 404 rule.
+    let raw = body.map(String::from_utf8_lossy).unwrap_or_default();
     if status == StatusCode::NOT_FOUND
-        && body.is_some_and(|body| {
-            crate::request_resource_errors::is_resource_not_found_response(
-                &String::from_utf8_lossy(body),
-            )
-        })
+        && crate::request_resource_errors::is_resource_not_found_response(&raw)
     {
         return ProviderFailureClass::RequestScoped;
+    }
+    // Legacy auth guard: the OpenCode free tier refusing a request outside
+    // its client belongs on neither the account nor the model.
+    if crate::opencode_geo_block::is_opencode_free_tier_refusal_for_provider(
+        provider,
+        status.as_u16(),
+        &raw,
+    ) {
+        return ProviderFailureClass::RequestRefusal;
     }
     let normalized = normalized_error_evidence(body);
     let text = normalized.as_str();
@@ -704,6 +713,22 @@ b"
         let files = br#"{"error":{"message":"[404]: Files [file-be30851bd1614656872e725e] were not found","type":"invalid_request_error","code":"model_not_found"}}"#;
         assert_eq!(class(404, files), ProviderFailureClass::RequestScoped);
         assert!(!ProviderFailureClass::RequestScoped.semantic_fallback());
+        let refusal = br#"{"type":"error","error":{"type":"FreeTierError","message":"Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"}}"#;
+        let opencode = |provider: &str| {
+            classify_provider_failure(
+                RateLimitScope::Connection,
+                Some(provider),
+                StatusCode::FORBIDDEN,
+                &HeaderMap::new(),
+                Some(refusal),
+            )
+        };
+        assert_eq!(
+            opencode("opencode-zen"),
+            ProviderFailureClass::RequestRefusal
+        );
+        assert!(ProviderFailureClass::RequestRefusal.semantic_fallback());
+        assert_eq!(opencode("groq"), ProviderFailureClass::Transient);
         // Only a 404 is request-scoped; a bare 404 still locks the model.
         assert_eq!(class(400, files), ProviderFailureClass::Model);
         assert_eq!(

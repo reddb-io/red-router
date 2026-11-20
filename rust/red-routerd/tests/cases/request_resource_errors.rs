@@ -98,3 +98,74 @@ async fn a_missing_request_resource_does_not_lock_the_model() {
     gateway_task.abort();
     upstream_task.abort();
 }
+
+#[tokio::test]
+async fn an_opencode_free_tier_refusal_moves_on_without_a_cooldown() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("free-tier.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (refusing_url, refusing_requests, _status, body, refusing_task) =
+        counted_status_provider("refusing-secret", StatusCode::FORBIDDEN, None).await;
+    *body.write().await = r#"{"type":"error","error":{"type":"FreeTierError","message":"Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"}}"#.to_owned();
+    let (serving_url, serving_task) = provider("serving-secret", "served").await;
+    for (id, upstream, credential, priority) in [
+        ("opencode-refusing", &refusing_url, "refusing-secret", 1),
+        ("opencode-serving", &serving_url, "serving-secret", 2),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"opencode",
+                    "upstream_url":upstream,
+                    "api_key":credential,
+                    "priority":priority
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    let key = "free-tier-client-key-1234567890123456";
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/free-tier-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Free tier client",
+                "api_key":key,
+                "scopes":["inference:chat"],
+                "allowed_models":["opencode/model-1"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    // The refusal falls back to the next account and leaves the refusing
+    // one available: the next request tries it again.
+    for expected in 1..=2 {
+        let response = chat_model(&client, &base, key, "opencode/model-1").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "served");
+        assert_eq!(refusing_requests.load(Ordering::SeqCst), expected);
+    }
+
+    gateway_task.abort();
+    refusing_task.abort();
+    serving_task.abort();
+}
