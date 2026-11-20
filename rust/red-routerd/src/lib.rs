@@ -7234,6 +7234,8 @@ async fn proxy_request(
     let mut final_antigravity_translated = false;
     // A Codex answer streamed for a client that asked for one object.
     let mut final_codex_folded = false;
+    // The connection and model that answered, for combo auto-promotion.
+    let mut final_target_identity: Option<(Arc<str>, String)> = None;
     let mut final_accounting = None;
     let mut final_served_model = None;
     let mut final_load_guard = None;
@@ -8768,6 +8770,12 @@ async fn proxy_request(
         final_translated = translate_anthropic;
         final_antigravity_translated = translate_antigravity;
         final_codex_folded = codex_folded;
+        final_target_identity = target.and_then(|target| {
+            target
+                .provider_id
+                .clone()
+                .map(|provider_id| (provider_id, target.model.clone()))
+        });
         final_accounting = accounting_attempt;
         final_served_model = response
             .status()
@@ -8808,6 +8816,25 @@ async fn proxy_request(
     // Redirects are intentionally not followed or relayed to the client.
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
+    }
+    // Legacy promoteSuccessfulComboModel: with the opt-in flag, the combo
+    // target that answered moves to the front of the stored combo. Best
+    // effort: it never delays or fails the answer.
+    if response.status().is_success()
+        && route.is_some_and(|route| !route.provider_direct && route.public_model_alias.is_none())
+    {
+        if let (Some(control), Some((provider_id, target_model))) =
+            (state.control_plane.clone(), final_target_identity.clone())
+        {
+            if control.combo_auto_promote().await {
+                let combo_id = requested_model.clone();
+                tokio::spawn(async move {
+                    let _ = control
+                        .promote_combo_target(&combo_id, &provider_id, &target_model)
+                        .await;
+                });
+            }
+        }
     }
     let response = if final_codex_folded && response.status().is_success() {
         let status = response.status();

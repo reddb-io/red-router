@@ -11689,6 +11689,61 @@ impl ControlPlane {
         self.0.global_settings.read().await.signature_cache_mode()
     }
 
+    /// Whether a combo's successful target moves to the front (legacy
+    /// `comboAutoPromoteEnabled`).
+    pub(crate) async fn combo_auto_promote(&self) -> bool {
+        self.0.global_settings.read().await.combo_auto_promote()
+    }
+
+    /// Legacy `promoteSuccessfulComboModel`: the stored combo's first target
+    /// naming this connection and model moves to the front, and routes
+    /// recompile. Already first, or absent, changes nothing.
+    pub(crate) async fn promote_combo_target(
+        &self,
+        combo_id: &str,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<bool, &'static str> {
+        let _mutation = self.0.mutation.lock().await;
+        let Some(mut record) = self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == combo_id && combo.enabled)
+        else {
+            return Ok(false);
+        };
+        let mut stored: serde_json::Value =
+            serde_json::from_str(&record.targets_json).map_err(|_| "invalid combo targets")?;
+        let targets = if stored.is_array() {
+            stored.as_array_mut()
+        } else {
+            stored
+                .get_mut("targets")
+                .and_then(serde_json::Value::as_array_mut)
+        }
+        .ok_or("invalid combo targets")?;
+        let Some(index) = targets
+            .iter()
+            .position(|target| target["provider_id"] == provider_id && target["model"] == model)
+            .filter(|index| *index > 0)
+        else {
+            return Ok(false);
+        };
+        let winner = targets.remove(index);
+        targets.insert(0, winner);
+        record.targets_json = stored.to_string();
+        record.revision = revision()?;
+        self.0.database.upsert_combo(&record).await?;
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        Ok(true)
+    }
+
     /// The opt-in combo model lockout policy (legacy `modelLockout`).
     pub(crate) async fn model_lockout_policy(&self) -> crate::availability::ModelLockoutPolicy {
         self.0

@@ -45,6 +45,8 @@
 //!   `codexFastServiceTier`), the service tier Codex requests get.
 //! - `antigravity_signature_cache_mode`: the legacy
 //!   `antigravitySignatureCacheMode` (enabled, bypass, bypass-strict).
+//! - `combo_auto_promote`: the legacy `comboAutoPromoteEnabled`, which moves
+//!   a combo's successful target to the front of the stored combo.
 //! - `model_lockout_policy`: the legacy opt-in `modelLockout` policy
 //!   (enabled, error codes, base cooldown, exponential backoff).
 //! - `responses_previous_response_id_mode`: the legacy
@@ -72,6 +74,7 @@ pub(crate) const REQUEST_QUEUE_CONNECTIONS: &str = "request_queue_connections";
 pub(crate) const PROVIDER_QUOTA_OVERRIDES: &str = "provider_quota_overrides";
 pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
+pub(crate) const COMBO_AUTO_PROMOTE: &str = "combo_auto_promote";
 pub(crate) const ANTIGRAVITY_SIGNATURE_CACHE_MODE: &str = "antigravity_signature_cache_mode";
 pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
 const MAX_QUEUE_POLICIES: usize = 10_000;
@@ -208,6 +211,7 @@ pub(crate) struct Snapshot {
     claude_fast_mode: ClaudeFastMode,
     codex_service_tier: crate::codex_request::CodexServiceTier,
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
+    combo_auto_promote: bool,
     signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
     previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
@@ -325,6 +329,12 @@ impl Snapshot {
         self.signature_cache_mode
     }
 
+    /// Whether a combo's successful target moves to the front (legacy
+    /// `comboAutoPromoteEnabled`).
+    pub(crate) fn combo_auto_promote(&self) -> bool {
+        self.combo_auto_promote
+    }
+
     /// The opt-in combo model lockout policy.
     pub(crate) fn model_lockout_policy(&self) -> &crate::availability::ModelLockoutPolicy {
         &self.model_lockout_policy
@@ -439,6 +449,10 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .is_boolean()
             .then_some(value)
             .ok_or("invalid prompt cache affinity"),
+        COMBO_AUTO_PROMOTE => value
+            .is_boolean()
+            .then_some(value)
+            .ok_or("invalid combo auto promote"),
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -542,6 +556,9 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             SESSION_STICKINESS => {
                 snapshot.session_stickiness_disabled = value == Value::Bool(false);
+            }
+            COMBO_AUTO_PROMOTE => {
+                snapshot.combo_auto_promote = value == Value::Bool(true);
             }
             PROMPT_CACHE_AFFINITY => {
                 snapshot.prompt_cache_affinity_disabled = value == Value::Bool(false);

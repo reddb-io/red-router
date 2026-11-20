@@ -968,6 +968,13 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
             };
         }
         // Only an explicit false turns the affinity off.
+        "comboAutoPromoteEnabled" => {
+            return if parse_value(raw) == Value::Bool(true) {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         "promptCacheAffinityEnabled" => {
             return if parse_value(raw) == Value::Bool(false) {
                 SettingClass::Imported
@@ -1226,6 +1233,15 @@ pub async fn import(
         global.push((
             crate::global_settings::COMBO_STICKY_ROUND_ROBIN_LIMIT,
             Value::from(limit),
+        ));
+    }
+    if rows
+        .iter()
+        .any(|(key, raw)| key == "comboAutoPromoteEnabled" && parse_value(raw) == Value::Bool(true))
+    {
+        global.push((
+            crate::global_settings::COMBO_AUTO_PROMOTE,
+            Value::Bool(true),
         ));
     }
     if rows.iter().any(|(key, raw)| {
@@ -1705,6 +1721,14 @@ mod tests {
                 "{raw}"
             );
         }
+        assert_eq!(
+            classify("comboAutoPromoteEnabled", "true"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("comboAutoPromoteEnabled", "false"),
+            SettingClass::AtDefault
+        );
         // Ported from tests/unit/responses-state-policy.test.ts.
         for (raw, class) in [
             (r#""auto""#, SettingClass::AtDefault),

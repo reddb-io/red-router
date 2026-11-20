@@ -12091,3 +12091,5 @@ include!("cases/request_queue.rs");
 include!("cases/codex_executor.rs");
 
 include!("cases/model_lockout_policy.rs");
+
+include!("cases/combo_auto_promote.rs");
