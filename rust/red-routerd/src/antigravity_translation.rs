@@ -9,6 +9,7 @@ use crate::{
 };
 use axum::body::{Body, Bytes};
 use futures_util::{stream, Stream, StreamExt};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{
     collections::{HashMap, VecDeque},
@@ -307,11 +308,130 @@ pub(crate) fn historical_tool_call_ids(input: &Value) -> Result<Vec<String>, ()>
     Ok(ids)
 }
 
+/// Legacy `SignatureCacheMode` (`antigravitySignatureCacheMode`): the stored
+/// thought signature, or under a bypass mode a valid one the client resent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SignatureCacheMode {
+    #[default]
+    Enabled,
+    Bypass,
+    BypassStrict,
+}
+
+impl SignatureCacheMode {
+    /// Legacy `normalizeSignatureCacheMode`: anything else is enabled.
+    pub(crate) fn normalize(value: &Value) -> Self {
+        match value.as_str() {
+            Some("bypass") => Self::Bypass,
+            Some("bypass-strict") => Self::BypassStrict,
+            _ => Self::Enabled,
+        }
+    }
+}
+
+/// The stored signatures of a conversation and the mode that picks between
+/// them and the client's.
+#[derive(Clone, Copy)]
+pub(crate) struct Signatures<'a> {
+    pub(crate) stored: &'a HashMap<String, String>,
+    pub(crate) mode: SignatureCacheMode,
+}
+
+/// Legacy `decodeSignature`: an `R`/`E`-prefixed canonical base64 payload.
+fn decode_signature(signature: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let payload = signature
+        .strip_prefix('R')
+        .or_else(|| signature.strip_prefix('E'))?;
+    let body = payload.trim_end_matches('=');
+    if payload.is_empty()
+        || payload.len() - body.len() > 2
+        || payload.len() % 4 == 1
+        || !body
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/'))
+    {
+        return None;
+    }
+    let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(body)
+        .ok()
+        .filter(|decoded| !decoded.is_empty())?;
+    let canonical = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&decoded);
+    (canonical == body).then_some(decoded)
+}
+
+/// Legacy `readVarint`.
+fn read_varint(buffer: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut result = 0_usize;
+    let mut shift = 0;
+    let mut offset = start;
+    while offset < buffer.len() && shift < 35 {
+        let byte = buffer[offset];
+        result |= usize::from(byte & 0x7f) << shift;
+        offset += 1;
+        if byte & 0x80 == 0 {
+            return Some((offset, result));
+        }
+        shift += 7;
+    }
+    None
+}
+
+/// Legacy `isValidBasicGeminiThoughtSignature`.
+pub(crate) fn is_valid_basic_thought_signature(signature: &str) -> bool {
+    decode_signature(signature).is_some_and(|decoded| decoded[0] == 0x12)
+}
+
+/// Legacy `isValidFullGeminiThoughtSignature`: the nested protobuf lengths
+/// account for every byte.
+pub(crate) fn is_valid_full_thought_signature(signature: &str) -> bool {
+    let Some(decoded) = decode_signature(signature).filter(|decoded| decoded[0] == 0x12) else {
+        return false;
+    };
+    let Some((start, length)) = read_varint(&decoded, 1) else {
+        return false;
+    };
+    if start.saturating_add(length) != decoded.len() {
+        return false;
+    }
+    let inner = &decoded[start..];
+    if inner.first() != Some(&0x0a) {
+        return false;
+    }
+    read_varint(inner, 1).is_some_and(|(next, length)| next.saturating_add(length) == inner.len())
+}
+
+/// Legacy `extractClientThoughtSignature`: the signature a client resent
+/// on a tool call or its function.
+fn client_thought_signature<'a>(
+    call: &'a serde_json::Map<String, Value>,
+    function: &'a serde_json::Map<String, Value>,
+) -> Option<&'a str> {
+    let truthy = |value: &&Value| match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::String(text) => !text.is_empty(),
+        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
+        _ => true,
+    };
+    [
+        call.get("thoughtSignature"),
+        call.get("thought_signature"),
+        function.get("thoughtSignature"),
+        function.get("thought_signature"),
+    ]
+    .into_iter()
+    .flatten()
+    .find(truthy)?
+    .as_str()
+}
+
 pub(crate) fn request(
     input: &Value,
     model: &str,
     project: Option<&str>,
-    signatures: Option<&HashMap<String, String>>,
+    signatures: Option<Signatures<'_>>,
 ) -> Result<Value, ()> {
     let source = object(
         input,
@@ -388,7 +508,16 @@ pub(crate) fn request(
                         return Err(());
                     }
                     for call in calls {
-                        let call = object(call, &["id", "type", "function"])?;
+                        let call = object(
+                            call,
+                            &[
+                                "id",
+                                "type",
+                                "function",
+                                "thoughtSignature",
+                                "thought_signature",
+                            ],
+                        )?;
                         if required_string(call, "type")? != "function" {
                             return Err(());
                         }
@@ -396,8 +525,10 @@ pub(crate) fn request(
                         if id.len() > 512 || id.chars().any(char::is_control) {
                             return Err(());
                         }
-                        let function =
-                            object(call.get("function").ok_or(())?, &["name", "arguments"])?;
+                        let function = object(
+                            call.get("function").ok_or(())?,
+                            &["name", "arguments", "thoughtSignature", "thought_signature"],
+                        )?;
                         let name = required_string(function, "name")?;
                         let arguments: Value =
                             serde_json::from_str(required_string(function, "arguments")?)
@@ -409,13 +540,30 @@ pub(crate) fn request(
                         }
                         let mut part = json!({"functionCall":{"name":name,"args":arguments}});
                         if let Some(signatures) = signatures {
-                            let signature = signatures
+                            let stored = signatures
+                                .stored
                                 .get(id)
                                 .filter(|signature| {
                                     !signature.is_empty() && signature.len() <= 65_536
                                 })
-                                .map(String::as_str)
-                                .unwrap_or(SIGNATURE_BYPASS);
+                                .map(String::as_str);
+                            // Legacy resolveGeminiThoughtSignature.
+                            let client = client_thought_signature(call, function)
+                                .filter(|signature| signature.len() <= 65_536);
+                            let signature = match (client, signatures.mode) {
+                                (Some(client), SignatureCacheMode::Bypass)
+                                    if is_valid_basic_thought_signature(client) =>
+                                {
+                                    Some(client)
+                                }
+                                (Some(client), SignatureCacheMode::BypassStrict)
+                                    if is_valid_full_thought_signature(client) =>
+                                {
+                                    Some(client)
+                                }
+                                _ => stored,
+                            }
+                            .unwrap_or(SIGNATURE_BYPASS);
                             part["thoughtSignature"] = Value::String(signature.to_owned());
                         }
                         parts.push(part);
@@ -1063,7 +1211,10 @@ mod tests {
             }),
             "gemini-2.5-pro",
             Some("project-1"),
-            Some(&signatures),
+            Some(Signatures {
+                stored: &signatures,
+                mode: SignatureCacheMode::Enabled,
+            }),
         )
         .unwrap();
         assert_eq!(request["project"], "project-1");
@@ -1103,6 +1254,70 @@ mod tests {
             None,
         )
         .is_err());
+    }
+
+    // Ported from tests/unit/signature-cache-bypass.test.ts.
+    #[test]
+    fn client_thought_signatures_are_used_only_under_a_bypass_mode() {
+        use base64::Engine as _;
+        let signature = |bytes: &[u8]| {
+            format!(
+                "R{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            )
+        };
+        let basic = signature(&[0x12, 0x00]);
+        let strict = signature(&[0x12, 0x02, 0x0a, 0x00]);
+        let invalid = signature(&[0x13, 0x00]);
+        assert!(is_valid_basic_thought_signature(&basic));
+        assert!(!is_valid_basic_thought_signature(&invalid));
+        assert!(!is_valid_basic_thought_signature("not-base64"));
+        assert!(is_valid_full_thought_signature(&strict));
+        assert!(!is_valid_full_thought_signature(&basic));
+        assert!(!is_valid_full_thought_signature(&invalid));
+        assert_eq!(
+            SignatureCacheMode::normalize(&json!("bypass-strict")),
+            SignatureCacheMode::BypassStrict
+        );
+        assert_eq!(
+            SignatureCacheMode::normalize(&json!("other")),
+            SignatureCacheMode::Enabled
+        );
+
+        let stored = HashMap::from([("call-1".to_owned(), "stored-signature".to_owned())]);
+        let sent = |client: &str, mode: SignatureCacheMode, id: &str| {
+            let body = json!({
+                "model": "gemini-2.5-pro",
+                "messages": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": null, "tool_calls": [{
+                        "id": id,
+                        "type": "function",
+                        "thought_signature": client,
+                        "function": {"name": "weather", "arguments": "{}"}
+                    }]},
+                    {"role": "tool", "tool_call_id": id, "content": "sunny"}
+                ]
+            });
+            let request = request(
+                &body,
+                "gemini-2.5-pro",
+                None,
+                Some(Signatures {
+                    stored: &stored,
+                    mode,
+                }),
+            )
+            .unwrap();
+            request["request"]["contents"][1]["parts"][0]["thoughtSignature"].clone()
+        };
+        use SignatureCacheMode::{Bypass, BypassStrict, Enabled};
+        assert_eq!(sent(&strict, Enabled, "call-1"), "stored-signature");
+        assert_eq!(sent(&strict, Enabled, "missing-call"), SIGNATURE_BYPASS);
+        assert_eq!(sent(&basic, Bypass, "call-1"), basic.as_str());
+        assert_eq!(sent(&invalid, Bypass, "call-1"), "stored-signature");
+        assert_eq!(sent(&strict, BypassStrict, "call-1"), strict.as_str());
+        assert_eq!(sent(&basic, BypassStrict, "call-1"), "stored-signature");
     }
 
     #[test]

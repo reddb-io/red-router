@@ -11681,6 +11681,14 @@ impl ControlPlane {
             .previous_response_id_mode()
     }
 
+    /// The Antigravity thought signature policy (legacy
+    /// `antigravitySignatureCacheMode`).
+    pub(crate) async fn signature_cache_mode(
+        &self,
+    ) -> crate::antigravity_translation::SignatureCacheMode {
+        self.0.global_settings.read().await.signature_cache_mode()
+    }
+
     /// The opt-in combo model lockout policy (legacy `modelLockout`).
     pub(crate) async fn model_lockout_policy(&self) -> crate::availability::ModelLockoutPolicy {
         self.0

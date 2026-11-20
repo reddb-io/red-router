@@ -1030,6 +1030,17 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 _ => SettingClass::Imported,
             };
         }
+        // An unknown signature cache mode is enabled, as the legacy store reads it.
+        "antigravitySignatureCacheMode" => {
+            return match crate::antigravity_translation::SignatureCacheMode::normalize(
+                &parse_value(raw),
+            ) {
+                crate::antigravity_translation::SignatureCacheMode::Enabled => {
+                    SettingClass::AtDefault
+                }
+                _ => SettingClass::Imported,
+            };
+        }
         // The marker of the legacy per-connection Codex defaults migration.
         "codexConnectionDefaultsMigrationV1" => {
             return SettingClass::Equivalent {
@@ -1301,6 +1312,19 @@ pub async fn import(
         global.push((
             crate::global_settings::RESPONSES_PREVIOUS_RESPONSE_ID_MODE,
             serde_json::to_value(mode).map_err(|_| "invalid legacy previous response id mode")?,
+        ));
+    }
+    if let Some(mode) = rows
+        .iter()
+        .find(|(key, _)| key == "antigravitySignatureCacheMode")
+        .map(|(_, raw)| {
+            crate::antigravity_translation::SignatureCacheMode::normalize(&parse_value(raw))
+        })
+        .filter(|mode| *mode != crate::antigravity_translation::SignatureCacheMode::Enabled)
+    {
+        global.push((
+            crate::global_settings::ANTIGRAVITY_SIGNATURE_CACHE_MODE,
+            serde_json::to_value(mode).map_err(|_| "invalid legacy signature cache mode")?,
         ));
     }
     let codex_service_tier = legacy_codex_service_tier(&rows);
@@ -1669,6 +1693,18 @@ mod tests {
             classify("hideNoThinkVariants", "false"),
             SettingClass::AtDefault
         );
+        for (raw, class) in [
+            (r#""enabled""#, SettingClass::AtDefault),
+            (r#""bogus""#, SettingClass::AtDefault),
+            (r#""bypass""#, SettingClass::Imported),
+            (r#""bypass-strict""#, SettingClass::Imported),
+        ] {
+            assert_eq!(
+                classify("antigravitySignatureCacheMode", raw),
+                class,
+                "{raw}"
+            );
+        }
         // Ported from tests/unit/responses-state-policy.test.ts.
         for (raw, class) in [
             (r#""auto""#, SettingClass::AtDefault),

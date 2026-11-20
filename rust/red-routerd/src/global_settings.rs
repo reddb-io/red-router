@@ -43,6 +43,8 @@
 //!   resilience section, by provider name.
 //! - `codex_service_tier`: the legacy `codexServiceTier` (or
 //!   `codexFastServiceTier`), the service tier Codex requests get.
+//! - `antigravity_signature_cache_mode`: the legacy
+//!   `antigravitySignatureCacheMode` (enabled, bypass, bypass-strict).
 //! - `model_lockout_policy`: the legacy opt-in `modelLockout` policy
 //!   (enabled, error codes, base cooldown, exponential backoff).
 //! - `responses_previous_response_id_mode`: the legacy
@@ -70,6 +72,7 @@ pub(crate) const REQUEST_QUEUE_CONNECTIONS: &str = "request_queue_connections";
 pub(crate) const PROVIDER_QUOTA_OVERRIDES: &str = "provider_quota_overrides";
 pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
+pub(crate) const ANTIGRAVITY_SIGNATURE_CACHE_MODE: &str = "antigravity_signature_cache_mode";
 pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
 const MAX_QUEUE_POLICIES: usize = 10_000;
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
@@ -205,6 +208,7 @@ pub(crate) struct Snapshot {
     claude_fast_mode: ClaudeFastMode,
     codex_service_tier: crate::codex_request::CodexServiceTier,
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
+    signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
     previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
     combo_cooldown_wait: crate::cooldown_retry::ComboCooldownWait,
@@ -312,6 +316,13 @@ impl Snapshot {
         &self,
     ) -> crate::responses_state::PreviousResponseIdMode {
         self.previous_response_id_mode
+    }
+
+    /// The Antigravity thought signature policy.
+    pub(crate) fn signature_cache_mode(
+        &self,
+    ) -> crate::antigravity_translation::SignatureCacheMode {
+        self.signature_cache_mode
     }
 
     /// The opt-in combo model lockout policy.
@@ -448,6 +459,11 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
                     serde_json::to_value(mode).map_err(|_| "invalid previous response id mode")
                 })
         }
+        ANTIGRAVITY_SIGNATURE_CACHE_MODE => serde_json::from_value::<
+            crate::antigravity_translation::SignatureCacheMode,
+        >(value)
+        .map_err(|_| "invalid signature cache mode")
+        .and_then(|mode| serde_json::to_value(mode).map_err(|_| "invalid signature cache mode")),
         MODEL_LOCKOUT_POLICY => {
             let policy: crate::availability::ModelLockoutPolicy =
                 serde_json::from_value(value).map_err(|_| "invalid model lockout policy")?;
@@ -537,6 +553,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             RESPONSES_PREVIOUS_RESPONSE_ID_MODE => {
                 snapshot.previous_response_id_mode = serde_json::from_value(value)
                     .map_err(|_| "invalid previous response id mode")?;
+            }
+            ANTIGRAVITY_SIGNATURE_CACHE_MODE => {
+                snapshot.signature_cache_mode =
+                    serde_json::from_value(value).map_err(|_| "invalid signature cache mode")?;
             }
             MODEL_LOCKOUT_POLICY => {
                 snapshot.model_lockout_policy =

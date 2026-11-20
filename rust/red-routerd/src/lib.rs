@@ -6280,6 +6280,10 @@ async fn proxy_request(
         },
         claude_code_client,
     };
+    let signature_cache_mode = match &state.control_plane {
+        Some(control) => control.signature_cache_mode().await,
+        None => antigravity_translation::SignatureCacheMode::default(),
+    };
     let model_lockout_policy = match &state.control_plane {
         Some(control) => control.model_lockout_policy().await,
         None => availability::ModelLockoutPolicy::default(),
@@ -7760,7 +7764,12 @@ async fn proxy_request(
                         &attempt_parsed,
                         &target.model,
                         target.antigravity_project.as_deref(),
-                        attempt_signatures.as_ref(),
+                        attempt_signatures.as_ref().map(|stored| {
+                            antigravity_translation::Signatures {
+                                stored,
+                                mode: signature_cache_mode,
+                            }
+                        }),
                     )
                     .and_then(|mut value| {
                         apply_target_payload_rules(
