@@ -145,6 +145,15 @@ pub(crate) fn classify_provider_failure(
     ) {
         return ProviderFailureClass::RequestRefusal;
     }
+    // Legacy resolveApiKeyForbiddenFallback (#8775): a Cloudflare signature ban
+    // on an API-key provider moves on without a cooldown a retry would wait out.
+    if status == StatusCode::FORBIDDEN
+        && provider.is_some_and(api_key_provider)
+        && !forbidden_quota_text(&raw)
+        && crate::non_retryable_upstream::is_non_retryable_cloudflare_error(&raw)
+    {
+        return ProviderFailureClass::RequestRefusal;
+    }
     let normalized = normalized_error_evidence(body);
     let text = normalized.as_str();
 
@@ -492,6 +501,23 @@ fn credits_exhausted_text(text: &str) -> bool {
             "usage balance exhausted",
         ],
     )
+}
+
+/// Legacy `getProviderCategory(provider) === "apikey"`: every provider but
+/// the OAuth accounts Rust adopts (unknown providers are API-key ones).
+fn api_key_provider(provider: &str) -> bool {
+    !matches!(
+        provider.to_ascii_lowercase().as_str(),
+        "codex" | "claude" | "agy" | "antigravity" | "github" | "xai-oauth" | "openference"
+    )
+}
+
+/// The quota texts the legacy API-key 403 branch leaves to the quota rules.
+fn forbidden_quota_text(raw: &str) -> bool {
+    let lower = raw.to_lowercase();
+    lower.contains("has not been used in project")
+        || lower.contains("hour quota")
+        || lower.contains("quota has been exceeded")
 }
 
 fn credential_failure_text(text: &str) -> bool {
@@ -905,6 +931,41 @@ b"
                 Some(br#"{"error":{"code":"insufficient_quota"}}"#),
             ),
             ProviderFailureClass::CreditsExhausted
+        );
+        // Ported from tests/unit/account-fallback-cf1010-no-retry-8775.test.ts.
+        let banned_signature = br#"{"cloudflare_error":true,"retryable":false,"error_code":1010,"error_name":"browser_signature_banned"}"#;
+        for provider in ["groq", "cerebras", "together"] {
+            assert_eq!(
+                classify_provider_failure(
+                    RateLimitScope::Auto,
+                    Some(provider),
+                    StatusCode::FORBIDDEN,
+                    &headers,
+                    Some(banned_signature),
+                ),
+                ProviderFailureClass::RequestRefusal,
+                "{provider}"
+            );
+        }
+        assert_ne!(
+            classify_provider_failure(
+                RateLimitScope::Auto,
+                Some("codex"),
+                StatusCode::FORBIDDEN,
+                &headers,
+                Some(banned_signature),
+            ),
+            ProviderFailureClass::RequestRefusal
+        );
+        assert_eq!(
+            classify_provider_failure(
+                RateLimitScope::Auto,
+                Some("groq"),
+                StatusCode::FORBIDDEN,
+                &headers,
+                Some(br#"{"error":"forbidden"}"#),
+            ),
+            ProviderFailureClass::Transient
         );
         assert_eq!(
             classify_provider_failure(

@@ -102,6 +102,24 @@ resetMistralAmbiguous401Strikes = "-"
 takeMistralAmbiguous401SoftStrike = "-"
 
 [[module]]
+ts = "open-sse/services/accountFallback/nonRetryableUpstream.ts"
+status = "ported"
+rust = "non_retryable_upstream.rs"
+module = "red_routerd::non_retryable_upstream"
+ported_at = "2026-11-20T22:28:01Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/account-fallback-cf1010-no-retry-8775.test.ts"]
+notes = "The API-key 403 branch is a RequestRefusal class in classify_provider_failure (no cooldown, the request moves on); API-key providers are every provider but the adopted OAuth ones, as the legacy registry defaults unknown providers to apikey."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/nonRetryableUpstream.ts" = "df4084b49c9e1f4d3e9780f4aa28d6a40372c124"
+"tests/unit/account-fallback-cf1010-no-retry-8775.test.ts" = "cf20707761809cd7cec458596c54671d91c86c95"
+
+[module.symbols]
+isNonRetryableCloudflareError = "red_routerd::non_retryable_upstream::is_non_retryable_cloudflare_error"
+resolveApiKeyForbiddenFallback = "red_routerd::resilience::classify_provider_failure"
+
+[[module]]
 ts = "open-sse/services/accountFallback/sharedWalletCredits.ts"
 status = "ported"
 rust = "shared_wallet_credits.rs"

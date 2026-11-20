@@ -48,6 +48,7 @@ mod model_permissions;
 mod model_scope_providers;
 mod native_usage;
 mod no_thinking_alias;
+pub mod non_retryable_upstream;
 mod oidc;
 mod openai_content;
 mod opencode_geo_block;
