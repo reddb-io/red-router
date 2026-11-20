@@ -479,6 +479,30 @@ extractClientIp = "red_routerd::ip_utils::extract_client_ip"
 getClientIpFromRequest = "red_routerd::ip_utils::client_ip_from_request"
 
 [[module]]
+ts = "src/lib/proxyEchoTarget.ts"
+status = "ported"
+rust = "proxy_echo_target.rs"
+module = "red_routerd::proxy_echo_target"
+ported_at = "2026-11-20T22:01:21Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/proxy-echo-ipv4-fallback-9694.test.ts"]
+notes = "The override is passed in instead of read from process.env; the outcome is a (result, url) tuple, and a failure with no attempt is Err(None)."
+
+[module.ts_blobs]
+"src/lib/proxyEchoTarget.ts" = "84cd9ef35c72c21a80d5469503682e22d9944a76"
+"tests/unit/proxy-echo-ipv4-fallback-9694.test.ts" = "ac19c21ff57bf87bc6a1359cd67284cb180b753d"
+
+[module.symbols]
+EGRESS_ECHO_URL_DUAL = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_DUAL"
+EGRESS_ECHO_URL_ENV = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_ENV"
+EGRESS_ECHO_URL_V4 = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_V4"
+EchoAttemptOutcome = "-"
+MIN_ECHO_ATTEMPT_MS = "red_routerd::proxy_echo_target::MIN_ECHO_ATTEMPT_MS"
+probeEchoTargets = "red_routerd::proxy_echo_target::probe_echo_targets"
+resolveEgressEchoUrls = "red_routerd::proxy_echo_target::resolve_egress_echo_urls"
+splitEchoAttemptBudget = "red_routerd::proxy_echo_target::split_echo_attempt_budget"
+
+[[module]]
 ts = "src/lib/retainedSize.ts"
 status = "ported"
 rust = "retained_size.rs"

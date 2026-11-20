@@ -58,6 +58,7 @@ pub mod product_provider;
 mod provider_cooldown;
 mod provider_inference;
 mod provider_quota;
+pub mod proxy_echo_target;
 pub mod proxy_family;
 mod reasoning_placeholder;
 mod reasoning_replay;
