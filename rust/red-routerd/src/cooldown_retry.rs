@@ -76,9 +76,86 @@ impl WaitForCooldown {
     }
 }
 
+/// Legacy `COMBO_COOLDOWN_WAIT_MARGIN_MS`.
+pub(crate) const COMBO_WAIT_MARGIN_MS: u64 = 50;
+
+/// Legacy `comboCooldownWait`: after a combo pass fails, wait out a short
+/// rate-limit lockout of one of its targets (or the open circuit that
+/// skipped them all) and run the pass again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboCooldownWait {
+    pub enabled: bool,
+    pub max_wait_ms: u64,
+    pub max_attempts: u32,
+    pub budget_ms: u64,
+}
+
+impl Default for ComboCooldownWait {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_wait_ms: 90_000,
+            max_attempts: 5,
+            budget_ms: MAX_BUDGET_MS,
+        }
+    }
+}
+
+impl ComboCooldownWait {
+    /// The legacy `normalizeComboCooldownWaitSettings` ranges.
+    pub(crate) fn valid(&self) -> bool {
+        self.max_wait_ms <= MAX_BUDGET_MS
+            && self.max_attempts <= MAX_RETRIES
+            && self.budget_ms <= MAX_BUDGET_MS
+            && self.budget_ms >= self.max_wait_ms
+    }
+
+    /// Legacy `shouldWaitForComboCooldown` for a lockout (or open circuit)
+    /// with `remaining_ms` left: the wait including the margin, or `None`.
+    pub(crate) fn wait_ms(
+        &self,
+        remaining_ms: u64,
+        attempt: u32,
+        budget_left_ms: u64,
+    ) -> Option<u64> {
+        let wait_ms = remaining_ms.saturating_add(COMBO_WAIT_MARGIN_MS);
+        (self.enabled
+            && self.max_wait_ms > 0
+            && self.max_attempts > 0
+            && remaining_ms > 0
+            && wait_ms <= self.max_wait_ms
+            && attempt < self.max_attempts
+            && budget_left_ms >= wait_ms)
+            .then_some(wait_ms)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_combo_wait_follows_the_legacy_limits() {
+        let settings = ComboCooldownWait::default();
+        assert!(settings.valid());
+        assert_eq!(settings.wait_ms(3_000, 0, MAX_BUDGET_MS), Some(3_050));
+        assert_eq!(settings.wait_ms(89_950, 4, 89_999), None);
+        assert_eq!(settings.wait_ms(89_950, 4, 90_000), Some(90_000));
+        assert_eq!(settings.wait_ms(89_951, 0, MAX_BUDGET_MS), None);
+        assert_eq!(settings.wait_ms(1_000, 5, MAX_BUDGET_MS), None);
+        assert_eq!(settings.wait_ms(0, 0, MAX_BUDGET_MS), None);
+        let disabled = ComboCooldownWait {
+            enabled: false,
+            ..settings
+        };
+        assert_eq!(disabled.wait_ms(1_000, 0, MAX_BUDGET_MS), None);
+        assert!(!ComboCooldownWait {
+            budget_ms: 1,
+            ..settings
+        }
+        .valid());
+    }
 
     #[test]
     fn the_retry_decision_follows_the_legacy_limits() {

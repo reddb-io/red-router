@@ -189,6 +189,28 @@ pub(crate) fn legacy_wait_for_cooldown(
     }
 }
 
+/// Legacy `normalizeComboCooldownWaitSettings` over the stored
+/// `resilienceSettings.comboCooldownWait` (the fallback is the default).
+pub(crate) fn legacy_combo_cooldown_wait(
+    rows: &[(String, String)],
+) -> crate::cooldown_retry::ComboCooldownWait {
+    let stored = rows
+        .iter()
+        .find(|(key, _)| key == "resilienceSettings")
+        .and_then(|(_, raw)| parse_value(raw).get("comboCooldownWait").cloned())
+        .unwrap_or(Value::Null);
+    let max_wait_ms = to_integer(stored.get("maxWaitMs"), 90_000, 0, 300_000);
+    let max_attempts = to_integer(stored.get("maxAttempts"), 5, 0, 10);
+    let budget_ms = to_integer(stored.get("budgetMs"), 300_000, max_wait_ms, 300_000);
+    let enabled = !matches!(stored.get("enabled"), Some(Value::Bool(false)));
+    crate::cooldown_retry::ComboCooldownWait {
+        enabled: enabled && max_wait_ms > 0 && max_attempts > 0,
+        max_wait_ms: u64::try_from(max_wait_ms).unwrap_or_default(),
+        max_attempts: u32::try_from(max_attempts).unwrap_or_default(),
+        budget_ms: u64::try_from(budget_ms).unwrap_or_default(),
+    }
+}
+
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
 fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
     match parse_value(raw).as_str()? {
@@ -315,7 +337,11 @@ pub(crate) fn resilience_import(raw: &str) -> Result<ResilienceImport, &'static 
         };
         if matches!(
             section.as_str(),
-            "connectionCooldown" | "providerBreaker" | "quotaPreflight" | "waitForCooldown"
+            "connectionCooldown"
+                | "providerBreaker"
+                | "quotaPreflight"
+                | "waitForCooldown"
+                | "comboCooldownWait"
         ) {
             continue;
         }
@@ -756,6 +782,14 @@ pub async fn import(
             Value::from(ms),
         ));
     }
+    let combo_cooldown_wait = legacy_combo_cooldown_wait(&rows);
+    if combo_cooldown_wait != crate::cooldown_retry::ComboCooldownWait::default() {
+        global.push((
+            crate::global_settings::COMBO_COOLDOWN_WAIT,
+            serde_json::to_value(combo_cooldown_wait)
+                .map_err(|_| "invalid legacy combo cooldown wait")?,
+        ));
+    }
     let wait_for_cooldown = legacy_wait_for_cooldown(&rows);
     if wait_for_cooldown != crate::cooldown_retry::WaitForCooldown::default() {
         global.push((
@@ -944,6 +978,18 @@ mod tests {
         assert_eq!(
             classify("maxRetryIntervalSec", "30"),
             SettingClass::AtDefault
+        );
+        assert_eq!(
+            legacy_combo_cooldown_wait(&[(
+                "resilienceSettings".to_owned(),
+                r#"{"comboCooldownWait":{"maxWaitMs":0,"budgetMs":5}}"#.to_owned(),
+            )]),
+            crate::cooldown_retry::ComboCooldownWait {
+                enabled: false,
+                max_wait_ms: 0,
+                max_attempts: 5,
+                budget_ms: 5,
+            }
         );
         assert_eq!(
             legacy_wait_for_cooldown(&[
@@ -1138,7 +1184,7 @@ mod tests {
         // A section without a native equivalent must stay at its default.
         assert!(resilience_import(r#"{"waitForCooldown":{"enabled":true}}"#).is_ok());
         assert_eq!(
-            resilience_import(r#"{"comboCooldownWait":{"enabled":false}}"#),
+            resilience_import(r#"{"requestQueue":{"requestsPerMinute":7}}"#),
             Err("legacy resilience section has no native equivalent yet")
         );
         assert_eq!(

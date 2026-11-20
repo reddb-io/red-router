@@ -6971,6 +6971,25 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .status(),
         200
     );
+    // Without the combo cooldown wait, the open circuit answers at once.
+    assert_eq!(
+        client
+            .put(format!(
+                "{restarted_base}/api/admin/global-settings/combo_cooldown_wait"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "enabled":false,
+                "max_wait_ms":90000,
+                "max_attempts":5,
+                "budget_ms":300000
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let blocked = chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo").await;
     assert_eq!(blocked.status(), 503);
     assert!(blocked.headers().get(header::RETRY_AFTER).is_some());

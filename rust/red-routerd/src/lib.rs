@@ -3907,6 +3907,42 @@ fn circuit_open_error(retry_after_ms: u64) -> Response {
     response
 }
 
+/// Legacy `resolveCircuitOpenWaitDecision` and
+/// `resolveComboCooldownWaitDecision` after a failed combo pass: with nothing
+/// dispatched, wait only for the open circuit; otherwise, once a failure gave
+/// a retry hint, wait for the shortest rate-limit (429) lockout among the
+/// pass's targets, or the hint when it is later.
+async fn combo_cooldown_wait_ms<'a>(
+    settings: cooldown_retry::ComboCooldownWait,
+    attempt: u32,
+    budget_left_ms: u64,
+    targets: impl Iterator<Item = &'a ModelTarget>,
+    dispatched: bool,
+    retry_hint_ms: Option<u64>,
+    circuit_retry_ms: Option<u64>,
+) -> Option<u64> {
+    if !dispatched {
+        return settings.wait_ms(circuit_retry_ms?, attempt, budget_left_ms);
+    }
+    let hint_ms = retry_hint_ms?;
+    let mut shortest: Option<u64> = None;
+    for target in targets {
+        let Some(availability) = target.availability.as_ref() else {
+            continue;
+        };
+        if let Ok(availability::AvailabilityDecision::Blocked {
+            retry_after_ms,
+            terminal_status: None,
+            last_status: Some(429),
+            ..
+        }) = availability.try_acquire(&target.model).await
+        {
+            shortest = Some(shortest.map_or(retry_after_ms, |current| current.min(retry_after_ms)));
+        }
+    }
+    settings.wait_ms(shortest?.max(hint_ms), attempt, budget_left_ms)
+}
+
 fn availability_blocked_error(
     retry_after_ms: u64,
     model_scope: bool,
@@ -6095,6 +6131,10 @@ async fn proxy_request(
         Some(control) => control.wait_for_cooldown().await,
         None => cooldown_retry::WaitForCooldown::default(),
     };
+    let combo_cooldown_wait = match &state.control_plane {
+        Some(control) => control.combo_cooldown_wait().await,
+        None => cooldown_retry::ComboCooldownWait::default(),
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -6940,7 +6980,24 @@ async fn proxy_request(
     // (combos have their own wait in the legacy combo loop).
     let cooldown_wait_eligible = state.product_combo.is_none()
         && product_access.is_none()
-        && route.is_none_or(|route| route.provider_direct);
+        && route.is_none_or(|route| route.provider_direct || route.public_model_alias.is_some());
+    // Legacy comboCooldownWait: a failed combo pass waits out a short
+    // rate-limit lockout of a target, or the open circuit that skipped
+    // every target, and runs again.
+    let combo_wait_eligible = state.product_combo.is_none()
+        && product_access.is_none()
+        && route.is_some_and(|route| {
+            !route.provider_direct
+                && route.public_model_alias.is_none()
+                && !matches!(
+                    route.strategy,
+                    RouteStrategy::Fusion | RouteStrategy::Pipeline
+                )
+        });
+    let mut combo_wait_attempt = 0_u32;
+    let mut combo_wait_budget_ms = combo_cooldown_wait.budget_ms;
+    let mut combo_pass_dispatched = false;
+    let mut combo_pass_retry_hint_ms: Option<u64> = None;
     let mut cooldown_wait_attempt = 0_u32;
     let mut cooldown_wait_restarts = 0_u32;
     let mut cooldown_wait_budget_ms = wait_for_cooldown.budget_ms;
@@ -6952,6 +7009,27 @@ async fn proxy_request(
         );
     }
     let mut offsets = 0..attempts;
+    let target_at = |offset: usize| {
+        if direct_alias {
+            eligible.get(offset).copied()
+        } else {
+            attempt_order.map(|order| eligible[order[offset]])
+        }
+    };
+    // Forget what the last selection pass saw and select from the start.
+    macro_rules! restart_selection {
+        () => {
+            saw_availability_block = false;
+            closest_availability_retry_ms = None;
+            closest_availability_status = None;
+            availability_model_scope = true;
+            saw_open_circuit = false;
+            closest_circuit_retry_ms = None;
+            combo_pass_dispatched = false;
+            combo_pass_retry_hint_ms = None;
+            offsets = 0..attempts;
+        };
+    }
     while let Some(offset) = offsets.next() {
         let product_index = selected_product + offset;
         if state.product_combo.is_none() && product_access.is_some() && offset > 0 {
@@ -6979,11 +7057,7 @@ async fn proxy_request(
                 continue;
             }
         }
-        let target = if direct_alias {
-            eligible.get(offset).copied()
-        } else {
-            attempt_order.map(|order| eligible[order[offset]])
-        };
+        let target = target_at(offset);
         if offset > 0 && activation.is_some() {
             if let (Some(control), Some(route), Some(target)) =
                 (&state.control_plane, route, target)
@@ -7111,11 +7185,26 @@ async fn proxy_request(
                             cooldown_wait_attempt += 1;
                             cooldown_wait_budget_ms =
                                 cooldown_wait_budget_ms.saturating_sub(wait_ms);
-                            saw_availability_block = false;
-                            closest_availability_retry_ms = None;
-                            closest_availability_status = None;
-                            availability_model_scope = true;
-                            offsets = 0..attempts;
+                            restart_selection!();
+                        }
+                    }
+                    if offset + 1 == attempts && combo_wait_eligible {
+                        if let Some(wait_ms) = combo_cooldown_wait_ms(
+                            combo_cooldown_wait,
+                            combo_wait_attempt,
+                            combo_wait_budget_ms,
+                            (0..attempts).filter_map(target_at),
+                            combo_pass_dispatched,
+                            combo_pass_retry_hint_ms,
+                            closest_circuit_retry_ms,
+                        )
+                        .await
+                        {
+                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                            combo_wait_attempt += 1;
+                            combo_wait_budget_ms = combo_wait_budget_ms.saturating_sub(wait_ms);
+                            restart_selection!();
+                            continue;
                         }
                     }
                     continue;
@@ -7721,6 +7810,25 @@ async fn proxy_request(
                         closest_circuit_retry_ms
                             .map_or(retry_after_ms, |current| current.min(retry_after_ms)),
                     );
+                    if offset + 1 == attempts && combo_wait_eligible {
+                        if let Some(wait_ms) = combo_cooldown_wait_ms(
+                            combo_cooldown_wait,
+                            combo_wait_attempt,
+                            combo_wait_budget_ms,
+                            (0..attempts).filter_map(target_at),
+                            combo_pass_dispatched,
+                            combo_pass_retry_hint_ms,
+                            closest_circuit_retry_ms,
+                        )
+                        .await
+                        {
+                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                            combo_wait_attempt += 1;
+                            combo_wait_budget_ms = combo_wait_budget_ms.saturating_sub(wait_ms);
+                            restart_selection!();
+                            continue;
+                        }
+                    }
                     continue;
                 }
                 Err(_) => {
@@ -8086,6 +8194,34 @@ async fn proxy_request(
                     false,
                 )
                 .await;
+            }
+        }
+        if !response.status().is_success() {
+            combo_pass_dispatched = true;
+            if let Some(hint_ms) = retry_after_hint_ms(response.headers()) {
+                combo_pass_retry_hint_ms =
+                    Some(combo_pass_retry_hint_ms.map_or(hint_ms, |current| current.min(hint_ms)));
+            }
+        }
+        if retryable && offset + 1 == attempts && combo_wait_eligible {
+            if let Some(wait_ms) = combo_cooldown_wait_ms(
+                combo_cooldown_wait,
+                combo_wait_attempt,
+                combo_wait_budget_ms,
+                (0..attempts).filter_map(target_at),
+                combo_pass_dispatched,
+                combo_pass_retry_hint_ms,
+                closest_circuit_retry_ms,
+            )
+            .await
+            {
+                tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                combo_wait_attempt += 1;
+                combo_wait_budget_ms = combo_wait_budget_ms.saturating_sub(wait_ms);
+                last_retry_response = Some(response);
+                last_retry_load_guard = load_guard;
+                restart_selection!();
+                continue;
             }
         }
         // A failure on the last candidate that leaves it cooling down selects
