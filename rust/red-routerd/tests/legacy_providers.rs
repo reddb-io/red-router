@@ -593,7 +593,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         ("codex-wrong", "workspace-other"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
-            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"chatgptPlanType":"plus","codexQuotaStateByScope":{"codex":{"usedPercent":10}},"codexExhaustedWindowByScope":{"spark":"5h"},"codexScopeRateLimitedUntil":{"codex":"2000-01-01T00:00:00Z"},"codexScopeRateLimitSource":{"codex":"fallback"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
         .bind(&legacy_oauth_label)
@@ -608,6 +608,8 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-rules','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","excludedModels":[17]}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-cooling','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","codexScopeRateLimitedUntil":{"spark":"2999-01-01T00:00:00Z"}}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
         .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":true}"#).execute(&mut input).await.unwrap();
     sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-wrong-user','codex','oauth',1,'red','My Codex',?,?,?,?)")
@@ -663,7 +665,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        18
+        19
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -679,6 +681,12 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         legacy_providers::adopt_codex(&dest, "codex-invalid-rules", STORAGE_KEY, STORAGE_KEY)
             .await
             .is_err()
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-cooling", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy Codex scope cooldown is still pending")
     );
     assert_eq!(
         legacy_providers::adopt_codex(&dest, "codex-auto", STORAGE_KEY, STORAGE_KEY)
@@ -777,6 +785,16 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     assert_eq!(metadata["legacyCodex"]["chatgptUserId"], "user-1");
     assert_eq!(metadata["legacyCodex"]["workspacePlanType"], "team");
     assert_eq!(metadata["legacyCodex"]["organizations"][0]["id"], "org-1");
+    // Account-pool runtime state is re-read natively; the plan stays.
+    assert_eq!(metadata["legacyCodex"]["chatgptPlanType"], "plus");
+    for key in [
+        "codexQuotaStateByScope",
+        "codexExhaustedWindowByScope",
+        "codexScopeRateLimitedUntil",
+        "codexScopeRateLimitSource",
+    ] {
+        assert!(metadata["legacyCodex"].get(key).is_none(), "{key}");
+    }
     // The Codex request defaults reach the request path through the session.
     assert_eq!(
         metadata["legacyCodex"]["requestDefaults"],
