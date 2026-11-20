@@ -667,6 +667,19 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Auto-disabling a banned account only flips it inactive after the
+        // ban already parked it; native bans park the account until an
+        // operator acts, whatever the scope.
+        "autoDisableBannedAccounts" | "autoDisableBannedScope" => {
+            let value = parse_value(raw);
+            return if value == Value::Bool(false) || value == Value::String("all".to_owned()) {
+                SettingClass::AtDefault
+            } else {
+                SettingClass::Equivalent {
+                    reason: "native banned accounts stay parked until an operator acts",
+                }
+            };
+        }
         // Only an explicit true turns the stickiness off.
         "disableSessionStickiness" => {
             return if parse_value(raw) == Value::Bool(true) {
@@ -1088,6 +1101,18 @@ mod tests {
             SettingClass::AtDefault
         );
         assert_eq!(legacy_combo_sticky_limit("5"), Some(5));
+        assert_eq!(
+            classify("autoDisableBannedAccounts", "false"),
+            SettingClass::AtDefault
+        );
+        assert!(matches!(
+            classify("autoDisableBannedAccounts", "true"),
+            SettingClass::Equivalent { .. }
+        ));
+        assert!(matches!(
+            classify("autoDisableBannedScope", "\"oauth\""),
+            SettingClass::Equivalent { .. }
+        ));
         assert_eq!(
             classify("promptCacheAffinityEnabled", "false"),
             SettingClass::Imported
