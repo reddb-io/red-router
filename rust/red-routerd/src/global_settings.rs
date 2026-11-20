@@ -17,6 +17,8 @@
 //!   the ceiling on scaled connection cooldowns (default 30 minutes).
 //! - `cache_control_mode`: the legacy `alwaysPreserveClientCache` (auto,
 //!   always, never).
+//! - `claude_fast_mode`: the legacy `claudeFastMode`, which asks a paired
+//!   CLIProxyAPI to route supported `claude` models to Anthropic Fast Mode.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +30,15 @@ pub(crate) const IDEMPOTENCY_WINDOW_MS: &str = "idempotency_window_ms";
 pub(crate) const PROVIDER_STRATEGIES: &str = "provider_strategies";
 pub(crate) const CONNECTION_MAX_COOLDOWN_MS: &str = "connection_max_cooldown_ms";
 pub(crate) const CACHE_CONTROL_MODE: &str = "cache_control_mode";
+pub(crate) const CLAUDE_FAST_MODE: &str = "claude_fast_mode";
+/// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
+pub(crate) const CLAUDE_FAST_MODE_DEFAULT_MODELS: &[&str] = &[
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+];
 /// Legacy `MIN_REQUEST_BODY_LIMIT_MB` and `MAX_REQUEST_BODY_LIMIT_MB`.
 pub(crate) const BODY_SIZE_MB_RANGE: std::ops::RangeInclusive<u64> = 1..=500;
 /// The longest replay window accepted (a year).
@@ -90,6 +101,37 @@ impl ProviderStrategies {
     }
 }
 
+/// Legacy `claudeFastMode`: off by default; an empty model list means the
+/// default supported models.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaudeFastMode {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub supported_models: Vec<String>,
+}
+
+impl ClaudeFastMode {
+    /// Legacy `shouldRequestClaudeFastMode`: enabled and the model equals a
+    /// supported id or extends it with a dated suffix.
+    pub(crate) fn applies_to(&self, model: &str) -> bool {
+        let matches = |supported: &str| {
+            model == supported
+                || model
+                    .strip_prefix(supported)
+                    .is_some_and(|rest| rest.starts_with('-'))
+        };
+        self.enabled
+            && !model.is_empty()
+            && if self.supported_models.is_empty() {
+                CLAUDE_FAST_MODE_DEFAULT_MODELS.iter().any(|m| matches(m))
+            } else {
+                self.supported_models.iter().any(|m| matches(m))
+            }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomSystemPrompt {
@@ -117,6 +159,7 @@ pub(crate) struct Snapshot {
     provider_strategies: ProviderStrategies,
     connection_max_cooldown_ms: Option<u64>,
     cache_control_mode: crate::openai_content::CacheControlMode,
+    claude_fast_mode: ClaudeFastMode,
 }
 
 impl Snapshot {
@@ -138,6 +181,11 @@ impl Snapshot {
         provider: &str,
     ) -> (crate::account_rotation::AccountStrategy, u32) {
         self.provider_strategies.for_provider(provider)
+    }
+
+    /// The Claude Fast Mode request policy.
+    pub(crate) fn claude_fast_mode(&self) -> &ClaudeFastMode {
+        &self.claude_fast_mode
     }
 
     /// The client cache-marker policy.
@@ -177,6 +225,19 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|ms| (1..=MAX_IDEMPOTENCY_WINDOW_MS).contains(ms))
             .map(Value::from)
             .ok_or("invalid idempotency window"),
+        CLAUDE_FAST_MODE => {
+            let mode: ClaudeFastMode =
+                serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
+            if mode.supported_models.len() > 100
+                || mode
+                    .supported_models
+                    .iter()
+                    .any(|model| model.trim().is_empty() || model.len() > 256)
+            {
+                return Err("invalid Claude fast mode");
+            }
+            serde_json::to_value(mode).map_err(|_| "invalid Claude fast mode")
+        }
         CACHE_CONTROL_MODE => {
             serde_json::from_value::<crate::openai_content::CacheControlMode>(value)
                 .map_err(|_| "invalid cache control mode")
@@ -213,6 +274,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             MAX_BODY_SIZE_MB => snapshot.max_body_size_mb = value.as_u64(),
             IDEMPOTENCY_WINDOW_MS => snapshot.idempotency_window_ms = value.as_u64(),
             CONNECTION_MAX_COOLDOWN_MS => snapshot.connection_max_cooldown_ms = value.as_u64(),
+            CLAUDE_FAST_MODE => {
+                snapshot.claude_fast_mode =
+                    serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
+            }
             CACHE_CONTROL_MODE => {
                 snapshot.cache_control_mode =
                     serde_json::from_value(value).map_err(|_| "invalid cache control mode")?;
@@ -372,6 +437,25 @@ mod tests {
         assert_eq!(snapshot.idempotency_window_ms(), 9000);
         assert_eq!(Snapshot::default().max_body_size_bytes(), None);
         assert_eq!(Snapshot::default().idempotency_window_ms(), 5_000);
+        let fast = ClaudeFastMode {
+            enabled: true,
+            supported_models: Vec::new(),
+        };
+        assert!(fast.applies_to("claude-opus-4-8"));
+        assert!(fast.applies_to("claude-opus-4-8-20260528"));
+        assert!(!fast.applies_to("claude-opus-4-80"));
+        assert!(!fast.applies_to("claude-sonnet-4-6"));
+        assert!(!ClaudeFastMode::default().applies_to("claude-opus-4-8"));
+        let custom = ClaudeFastMode {
+            enabled: true,
+            supported_models: vec!["claude-x".to_owned()],
+        };
+        assert!(custom.applies_to("claude-x") && !custom.applies_to("claude-opus-4-8"));
+        assert!(validate(
+            CLAUDE_FAST_MODE,
+            json!({"enabled":true,"supported_models":[" "]})
+        )
+        .is_err());
         use crate::account_rotation::AccountStrategy;
         let strategies = validate(
             PROVIDER_STRATEGIES,

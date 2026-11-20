@@ -6086,6 +6086,10 @@ async fn proxy_request(
         },
         claude_code_client,
     };
+    let claude_fast_mode = match &state.control_plane {
+        Some(control) => control.claude_fast_mode().await,
+        None => global_settings::ClaudeFastMode::default(),
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -7627,6 +7631,20 @@ async fn proxy_request(
                 .or_else(|| live_provider.as_ref().map(|p| &p.custom_headers))
             {
                 upstream = upstream.headers(headers.clone());
+            }
+            // Legacy claudeFastMode: ask a paired CLIProxyAPI to route a
+            // supported `claude` model to Anthropic Fast Mode.
+            let (fast_provider, fast_model) = match target {
+                Some(target) => (target.provider_name.as_deref(), target.model.as_str()),
+                None => (
+                    live_provider
+                        .as_ref()
+                        .and_then(|provider| provider.provider_name.as_deref()),
+                    model.as_str(),
+                ),
+            };
+            if fast_provider == Some("claude") && claude_fast_mode.applies_to(fast_model) {
+                upstream = upstream.header("X-CPA-Force-Fast-Mode", "1");
             }
             upstream
         };

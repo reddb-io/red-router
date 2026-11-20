@@ -11570,6 +11570,16 @@ impl ControlPlane {
         self.0.global_settings.read().await.idempotency_window_ms()
     }
 
+    /// The Claude Fast Mode request policy (legacy `claudeFastMode`).
+    pub(crate) async fn claude_fast_mode(&self) -> crate::global_settings::ClaudeFastMode {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .claude_fast_mode()
+            .clone()
+    }
+
     /// The client cache-marker policy (legacy `alwaysPreserveClientCache`).
     pub(crate) async fn cache_control_mode(&self) -> crate::openai_content::CacheControlMode {
         self.0.global_settings.read().await.cache_control_mode()

@@ -123,6 +123,38 @@ fn model_lockout_ceiling(raw: &str) -> Result<u64, &'static str> {
     Ok(maximum.max(base))
 }
 
+/// Legacy `isClaudeFastModeEnabled` and `getClaudeFastModeSupportedModels`:
+/// a boolean, or `{enabled, supportedModels}`; the default model list is
+/// stored as an empty list.
+fn legacy_claude_fast_mode(raw: &str) -> crate::global_settings::ClaudeFastMode {
+    let value = parse_value(raw);
+    let enabled = match &value {
+        Value::Bool(flag) => *flag,
+        Value::Object(record) => record.get("enabled") == Some(&Value::Bool(true)),
+        _ => false,
+    };
+    let mut supported_models: Vec<String> = value
+        .get("supportedModels")
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if supported_models == crate::global_settings::CLAUDE_FAST_MODE_DEFAULT_MODELS {
+        supported_models.clear();
+    }
+    crate::global_settings::ClaudeFastMode {
+        enabled,
+        supported_models,
+    }
+}
+
 /// Legacy `shouldPreserveCacheControl` reads only `always` and `never`.
 fn legacy_cache_control_mode(raw: &str) -> Option<crate::openai_content::CacheControlMode> {
     match parse_value(raw).as_str()? {
@@ -525,6 +557,14 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Disabled fast mode has no effect whatever its model list.
+        "claudeFastMode" => {
+            return if legacy_claude_fast_mode(raw).enabled {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         // Only an explicit always/never overrides the automatic rule.
         "alwaysPreserveClientCache" => {
             return match legacy_cache_control_mode(raw) {
@@ -670,6 +710,17 @@ pub async fn import(
         global.push((
             crate::global_settings::IDEMPOTENCY_WINDOW_MS,
             Value::from(ms),
+        ));
+    }
+    if let Some(fast_mode) = rows
+        .iter()
+        .find(|(key, _)| key == "claudeFastMode")
+        .map(|(_, raw)| legacy_claude_fast_mode(raw))
+        .filter(|mode| mode.enabled)
+    {
+        global.push((
+            crate::global_settings::CLAUDE_FAST_MODE,
+            serde_json::to_value(fast_mode).map_err(|_| "invalid legacy Claude fast mode")?,
         ));
     }
     if let Some(mode) = rows
@@ -916,6 +967,26 @@ mod tests {
             classify("hideNoThinkVariants", "false"),
             SettingClass::AtDefault
         );
+        assert_eq!(classify("claudeFastMode", "true"), SettingClass::Imported);
+        assert_eq!(
+            classify(
+                "claudeFastMode",
+                r#"{"enabled":false,"supportedModels":["x"]}"#
+            ),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            legacy_claude_fast_mode(r#"{"enabled":true,"supportedModels":[" claude-x ",""]}"#),
+            crate::global_settings::ClaudeFastMode {
+                enabled: true,
+                supported_models: vec!["claude-x".to_owned()],
+            }
+        );
+        assert!(legacy_claude_fast_mode(
+            r#"{"enabled":true,"supportedModels":["claude-fable-5","claude-opus-5","claude-opus-4-8","claude-opus-4-7","claude-opus-4-6"]}"#
+        )
+        .supported_models
+        .is_empty());
         assert_eq!(
             classify("alwaysPreserveClientCache", "\"always\""),
             SettingClass::Imported
