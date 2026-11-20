@@ -311,6 +311,25 @@ CREDENTIAL_PATTERNS = "red_routerd::credential_patterns::CREDENTIAL_PATTERNS"
 CredentialPattern = "red_routerd::credential_patterns::CredentialPattern"
 
 [[module]]
+ts = "open-sse/utils/errorPathRedaction.ts"
+status = "ported"
+rust = "error_path_redaction.rs"
+module = "red_routerd::error_path_redaction"
+ported_at = "2026-11-20T23:48:05Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/error-path-redaction-route-truncation-13144.test.ts"]
+notes = 'Scans UTF-16 code units with JavaScript \s, toLowerCase and lastIndexOf semantics; error_path_redaction_oracle.json holds the legacy outputs for a 37-case corpus, checked by outputs_match_the_legacy_implementation.'
+
+[module.ts_blobs]
+"open-sse/utils/errorPathRedaction.ts" = "24bdd68b4fa4ec1735d73f4f1e95c2b4b973789c"
+"tests/unit/error-path-redaction-route-truncation-13144.test.ts" = "38fdf30eee1e6c138ea9b1002981c17d87afd237"
+
+[module.symbols]
+redactErrorPaths = "red_routerd::error_path_redaction::redact_error_paths"
+stripErrorStackTail = "red_routerd::error_path_redaction::strip_error_stack_tail"
+stripRecognizedErrorStackTail = "red_routerd::error_path_redaction::strip_recognized_error_stack_tail"
+
+[[module]]
 ts = "open-sse/utils/jsonHash.ts"
 status = "ported"
 rust = "json_hash.rs"
