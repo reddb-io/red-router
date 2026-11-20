@@ -91,22 +91,10 @@ fn merged(default: &Value, stored: &Value) -> Value {
 
 /// The connection cooldown ceiling a legacy `modelLockout` row resolves to
 /// (`resolveModelLockoutSettings`: the max cooldown, clamped to 5 s-1 h, and
-/// never below the clamped base). The opt-in per-model lockout policy itself
-/// (enabled, error codes, backoff steps, exponential backoff) has no native
-/// equivalent yet and must stay at its defaults.
+/// never below the clamped base).
 fn model_lockout_ceiling(raw: &str) -> Result<u64, &'static str> {
     let default = &SNAPSHOT.model_lockout_defaults;
     let stored = merged(default, &parse_value(raw));
-    for field in [
-        "enabled",
-        "errorCodes",
-        "maxBackoffSteps",
-        "useExponentialBackoff",
-    ] {
-        if stored.get(field) != default.get(field) {
-            return Err("legacy model lockout policy has no native equivalent yet");
-        }
-    }
     let integer = |field: &str, fallback: u64, min: u64, max: u64| {
         let parsed = match stored.get(field) {
             Some(Value::Number(number)) => number.as_f64(),
@@ -121,6 +109,48 @@ fn model_lockout_ceiling(raw: &str) -> Result<u64, &'static str> {
     let base = integer("baseCooldownMs", 120_000, 5_000, 600_000);
     let maximum = integer("maxCooldownMs", 1_800_000, 5_000, 3_600_000);
     Ok(maximum.max(base))
+}
+
+/// The opt-in combo model lockout policy a legacy `modelLockout` row resolves
+/// to (`resolveModelLockoutSettings`: `toBoolean`, `toNumberArray` over 100-599
+/// with the default list when empty, the base clamped to 5 s-10 min).
+/// `maxBackoffSteps` is not read by the legacy lockouts.
+fn legacy_model_lockout_policy(raw: &str) -> crate::availability::ModelLockoutPolicy {
+    let value = parse_value(raw);
+    let mut policy = crate::availability::ModelLockoutPolicy::default();
+    let boolean = |field: &str, fallback: bool| match value.get(field) {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(text)) => text == "true" || text == "1",
+        _ => fallback,
+    };
+    policy.enabled = boolean("enabled", policy.enabled);
+    policy.use_exponential_backoff =
+        boolean("useExponentialBackoff", policy.use_exponential_backoff);
+    if let Some(Value::Array(codes)) = value.get("errorCodes") {
+        let codes: Vec<u16> = codes
+            .iter()
+            .filter_map(|code| match code {
+                Value::Number(number) => number.as_f64(),
+                Value::String(text) => text.trim().parse::<f64>().ok(),
+                _ => None,
+            })
+            .filter(|code| code.fract() == 0.0 && (100.0..=599.0).contains(code))
+            .map(|code| code as u16)
+            .collect();
+        if !codes.is_empty() {
+            policy.error_codes = codes;
+        }
+    }
+    let base = match value.get("baseCooldownMs") {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    if let Some(base) = base.filter(|base| base.is_finite()) {
+        policy.base_cooldown_ms = (base.trunc().max(0.0) as u64).clamp(5_000, 600_000);
+    }
+    policy
 }
 
 /// Legacy `isClaudeFastModeEnabled` and `getClaudeFastModeSupportedModels`:
@@ -1047,7 +1077,10 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         "modelLockout" => {
             return match model_lockout_ceiling(raw) {
-                Ok(crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS) => {
+                Ok(crate::availability::DEFAULT_CONNECTION_MAX_COOLDOWN_MS)
+                    if legacy_model_lockout_policy(raw)
+                        == crate::availability::ModelLockoutPolicy::default() =>
+                {
                     SettingClass::AtDefault
                 }
                 Ok(_) => SettingClass::Imported,
@@ -1298,6 +1331,17 @@ pub async fn import(
         global.push((
             crate::global_settings::CONNECTION_MAX_COOLDOWN_MS,
             Value::from(ceiling),
+        ));
+    }
+    if let Some(policy) = rows
+        .iter()
+        .find(|(key, _)| key == "modelLockout")
+        .map(|(_, raw)| legacy_model_lockout_policy(raw))
+        .filter(|policy| *policy != crate::availability::ModelLockoutPolicy::default())
+    {
+        global.push((
+            crate::global_settings::MODEL_LOCKOUT_POLICY,
+            serde_json::to_value(policy).map_err(|_| "invalid legacy model lockout policy")?,
         ));
     }
     let strategies = legacy_provider_strategies(&rows)?;
@@ -1574,6 +1618,39 @@ mod tests {
         assert_eq!(
             model_lockout_ceiling(r#"{"maxCooldownMs":600000}"#),
             Ok(600_000)
+        );
+        // The legacy resolveModelLockoutSettings coercions: the opt-in
+        // policy imports instead of refusing the row.
+        let policy = legacy_model_lockout_policy(
+            r#"{"enabled":"1","errorCodes":[429,"503",99,600,429.5],"baseCooldownMs":1000,"useExponentialBackoff":0,"maxBackoffSteps":3}"#,
+        );
+        assert_eq!(
+            policy,
+            crate::availability::ModelLockoutPolicy {
+                enabled: true,
+                error_codes: vec![429, 503],
+                base_cooldown_ms: 5_000,
+                use_exponential_backoff: false,
+            }
+        );
+        assert_eq!(
+            legacy_model_lockout_policy(r#"{"errorCodes":[1]}"#),
+            crate::availability::ModelLockoutPolicy::default()
+        );
+        assert_eq!(
+            classify("modelLockout", r#"{"enabled":true}"#),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("modelLockout", r#"{"maxBackoffSteps":3}"#),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify(
+                "modelLockout",
+                r#"{"enabled":false,"maxCooldownMs":1800000}"#
+            ),
+            SettingClass::AtDefault
         );
         // The ceiling never drops below the clamped base.
         assert_eq!(
@@ -1895,10 +1972,11 @@ mod tests {
             classify("modelLockout", r#"{"enabled":false}"#),
             SettingClass::AtDefault
         );
-        assert!(matches!(
+        // The opt-in policy now imports onto model_lockout_policy.
+        assert_eq!(
             classify("modelLockout", r#"{"enabled":true}"#),
-            SettingClass::Refused { .. }
-        ));
+            SettingClass::Imported
+        );
     }
 
     #[test]

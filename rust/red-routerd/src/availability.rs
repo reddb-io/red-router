@@ -32,6 +32,100 @@ const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = crate::mistral_ambiguous_auth::MAX_
 const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = crate::mistral_ambiguous_auth::STRIKE_WINDOW_MS;
 const TERMINAL_UNTIL_UNIX_MS: u64 = i64::MAX as u64;
 
+/// Legacy `modelLockout` (`resolveModelLockoutSettings`): an opt-in lockout of
+/// a combo target's model on the configured statuses. Its `maxCooldownMs` is
+/// the connection cooldown ceiling; `maxBackoffSteps` is not read by the
+/// legacy lockouts, which scale with the provider profile's steps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelLockoutPolicy {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_lockout_codes")]
+    pub error_codes: Vec<u16>,
+    #[serde(default = "default_lockout_base_ms")]
+    pub base_cooldown_ms: u64,
+    #[serde(default = "default_true")]
+    pub use_exponential_backoff: bool,
+}
+
+fn default_lockout_codes() -> Vec<u16> {
+    vec![403, 404, 429, 502, 503, 504]
+}
+
+fn default_lockout_base_ms() -> u64 {
+    120_000
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ModelLockoutPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            error_codes: default_lockout_codes(),
+            base_cooldown_ms: default_lockout_base_ms(),
+            use_exponential_backoff: true,
+        }
+    }
+}
+
+impl ModelLockoutPolicy {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        if self.error_codes.is_empty()
+            || self.error_codes.len() > 100
+            || self
+                .error_codes
+                .iter()
+                .any(|code| !(100..=599).contains(code))
+            || !(5_000..=600_000).contains(&self.base_cooldown_ms)
+        {
+            return Err("invalid model lockout policy");
+        }
+        Ok(())
+    }
+
+    /// Whether a combo target failure with this status locks its model.
+    pub(crate) fn applies(&self, status: StatusCode) -> bool {
+        self.enabled && self.error_codes.contains(&status.as_u16())
+    }
+
+    /// Legacy `selectLockoutCooldownMs` and `recordModelLockoutFailure`: a
+    /// retry hint longer than the base wins (an authoritative header hint is
+    /// not capped); otherwise a fixed base, or the base doubled per repeated
+    /// failure up to the profile's steps; both capped by the ceiling.
+    pub(crate) fn cooldown_ms(
+        &self,
+        failure_count: u32,
+        retry_hint_ms: Option<u64>,
+        hint_authoritative: bool,
+        max_backoff_steps: u32,
+        max_cooldown_ms: u64,
+    ) -> u64 {
+        let exact = match retry_hint_ms {
+            Some(hint) if hint > self.base_cooldown_ms => hint,
+            _ if self.use_exponential_backoff => 0,
+            _ => self.base_cooldown_ms,
+        };
+        if exact > 0 {
+            return if hint_authoritative && exact > self.base_cooldown_ms {
+                exact
+            } else {
+                exact.min(max_cooldown_ms)
+            };
+        }
+        let exponent = failure_count
+            .saturating_sub(1)
+            .min(max_backoff_steps)
+            .min(32);
+        self.base_cooldown_ms
+            .saturating_mul(1_u64 << exponent)
+            .min(max_cooldown_ms)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ConnectionCooldownProfile {
     pub base_cooldown_ms: u64,
@@ -659,6 +753,64 @@ impl ProviderAvailability {
         Ok(())
     }
 
+    /// The legacy opt-in model lockout of a combo target. A failure within the
+    /// failure window after the previous lockout keeps escalating (legacy
+    /// `modelFailureState`), counted on the lockout's backoff level.
+    pub(crate) async fn record_policy_model_lockout(
+        &self,
+        permit: AvailabilityPermit,
+        model: &str,
+        status: StatusCode,
+        policy: &ModelLockoutPolicy,
+        retry_hint_ms: Option<u64>,
+        failure_window_ms: u64,
+    ) -> Result<(), &'static str> {
+        validate_model(model)?;
+        let now = unix_ms()?;
+        let profile = self.cooldown_profile();
+        let mut inner = self.inner.lock().await;
+        let current = inner.model_lockouts.get(model);
+        if current.map(|lockout| lockout.generation) != permit.model_generation
+            || current.is_some_and(|lockout| lockout.until_unix_ms > now)
+        {
+            return Ok(());
+        }
+        if current.is_none() && inner.model_lockouts.len() >= MAX_MODEL_LOCKOUTS {
+            return Err("provider model lockout capacity exceeded");
+        }
+        let failure_count = match current {
+            Some(lockout) if now <= lockout.until_unix_ms.saturating_add(failure_window_ms) => {
+                lockout.backoff_level.saturating_add(1)
+            }
+            _ => 1,
+        }
+        .min(MAX_BACKOFF_LEVEL);
+        let duration = policy
+            .cooldown_ms(
+                failure_count,
+                retry_hint_ms,
+                true,
+                profile.max_backoff_steps,
+                profile.max_cooldown_ms,
+            )
+            .clamp(1_000, RETRY_HINT_MAX_MS);
+        let generation = current.map_or(1, |lockout| lockout.generation.wrapping_add(1));
+        let mut candidate = inner.clone();
+        candidate.model_lockouts.insert(
+            model.to_owned(),
+            ModelLockout {
+                until_unix_ms: now.saturating_add(duration),
+                status: status.as_u16(),
+                backoff_level: failure_count,
+                generation,
+            },
+        );
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
     pub(crate) async fn record_success(
         &self,
         permit: AvailabilityPermit,
@@ -890,6 +1042,53 @@ fn unix_ms() -> Result<u64, &'static str> {
         .as_millis()
         .try_into()
         .map_err(|_| "system clock is out of range")
+}
+
+#[cfg(test)]
+mod lockout_policy_tests {
+    use super::*;
+
+    // Ported from tests/unit/combo-model-lockout-honors-reset-1308.test.ts and
+    // model-lockout-max-cooldown.test.ts: selectLockoutCooldownMs
+    // and the recordModelLockoutFailure cooldown arithmetic.
+    #[test]
+    fn the_lockout_policy_scales_and_caps_its_cooldown() {
+        let policy = ModelLockoutPolicy {
+            enabled: true,
+            ..ModelLockoutPolicy::default()
+        };
+        assert!(policy.applies(StatusCode::TOO_MANY_REQUESTS));
+        assert!(policy.applies(StatusCode::BAD_GATEWAY));
+        assert!(!policy.applies(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!ModelLockoutPolicy::default().applies(StatusCode::TOO_MANY_REQUESTS));
+        let max = 1_800_000;
+        // Exponential: base, doubled per repeated failure, up to the steps and cap.
+        assert_eq!(policy.cooldown_ms(1, None, true, 5, max), 120_000);
+        assert_eq!(policy.cooldown_ms(2, None, true, 5, max), 240_000);
+        assert_eq!(policy.cooldown_ms(3, None, true, 1, max), 240_000);
+        assert_eq!(policy.cooldown_ms(9, None, true, 8, max), max);
+        // A longer authoritative hint wins over the cap; a short one does not count.
+        assert_eq!(
+            policy.cooldown_ms(1, Some(7_200_000), true, 5, max),
+            7_200_000
+        );
+        assert_eq!(policy.cooldown_ms(1, Some(7_200_000), false, 5, max), max);
+        assert_eq!(policy.cooldown_ms(1, Some(60_000), true, 5, max), 120_000);
+        // Without exponential backoff the base is fixed and capped.
+        let fixed = ModelLockoutPolicy {
+            use_exponential_backoff: false,
+            ..policy.clone()
+        };
+        assert_eq!(fixed.cooldown_ms(4, None, true, 5, max), 120_000);
+        assert_eq!(fixed.cooldown_ms(4, None, true, 5, 60_000), 60_000);
+        assert!(ModelLockoutPolicy {
+            error_codes: vec![700],
+            ..ModelLockoutPolicy::default()
+        }
+        .validate()
+        .is_err());
+        assert!(policy.validate().is_ok());
+    }
 }
 
 #[cfg(test)]

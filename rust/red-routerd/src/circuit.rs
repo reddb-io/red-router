@@ -325,6 +325,11 @@ impl ProviderCircuit {
         }
     }
 
+    /// The breaker's reset timeout (legacy provider profile `resetTimeoutMs`).
+    pub(crate) async fn reset_timeout_ms(&self) -> u64 {
+        self.inner.lock().await.reset_timeout_ms
+    }
+
     pub(crate) async fn status(&self) -> Result<BreakerStatus, &'static str> {
         let now = unix_ms()?;
         let mut inner = self.inner.lock().await;

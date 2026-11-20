@@ -6273,6 +6273,10 @@ async fn proxy_request(
         },
         claude_code_client,
     };
+    let model_lockout_policy = match &state.control_plane {
+        Some(control) => control.model_lockout_policy().await,
+        None => availability::ModelLockoutPolicy::default(),
+    };
     let codex_service_tier = match &state.control_plane {
         Some(control) => control.codex_service_tier().await,
         None => codex_request::CodexServiceTier::default(),
@@ -8401,6 +8405,41 @@ async fn proxy_request(
                 response.headers(),
                 response.error_body(),
             );
+            // Legacy executeTargetAttempt: with the opt-in model lockout policy, a
+            // combo target failing with a configured status locks its model first,
+            // so the native model lockout below leaves it in place.
+            let combo_target = route
+                .is_some_and(|route| !route.provider_direct && route.public_model_alias.is_none());
+            if combo_target
+                && model_lockout_policy.applies(response.status())
+                && !matches!(
+                    failure_class,
+                    resilience::ProviderFailureClass::RequestScoped
+                        | resilience::ProviderFailureClass::RequestRefusal
+                )
+            {
+                let window = match circuit {
+                    Some(circuit) => circuit.reset_timeout_ms().await,
+                    None => 30 * 60 * 1_000,
+                };
+                if availability
+                    .record_policy_model_lockout(
+                        permit,
+                        target_model,
+                        response.status(),
+                        &model_lockout_policy,
+                        retry_after_hint_ms(response.headers()),
+                        window,
+                    )
+                    .await
+                    .is_err()
+                {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Provider health accounting unavailable",
+                    );
+                }
+            }
             let recorded = match failure_class {
                 _ if daily_lockout.is_some() => {
                     availability

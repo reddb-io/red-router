@@ -12089,3 +12089,5 @@ include!("cases/combo_sticky.rs");
 include!("cases/request_queue.rs");
 
 include!("cases/codex_executor.rs");
+
+include!("cases/model_lockout_policy.rs");

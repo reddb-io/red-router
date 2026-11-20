@@ -11675,6 +11675,16 @@ impl ControlPlane {
             .previous_response_id_mode()
     }
 
+    /// The opt-in combo model lockout policy (legacy `modelLockout`).
+    pub(crate) async fn model_lockout_policy(&self) -> crate::availability::ModelLockoutPolicy {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .model_lockout_policy()
+            .clone()
+    }
+
     /// The Codex service tier policy (legacy `codexServiceTier`).
     pub(crate) async fn codex_service_tier(&self) -> crate::codex_request::CodexServiceTier {
         self.0
