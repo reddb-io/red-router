@@ -262,6 +262,26 @@ VALID_OPENAI_MESSAGE_TYPES = "-"
 filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
 
 [[module]]
+ts = "open-sse/utils/proxyFamily.ts"
+status = "ported"
+rust = "proxy_family.rs"
+module = "red_routerd::proxy_family"
+ported_at = "2026-11-20T21:13:06Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/proxy-family.test.ts"]
+notes = "IP literals are parsed with std::net; Node isIP IPv6 zone suffixes (fe80::1%eth0) are not treated as literals."
+
+[module.ts_blobs]
+"open-sse/utils/proxyFamily.ts" = "f6694f73c8780454a43ac2dc425c9e057db3d102"
+"tests/unit/proxy-family.test.ts" = "c48bb25638cf85b7b8627cb16515175c1f559e4f"
+
+[module.symbols]
+ProxyFamily = "red_routerd::proxy_family::ProxyFamily"
+detectIpLiteralFamily = "red_routerd::proxy_family::detect_ip_literal_family"
+parseProxyFamily = "red_routerd::proxy_family::parse_proxy_family"
+stripIpv6Brackets = "red_routerd::proxy_family::strip_ipv6_brackets"
+
+[[module]]
 ts = "open-sse/utils/reasoningPlaceholder.ts"
 status = "ported"
 rust = "reasoning_placeholder.rs"
@@ -286,6 +306,28 @@ NON_ANTHROPIC_THINKING_PLACEHOLDER = "red_routerd::reasoning_placeholder::NON_AN
 isInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::is_internal_reasoning_placeholder"
 requiresReasoningContentPresence = "red_routerd::reasoning_placeholder::requires_reasoning_content_presence"
 stripInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::strip_internal_reasoning_placeholder"
+
+[[module]]
+ts = "open-sse/utils/urlSanitize.ts"
+status = "ported"
+rust = "url_sanitize.rs"
+module = "red_routerd::url_sanitize"
+ported_at = "2026-11-20T21:08:25Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/url-sanitize.test.ts",
+    "tests/unit/refactor-urlSanitize.test.ts",
+]
+notes = "A missing or non-string base URL is None; trim drops whitespace and a byte-order mark as JavaScript trim does."
+
+[module.ts_blobs]
+"open-sse/utils/urlSanitize.ts" = "3cdb8ddd9080451353f40a9dd769cf420e42a934"
+"tests/unit/refactor-urlSanitize.test.ts" = "227404dadb57f7040d296df7337001dc2da58228"
+"tests/unit/url-sanitize.test.ts" = "656373177c2739926885ee25d157cbe2636927b8"
+
+[module.symbols]
+normalizeBaseUrl = "red_routerd::url_sanitize::normalize_base_url"
+stripTrailingSlashes = "red_routerd::url_sanitize::strip_trailing_slashes"
 
 [[module]]
 ts = "src/app/api/v1/models/catalogCapabilities.ts"

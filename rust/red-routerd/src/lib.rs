@@ -55,6 +55,7 @@ pub mod product_provider;
 mod provider_cooldown;
 mod provider_inference;
 mod provider_quota;
+pub mod proxy_family;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
@@ -74,6 +75,7 @@ mod strict_system_hoist;
 mod tool_call_ids;
 mod tool_schemas;
 mod translation;
+pub mod url_sanitize;
 mod usage_stream;
 mod wildcard_router;
 use axum::{
