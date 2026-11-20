@@ -262,6 +262,23 @@ VALID_OPENAI_MESSAGE_TYPES = "-"
 filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
 
 [[module]]
+ts = "open-sse/utils/jsonHash.ts"
+status = "ported"
+rust = "json_hash.rs"
+module = "red_routerd::json_hash"
+ported_at = "2026-11-20T21:54:13Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/json-hash.test.ts"]
+notes = "serde_json streams into the hasher; object keys use the sorted map order, so the digest is stable for one server but differs from the legacy insertion-order digest. JSON values cannot hold undefined, functions, BigInt or cycles."
+
+[module.ts_blobs]
+"open-sse/utils/jsonHash.ts" = "cea9e350700d7bcaec0eb9dcb1eedd3df5a6354d"
+"tests/unit/json-hash.test.ts" = "3b8494d3f758eadc1e6bb5028b5fd088964eb9ba"
+
+[module.symbols]
+jsonSha256 = "red_routerd::json_hash::json_sha256"
+
+[[module]]
 ts = "open-sse/utils/proxyFamily.ts"
 status = "ported"
 rust = "proxy_family.rs"

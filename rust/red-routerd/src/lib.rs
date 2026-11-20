@@ -26,6 +26,7 @@ mod global_settings;
 mod icon_url;
 mod idempotency;
 pub mod ip_utils;
+pub mod json_hash;
 mod kafka_export;
 pub mod legacy_aliases;
 pub mod legacy_archive;
