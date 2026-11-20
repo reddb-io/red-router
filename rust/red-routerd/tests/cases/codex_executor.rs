@@ -218,6 +218,49 @@ async fn codex_accounts_get_cli_headers_shaped_bodies_and_folded_streams() {
     let (_, body) = seen.lock().unwrap()[2].clone();
     assert_eq!(body["service_tier"], "priority");
 
+    // Ported from tests/unit/chat-previous-response-id-preserve-mode.test.ts:
+    // without stored continuation state the default mode answers OpenAI's
+    // previous_response_not_found, and preserve forwards the id untouched.
+    let continued = serde_json::json!({
+        "model":"codex-combo",
+        "input":"next",
+        "previous_response_id":"resp_unknown"
+    });
+    let refused = client
+        .post(format!("{base}/v1/responses"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .json(&continued)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    let refused: serde_json::Value = refused.json().await.unwrap();
+    assert_eq!(refused["error"]["code"], "previous_response_not_found");
+    assert_eq!(seen.lock().unwrap().len(), 3);
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/admin/global-settings/responses_previous_response_id_mode"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!("preserve"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let preserved = client
+        .post(format!("{base}/v1/responses"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .json(&continued)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preserved.status(), StatusCode::OK);
+    let (_, body) = seen.lock().unwrap()[3].clone();
+    assert_eq!(body["previous_response_id"], "resp_unknown");
+
     gateway_task.abort();
     upstream_task.abort();
 }

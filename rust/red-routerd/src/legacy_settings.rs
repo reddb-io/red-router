@@ -990,6 +990,16 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 SettingClass::AtDefault
             };
         }
+        // Responses continuation policy: an unknown value is auto, as legacy
+        // normalizeResponsesPreviousResponseIdMode reads it.
+        "responsesPreviousResponseIdMode" => {
+            return match crate::responses_state::PreviousResponseIdMode::normalize(&parse_value(
+                raw,
+            )) {
+                crate::responses_state::PreviousResponseIdMode::Auto => SettingClass::AtDefault,
+                _ => SettingClass::Imported,
+            };
+        }
         // The marker of the legacy per-connection Codex defaults migration.
         "codexConnectionDefaultsMigrationV1" => {
             return SettingClass::Equivalent {
@@ -1245,6 +1255,19 @@ pub async fn import(
         global.push((
             crate::global_settings::CLAUDE_FAST_MODE,
             serde_json::to_value(fast_mode).map_err(|_| "invalid legacy Claude fast mode")?,
+        ));
+    }
+    if let Some(mode) = rows
+        .iter()
+        .find(|(key, _)| key == "responsesPreviousResponseIdMode")
+        .map(|(_, raw)| {
+            crate::responses_state::PreviousResponseIdMode::normalize(&parse_value(raw))
+        })
+        .filter(|mode| *mode != crate::responses_state::PreviousResponseIdMode::Auto)
+    {
+        global.push((
+            crate::global_settings::RESPONSES_PREVIOUS_RESPONSE_ID_MODE,
+            serde_json::to_value(mode).map_err(|_| "invalid legacy previous response id mode")?,
         ));
     }
     let codex_service_tier = legacy_codex_service_tier(&rows);
@@ -1569,6 +1592,19 @@ mod tests {
             classify("hideNoThinkVariants", "false"),
             SettingClass::AtDefault
         );
+        // Ported from tests/unit/responses-state-policy.test.ts.
+        for (raw, class) in [
+            (r#""auto""#, SettingClass::AtDefault),
+            (r#""bogus""#, SettingClass::AtDefault),
+            (r#""preserve""#, SettingClass::Imported),
+            (r#""strip""#, SettingClass::Imported),
+        ] {
+            assert_eq!(
+                classify("responsesPreviousResponseIdMode", raw),
+                class,
+                "{raw}"
+            );
+        }
         // Ported from tests/unit/codex-fast-tier.test.ts and
         // codex-connection-defaults.test.ts.
         let codex = |rows: &[(&str, &str)]| {

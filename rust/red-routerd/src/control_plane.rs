@@ -11663,6 +11663,18 @@ impl ControlPlane {
         self.0.global_settings.read().await.provider_cooldown()
     }
 
+    /// The Responses `previous_response_id` policy (legacy
+    /// `responsesPreviousResponseIdMode`).
+    pub(crate) async fn previous_response_id_mode(
+        &self,
+    ) -> crate::responses_state::PreviousResponseIdMode {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .previous_response_id_mode()
+    }
+
     /// The Codex service tier policy (legacy `codexServiceTier`).
     pub(crate) async fn codex_service_tier(&self) -> crate::codex_request::CodexServiceTier {
         self.0

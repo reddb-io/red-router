@@ -62,6 +62,7 @@ mod request_cap;
 mod request_queue;
 mod request_resource_errors;
 mod resilience;
+mod responses_state;
 mod role_normalizer;
 mod session_stickiness;
 pub mod shared_budget;
@@ -6415,6 +6416,21 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
+    // Legacy chat handler: a Responses continuation needs the stored
+    // conversation, which only the legacy call-log artifacts keep.
+    let previous_response_id_mode = match &state.control_plane {
+        Some(control) => control.previous_response_id_mode().await,
+        None => responses_state::PreviousResponseIdMode::default(),
+    };
+    if previous_response_id_mode
+        .rejects_continuation(protocol == ProviderProtocol::OpenAiResponses, &parsed)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(responses_state::not_found_body()),
+        )
+            .into_response();
+    }
     // A no-thinking alias resolves to the real model with reasoning suppressed
     // before routing sees it (legacy chat handler).
     let no_thinking_shape = match protocol {
@@ -7860,6 +7876,21 @@ async fn proxy_request(
                     return error(StatusCode::BAD_REQUEST, "Invalid Antigravity JSON request")
                 }
             };
+        }
+        // Legacy applyResponsesPreviousResponseIdPolicy on this attempt's body.
+        if parsed.get("previous_response_id").is_some() {
+            if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+                if previous_response_id_mode.apply(
+                    &mut value,
+                    protocol == ProviderProtocol::OpenAiResponses,
+                    attempt_protocol == ProviderProtocol::OpenAiResponses,
+                ) {
+                    match serde_json::to_vec(&value) {
+                        Ok(stripped) => payload = stripped,
+                        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
+                    }
+                }
+            }
         }
         let codex_attempt = attempt_protocol == ProviderProtocol::OpenAiResponses
             && target

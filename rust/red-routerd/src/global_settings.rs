@@ -43,6 +43,8 @@
 //!   resilience section, by provider name.
 //! - `codex_service_tier`: the legacy `codexServiceTier` (or
 //!   `codexFastServiceTier`), the service tier Codex requests get.
+//! - `responses_previous_response_id_mode`: the legacy
+//!   `responsesPreviousResponseIdMode` (auto, strip, preserve).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -65,6 +67,7 @@ pub(crate) const REQUEST_QUEUE: &str = "request_queue";
 pub(crate) const REQUEST_QUEUE_CONNECTIONS: &str = "request_queue_connections";
 pub(crate) const PROVIDER_QUOTA_OVERRIDES: &str = "provider_quota_overrides";
 pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
+pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
 const MAX_QUEUE_POLICIES: usize = 10_000;
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
 const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
@@ -198,6 +201,7 @@ pub(crate) struct Snapshot {
     cache_control_mode: crate::openai_content::CacheControlMode,
     claude_fast_mode: ClaudeFastMode,
     codex_service_tier: crate::codex_request::CodexServiceTier,
+    previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
     combo_cooldown_wait: crate::cooldown_retry::ComboCooldownWait,
     provider_cooldown: crate::provider_cooldown::ProviderCooldown,
@@ -297,6 +301,13 @@ impl Snapshot {
     /// The Claude Fast Mode request policy.
     pub(crate) fn claude_fast_mode(&self) -> &ClaudeFastMode {
         &self.claude_fast_mode
+    }
+
+    /// The Responses `previous_response_id` policy.
+    pub(crate) fn previous_response_id_mode(
+        &self,
+    ) -> crate::responses_state::PreviousResponseIdMode {
+        self.previous_response_id_mode
     }
 
     /// The Codex service tier policy.
@@ -421,6 +432,13 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             }
             serde_json::to_value(mode).map_err(|_| "invalid Claude fast mode")
         }
+        RESPONSES_PREVIOUS_RESPONSE_ID_MODE => {
+            serde_json::from_value::<crate::responses_state::PreviousResponseIdMode>(value)
+                .map_err(|_| "invalid previous response id mode")
+                .and_then(|mode| {
+                    serde_json::to_value(mode).map_err(|_| "invalid previous response id mode")
+                })
+        }
         CODEX_SERVICE_TIER => {
             let tier: crate::codex_request::CodexServiceTier =
                 serde_json::from_value(value).map_err(|_| "invalid Codex service tier")?;
@@ -500,6 +518,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             CLAUDE_FAST_MODE => {
                 snapshot.claude_fast_mode =
                     serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
+            }
+            RESPONSES_PREVIOUS_RESPONSE_ID_MODE => {
+                snapshot.previous_response_id_mode = serde_json::from_value(value)
+                    .map_err(|_| "invalid previous response id mode")?;
             }
             CODEX_SERVICE_TIER => {
                 snapshot.codex_service_tier =
