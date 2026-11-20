@@ -7884,6 +7884,14 @@ async fn proxy_request(
                     &mut value,
                     protocol == ProviderProtocol::OpenAiResponses,
                     attempt_protocol == ProviderProtocol::OpenAiResponses,
+                    target
+                        .and_then(|target| target.codex_account.as_deref())
+                        .or_else(|| {
+                            live_provider
+                                .as_ref()
+                                .and_then(|provider| provider.codex_account.as_deref())
+                        })
+                        .is_some_and(|account| account.store_enabled),
                 ) {
                     match serde_json::to_vec(&value) {
                         Ok(stripped) => payload = stripped,

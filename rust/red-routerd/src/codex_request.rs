@@ -93,6 +93,8 @@ pub(crate) struct CodexAccount {
     pub(crate) service_tier: Option<&'static str>,
     /// Legacy `isCodexFreePlan`: free accounts cannot run `image_generation`.
     pub(crate) free_plan: bool,
+    /// Legacy `openaiStoreEnabled`: the account keeps Responses state.
+    pub(crate) store_enabled: bool,
 }
 
 impl CodexAccount {
@@ -113,6 +115,8 @@ impl CodexAccount {
         Self {
             account_id,
             free_plan: plan.is_some_and(|plan| plan.trim().eq_ignore_ascii_case("free")),
+            store_enabled: legacy.and_then(|data| data.get("openaiStoreEnabled"))
+                == Some(&Value::Bool(true)),
             reasoning_effort: normalize_codex_reasoning_effort(
                 defaults.and_then(|value| value.get("reasoningEffort")),
             ),
@@ -964,7 +968,12 @@ pub(crate) fn shape_passthrough(
     if blank_instructions {
         body.insert("instructions".to_owned(), json!(PASSTHROUGH_INSTRUCTIONS));
     }
-    body.insert("store".to_owned(), Value::Bool(false));
+    // Codex rejects store=true unless the account opts in (legacy
+    // openaiStoreEnabled).
+    body.insert(
+        "store".to_owned(),
+        Value::Bool(account.is_some_and(|account| account.store_enabled)),
+    );
     normalize_tools(
         body,
         account.is_some_and(|account| account.free_plan) || spark_scope(model),
@@ -1968,6 +1977,24 @@ mod tests {
 
         let free = CodexAccount::new(None, &json!({"legacyCodex": {"workspacePlanType": "FREE"}}));
         assert!(free.free_plan);
+        let stored = CodexAccount::new(None, &json!({"legacyCodex": {"openaiStoreEnabled": true}}));
+        assert!(stored.store_enabled);
+        assert!(
+            !CodexAccount::new(
+                None,
+                &json!({"legacyCodex": {"openaiStoreEnabled": "true"}})
+            )
+            .store_enabled
+        );
+        let mut body = json!({"input": "x"});
+        shape_passthrough(
+            &mut body,
+            "gpt-5.5",
+            Some(&stored),
+            &CodexServiceTier::default(),
+        )
+        .unwrap();
+        assert_eq!(body["store"], json!(true));
         assert!(
             CodexAccount::new(None, &json!({"legacyCodex": {"chatgptPlanType": "free"}})).free_plan
         );

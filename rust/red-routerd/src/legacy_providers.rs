@@ -457,7 +457,7 @@ async fn adopt_oauth(
         let (access, refresh, session, parsed_expiry, parsed_email, upstream) = if provider == "codex" {
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
-            if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync" | "requestDefaults" | "chatgptPlanType" | "codexQuotaState" | "codexQuotaStateByScope" | "codexExhaustedWindow" | "codexExhaustedWindowByScope" | "codexScopeRateLimitedUntil" | "codexScopeRateLimitSource")) { return Err("legacy Codex configuration requires migration"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync" | "requestDefaults" | "chatgptPlanType" | "codexQuotaState" | "codexQuotaStateByScope" | "codexExhaustedWindow" | "codexExhaustedWindowByScope" | "codexScopeRateLimitedUntil" | "codexScopeRateLimitSource" | "openaiStoreEnabled")) { return Err("legacy Codex configuration requires migration"); }
             // Legacy Codex account-pool runtime state: quota snapshots and exhausted
             // windows are re-read by the native quota collector, and an expired scope
             // cooldown is inert (legacy parseFutureTimestamp). Only a scope cooldown

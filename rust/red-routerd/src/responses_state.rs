@@ -44,9 +44,8 @@ impl PreviousResponseIdMode {
     }
 
     /// Legacy `shouldStripPreviousResponseId`: `strip` always, `preserve`
-    /// never, `auto` for Responses traffic unless the connection keeps
-    /// Responses state (legacy `openaiStoreEnabled`, which Rust connections
-    /// do not enable).
+    /// never, `auto` for Responses traffic (the caller keeps it when the
+    /// connection stores Responses state, legacy `openaiStoreEnabled`).
     pub(crate) fn strips(self, responses_source: bool, responses_target: bool) -> bool {
         match self {
             Self::Strip => true,
@@ -63,12 +62,14 @@ impl PreviousResponseIdMode {
         body: &mut Value,
         responses_source: bool,
         responses_target: bool,
+        store_enabled: bool,
     ) -> bool {
         let Some(record) = body.as_object_mut() else {
             return false;
         };
         if !record.contains_key("previous_response_id")
             || !self.strips(responses_source, responses_target)
+            || (self == Self::Auto && store_enabled)
         {
             return false;
         }
@@ -114,24 +115,27 @@ mod tests {
         );
 
         let input = json!([{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}]);
-        let mut body =
-            json!({"model": "gpt-5.5", "previous_response_id": "resp_prev_123", "input": input});
-        assert!(Auto.apply(&mut body, true, true));
+        let mut body = json!({"model": "gpt-5.5", "previous_response_id": "resp_prev_123", "input": input.clone()});
+        assert!(Auto.apply(&mut body, true, true, false));
         assert!(body.get("previous_response_id").is_none());
 
         // Auto keeps the only continuity field when input would be empty.
         let mut body =
             json!({"model": "gpt-5.5", "previous_response_id": "resp_prev_123", "input": []});
-        assert!(!Auto.apply(&mut body, true, true));
+        assert!(!Auto.apply(&mut body, true, true, false));
         assert_eq!(body["previous_response_id"], "resp_prev_123");
-        assert!(Strip.apply(&mut body, true, true));
+        assert!(Strip.apply(&mut body, true, true, false));
         assert!(body.get("previous_response_id").is_none());
 
+        // Auto keeps it for a connection that stores Responses state.
+        let mut body = json!({"previous_response_id": "resp_prev_123", "input": input});
+        assert!(!Auto.apply(&mut body, true, true, true));
+        assert!(Strip.apply(&mut body, true, true, true));
         assert!(Strip.strips(false, false));
         assert!(!Preserve.strips(true, true));
         let mut body =
             json!({"model": "gpt-4o-mini", "previous_response_id": "client-extra-field"});
-        assert!(!Auto.apply(&mut body, false, false));
+        assert!(!Auto.apply(&mut body, false, false, false));
         assert_eq!(body["previous_response_id"], "client-extra-field");
     }
 

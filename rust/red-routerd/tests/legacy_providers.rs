@@ -593,7 +593,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         ("codex-wrong", "workspace-other"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
-            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"chatgptPlanType":"plus","codexQuotaStateByScope":{"codex":{"usedPercent":10}},"codexExhaustedWindowByScope":{"spark":"5h"},"codexScopeRateLimitedUntil":{"codex":"2000-01-01T00:00:00Z"},"codexScopeRateLimitSource":{"codex":"fallback"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"chatgptPlanType":"plus","openaiStoreEnabled":false,"codexQuotaStateByScope":{"codex":{"usedPercent":10}},"codexExhaustedWindowByScope":{"spark":"5h"},"codexScopeRateLimitedUntil":{"codex":"2000-01-01T00:00:00Z"},"codexScopeRateLimitSource":{"codex":"fallback"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
         .bind(&legacy_oauth_label)
@@ -787,6 +787,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     assert_eq!(metadata["legacyCodex"]["organizations"][0]["id"], "org-1");
     // Account-pool runtime state is re-read natively; the plan stays.
     assert_eq!(metadata["legacyCodex"]["chatgptPlanType"], "plus");
+    assert_eq!(metadata["legacyCodex"]["openaiStoreEnabled"], false);
     for key in [
         "codexQuotaStateByScope",
         "codexExhaustedWindowByScope",
