@@ -55,6 +55,7 @@ mod provider_quota;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
+mod request_resource_errors;
 mod resilience;
 mod role_normalizer;
 pub mod shared_budget;
@@ -4871,7 +4872,8 @@ async fn record_internal_provider_health(
         resilience::ProviderFailureClass::Transient if status.is_success() => {
             availability.record_success(permit, &target.model).await
         }
-        resilience::ProviderFailureClass::Transient => Ok(()),
+        resilience::ProviderFailureClass::Transient
+        | resilience::ProviderFailureClass::RequestScoped => Ok(()),
     }
 }
 
@@ -8090,7 +8092,8 @@ async fn proxy_request(
                 resilience::ProviderFailureClass::Transient if response.status().is_success() => {
                     availability.record_success(permit, target_model).await
                 }
-                resilience::ProviderFailureClass::Transient => Ok(()),
+                resilience::ProviderFailureClass::Transient
+                | resilience::ProviderFailureClass::RequestScoped => Ok(()),
             };
             if recorded.is_err() {
                 return error(
@@ -8099,13 +8102,14 @@ async fn proxy_request(
                 );
             }
         }
-        let retryable = failure_class.semantic_fallback()
-            || response.status() == StatusCode::TOO_MANY_REQUESTS
-            || response.status().is_server_error()
-            || response.status() == StatusCode::REQUEST_TIMEOUT
-            || (availability.is_some()
-                && (availability::connection_failure_status(response.status())
-                    || availability::model_failure_status(response.status())));
+        let retryable = failure_class != resilience::ProviderFailureClass::RequestScoped
+            && (failure_class.semantic_fallback()
+                || response.status() == StatusCode::TOO_MANY_REQUESTS
+                || response.status().is_server_error()
+                || response.status() == StatusCode::REQUEST_TIMEOUT
+                || (availability.is_some()
+                    && (availability::connection_failure_status(response.status())
+                        || availability::model_failure_status(response.status()))));
         if let Some(target) = target {
             if response.status().is_success() {
                 record_route_outcome(

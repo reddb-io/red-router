@@ -57,11 +57,14 @@ pub(crate) enum ProviderFailureClass {
     /// The provider moved its API endpoint (legacy
     /// `ENDPOINT_PERMANENTLY_MOVED_PATTERNS`).
     MovedEndpoint,
+    /// The request names a resource the provider does not have (legacy
+    /// `request_resource_not_found`): no fallback, cooldown or lockout.
+    RequestScoped,
 }
 
 impl ProviderFailureClass {
     pub(crate) const fn semantic_fallback(self) -> bool {
-        !matches!(self, Self::Transient)
+        !matches!(self, Self::Transient | Self::RequestScoped)
     }
 }
 
@@ -122,6 +125,17 @@ pub(crate) fn classify_provider_failure(
     headers: &HeaderMap,
     body: Option<&[u8]>,
 ) -> ProviderFailureClass {
+    // Legacy checkFallbackError classifies a missing conversation or file
+    // reference before every generic 404 rule.
+    if status == StatusCode::NOT_FOUND
+        && body.is_some_and(|body| {
+            crate::request_resource_errors::is_resource_not_found_response(
+                &String::from_utf8_lossy(body),
+            )
+        })
+    {
+        return ProviderFailureClass::RequestScoped;
+    }
     let normalized = normalized_error_evidence(body);
     let text = normalized.as_str();
 
@@ -673,6 +687,29 @@ b"
         );
         assert!(ProviderFailureClass::RetiredModel.semantic_fallback());
         assert!(ProviderFailureClass::MovedEndpoint.semantic_fallback());
+    }
+
+    #[test]
+    fn a_missing_request_resource_is_scoped_to_the_request() {
+        let class = |status: u16, body: &[u8]| {
+            classify_provider_failure(
+                RateLimitScope::Connection,
+                Some("codex"),
+                StatusCode::from_u16(status).unwrap(),
+                &HeaderMap::new(),
+                Some(body),
+            )
+        };
+        // The resource signal wins over a synthesized model_not_found code.
+        let files = br#"{"error":{"message":"[404]: Files [file-be30851bd1614656872e725e] were not found","type":"invalid_request_error","code":"model_not_found"}}"#;
+        assert_eq!(class(404, files), ProviderFailureClass::RequestScoped);
+        assert!(!ProviderFailureClass::RequestScoped.semantic_fallback());
+        // Only a 404 is request-scoped; a bare 404 still locks the model.
+        assert_eq!(class(400, files), ProviderFailureClass::Model);
+        assert_eq!(
+            class(404, br#"{"error":{"message":"Not Found"}}"#),
+            ProviderFailureClass::Model
+        );
     }
 
     #[test]

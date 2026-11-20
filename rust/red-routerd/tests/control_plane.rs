@@ -12081,3 +12081,5 @@ include!("cases/provider_strategies.rs");
 include!("cases/no_thinking_alias.rs");
 
 include!("cases/cooldown_wait.rs");
+
+include!("cases/request_resource_errors.rs");

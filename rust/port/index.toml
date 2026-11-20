@@ -93,6 +93,21 @@ isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_open
 isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
 
 [[module]]
+ts = "open-sse/services/requestResourceErrors.ts"
+status = "ported"
+rust = "request_resource_errors.rs"
+module = "red_routerd::request_resource_errors"
+ported_at = "2026-11-20T02:37:28Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "The patterns run over the raw error body (the legacy helper stringifies an object body, which is that JSON). The failure classifier gives such a 404 the request-scoped class before every other rule: no fallback, cooldown or model lockout, as the legacy checkFallbackError and classifyProviderError do."
+
+[module.ts_blobs]
+"open-sse/services/requestResourceErrors.ts" = "ce11c281b2122234ad740b4d7c660c56853145af"
+
+[module.symbols]
+isResourceNotFoundResponse = "red_routerd::request_resource_errors::is_resource_not_found_response"
+
+[[module]]
 ts = "open-sse/services/roleNormalizer.ts"
 status = "ported"
 rust = "role_normalizer.rs"
