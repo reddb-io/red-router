@@ -12,6 +12,7 @@
 
 use axum::http::{HeaderMap, HeaderValue};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
@@ -52,6 +53,156 @@ const RESPONSES_TERMINAL_EVENTS: [&str; 6] = [
     "response.failed",
     "response.incomplete",
 ];
+
+/// Legacy `CODEX_FAST_TIER_DEFAULT_SUPPORTED_MODELS`.
+pub(crate) const FAST_TIER_DEFAULT_MODELS: [&str; 7] = [
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+];
+
+/// Legacy `normalizeCodexServiceTier`: fast is priority.
+pub(crate) fn normalize_codex_service_tier(value: Option<&Value>) -> Option<&'static str> {
+    match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
+        "fast" | "priority" => Some("priority"),
+        "default" => Some("default"),
+        "flex" => Some("flex"),
+        _ => None,
+    }
+}
+
+/// Legacy `normalizeCodexReasoningEffort` over `CODEX_REASONING_EFFORT_VALUES`.
+pub(crate) fn normalize_codex_reasoning_effort(value: Option<&Value>) -> Option<&'static str> {
+    let value = value?.as_str()?.trim().to_ascii_lowercase();
+    EFFORT_ORDER[..6]
+        .iter()
+        .find(|effort| **effort == value)
+        .copied()
+}
+
+/// A Codex account's workspace binding and request defaults (legacy
+/// `providerSpecificData.workspaceId` and `getCodexRequestDefaults`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexAccount {
+    pub(crate) account_id: Option<String>,
+    pub(crate) reasoning_effort: Option<&'static str>,
+    pub(crate) service_tier: Option<&'static str>,
+}
+
+impl CodexAccount {
+    /// Reads the request defaults a legacy connection carried in its
+    /// imported `legacyCodex` session metadata.
+    pub(crate) fn new(account_id: Option<String>, session: &Value) -> Self {
+        let defaults = session.pointer("/legacyCodex/requestDefaults");
+        Self {
+            account_id,
+            reasoning_effort: normalize_codex_reasoning_effort(
+                defaults.and_then(|value| value.get("reasoningEffort")),
+            ),
+            service_tier: normalize_codex_service_tier(
+                defaults.and_then(|value| value.get("serviceTier")),
+            ),
+        }
+    }
+}
+
+/// Legacy `codexServiceTier` (`resolveCodexGlobalFastServiceTier`): off by
+/// default; an unset tier is priority and an empty model list the default
+/// Fast-eligible models.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexServiceTier {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub supported_models: Vec<String>,
+    /// The tier a Codex connection without its own uses because the legacy
+    /// `codexConnectionDefaultsMigrationV1` never ran on the imported database.
+    #[serde(default)]
+    pub unmigrated_connection_tier: Option<String>,
+}
+
+impl CodexServiceTier {
+    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+        let tier = |value: &Option<String>| {
+            value
+                .as_deref()
+                .is_none_or(|value| matches!(value, "default" | "priority" | "flex"))
+        };
+        if !tier(&self.tier)
+            || !tier(&self.unmigrated_connection_tier)
+            || self.supported_models.len() > 100
+            || self
+                .supported_models
+                .iter()
+                .any(|model| model.trim().is_empty() || model.len() > 256)
+        {
+            return Err("invalid Codex service tier");
+        }
+        Ok(())
+    }
+
+    /// Legacy `modelMatchesSupportedList`: the last path segment equals or
+    /// extends a supported id.
+    fn supports(&self, model: &str) -> bool {
+        let model = model.trim().to_ascii_lowercase();
+        let model = model.rsplit('/').next().unwrap_or("");
+        let matches = |supported: &str| {
+            let supported = supported.trim().to_ascii_lowercase();
+            !supported.is_empty() && model.starts_with(&supported)
+        };
+        !model.is_empty()
+            && if self.supported_models.is_empty() {
+                FAST_TIER_DEFAULT_MODELS.iter().any(|model| matches(model))
+            } else {
+                self.supported_models.iter().any(|model| matches(model))
+            }
+    }
+
+    /// Legacy `applyCodexGlobalFastServiceTier`: a valid body tier wins, then
+    /// the global mode for a supported model (default clears the account's
+    /// tier), then the account. Returns the tier the executor falls back to.
+    pub(crate) fn apply(
+        &self,
+        body: &mut Map<String, Value>,
+        model: &str,
+        connection: Option<&'static str>,
+    ) -> Option<&'static str> {
+        let connection = connection.or_else(|| {
+            normalize_codex_service_tier(
+                self.unmigrated_connection_tier
+                    .clone()
+                    .map(Value::String)
+                    .as_ref(),
+            )
+        });
+        if !self.enabled {
+            return connection;
+        }
+        let mode = normalize_codex_service_tier(Some(&Value::String(
+            self.tier.clone().unwrap_or_default(),
+        )))
+        .unwrap_or("priority");
+        if mode != "default" && !self.supports(model) {
+            return connection;
+        }
+        if let Some(tier) = normalize_codex_service_tier(body.get("service_tier")) {
+            body.insert("service_tier".to_owned(), json!(tier));
+            return connection;
+        }
+        if mode == "default" {
+            return None;
+        }
+        body.insert("service_tier".to_owned(), json!(mode));
+        Some(mode)
+    }
+}
 
 static VERSION_IN_USER_AGENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:codex[-_][A-Za-z0-9_]*|codex-cli)/(\d+\.\d+\.\d+)").expect("static pattern")
@@ -505,13 +656,20 @@ pub(crate) fn system_to_developer(body: &mut Map<String, Value>) {
 pub(crate) fn shape_passthrough(
     payload: &mut Value,
     model: &str,
-    account_id: Option<&str>,
+    account: Option<&CodexAccount>,
+    service_tier: &CodexServiceTier,
 ) -> Result<(), ()> {
     let body = payload.as_object_mut().ok_or(())?;
+    let account_id = account.and_then(|account| account.account_id.as_deref());
     body.remove("_omnirouteResponsesStore");
     body.insert("stream".to_owned(), Value::Bool(true));
     body.remove("_nativeCodexPassthrough");
 
+    let connection_tier = service_tier.apply(
+        body,
+        model,
+        account.and_then(|account| account.service_tier),
+    );
     if let Some(tier) = body
         .get("service_tier")
         .and_then(Value::as_str)
@@ -524,6 +682,8 @@ pub(crate) fn shape_passthrough(
             tier
         };
         body.insert("service_tier".to_owned(), Value::String(tier));
+    } else if let Some(tier) = connection_tier {
+        body.insert("service_tier".to_owned(), json!(tier));
     }
 
     map_messages_to_input(body);
@@ -558,13 +718,16 @@ pub(crate) fn shape_passthrough(
     let flat = normalize_effort(body.get("reasoning_effort"));
     let disabled =
         reasoning.as_ref().and_then(|value| value.get("enabled")) == Some(&Value::Bool(false));
-    // The legacy thinking mode defaults to passthrough, whose connection
-    // default effort is medium.
+    // The legacy thinking mode defaults to passthrough, which applies the
+    // connection's default effort, else medium.
+    let default_effort = account
+        .and_then(|account| account.reasoning_effort)
+        .unwrap_or("medium");
     let effort = model_effort
         .map(str::to_owned)
         .or(explicit)
         .or(flat)
-        .unwrap_or_else(|| if disabled { "none" } else { "medium" }.to_owned());
+        .unwrap_or_else(|| if disabled { "none" } else { default_effort }.to_owned());
     let effort = clamp_effort(&base_model, effort);
     let mut wire = reasoning.unwrap_or_default();
     wire.insert(
@@ -1050,6 +1213,14 @@ pub(crate) fn responses_from_sse(raw: &[u8], fallback_model: &str) -> Option<Val
 mod tests {
     use super::*;
 
+    fn shape(payload: &mut Value, model: &str, account_id: Option<&str>) -> Result<(), ()> {
+        let account = CodexAccount {
+            account_id: account_id.map(str::to_owned),
+            ..CodexAccount::default()
+        };
+        shape_passthrough(payload, model, Some(&account), &CodexServiceTier::default())
+    }
+
     fn client(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
         for (name, value) in pairs {
@@ -1160,7 +1331,7 @@ mod tests {
     fn the_prompt_cache_key_prefers_the_conversation() {
         let key = |body: Value, account: Option<&str>| {
             let mut body = body;
-            shape_passthrough(&mut body, "gpt-5.5", account).unwrap();
+            shape(&mut body, "gpt-5.5", account).unwrap();
             assert!(body.get("session_id").is_none());
             assert!(body.get("conversation_id").is_none());
             body.get("prompt_cache_key").cloned()
@@ -1219,7 +1390,7 @@ mod tests {
             "truncation": "auto",
             "service_tier": " Fast "
         });
-        shape_passthrough(&mut body, "gpt-5.5-high", None).unwrap();
+        shape(&mut body, "gpt-5.5-high", None).unwrap();
         assert_eq!(
             body,
             json!({
@@ -1240,7 +1411,7 @@ mod tests {
         // Reasoning turned off keeps no summary and no encrypted include.
         let mut body =
             json!({"input": "hello", "instructions": "x", "reasoning": {"enabled": false}});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         assert_eq!(body["reasoning"], json!({"effort": "none"}));
         assert!(body.get("include").is_none());
         assert_eq!(
@@ -1251,23 +1422,162 @@ mod tests {
 
         // Assistant history replays as output_text, and an empty turn continues.
         let mut body = json!({"input": [{"role": "assistant", "content": [{"type": "input_text", "text": "a", "annotations": []}]}], "reasoning_effort": "LOW"});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         assert_eq!(
             body["input"],
             json!([{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "a"}]}])
         );
         assert_eq!(body["reasoning"]["effort"], json!("low"));
         let mut body = json!({"input": []});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         assert_eq!(body["input"][0]["content"][0]["text"], json!("continue"));
         assert_eq!(body["reasoning"]["effort"], json!("medium"));
 
         // Ultra is sent as max on the wire.
         let mut body = json!({"input": "x", "model": "gpt-6-astra-ultra"});
-        shape_passthrough(&mut body, "gpt-6-astra-ultra", None).unwrap();
+        shape(&mut body, "gpt-6-astra-ultra", None).unwrap();
         assert_eq!(body["model"], json!("gpt-6-astra"));
         assert_eq!(body["reasoning"]["effort"], json!("max"));
-        assert!(shape_passthrough(&mut json!([]), "gpt-5.5", None).is_err());
+        assert!(shape(&mut json!([]), "gpt-5.5", None).is_err());
+    }
+
+    // Ported from tests/unit/codex-fast-tier.test.ts and
+    // codex-connection-defaults.test.ts.
+    #[test]
+    fn the_service_tier_follows_the_body_then_the_global_mode_then_the_account() {
+        let tiered =
+            |body: Value, model: &str, tier: Option<&'static str>, global: &CodexServiceTier| {
+                let mut body = body;
+                let account = CodexAccount {
+                    service_tier: tier,
+                    ..CodexAccount::default()
+                };
+                shape_passthrough(&mut body, model, Some(&account), global).unwrap();
+                body.get("service_tier").cloned()
+            };
+        let off = CodexServiceTier::default();
+        let on = CodexServiceTier {
+            enabled: true,
+            ..CodexServiceTier::default()
+        };
+        let mode = |tier: &str| CodexServiceTier {
+            enabled: true,
+            tier: Some(tier.to_owned()),
+            ..CodexServiceTier::default()
+        };
+        assert_eq!(tiered(json!({}), "gpt-5.5", None, &off), None);
+        assert_eq!(
+            tiered(json!({}), "gpt-5.5", Some("flex"), &off),
+            Some(json!("flex"))
+        );
+        assert_eq!(
+            tiered(json!({}), "gpt-5.5", None, &on),
+            Some(json!("priority"))
+        );
+        assert_eq!(
+            tiered(json!({}), "codex/gpt-5.5", Some("priority"), &mode("flex")),
+            Some(json!("flex"))
+        );
+        // A global default clears the account tier.
+        assert_eq!(
+            tiered(json!({}), "gpt-5.5", Some("priority"), &mode("default")),
+            None
+        );
+        // Prefixed and effort-suffixed ids match; other models keep the account tier.
+        for model in ["gpt-6-sol", "cx/gpt-6-sol", "codex/gpt-6-luna-high"] {
+            assert_eq!(
+                tiered(json!({}), model, None, &on),
+                Some(json!("priority")),
+                "{model}"
+            );
+        }
+        assert_eq!(tiered(json!({}), "codex/gpt-5.3-codex", None, &on), None);
+        assert_eq!(
+            tiered(json!({}), "gpt-5.3-codex", Some("flex"), &on),
+            Some(json!("flex"))
+        );
+        let chosen = CodexServiceTier {
+            enabled: true,
+            supported_models: vec!["gpt-5.5".to_owned()],
+            ..CodexServiceTier::default()
+        };
+        assert_eq!(tiered(json!({}), "gpt-6-sol", None, &chosen), None);
+        // A valid body tier wins; an invalid one is replaced.
+        for tier in ["default", "flex", "priority"] {
+            assert_eq!(
+                tiered(json!({"service_tier": tier}), "gpt-6-sol", None, &on),
+                Some(json!(tier))
+            );
+        }
+        assert_eq!(
+            tiered(json!({"service_tier": " Flex "}), "gpt-5.5", None, &on),
+            Some(json!("flex"))
+        );
+        assert_eq!(
+            tiered(json!({"service_tier": "invalid"}), "gpt-5.5", None, &on),
+            Some(json!("priority"))
+        );
+        // Without the global mode the executor keeps any body tier, fast as priority.
+        assert_eq!(
+            tiered(
+                json!({"service_tier": "Fast"}),
+                "gpt-5.5",
+                Some("flex"),
+                &off
+            ),
+            Some(json!("priority"))
+        );
+        // A database the legacy defaults migration never ran on.
+        let unmigrated = CodexServiceTier {
+            unmigrated_connection_tier: Some("priority".to_owned()),
+            ..CodexServiceTier::default()
+        };
+        assert_eq!(
+            tiered(json!({}), "gpt-5.3-codex", None, &unmigrated),
+            Some(json!("priority"))
+        );
+        assert_eq!(
+            tiered(json!({}), "gpt-5.3-codex", Some("flex"), &unmigrated),
+            Some(json!("flex"))
+        );
+        assert!(mode("turbo").validate().is_err());
+        assert!(on.validate().is_ok());
+    }
+
+    #[test]
+    fn connection_request_defaults_come_from_the_legacy_session() {
+        let account = CodexAccount::new(
+            Some("ws".to_owned()),
+            &json!({"legacyCodex": {"requestDefaults": {"reasoningEffort": " HIGH ", "serviceTier": "fast"}}}),
+        );
+        assert_eq!(account.reasoning_effort, Some("high"));
+        assert_eq!(account.service_tier, Some("priority"));
+        assert_eq!(
+            CodexAccount::new(
+                None,
+                &json!({"legacyCodex": {"requestDefaults": {"reasoningEffort": "ultra", "serviceTier": "turbo"}}})
+            ),
+            CodexAccount::default()
+        );
+        let mut body = json!({"input": "x"});
+        shape_passthrough(
+            &mut body,
+            "gpt-5.5",
+            Some(&account),
+            &CodexServiceTier::default(),
+        )
+        .unwrap();
+        assert_eq!(body["reasoning"]["effort"], json!("high"));
+        assert_eq!(body["service_tier"], json!("priority"));
+        let mut body = json!({"input": "x", "reasoning": {"effort": "low"}});
+        shape_passthrough(
+            &mut body,
+            "gpt-5.5",
+            Some(&account),
+            &CodexServiceTier::default(),
+        )
+        .unwrap();
+        assert_eq!(body["reasoning"]["effort"], json!("low"));
     }
 
     // Ported from tests/unit/codex-orphaned-tool-outputs-2928.test.ts and the
@@ -1281,7 +1591,7 @@ mod tests {
             {"type": "custom_tool_call_output", "call_id": "custom_1", "output": "ok"},
             {"type": "message", "role": "user", "content": "go"}
         ]});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         let kinds: Vec<_> = body["input"]
             .as_array()
             .unwrap()
@@ -1309,7 +1619,7 @@ mod tests {
             {"type": "function_call_output", "call_id": "call_cc1", "output": "ok"},
             {"type": "function_call_output", "call_id": "call_cc2", "output": "orphaned"}
         ]});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         let outputs: Vec<_> = body["input"]
             .as_array()
             .unwrap()
@@ -1325,7 +1635,7 @@ mod tests {
         let mut body = json!({"previous_response_id": "resp_1", "input": [
             {"type": "function_call_output", "call_id": "remote", "output": "x"}
         ]});
-        shape_passthrough(&mut body, "gpt-5.5", None).unwrap();
+        shape(&mut body, "gpt-5.5", None).unwrap();
         assert_eq!(body["input"].as_array().unwrap().len(), 1);
     }
 

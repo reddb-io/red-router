@@ -426,7 +426,7 @@ struct DirectAccount {
     rate_limit_scope: RateLimitScope,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
-    codex_account_id: Option<Arc<str>>,
+    codex_account: Option<Arc<crate::codex_request::CodexAccount>>,
     quota: Arc<TargetQuota>,
     synced_models: Option<Arc<SyncedModelInventory>>,
     model_rules: Option<Arc<provider_rules::ModelRules>>,
@@ -4689,7 +4689,7 @@ impl ControlPlane {
                 runtime.rate_limit_scope = account.rate_limit_scope;
                 runtime.antigravity_project = account.antigravity_project.clone();
                 runtime.claude_identity = account.claude_identity.clone();
-                runtime.codex_account_id = account.codex_account_id.clone();
+                runtime.codex_account = account.codex_account.clone();
                 let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                 runtime.in_flight = circuit.in_flight();
                 runtime.circuit = Some(circuit);
@@ -10003,7 +10003,7 @@ impl ControlPlane {
                 live.claude_identity = claude_identities
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
-                live.codex_account_id = codex_accounts
+                live.codex_account = codex_accounts
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
                 live.custom_headers = self.request_headers(&record).await?;
@@ -10229,7 +10229,7 @@ impl ControlPlane {
                     runtime.claude_identity = claude_identities
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
-                    runtime.codex_account_id = codex_accounts
+                    runtime.codex_account = codex_accounts
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
                     runtime.tenant_id = Arc::from(provider.tenant_id.clone());
@@ -10421,7 +10421,7 @@ impl ControlPlane {
                 rate_limit_scope: resilience.get(&key).copied().unwrap_or_default(),
                 antigravity_project: antigravity_projects.get(&key).cloned(),
                 claude_identity: claude_identities.get(&key).cloned(),
-                codex_account_id: codex_accounts.get(&key).cloned(),
+                codex_account: codex_accounts.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
                 synced_models,
                 model_rules: model_rules.get(&provider.id).cloned(),
@@ -10932,9 +10932,12 @@ impl ControlPlane {
     }
 
     /// The ChatGPT workspace each Codex session is bound to, read from its
-    /// ID token (legacy `providerSpecificData.workspaceId`). A session
-    /// without one keeps routing, unbound, as the legacy executor did.
-    async fn codex_accounts(&self) -> Result<HashMap<(String, i64), Arc<str>>, &'static str> {
+    /// ID token (legacy `providerSpecificData.workspaceId`), and the request
+    /// defaults an imported legacy connection carried. A session without a
+    /// workspace keeps routing, unbound, as the legacy executor did.
+    async fn codex_accounts(
+        &self,
+    ) -> Result<HashMap<(String, i64), Arc<crate::codex_request::CodexAccount>>, &'static str> {
         let mut accounts = HashMap::new();
         for record in self.0.database.provider_sessions().await? {
             if record.provider != "codex" {
@@ -10947,9 +10950,13 @@ impl ControlPlane {
                 self.0.encryption_key.as_str(),
             )
             .await?;
-            if let Some(account_id) = codex_session_account_id(metadata.as_str()) {
-                accounts.insert((record.provider_id, record.revision), Arc::from(account_id));
-            }
+            let session: serde_json::Value =
+                serde_json::from_str(metadata.as_str()).unwrap_or_default();
+            let account = crate::codex_request::CodexAccount::new(
+                codex_session_account_id(metadata.as_str()),
+                &session,
+            );
+            accounts.insert((record.provider_id, record.revision), Arc::new(account));
         }
         Ok(accounts)
     }
@@ -11654,6 +11661,16 @@ impl ControlPlane {
     /// The combo provider cooldown policy (legacy `providerCooldown`).
     pub(crate) async fn provider_cooldown(&self) -> crate::provider_cooldown::ProviderCooldown {
         self.0.global_settings.read().await.provider_cooldown()
+    }
+
+    /// The Codex service tier policy (legacy `codexServiceTier`).
+    pub(crate) async fn codex_service_tier(&self) -> crate::codex_request::CodexServiceTier {
+        self.0
+            .global_settings
+            .read()
+            .await
+            .codex_service_tier()
+            .clone()
     }
 
     /// The Claude Fast Mode request policy (legacy `claudeFastMode`).

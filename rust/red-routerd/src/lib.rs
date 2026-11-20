@@ -293,7 +293,7 @@ pub(crate) struct LiveProvider {
     claude_identity: Option<Arc<ClaudeIdentity>>,
     /// The ChatGPT workspace a Codex account is bound to (legacy
     /// `providerSpecificData.workspaceId`).
-    codex_account_id: Option<Arc<str>>,
+    codex_account: Option<Arc<codex_request::CodexAccount>>,
     tenant_id: Arc<str>,
     protocol: ProviderProtocol,
     auth_scheme: ProviderAuthScheme,
@@ -650,7 +650,7 @@ pub(crate) struct ModelTarget {
     model_rules: Option<Arc<control_plane::provider_rules::ModelRules>>,
     antigravity_project: Option<Arc<str>>,
     claude_identity: Option<Arc<ClaudeIdentity>>,
-    codex_account_id: Option<Arc<str>>,
+    codex_account: Option<Arc<codex_request::CodexAccount>>,
     rate_limit_scope: resilience::RateLimitScope,
     weight: u32,
     input_cost_per_million: Option<f64>,
@@ -1806,7 +1806,7 @@ impl ProxyState {
             provider_name: None,
             antigravity_project: None,
             claude_identity: None,
-            codex_account_id: None,
+            codex_account: None,
             tenant_id: Arc::from("red"),
             protocol,
             auth_scheme: auth_scheme.resolve(protocol)?,
@@ -1841,7 +1841,7 @@ impl ProxyState {
             model_rules: None,
             antigravity_project: provider.antigravity_project.clone(),
             claude_identity: provider.claude_identity.clone(),
-            codex_account_id: provider.codex_account_id.clone(),
+            codex_account: provider.codex_account.clone(),
             rate_limit_scope: provider.rate_limit_scope,
             weight: config.weight,
             input_cost_per_million: config.input_cost_per_million,
@@ -2276,7 +2276,7 @@ impl ProxyState {
                     model_rules: None,
                     antigravity_project: None,
                     claude_identity: None,
-                    codex_account_id: None,
+                    codex_account: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
                     weight,
                     input_cost_per_million,
@@ -6272,6 +6272,10 @@ async fn proxy_request(
         },
         claude_code_client,
     };
+    let codex_service_tier = match &state.control_plane {
+        Some(control) => control.codex_service_tier().await,
+        None => codex_request::CodexServiceTier::default(),
+    };
     let claude_fast_mode = match &state.control_plane {
         Some(control) => control.claude_fast_mode().await,
         None => global_settings::ClaudeFastMode::default(),
@@ -7866,13 +7870,14 @@ async fn proxy_request(
                         .and_then(|provider| provider.provider_name.as_deref())
                 })
                 == Some("codex");
-        let codex_account_id = target
-            .and_then(|target| target.codex_account_id.as_deref())
+        let codex_account = target
+            .and_then(|target| target.codex_account.as_deref())
             .or_else(|| {
                 live_provider
                     .as_ref()
-                    .and_then(|provider| provider.codex_account_id.as_deref())
+                    .and_then(|provider| provider.codex_account.as_deref())
             });
+        let codex_account_id = codex_account.and_then(|account| account.account_id.as_deref());
         // Legacy CodexExecutor: the backend only streams, so a client that
         // asked for one object gets the stream folded back.
         let codex_folded = codex_attempt
@@ -7882,7 +7887,12 @@ async fn proxy_request(
                 .map_err(|_| ())
                 .and_then(|mut value| {
                     let routed = target.map_or(model.as_str(), |target| target.model.as_str());
-                    codex_request::shape_passthrough(&mut value, routed, codex_account_id)?;
+                    codex_request::shape_passthrough(
+                        &mut value,
+                        routed,
+                        codex_account,
+                        &codex_service_tier,
+                    )?;
                     serde_json::to_vec(&value).map_err(|_| ())
                 });
             payload = match shaped {
@@ -9837,7 +9847,7 @@ mod address_tests {
             model_rules: None,
             antigravity_project: None,
             claude_identity: None,
-            codex_account_id: None,
+            codex_account: None,
             rate_limit_scope: resilience::RateLimitScope::Model,
             weight: 1,
             input_cost_per_million: None,

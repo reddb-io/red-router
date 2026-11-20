@@ -593,7 +593,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         ("codex-wrong", "workspace-other"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
-            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
     }
     sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
         .bind(&legacy_oauth_label)
@@ -777,6 +777,11 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     assert_eq!(metadata["legacyCodex"]["chatgptUserId"], "user-1");
     assert_eq!(metadata["legacyCodex"]["workspacePlanType"], "team");
     assert_eq!(metadata["legacyCodex"]["organizations"][0]["id"], "org-1");
+    // The Codex request defaults reach the request path through the session.
+    assert_eq!(
+        metadata["legacyCodex"]["requestDefaults"],
+        serde_json::json!({"reasoningEffort":"high","serviceTier":"fast"})
+    );
     assert!(metadata["legacyCodex"].get("excludedModels").is_none());
     db.close().await.unwrap();
     assert!(

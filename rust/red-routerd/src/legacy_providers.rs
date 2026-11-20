@@ -457,7 +457,9 @@ async fn adopt_oauth(
         let (access, refresh, session, parsed_expiry, parsed_email, upstream) = if provider == "codex" {
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
-            if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync")) { return Err("legacy Codex configuration requires migration"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "workspaceId" | "workspacePlanType" | "chatgptUserId" | "organizations" | "autoSync" | "requestDefaults")) { return Err("legacy Codex configuration requires migration"); }
+            // The request path reads requestDefaults (reasoningEffort, serviceTier)
+            // from the imported session; legacy ignores a non-object value.
             match specific.get("autoSync") {
                 None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {},
                 Some(serde_json::Value::Bool(true)) => return Err("legacy model auto-sync requires migration"),

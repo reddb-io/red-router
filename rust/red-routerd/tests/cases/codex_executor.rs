@@ -192,6 +192,32 @@ async fn codex_accounts_get_cli_headers_shaped_bodies_and_folded_streams() {
     assert_eq!(body["prompt_cache_key"], "conv-1");
     assert!(body.get("session_id").is_none());
 
+    // The global Codex service tier (legacy codexServiceTier) applies to a
+    // Fast-eligible model.
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/admin/global-settings/codex_service_tier"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({"enabled":true}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let tiered = client
+        .post(format!("{base}/v1/responses"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .json(&serde_json::json!({"model":"codex-combo","input":"hello"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tiered.status(), StatusCode::OK);
+    let (_, body) = seen.lock().unwrap()[2].clone();
+    assert_eq!(body["service_tier"], "priority");
+
     gateway_task.abort();
     upstream_task.abort();
 }

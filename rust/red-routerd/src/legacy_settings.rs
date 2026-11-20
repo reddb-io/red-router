@@ -155,6 +155,69 @@ fn legacy_claude_fast_mode(raw: &str) -> crate::global_settings::ClaudeFastMode 
     }
 }
 
+/// Legacy `resolveCodexGlobalFastServiceTier` over the `codexServiceTier` row,
+/// or the early `codexFastServiceTier` flag when that row is not a flag or
+/// an object, plus the tier `migrateCodexConnectionDefaultsFromLegacySettings`
+/// gives connections when its marker is missing.
+fn legacy_codex_service_tier(rows: &[(String, String)]) -> crate::codex_request::CodexServiceTier {
+    let row = |name: &str| {
+        rows.iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, raw)| parse_value(raw))
+    };
+    let raw = row("codexServiceTier");
+    let mut tier = crate::codex_request::CodexServiceTier::default();
+    match &raw {
+        Some(Value::Bool(enabled)) => tier.enabled = *enabled,
+        Some(Value::Object(record)) => {
+            tier.enabled = record.get("enabled") == Some(&Value::Bool(true));
+            tier.tier = record
+                .get("tier")
+                .and_then(Value::as_str)
+                .map(|value| value.trim().to_ascii_lowercase())
+                .filter(|value| matches!(value.as_str(), "default" | "priority" | "flex"));
+            let models: Vec<String> = record
+                .get("supportedModels")
+                .and_then(Value::as_array)
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|model| !model.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if models != crate::codex_request::FAST_TIER_DEFAULT_MODELS {
+                tier.supported_models = models;
+            }
+        }
+        _ => tier.enabled = row("codexFastServiceTier") == Some(Value::Bool(true)),
+    }
+    // Legacy parseLegacyCodexServiceTier: only an enabled object (or its JSON
+    // text) without a non-priority tier counts as the old Fast switch.
+    let legacy_fast = |value: &Value| {
+        value.get("enabled") == Some(&Value::Bool(true))
+            && value
+                .get("tier")
+                .and_then(Value::as_str)
+                .map(|tier| tier.trim().to_ascii_lowercase())
+                .is_none_or(|tier| matches!(tier.as_str(), "" | "priority" | "fast"))
+    };
+    let legacy_fast = match &raw {
+        Some(Value::String(text)) => serde_json::from_str::<Value>(text)
+            .ok()
+            .is_some_and(|value| legacy_fast(&value)),
+        Some(value) => legacy_fast(value),
+        None => false,
+    };
+    if legacy_fast && row("codexConnectionDefaultsMigrationV1").is_none() {
+        tier.unmigrated_connection_tier = Some("priority".to_owned());
+    }
+    tier
+}
+
 /// Legacy `resolveResilienceSettings(...).waitForCooldown`: the stored
 /// `resilienceSettings.waitForCooldown` fields over the fallback built from
 /// `requestRetry` and `maxRetryIntervalSec`, whose settings defaults (3 and
@@ -918,6 +981,22 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 SettingClass::Imported
             };
         }
+        // A disabled Codex service tier has no effect whatever its fields.
+        "codexServiceTier" | "codexFastServiceTier" => {
+            let rows = [(key.to_owned(), raw.to_owned())];
+            return if legacy_codex_service_tier(&rows).enabled {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
+        // The marker of the legacy per-connection Codex defaults migration.
+        "codexConnectionDefaultsMigrationV1" => {
+            return SettingClass::Equivalent {
+                reason:
+                    "the Codex request defaults it migrated are imported with each Codex connection",
+            };
+        }
         // Disabled fast mode has no effect whatever its model list.
         "claudeFastMode" => {
             return if legacy_claude_fast_mode(raw).enabled {
@@ -1166,6 +1245,14 @@ pub async fn import(
         global.push((
             crate::global_settings::CLAUDE_FAST_MODE,
             serde_json::to_value(fast_mode).map_err(|_| "invalid legacy Claude fast mode")?,
+        ));
+    }
+    let codex_service_tier = legacy_codex_service_tier(&rows);
+    if codex_service_tier != crate::codex_request::CodexServiceTier::default() {
+        global.push((
+            crate::global_settings::CODEX_SERVICE_TIER,
+            serde_json::to_value(codex_service_tier)
+                .map_err(|_| "invalid legacy Codex service tier")?,
         ));
     }
     if let Some(mode) = rows
@@ -1481,6 +1568,91 @@ mod tests {
         assert_eq!(
             classify("hideNoThinkVariants", "false"),
             SettingClass::AtDefault
+        );
+        // Ported from tests/unit/codex-fast-tier.test.ts and
+        // codex-connection-defaults.test.ts.
+        let codex = |rows: &[(&str, &str)]| {
+            let rows: Vec<_> = rows
+                .iter()
+                .map(|(key, raw)| ((*key).to_owned(), (*raw).to_owned()))
+                .collect();
+            legacy_codex_service_tier(&rows)
+        };
+        assert_eq!(
+            classify("codexServiceTier", r#"{"enabled":false}"#),
+            SettingClass::AtDefault
+        );
+        assert_eq!(
+            classify("codexServiceTier", r#"{"enabled":true}"#),
+            SettingClass::Imported
+        );
+        assert_eq!(classify("codexServiceTier", "true"), SettingClass::Imported);
+        assert_eq!(
+            classify("codexFastServiceTier", "true"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("codexFastServiceTier", "false"),
+            SettingClass::AtDefault
+        );
+        assert!(matches!(
+            classify(
+                "codexConnectionDefaultsMigrationV1",
+                r#"{"completedAt":"x"}"#
+            ),
+            SettingClass::Equivalent { .. }
+        ));
+        let flex = codex(&[
+            (
+                "codexServiceTier",
+                r#"{"enabled":true,"tier":" Flex ","supportedModels":["gpt-5.5"," "]}"#,
+            ),
+            ("codexConnectionDefaultsMigrationV1", "{}"),
+        ]);
+        assert!(flex.enabled);
+        assert_eq!(flex.tier.as_deref(), Some("flex"));
+        assert_eq!(flex.supported_models, ["gpt-5.5"]);
+        assert_eq!(flex.unmigrated_connection_tier, None);
+        // The default model list is kept implicit.
+        let listed = format!(
+            r#"{{"enabled":true,"supportedModels":{}}}"#,
+            serde_json::to_string(&crate::codex_request::FAST_TIER_DEFAULT_MODELS).unwrap()
+        );
+        assert!(codex(&[("codexServiceTier", listed.as_str())])
+            .supported_models
+            .is_empty());
+        // The defaults migration gives connections priority unless it ran or
+        // the tier is not the old Fast switch.
+        assert_eq!(
+            codex(&[("codexServiceTier", r#"{"enabled":true}"#)])
+                .unmigrated_connection_tier
+                .as_deref(),
+            Some("priority")
+        );
+        assert_eq!(
+            codex(&[("codexServiceTier", r#"{"enabled":true,"tier":"default"}"#)])
+                .unmigrated_connection_tier,
+            None
+        );
+        assert_eq!(
+            codex(&[("codexServiceTier", "true")]).unmigrated_connection_tier,
+            None
+        );
+        // The early flag applies only when the current row is not a setting.
+        assert!(codex(&[("codexFastServiceTier", "true")]).enabled);
+        assert!(
+            !codex(&[
+                ("codexServiceTier", "false"),
+                ("codexFastServiceTier", "true")
+            ])
+            .enabled
+        );
+        assert!(
+            codex(&[
+                ("codexServiceTier", "null"),
+                ("codexFastServiceTier", "true")
+            ])
+            .enabled
         );
         assert_eq!(classify("claudeFastMode", "true"), SettingClass::Imported);
         assert_eq!(
