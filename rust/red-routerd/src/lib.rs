@@ -18,6 +18,7 @@ pub mod client_key_limits;
 mod codex_request;
 pub mod control_plane;
 mod cooldown_retry;
+pub mod credential_masker;
 pub mod credential_patterns;
 mod daily_quota_reset;
 pub mod data_paths;
@@ -6438,6 +6439,13 @@ async fn proxy_request(
         Some(control) => control.previous_response_id_mode().await,
         None => responses_state::PreviousResponseIdMode::default(),
     };
+    // Legacy CredentialMaskerGuardrail.preCall: credentials in the request
+    // never reach the upstream.
+    let credential_redaction = credential_masker::enabled(match &state.control_plane {
+        Some(control) => control.credential_redaction().await,
+        None => false,
+    });
+    let body_redacted = credential_redaction && credential_masker::redact_value(&mut parsed) > 0;
     if previous_response_id_mode
         .rejects_continuation(protocol == ProviderProtocol::OpenAiResponses, &parsed)
     {
@@ -7869,7 +7877,7 @@ async fn proxy_request(
                         Ok(payload) => payload,
                         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
                     }
-                } else if state.product_client_keys {
+                } else if state.product_client_keys || body_redacted {
                     match serde_json::to_vec(&parsed) {
                         Ok(payload) => payload,
                         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
@@ -8872,6 +8880,60 @@ async fn proxy_request(
     } else {
         response
     };
+    // Legacy CredentialMaskerGuardrail.postCall on a passthrough JSON answer.
+    let response = if credential_redaction
+        && response.status().is_success()
+        && !final_translated
+        && !final_antigravity_translated
+        && parsed.get("stream").and_then(serde_json::Value::as_bool) != Some(true)
+        && response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.trim_start().starts_with("application/json"))
+    {
+        let status = response.status();
+        let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+        let Some(mut stream) = response.into_body_stream() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
+        let read = async {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok::<_, ()>(bytes)
+        };
+        let bytes = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+            Ok(Ok(bytes)) => bytes,
+            _ => return error(StatusCode::BAD_GATEWAY, "Invalid provider response"),
+        };
+        let bytes = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(mut value) => {
+                if credential_masker::redact_value(&mut value) > 0 {
+                    serde_json::to_vec(&value).unwrap_or(bytes)
+                } else {
+                    bytes
+                }
+            }
+            Err(_) => bytes,
+        };
+        let mut headers = HeaderMap::new();
+        if let Some(content_type) = content_type {
+            headers.insert(header::CONTENT_TYPE, content_type);
+        }
+        ProviderResponse::Buffered(BufferedProviderResponse {
+            status,
+            headers,
+            body: Some(Bytes::from(bytes)),
+        })
+    } else {
+        response
+    };
     let response_alias = if alias_by_pattern {
         Some(requested_model.as_str())
     } else {
@@ -8962,10 +9024,13 @@ async fn proxy_request(
             let response = antigravity_translation::response(&bytes, &model)?;
             response.persist(signature_context.as_ref()).await
         };
-        let value = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+        let mut value = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
             Ok(Ok(value)) => value,
             _ => return error(StatusCode::BAD_GATEWAY, "Invalid Antigravity response"),
         };
+        if credential_redaction {
+            credential_masker::redact_value(&mut value);
+        }
         if let Some(accounting) = final_accounting {
             let usage = match accounting::ChatUsage::from_response(&value) {
                 Ok(usage) => usage,
@@ -9046,7 +9111,10 @@ async fn proxy_request(
             translation::response(&value).map_err(|_| ())
         };
         return match tokio::time::timeout(HEADER_TIMEOUT, read).await {
-            Ok(Ok(value)) => {
+            Ok(Ok(mut value)) => {
+                if credential_redaction {
+                    credential_masker::redact_value(&mut value);
+                }
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
                 model_alias_response::rewrite(result, response_alias).await

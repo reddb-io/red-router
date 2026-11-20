@@ -45,6 +45,8 @@
 //!   `codexFastServiceTier`), the service tier Codex requests get.
 //! - `antigravity_signature_cache_mode`: the legacy
 //!   `antigravitySignatureCacheMode` (enabled, bypass, bypass-strict).
+//! - `credential_redaction`: the legacy `credentialRedactionEnabled`, the
+//!   credential masker guardrail (`credential_masker`).
 //! - `combo_auto_promote`: the legacy `comboAutoPromoteEnabled`, which moves
 //!   a combo's successful target to the front of the stored combo.
 //! - `model_lockout_policy`: the legacy opt-in `modelLockout` policy
@@ -75,6 +77,7 @@ pub(crate) const PROVIDER_QUOTA_OVERRIDES: &str = "provider_quota_overrides";
 pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
 pub(crate) const COMBO_AUTO_PROMOTE: &str = "combo_auto_promote";
+pub(crate) const CREDENTIAL_REDACTION: &str = "credential_redaction";
 pub(crate) const ANTIGRAVITY_SIGNATURE_CACHE_MODE: &str = "antigravity_signature_cache_mode";
 pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
 const MAX_QUEUE_POLICIES: usize = 10_000;
@@ -212,6 +215,7 @@ pub(crate) struct Snapshot {
     codex_service_tier: crate::codex_request::CodexServiceTier,
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
     combo_auto_promote: bool,
+    credential_redaction: bool,
     signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
     previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
     wait_for_cooldown: crate::cooldown_retry::WaitForCooldown,
@@ -327,6 +331,11 @@ impl Snapshot {
         &self,
     ) -> crate::antigravity_translation::SignatureCacheMode {
         self.signature_cache_mode
+    }
+
+    /// Whether the credential masker guardrail is on.
+    pub(crate) fn credential_redaction(&self) -> bool {
+        self.credential_redaction
     }
 
     /// Whether a combo's successful target moves to the front (legacy
@@ -453,6 +462,10 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .is_boolean()
             .then_some(value)
             .ok_or("invalid combo auto promote"),
+        CREDENTIAL_REDACTION => value
+            .is_boolean()
+            .then_some(value)
+            .ok_or("invalid credential redaction"),
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -556,6 +569,9 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             SESSION_STICKINESS => {
                 snapshot.session_stickiness_disabled = value == Value::Bool(false);
+            }
+            CREDENTIAL_REDACTION => {
+                snapshot.credential_redaction = value == Value::Bool(true);
             }
             COMBO_AUTO_PROMOTE => {
                 snapshot.combo_auto_promote = value == Value::Bool(true);

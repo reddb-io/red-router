@@ -968,6 +968,13 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
             };
         }
         // Only an explicit false turns the affinity off.
+        "credentialRedactionEnabled" => {
+            return if parse_value(raw) == Value::Bool(true) {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         "comboAutoPromoteEnabled" => {
             return if parse_value(raw) == Value::Bool(true) {
                 SettingClass::Imported
@@ -1241,6 +1248,14 @@ pub async fn import(
     {
         global.push((
             crate::global_settings::COMBO_AUTO_PROMOTE,
+            Value::Bool(true),
+        ));
+    }
+    if rows.iter().any(|(key, raw)| {
+        key == "credentialRedactionEnabled" && parse_value(raw) == Value::Bool(true)
+    }) {
+        global.push((
+            crate::global_settings::CREDENTIAL_REDACTION,
             Value::Bool(true),
         ));
     }
@@ -1721,6 +1736,14 @@ mod tests {
                 "{raw}"
             );
         }
+        assert_eq!(
+            classify("credentialRedactionEnabled", "true"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("credentialRedactionEnabled", "false"),
+            SettingClass::AtDefault
+        );
         assert_eq!(
             classify("comboAutoPromoteEnabled", "true"),
             SettingClass::Imported

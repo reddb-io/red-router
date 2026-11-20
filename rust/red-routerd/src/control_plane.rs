@@ -11689,6 +11689,12 @@ impl ControlPlane {
         self.0.global_settings.read().await.signature_cache_mode()
     }
 
+    /// Whether the credential masker guardrail is on (legacy
+    /// `credentialRedactionEnabled`).
+    pub(crate) async fn credential_redaction(&self) -> bool {
+        self.0.global_settings.read().await.credential_redaction()
+    }
+
     /// Whether a combo's successful target moves to the front (legacy
     /// `comboAutoPromoteEnabled`).
     pub(crate) async fn combo_auto_promote(&self) -> bool {
