@@ -134,7 +134,7 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
     let mut db = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('settings','requestRetry','7')")
+    sqlx::query("INSERT INTO key_value VALUES ('settings','comboStrategy','\"round-robin\"')")
         .execute(&mut db)
         .await
         .unwrap();
