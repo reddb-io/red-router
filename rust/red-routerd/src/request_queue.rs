@@ -61,6 +61,74 @@ impl RequestQueue {
     }
 }
 
+/// Legacy per-connection `rateLimitProtection` and `rateLimitOverrides`:
+/// protection queues the connection even when the auto-enable is off or it
+/// is not an API-key account, and a positive override replaces the global
+/// value (legacy `resolveOverride`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionQueuePolicy {
+    #[serde(default)]
+    pub protection: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requests_per_minute: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_time_between_requests_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrent_requests: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_wait_ms: Option<u64>,
+}
+
+impl ConnectionQueuePolicy {
+    pub(crate) fn valid(&self) -> bool {
+        self.requests_per_minute
+            .is_none_or(|rpm| (1..=1_000_000).contains(&rpm))
+            && self
+                .min_time_between_requests_ms
+                .is_none_or(|ms| (1..=60 * MINUTE_MS).contains(&ms))
+            && self
+                .concurrent_requests
+                .is_none_or(|count| (1..=10_000).contains(&count))
+            && self
+                .max_wait_ms
+                .is_none_or(|ms| (1..=24 * 60 * MINUTE_MS).contains(&ms))
+    }
+}
+
+/// The queue a connection goes through, if any: the global queue for an
+/// API-key account when it is on, or any protected connection, with the
+/// connection's overrides applied.
+pub(crate) fn effective(
+    global: &RequestQueue,
+    policy: Option<&ConnectionQueuePolicy>,
+    api_key: bool,
+) -> Option<RequestQueue> {
+    let protected = policy.is_some_and(|policy| policy.protection);
+    if !(protected || (global.enabled && api_key)) {
+        return None;
+    }
+    let mut settings = RequestQueue {
+        enabled: true,
+        ..*global
+    };
+    if let Some(policy) = policy {
+        if let Some(rpm) = policy.requests_per_minute {
+            settings.requests_per_minute = rpm;
+        }
+        if let Some(ms) = policy.min_time_between_requests_ms {
+            settings.min_time_between_requests_ms = ms;
+        }
+        if let Some(count) = policy.concurrent_requests {
+            settings.concurrent_requests = count;
+        }
+        if let Some(ms) = policy.max_wait_ms {
+            settings.max_wait_ms = ms;
+        }
+    }
+    Some(settings)
+}
+
 /// Why the queue refused a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Rejection {
@@ -429,6 +497,36 @@ mod tests {
         assert!(!RequestQueue {
             concurrent_requests: 0,
             ..settings()
+        }
+        .valid());
+    }
+
+    #[test]
+    fn connection_policies_enable_and_override_the_queue() {
+        let global = RequestQueue::default();
+        assert_eq!(effective(&global, None, true), None);
+        let on = RequestQueue {
+            enabled: true,
+            ..global
+        };
+        assert_eq!(effective(&on, None, true), Some(on));
+        // An OAuth account is only queued when protected.
+        assert_eq!(effective(&on, None, false), None);
+        let policy = ConnectionQueuePolicy {
+            protection: true,
+            requests_per_minute: Some(5),
+            ..ConnectionQueuePolicy::default()
+        };
+        assert_eq!(
+            effective(&global, Some(&policy), false),
+            Some(RequestQueue {
+                requests_per_minute: 5,
+                ..on
+            })
+        );
+        assert!(!ConnectionQueuePolicy {
+            concurrent_requests: Some(0),
+            ..policy
         }
         .valid());
     }

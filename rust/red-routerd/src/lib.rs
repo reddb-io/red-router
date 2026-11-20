@@ -6288,10 +6288,6 @@ async fn proxy_request(
         Some(control) => control.prompt_cache_affinity().await,
         None => false,
     };
-    let request_queue = match &state.control_plane {
-        Some(control) => control.request_queue().await,
-        None => request_queue::RequestQueue::default(),
-    };
     let session_stickiness_enabled = match &state.control_plane {
         Some(control) => control.session_stickiness().await,
         None => false,
@@ -8054,19 +8050,20 @@ async fn proxy_request(
             });
         // Legacy withRateLimit: an API-key connection waits for its turn in
         // its request queue; the slot is held until the upstream answers.
-        let request_queue_slot = match (
-            request_queue.enabled,
+        let queue_settings = match (
             target.and_then(|target| target.provider_id.as_deref()),
             &state.control_plane,
         ) {
-            (true, Some(connection), Some(control))
-                if control.request_queue_applies(connection).await =>
-            {
-                match request_queue::limiter(connection)
-                    .acquire(&request_queue)
-                    .await
-                {
-                    Ok(slot) => Some(slot),
+            (Some(connection), Some(control)) => control
+                .request_queue_for(connection)
+                .await
+                .map(|settings| (connection, settings)),
+            _ => None,
+        };
+        let request_queue_slot = match queue_settings {
+            Some((connection, settings)) => {
+                match request_queue::limiter(connection).acquire(&settings).await {
+                    Ok(slot) => Some((slot, settings)),
                     Err(rejection) => {
                         saw_queue_rejection = Some(rejection);
                         continue;
@@ -8238,14 +8235,14 @@ async fn proxy_request(
             }
         }
         // Legacy updateFromHeaders: the upstream's rate headers tune the queue.
-        if request_queue_slot.is_some() {
+        if let Some((_, settings)) = &request_queue_slot {
             if let Some(target) = target {
                 if let Some(connection) = target.provider_id.as_deref() {
                     request_queue::limiter(connection).learn_from_headers(
                         target.provider_name.as_deref(),
                         response.status().as_u16(),
                         response.headers(),
-                        &request_queue,
+                        settings,
                     );
                 }
             }

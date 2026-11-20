@@ -11600,15 +11600,20 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
-    /// The per-connection request queue (legacy `requestQueue`).
-    pub(crate) async fn request_queue(&self) -> crate::request_queue::RequestQueue {
-        self.0.global_settings.read().await.request_queue()
-    }
-
-    /// Legacy `getProviderCategory(provider) === "apikey"`: the queue
-    /// applies to connections without OAuth credentials.
-    pub(crate) async fn request_queue_applies(&self, provider_id: &str) -> bool {
-        !self.0.oauth_provider_ids.read().await.contains(provider_id)
+    /// The request queue a connection goes through (legacy `requestQueue`,
+    /// `rateLimitProtection` and `rateLimitOverrides`). Legacy
+    /// `getProviderCategory(provider) === "apikey"` is a connection without
+    /// OAuth credentials.
+    pub(crate) async fn request_queue_for(
+        &self,
+        provider_id: &str,
+    ) -> Option<crate::request_queue::RequestQueue> {
+        let api_key = !self.0.oauth_provider_ids.read().await.contains(provider_id);
+        self.0
+            .global_settings
+            .read()
+            .await
+            .request_queue_for(provider_id, api_key)
     }
 
     /// Whether combos keep a conversation on its connection (legacy

@@ -356,7 +356,12 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
-    for field in ["rate_limit_protection", "health_check_interval"] {
+    // Request queue protection imports onto the connection queue policy.
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN rate_limit_protection INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    for field in ["health_check_interval"] {
         sqlx::query(&format!(
             "ALTER TABLE provider_connections ADD COLUMN {field} INTEGER"
         ))
@@ -398,6 +403,13 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
+    sqlx::query(
+        "UPDATE provider_connections SET rate_limit_protection=1, rate_limit_overrides_json=?",
+    )
+    .bind(r#"{"rpm":30,"maxWaitMs":9000}"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
     input.close().await.unwrap();
     let before = tokio::fs::read(&source).await.unwrap();
     assert!(
@@ -423,6 +435,11 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     assert_eq!(providers[0].priority, -4);
     // The legacy per-connection concurrency cap carries over.
     assert_eq!(providers[0].max_concurrent, Some(3));
+    // So do the request queue protection and overrides.
+    assert_eq!(
+        db.global_settings().await.unwrap()["request_queue_connections"],
+        serde_json::json!({"provider-1":{"protection":true,"requests_per_minute":30,"max_wait_ms":9000}})
+    );
     assert_eq!(
         providers[0].default_model.as_deref(),
         Some("legacy-openrouter-model")

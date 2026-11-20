@@ -37,6 +37,8 @@
 //!   which sends a combo conversation back to the connection that served it.
 //! - `request_queue`: the legacy `requestQueue` resilience section, the
 //!   per-connection limiter of API-key accounts (`request_queue`).
+//! - `request_queue_connections`: the legacy per-connection
+//!   `rateLimitProtection` and `rateLimitOverrides`, by provider id.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -56,6 +58,8 @@ pub(crate) const COMBO_STICKY_ROUND_ROBIN_LIMIT: &str = "combo_sticky_round_robi
 pub(crate) const PROMPT_CACHE_AFFINITY: &str = "prompt_cache_affinity";
 pub(crate) const SESSION_STICKINESS: &str = "session_stickiness";
 pub(crate) const REQUEST_QUEUE: &str = "request_queue";
+pub(crate) const REQUEST_QUEUE_CONNECTIONS: &str = "request_queue_connections";
+const MAX_QUEUE_POLICIES: usize = 10_000;
 /// Legacy `clampStickyRoundRobinTargetLimit` ceiling.
 const MAX_COMBO_STICKY_LIMIT: u64 = 1_000;
 /// Legacy `CLAUDE_FAST_MODE_DEFAULT_MODELS`.
@@ -194,6 +198,7 @@ pub(crate) struct Snapshot {
     prompt_cache_affinity_disabled: bool,
     session_stickiness_disabled: bool,
     request_queue: crate::request_queue::RequestQueue,
+    request_queue_connections: BTreeMap<String, crate::request_queue::ConnectionQueuePolicy>,
 }
 
 impl Snapshot {
@@ -236,9 +241,17 @@ impl Snapshot {
             .clamp(1, 1_000)
     }
 
-    /// The per-connection request queue of API-key accounts.
-    pub(crate) fn request_queue(&self) -> crate::request_queue::RequestQueue {
-        self.request_queue
+    /// The request queue a connection goes through, if any.
+    pub(crate) fn request_queue_for(
+        &self,
+        provider_id: &str,
+        api_key: bool,
+    ) -> Option<crate::request_queue::RequestQueue> {
+        crate::request_queue::effective(
+            &self.request_queue,
+            self.request_queue_connections.get(provider_id),
+            api_key,
+        )
     }
 
     /// Whether combos send a conversation back to its connection.
@@ -324,6 +337,22 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .filter(|limit| (1..=MAX_COMBO_STICKY_LIMIT).contains(limit))
             .map(Value::from)
             .ok_or("invalid combo sticky round-robin limit"),
+        REQUEST_QUEUE_CONNECTIONS => serde_json::from_value::<
+            BTreeMap<String, crate::request_queue::ConnectionQueuePolicy>,
+        >(value)
+        .ok()
+        .filter(|policies| {
+            policies.len() <= MAX_QUEUE_POLICIES
+                && policies.iter().all(|(id, policy)| {
+                    (1..=128).contains(&id.len())
+                        && id
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                        && policy.valid()
+                })
+        })
+        .and_then(|policies| serde_json::to_value(policies).ok())
+        .ok_or("invalid connection request queue policies"),
         REQUEST_QUEUE => serde_json::from_value::<crate::request_queue::RequestQueue>(value)
             .ok()
             .filter(crate::request_queue::RequestQueue::valid)
@@ -401,6 +430,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             COMBO_STICKY_ROUND_ROBIN_LIMIT => {
                 snapshot.combo_sticky_round_robin_limit =
                     value.as_u64().and_then(|limit| u32::try_from(limit).ok());
+            }
+            REQUEST_QUEUE_CONNECTIONS => {
+                snapshot.request_queue_connections = serde_json::from_value(value)
+                    .map_err(|_| "invalid connection request queue policies")?;
             }
             REQUEST_QUEUE => {
                 snapshot.request_queue =

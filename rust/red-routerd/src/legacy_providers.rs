@@ -47,6 +47,88 @@ fn legacy_concurrency(value: Option<i64>) -> Result<Option<u32>, &'static str> {
 }
 
 /// Write an imported connection's concurrency cap for its first revision.
+/// Legacy `rateLimitProtection` and `rateLimitOverrides` of a connection as
+/// its native request queue policy, none when neither is set. Only positive
+/// overrides count (legacy `resolveOverride`); an execution backstop has no
+/// native equivalent yet.
+fn legacy_queue_policy(
+    protection: bool,
+    overrides: Option<&str>,
+) -> Result<Option<crate::request_queue::ConnectionQueuePolicy>, &'static str> {
+    let record = match overrides.map(str::trim) {
+        None | Some("" | "null" | "{}" | "[]") => serde_json::Map::new(),
+        Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(serde_json::Value::Object(record)) => record,
+            _ => return Err("invalid legacy provider rate limit overrides"),
+        },
+    };
+    let positive = |name: &str| {
+        record
+            .get(name)
+            .and_then(serde_json::Value::as_f64)
+            .filter(|value| value.is_finite() && *value >= 1.0)
+            .map(|value| value.floor() as u64)
+    };
+    if positive("executionMaxWaitMs").is_some() {
+        return Err("legacy provider policy requires migration");
+    }
+    let policy = crate::request_queue::ConnectionQueuePolicy {
+        protection,
+        requests_per_minute: positive("rpm").map(|rpm| u32::try_from(rpm).unwrap_or(u32::MAX)),
+        min_time_between_requests_ms: positive("minTime"),
+        concurrent_requests: positive("maxConcurrent")
+            .map(|count| u32::try_from(count).unwrap_or(u32::MAX)),
+        max_wait_ms: positive("maxWaitMs"),
+    };
+    if !policy.valid() {
+        return Err("invalid legacy provider rate limit overrides");
+    }
+    Ok((policy != crate::request_queue::ConnectionQueuePolicy::default()).then_some(policy))
+}
+
+/// Merge a connection's queue policy into the destination's global
+/// `request_queue_connections` setting.
+async fn record_imported_queue_policy(
+    db: &mut SqliteConnection,
+    id: &str,
+    policy: Option<crate::request_queue::ConnectionQueuePolicy>,
+) -> Result<(), &'static str> {
+    let Some(policy) = policy else {
+        return Ok(());
+    };
+    let key = crate::global_settings::REQUEST_QUEUE_CONNECTIONS;
+    let stored: Option<(String, i64)> = sqlx::query_as(
+        "SELECT value_json,revision FROM redrouter_control_global_settings WHERE setting_key=?",
+    )
+    .bind(key)
+    .fetch_optional(&mut *db)
+    .await
+    .map_err(|_| "cannot read destination request queue policies")?;
+    let (mut policies, revision) = match stored {
+        Some((json, revision)) => (
+            serde_json::from_str::<
+                std::collections::BTreeMap<String, crate::request_queue::ConnectionQueuePolicy>,
+            >(&json)
+            .map_err(|_| "invalid destination request queue policies")?,
+            revision,
+        ),
+        None => (std::collections::BTreeMap::new(), 0),
+    };
+    policies.insert(id.to_owned(), policy);
+    let value = crate::global_settings::validate(
+        key,
+        serde_json::to_value(&policies).map_err(|_| "invalid request queue policies")?,
+    )?;
+    sqlx::query("INSERT INTO redrouter_control_global_settings (setting_key,value_json,revision) VALUES (?,?,?) ON CONFLICT(setting_key) DO UPDATE SET value_json=excluded.value_json,revision=excluded.revision")
+        .bind(key)
+        .bind(serde_json::to_string(&value).map_err(|_| "invalid request queue policies")?)
+        .bind(revision + 1)
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot write request queue policies")?;
+    Ok(())
+}
+
 async fn record_imported_concurrency(
     db: &mut SqliteConnection,
     id: &str,
@@ -735,9 +817,12 @@ pub async fn import(
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.as_deref().is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
         let model_rules = crate::control_plane::provider_rules::parse_legacy(text("provider_specific_data")?.as_deref())?;
-        for field in ["quota_window_thresholds_json", "rate_limit_overrides_json"] {
-            if text(field)?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
-        }
+        if text("quota_window_thresholds_json")?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
+        let rate_limit_overrides = match row.try_get::<Option<String>, _>("rate_limit_overrides_json") {
+            Ok(value) => value,
+            Err(sqlx::Error::ColumnNotFound(_)) => None,
+            Err(_) => return Err("invalid legacy provider"),
+        };
         let max_concurrent = legacy_concurrency(number("max_concurrent")?)?;
         for field in ["per_key_proxy_enabled", "proxy_enabled"] {
             if number(field)?.unwrap_or(0) != 0 { return Err("legacy provider policy requires migration"); }
@@ -763,13 +848,18 @@ pub async fn import(
             Err(sqlx::Error::ColumnNotFound(_)) => {}
             Err(_) => return Err("invalid legacy provider global priority"),
         }
-        for field in ["rate_limit_protection", "health_check_interval"] {
-            match row.try_get::<Option<i64>, _>(field) {
-                Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
-                Ok(_) => return Err("legacy provider selection or health policy requires migration"),
-                Err(_) => return Err("invalid legacy provider policy"),
-            }
+        match row.try_get::<Option<i64>, _>("health_check_interval") {
+            Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
+            Ok(_) => return Err("legacy provider selection or health policy requires migration"),
+            Err(_) => return Err("invalid legacy provider policy"),
         }
+        let rate_limit_protection = match row.try_get::<Option<i64>, _>("rate_limit_protection") {
+            Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => false,
+            // The legacy row mapping reads any other value as enabled.
+            Ok(Some(_)) => true,
+            Err(_) => return Err("invalid legacy provider policy"),
+        };
+        let queue_policy = legacy_queue_policy(rate_limit_protection, rate_limit_overrides.as_deref())?;
         let terminal = terminal_status_code(text("test_status")?.as_deref())?;
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
@@ -815,6 +905,7 @@ pub async fn import(
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         record_imported_availability(&mut target, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut target, id, max_concurrent).await?;
+        record_imported_queue_policy(&mut target, id, queue_policy).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;
         }
@@ -863,6 +954,29 @@ pub async fn import(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_rate_limit_overrides_become_the_queue_policy() {
+        assert_eq!(legacy_queue_policy(false, None), Ok(None));
+        assert_eq!(legacy_queue_policy(false, Some("{}")), Ok(None));
+        // Non-positive overrides fall through, as legacy resolveOverride does.
+        assert_eq!(legacy_queue_policy(false, Some(r#"{"rpm":0}"#)), Ok(None));
+        assert_eq!(
+            legacy_queue_policy(
+                true,
+                Some(r#"{"rpm":30,"minTime":250.7,"maxConcurrent":2,"maxWaitMs":9000,"tpm":1}"#)
+            ),
+            Ok(Some(crate::request_queue::ConnectionQueuePolicy {
+                protection: true,
+                requests_per_minute: Some(30),
+                min_time_between_requests_ms: Some(250),
+                concurrent_requests: Some(2),
+                max_wait_ms: Some(9_000),
+            }))
+        );
+        assert!(legacy_queue_policy(false, Some(r#"{"executionMaxWaitMs":5}"#)).is_err());
+        assert!(legacy_queue_policy(false, Some("[1]")).is_err());
+    }
 
     #[test]
     fn legacy_global_priority_is_validated_and_dropped() {
