@@ -6942,6 +6942,7 @@ async fn proxy_request(
         && product_access.is_none()
         && route.is_none_or(|route| route.provider_direct);
     let mut cooldown_wait_attempt = 0_u32;
+    let mut cooldown_wait_restarts = 0_u32;
     let mut cooldown_wait_budget_ms = wait_for_cooldown.budget_ms;
     let mut saw_expired_credential = false;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
@@ -7096,7 +7097,6 @@ async fn proxy_request(
                     // cooldown when it is short enough, then select again.
                     if offset + 1 == attempts
                         && cooldown_wait_eligible
-                        && last_retry_response.is_none()
                         && !saw_expired_credential
                         && !saw_open_circuit
                         && !saw_terminal_availability
@@ -8086,6 +8086,39 @@ async fn proxy_request(
                     false,
                 )
                 .await;
+            }
+        }
+        // A failure on the last candidate that leaves it cooling down selects
+        // again, so the legacy cooldown wait applies before answering.
+        if retryable
+            && offset + 1 == attempts
+            && cooldown_wait_eligible
+            && cooldown_wait_restarts < wait_for_cooldown.max_retries
+        {
+            if let Some(availability) = availability {
+                if let Ok(availability::AvailabilityDecision::Blocked {
+                    retry_after_ms,
+                    terminal_status: None,
+                    last_status,
+                    ..
+                }) = availability.try_acquire(target_model).await
+                {
+                    if wait_for_cooldown
+                        .wait_ms(
+                            retry_after_ms,
+                            cooldown_wait_attempt,
+                            cooldown_wait_budget_ms,
+                            last_status,
+                        )
+                        .is_some()
+                    {
+                        cooldown_wait_restarts += 1;
+                        last_retry_response = Some(response);
+                        last_retry_load_guard = load_guard;
+                        offsets = 0..attempts;
+                        continue;
+                    }
+                }
             }
         }
         if retryable && offset + 1 < attempts {
