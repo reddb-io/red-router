@@ -667,6 +667,14 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
         }
         // The pair imports onto the native custom system prompt setting.
         "customSystemPromptEnabled" => return SettingClass::Imported,
+        // Only an explicit true turns the stickiness off.
+        "disableSessionStickiness" => {
+            return if parse_value(raw) == Value::Bool(true) {
+                SettingClass::Imported
+            } else {
+                SettingClass::AtDefault
+            };
+        }
         // Only an explicit false turns the affinity off.
         "promptCacheAffinityEnabled" => {
             return if parse_value(raw) == Value::Bool(false) {
@@ -863,6 +871,14 @@ pub async fn import(
     }) {
         global.push((
             crate::global_settings::PROMPT_CACHE_AFFINITY,
+            Value::Bool(false),
+        ));
+    }
+    if rows.iter().any(|(key, raw)| {
+        key == "disableSessionStickiness" && parse_value(raw) == Value::Bool(true)
+    }) {
+        global.push((
+            crate::global_settings::SESSION_STICKINESS,
             Value::Bool(false),
         ));
     }
@@ -1081,6 +1097,14 @@ mod tests {
             SettingClass::AtDefault
         );
         assert_eq!(legacy_combo_sticky_limit("\"2.7\""), Some(2));
+        assert_eq!(
+            classify("disableSessionStickiness", "true"),
+            SettingClass::Imported
+        );
+        assert_eq!(
+            classify("disableSessionStickiness", "false"),
+            SettingClass::AtDefault
+        );
         assert_eq!(legacy_combo_sticky_limit("5000"), Some(1_000));
         assert_eq!(legacy_combo_sticky_limit("\"x\""), Some(1));
         assert_eq!(

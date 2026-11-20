@@ -11587,6 +11587,12 @@ impl ControlPlane {
         self.0.global_settings.read().await.combo_sticky_limit()
     }
 
+    /// Whether combos keep a conversation on its connection (legacy
+    /// `disableSessionStickiness`, negated).
+    pub(crate) async fn session_stickiness(&self) -> bool {
+        self.0.global_settings.read().await.session_stickiness()
+    }
+
     /// Whether combos rank by prompt-cache affinity (legacy
     /// `promptCacheAffinityEnabled`).
     pub(crate) async fn prompt_cache_affinity(&self) -> bool {

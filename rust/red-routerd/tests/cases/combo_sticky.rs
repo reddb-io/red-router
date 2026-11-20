@@ -182,12 +182,13 @@ async fn combos_follow_prompt_cache_affinity_for_a_shared_prefix() {
             .status(),
         StatusCode::OK
     );
-    let picks = |count: usize| {
+    let picks = |count: usize, offset: usize| {
         let client = client.clone();
         let base = base.clone();
         async move {
             let mut picks = Vec::new();
-            for _ in 0..count {
+            // A new first user message each time keeps session stickiness out.
+            for index in 0..count {
                 let response = chat_model_with_body(
                     &client,
                     &base,
@@ -196,7 +197,7 @@ async fn combos_follow_prompt_cache_affinity_for_a_shared_prefix() {
                         "model":"affinity-combo",
                         "messages":[
                             {"role":"system","content":"You are the shared agent prompt."},
-                            {"role":"user","content":"hello"}
+                            {"role":"user","content":format!("hello {}", index + offset)}
                         ]
                     }),
                 )
@@ -209,7 +210,7 @@ async fn combos_follow_prompt_cache_affinity_for_a_shared_prefix() {
     };
     // A shared system prompt keeps every request on one connection, where
     // the round-robin batches alone would rotate after three.
-    let affine = picks(4).await;
+    let affine = picks(4, 0).await;
     assert!(affine.iter().all(|pick| pick == &affine[0]), "{affine:?}");
     assert_eq!(
         client
@@ -224,7 +225,138 @@ async fn combos_follow_prompt_cache_affinity_for_a_shared_prefix() {
             .status(),
         StatusCode::OK
     );
-    assert_eq!(picks(4).await, ["a", "a", "a", "b"]);
+    assert_eq!(picks(4, 100).await, ["a", "a", "a", "b"]);
+
+    gateway_task.abort();
+    a_task.abort();
+    b_task.abort();
+}
+
+#[tokio::test]
+async fn a_combo_conversation_returns_to_its_connection() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("combo-session.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let control = ControlPlane::new(
+        Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap()),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (a_url, a_task) = provider("session-a-secret", "a").await;
+    let (b_url, b_task) = provider("session-b-secret", "b").await;
+    for (id, upstream, credential) in [
+        ("session-a", &a_url, "session-a-secret"),
+        ("session-b", &b_url, "session-b-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":upstream,
+                    "api_key":credential
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/session-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Session client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["session-combo","upstream-model"],
+                "allowed_provider_ids":["session-a","session-b"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/session-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"round-robin",
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"session-a","model":"upstream-model"},
+                    {"provider_id":"session-b","model":"upstream-model"}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let setting = |key: &'static str, value: serde_json::Value| {
+        client
+            .put(format!("{base}/api/admin/global-settings/{key}"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&value)
+            .send()
+    };
+    // Rotate on every request so only the stickiness can repeat a target.
+    for (key, value) in [
+        ("combo_sticky_round_robin_limit", serde_json::json!(1)),
+        ("prompt_cache_affinity", serde_json::json!(false)),
+    ] {
+        assert_eq!(setting(key, value).await.unwrap().status(), StatusCode::OK);
+    }
+    let pick = |conversation: &'static str| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            let response = chat_model_with_body(
+                &client,
+                &base,
+                RUST_CLIENT_KEY,
+                serde_json::json!({
+                    "model":"session-combo",
+                    "messages":[{"role":"user","content":conversation}]
+                }),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            response.text().await.unwrap()
+        }
+    };
+    let first = pick("conversation one").await;
+    assert_eq!(pick("conversation one").await, first);
+    assert_eq!(pick("conversation one").await, first);
+    // Another conversation takes the rotation and then keeps its own target.
+    let second = pick("conversation two").await;
+    assert_eq!(pick("conversation two").await, second);
+
+    // Without stickiness, the same conversation rotates.
+    assert_eq!(
+        setting("session_stickiness", serde_json::json!(false))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let rotated = [
+        pick("conversation one").await,
+        pick("conversation one").await,
+    ];
+    assert_ne!(rotated[0], rotated[1]);
 
     gateway_task.abort();
     a_task.abort();

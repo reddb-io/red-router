@@ -60,6 +60,7 @@ pub mod reconcile;
 mod request_resource_errors;
 mod resilience;
 mod role_normalizer;
+mod session_stickiness;
 pub mod shared_budget;
 pub mod shared_usage;
 mod shared_wallet_credits;
@@ -964,8 +965,18 @@ impl ModelRoute {
         cache_affinity_key: Option<&str>,
         sticky_limit: u32,
         prompt_cache_affinity: Option<&str>,
+        session_sticky: Option<usize>,
     ) -> [usize; MAX_ROUTE_TARGETS] {
         let mut order = self.strategy_order(eligible, cache_affinity_key, sticky_limit);
+        // Legacy applySessionStickiness promotes the conversation's
+        // connection, which the affinity ranking then keeps first.
+        if let Some(position) = session_sticky.and_then(|sticky| {
+            order[..eligible.len()]
+                .iter()
+                .position(|index| *index == sticky)
+        }) {
+            order[..=position].rotate_right(1);
+        }
         let Some(key) = prompt_cache_affinity else {
             return order;
         };
@@ -983,7 +994,7 @@ impl ModelRoute {
             RouteStrategy::Auto | RouteStrategy::Lkgp | RouteStrategy::QuotaWeighted => true,
             _ => return order,
         };
-        let fixed = usize::from(protect_first).min(eligible.len());
+        let fixed = usize::from(protect_first || session_sticky.is_some()).min(eligible.len());
         // A stable sort keeps the strategy's order between equal scores.
         order[fixed..eligible.len()].sort_by_cached_key(|index| {
             std::cmp::Reverse(prompt_cache_rendezvous_score(key, eligible[*index]))
@@ -6261,6 +6272,10 @@ async fn proxy_request(
         Some(control) => control.prompt_cache_affinity().await,
         None => false,
     };
+    let session_stickiness_enabled = match &state.control_plane {
+        Some(control) => control.session_stickiness().await,
+        None => false,
+    };
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
@@ -7032,6 +7047,57 @@ async fn proxy_request(
                 && !route.provider_direct
         })
         .and_then(|_| prompt_cache_affinity_key(&parsed));
+    // Legacy applySessionStickiness: a combo conversation (keyed by its first
+    // user message) goes back to the connection that last served it while
+    // that connection stays available.
+    let session_namespace = route
+        .filter(|route| {
+            state.product_combo.is_none()
+                && product_access.is_none()
+                && route.public_model_alias.is_none()
+                && !route.provider_direct
+                && !matches!(
+                    route.strategy,
+                    RouteStrategy::Fusion | RouteStrategy::Pipeline | RouteStrategy::ContextRelay
+                )
+                && !(route.strategy == RouteStrategy::CacheOptimized
+                    && cache_affinity_key.is_some())
+        })
+        .map(|route| format!("{}\0{model}", route.tenant_id));
+    if !session_stickiness_enabled {
+        if let Some(namespace) = &session_namespace {
+            session_stickiness::clear_namespace(namespace);
+        }
+    }
+    let session_key = session_namespace
+        .as_deref()
+        .filter(|_| session_stickiness_enabled)
+        .and_then(|namespace| session_stickiness::request_key(namespace, &parsed));
+    let mut session_sticky = None;
+    if let Some(key) = session_key.as_deref().filter(|_| eligible.len() > 1) {
+        let now_ms = u64::try_from(unix_time_ms()).unwrap_or_default();
+        if let Some(connection) = session_stickiness::bound_connection(key, now_ms) {
+            let found = eligible
+                .iter()
+                .position(|target| target.provider_id.as_deref() == Some(connection.as_str()));
+            let available = match found {
+                Some(index) => match eligible[index].availability.as_ref() {
+                    Some(availability) => matches!(
+                        availability.try_acquire(&eligible[index].model).await,
+                        Ok(availability::AvailabilityDecision::Permit(_))
+                    ),
+                    None => true,
+                },
+                None => false,
+            };
+            if available {
+                session_stickiness::touch(key, now_ms);
+                session_sticky = found;
+            } else {
+                session_stickiness::clear(key);
+            }
+        }
+    }
     // Alias pools are direct priority lists, not the fixed-size combo strategy deck.
     let direct_alias =
         route.is_some_and(|route| route.public_model_alias.is_some() || route.provider_direct);
@@ -7043,6 +7109,7 @@ async fn proxy_request(
                 cache_affinity_key.as_deref(),
                 combo_sticky_limit,
                 combo_prompt_cache_key.as_deref(),
+                session_sticky,
             )
         });
     if let Some(preparation) = fusion_preparation {
@@ -8286,6 +8353,18 @@ async fn proxy_request(
             if response.status().is_success() {
                 if let Some(route) = route {
                     route.record_round_robin_success(target, &eligible, combo_sticky_limit);
+                }
+                if let (Some(key), Some(namespace), Some(connection)) = (
+                    session_key.as_deref(),
+                    session_namespace.as_deref(),
+                    target.provider_id.as_deref(),
+                ) {
+                    session_stickiness::record(
+                        key,
+                        namespace,
+                        connection,
+                        u64::try_from(unix_time_ms()).unwrap_or_default(),
+                    );
                 }
                 record_route_outcome(
                     &state,
