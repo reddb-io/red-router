@@ -81,7 +81,7 @@ test("the page talks only to endpoints that exist", () => {
   };
   const fetched = new Set<string>();
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(/fetch\(\s*[`"](\/api\/[^`"?]*)/g)) {
+    for (const match of readFileSync(file, "utf8").matchAll(/(?:fetch|usageSinkFetch)\(\s*[`"](\/api\/[^`"?]*)/g)) {
       fetched.add(match[1]);
     }
   }

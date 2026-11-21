@@ -39,10 +39,15 @@ export interface CheckKeyQuotaDeps {
   now?: () => number;
   monthTotalUsd?: number;
   dailyTokensUsed?: number;
+  /** RPM was already atomically reserved by the outer request. */
+  skipRpmCheck?: boolean;
 }
 
 export interface RecordKeyQuotaDeps {
   now?: () => number;
+  skipRpm?: boolean;
+  /** TPM was already committed by the shared usage settlement transaction. */
+  skipTpm?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +85,7 @@ export function checkKeyQuota(
     const status = getKeyQuotaStatus(apiKeyId, deps);
     if (!status.enabled) return { allowed: true, reason: null, dimension: null, status };
     if (status.tpmExceeded) return verdict(false, "tpm", status);
-    if (status.rpmExceeded) return verdict(false, "rpm", status);
+    if (!deps.skipRpmCheck && status.rpmExceeded) return verdict(false, "rpm", status);
     if (status.dailyTokensExceeded) return verdict(false, "daily_tokens", status);
     if (status.monthlyExceeded) return verdict(false, "monthly", status);
     return verdict(true, null, status);
@@ -102,8 +107,9 @@ export function recordKeyQuotaUsage(
   if (!apiKeyId) return;
   const nowMs = (deps.now ?? Date.now)();
   try {
-    if (billableTokens > 0) incrementKeyQuotaCounter(apiKeyId, "tpm", billableTokens, nowMs);
-    incrementKeyQuotaCounter(apiKeyId, "rpm", 1, nowMs);
+    if (!deps.skipTpm && billableTokens > 0)
+      incrementKeyQuotaCounter(apiKeyId, "tpm", billableTokens, nowMs);
+    if (!deps.skipRpm) incrementKeyQuotaCounter(apiKeyId, "rpm", 1, nowMs);
   } catch {
     // B29 — drift acceptable; never propagate.
   }

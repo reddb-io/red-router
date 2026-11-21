@@ -121,11 +121,9 @@ export async function refreshCliIdentities({ root = projectRoot } = {}) {
   ]);
   const codexPath = join(root, "src/shared/constants/codexClient.ts");
   const claudePath = join(root, "src/shared/constants/claudeCodeClient.ts");
-  const dockerPath = join(root, "Dockerfile");
-  const [codexSource, claudeSource, dockerSource] = await Promise.all([
+  const [codexSource, claudeSource] = await Promise.all([
     readFile(codexPath, "utf8"),
     readFile(claudePath, "utf8"),
-    readFile(dockerPath, "utf8"),
   ]);
   let nextClaude = claudeSource;
   if (!claudeSource.includes(`CLAUDE_CODE_CLIENT_VERSION = "${claude.version}"`)) {
@@ -165,13 +163,7 @@ export async function refreshCliIdentities({ root = projectRoot } = {}) {
     }
   }
   const nextCodex = replaceIdentityPin(codexSource, "DEFAULT_CODEX_CLIENT_VERSION", codex.version);
-  const nextDocker = dockerSource
-    .replace(/@openai\/codex@\d+\.\d+\.\d+/, `@openai/codex@${codex.version}`)
-    .replace(
-      /@anthropic-ai\/claude-code@\d+\.\d+\.\d+/,
-      `@anthropic-ai/claude-code@${claude.version}`
-    );
-  if (nextDocker === dockerSource && nextCodex === codexSource && nextClaude === claudeSource) {
+  if (nextCodex === codexSource && nextClaude === claudeSource) {
     console.log(`CLI identities current: Codex ${codex.version}, Claude ${claude.version}`);
     return false;
   }
@@ -179,16 +171,14 @@ export async function refreshCliIdentities({ root = projectRoot } = {}) {
   for (const [path, original] of [
     [codexPath, codexSource],
     [claudePath, claudeSource],
-    [dockerPath, dockerSource],
   ])
     if ((await readFile(path, "utf8")) !== original)
       throw new Error(`File changed during identity refresh: ${path}`);
   await writeFile(codexPath, nextCodex);
   await writeFile(claudePath, nextClaude);
-  await writeFile(dockerPath, nextDocker);
   await writeFile(
     join(root, ".changeset/cli-identities-refresh.md"),
-    `---\n"@reddb-io/red-router": patch\n---\n\nRefresh Codex ${codex.version} and Claude Code ${claude.version} CLI identities and Docker pins.\n`
+    `---\n"@reddb-io/red-router": patch\n---\n\nRefresh Codex ${codex.version} and Claude Code ${claude.version} wire identities.\n`
   );
   console.log(
     `Refreshed CLI identities: Codex ${codex.version}, Claude ${claude.version}. Validate and commit before tagging.`

@@ -11,7 +11,6 @@ export const END_USER_MAX_LENGTH = 128;
 export const TAG_MAX_LENGTH = 32;
 export const TAGS_MAX_COUNT = 20;
 
-// eslint-disable-next-line no-control-regex -- the point is to remove control characters
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
 function clean(value: unknown): string {

@@ -3103,8 +3103,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "callback mints authenticated:true only (src/app/api/auth/oidc/callback/route.ts:90)",
+          "head": "better",
+          "headEvidence": "Rust derives a canonical opaque identity from normalized issuer+sub, prefers it over verified-email legacy aliases, and binds it durably to tenant roles; rust/red-routerd/src/oidc.rs; rust/red-routerd/src/control_plane.rs; rust/red-routerd/tests/control_plane.rs",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -3368,7 +3368,7 @@
             "friday": "no"
           },
           "head": "equivalent",
-          "headEvidence": "src/lib/compliance/index.ts; src/app/api/compliance/audit-log; src/app/api/mcp/audit; mcp_tool_audit table",
+          "headEvidence": "TypeScript retains compliance plus MCP/A2A audit. Rust now persists tenant-scoped, secret-free before/after events for tenant, identity-binding and client-key mutations and serves /api/admin/audit-log plus the legacy compliance route; provider/combo/MCP/A2A writers and an atomic outbox remain: rust/red-routerd/src/{storage,control_plane}.rs",
           "ownUnique": false,
           "value": "M",
           "effort": "S",

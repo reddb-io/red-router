@@ -16,18 +16,9 @@ function readCompose(file: string): string {
   return fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
 }
 
-test("docker-compose publishes Redis on loopback by default", () => {
+test("the SQLite-only compose topology does not ship a Redis service", () => {
   const compose = readCompose("docker-compose.yml");
-  assert.match(
-    compose,
-    /- "\$\{REDIS_BIND_HOST:-127\.0\.0\.1\}:\$\{REDIS_PORT:-6379\}:6379"/,
-    "redis publish spec must default to 127.0.0.1"
-  );
-  assert.doesNotMatch(
-    compose,
-    /- "\$\{REDIS_PORT:-6379\}:6379"/,
-    "unqualified redis publish spec binds 0.0.0.0"
-  );
+  assert.doesNotMatch(compose, /^  redis:|redis:\/\//m);
 });
 
 test("no compose file publishes a port on 0.0.0.0 implicitly for Redis", () => {

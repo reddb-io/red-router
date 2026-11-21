@@ -1,0 +1,70 @@
+# Rustify port of the legacy TypeScript backend into rust/red-routerd.
+# Needs Rustify bbf9ac7 with root_package and path_aliases support (a small
+# local patch). The React UI is not ported: it stays the SPA.
+state_dir = "rust/port"
+upstream = "origin/main"
+conventions = "rust/port/CONVENTIONS.md"
+roots = ["src", "open-sse", "packages/browser-pool/src"]
+packages_dir = "packages"
+root_package = true
+primary_package = "@reddb-io/red-router"
+rust_crate = "rust/red-routerd"
+rust_crate_name = "red_routerd"
+extensions = ["ts", "tsx", "js", "jsx", "mjs", "cjs"]
+test_markers = ["tests/", "/test/", "/__tests__/", "/__mocks__/", "/fixtures/", ".test.", ".spec."]
+binary_test_markers = ["/e2e/"]
+exclude = [
+  # React UI: components, pages, hooks and client state stay in TypeScript.
+  "**/*.tsx",
+  "**/*.jsx",
+  "src/components/**",
+  "src/hooks/**",
+  "src/store/**",
+  "src/shared/components/**",
+  "src/shared/hooks/**",
+  "src/shared/design-system/**",
+  "src/shared/icons/**",
+  # Next.js UI routes. Backend routes (api, a2a, .well-known, health probes,
+  # authorize, callback, auth) stay in the graph.
+  "src/app/(dashboard)/**",
+  "src/app/400/**",
+  "src/app/401/**",
+  "src/app/403/**",
+  "src/app/408/**",
+  "src/app/429/**",
+  "src/app/500/**",
+  "src/app/502/**",
+  "src/app/503/**",
+  "src/app/connect/**",
+  "src/app/docs/**",
+  "src/app/forbidden/**",
+  "src/app/forgot-password/**",
+  "src/app/landing/**",
+  "src/app/login/**",
+  "src/app/maintenance/**",
+  "src/app/miniapp/**",
+  "src/app/offline/**",
+  "src/app/privacy/**",
+  "src/app/status/**",
+  "src/app/terms/**",
+  # Not part of the server being ported.
+  "rust-dashboard/**",
+  "electron/**",
+  "docs/**",
+  "@omniroute/**",
+  "scripts/**",
+  ".claude/**",
+  ".red/**",
+  ".sandbox/**",
+  ".local-data/**",
+]
+
+[path_aliases]
+"@/" = "src/"
+"@omniroute/open-sse" = "open-sse"
+"@omniroute/open-sse/" = "open-sse/"
+"@omniroute/browser-pool" = "packages/browser-pool/src"
+
+[batch]
+max_files = 6
+max_lines = 800

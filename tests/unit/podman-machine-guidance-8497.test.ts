@@ -54,29 +54,11 @@ test("#8497 Quadlet is Linux/systemd-only and generated units are not enabled", 
   }
 });
 
-test("#8497 Compose either builds or explicitly reuses the matching local image", () => {
-  const guide = read("contrib/podman/README.md");
+test("Compose builds the Rust runtime image for every container engine", () => {
   const compose = read("docker-compose.yml");
-
-  assert.match(guide, /podman compose --profile base up -d --build/);
-  assert.match(
-    guide,
-    /podman build --target runner-base -t omniroute:base \.[\s\S]*podman compose --profile base up -d --no-build/
-  );
-  for (const [service, target, image] of [
-    ["omniroute-base", "runner-base", "omniroute:base"],
-    ["omniroute-web", "runner-web", "omniroute:web"],
-    ["omniroute-cli", "runner-cli", "omniroute:cli"],
-    ["omniroute-host", "runner-base", "omniroute:base"],
-  ]) {
-    const serviceStart = compose.indexOf(`  ${service}:`);
-    const serviceEnd = compose.indexOf("\n  # ── Profile:", serviceStart + 1);
-    const serviceConfig = compose.slice(serviceStart, serviceEnd === -1 ? undefined : serviceEnd);
-    assert.ok(serviceStart >= 0, `${service} must exist`);
-    assert.match(serviceConfig, new RegExp(`target: ${target}`));
-    assert.match(serviceConfig, new RegExp(`image: ${image}`));
-  }
-  assert.match(guide, /podman compose --profile cliproxyapi up -d(?! --build)/);
+  assert.match(compose, /redrouter-rust:/);
+  assert.match(compose, /dockerfile: Dockerfile\.rust/);
+  assert.doesNotMatch(compose, /profiles:|runner-(?:base|web|cli)/);
 });
 
 test("#8497 entrypoint emits a topology-neutral Podman hint", () => {

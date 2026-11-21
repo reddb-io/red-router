@@ -118,6 +118,7 @@ import {
 } from "@/shared/network/outboundUrlGuard";
 import { getProviderValidationGuard } from "@/shared/network/outboundUrlGuardPolicy";
 import { isLocalProvider, isSelfHostedChatProvider } from "@/shared/constants/providers";
+import { guardedProviderFetch } from "./guardedRedirect.ts";
 // Header helpers extracted to a pure leaf; re-exported for external importers
 // (executors + tests) that import them from "./base.ts".
 export {
@@ -430,15 +431,17 @@ export class BaseExecutor {
    * one) could point a provider at loopback / internal / cloud-metadata hosts
    * and exfiltrate the stored upstream key. Mirror the provider VALIDATION
    * guard so runtime dispatch makes the same decision the validation layer
-   * already makes: local / self-hosted providers are exempt (they legitimately
-   * use private URLs, and the OMNIROUTE_ALLOW_PRIVATE_PROVIDER_URLS opt-in still
-   * applies through the guard), and for everything else `public-only` mode
+   * already makes: local / self-hosted providers can use private URLs but still
+   * reject metadata endpoints; for everything else `public-only` mode
    * blocks private + metadata while the default `block-metadata` mode blocks the
    * cloud-metadata IMDS pivot. Throws on a blocked URL.
    */
   protected assertOutboundUrlAllowed(url: string): void {
     if (!url) return;
-    if (isLocalProvider(this.provider) || isSelfHostedChatProvider(this.provider)) return;
+    if (isLocalProvider(this.provider) || isSelfHostedChatProvider(this.provider)) {
+      parseAndValidateNonMetadataUrl(url);
+      return;
+    }
     if (getProviderValidationGuard() === "public-only") {
       parseAndValidatePublicUrl(url);
       return;
@@ -691,12 +694,16 @@ export class BaseExecutor {
     }
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: activeSignal || undefined,
-      });
+      const response = await guardedProviderFetch(
+        url,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: activeSignal || undefined,
+        },
+        (target) => this.assertOutboundUrlAllowed(target)
+      );
 
       const text = await response.text();
       if (!response.ok) {
@@ -969,7 +976,9 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
-            return await fetch(requestUrl, optionsWithSignal);
+            return await guardedProviderFetch(requestUrl, optionsWithSignal, (target) =>
+              this.assertOutboundUrlAllowed(target)
+            );
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
           }
