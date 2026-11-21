@@ -82,6 +82,7 @@ mod resilience;
 mod responses_state;
 pub mod retained_size;
 mod role_normalizer;
+pub mod self_service;
 mod session_stickiness;
 pub mod shared_budget;
 pub mod shared_usage;
@@ -2854,6 +2855,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/rerank", post(rerank))
         .route("/v1/messages", post(messages))
+        .route("/v1/me/status", get(self_service::me_status))
         .route("/v1/antigravity", post(antigravity))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)

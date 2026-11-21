@@ -1091,6 +1091,29 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 None => SettingClass::AtDefault,
             };
         }
+        // Scheduler bookkeeping: the last run of the model sync and the
+        // provider-limits sync, and the Codex catalog revalidation marker.
+        "model_sync_last_run"
+        | "provider_limits_auto_sync_last_run"
+        | "codex_catalog_revalidated_version" => {
+            return SettingClass::Equivalent {
+                reason: "legacy scheduler bookkeeping; the native schedulers keep their own",
+            };
+        }
+        // Carried over by the v0.33 import; no current legacy code path reads it.
+        "enableObservability" => {
+            return SettingClass::Equivalent {
+                reason: "inert since the v0.33 import; no legacy code path reads it",
+            };
+        }
+        // The legacy dashboard login password hash. The native management API
+        // authenticates with the admin key and has no password login (see
+        // passwordBreachCheckEnabled), so the hash has nothing to protect.
+        "password" => {
+            return SettingClass::Equivalent {
+                reason: "the native management API authenticates with the admin key, not a dashboard password",
+            };
+        }
         // Seeded by legacy migration 014 on every store. Legacy chatCore and
         // isDetailedLoggingEnabled treat only JSON true or the strings "1" and
         // "true" as on; the seeded 0 is a number and stays off.
@@ -2127,6 +2150,22 @@ mod tests {
             classify("modelLockout", r#"{"enabled":true}"#),
             SettingClass::Imported
         );
+    }
+
+    #[test]
+    fn scheduler_bookkeeping_and_inert_rows_import_as_equivalent() {
+        for (key, raw) in [
+            ("model_sync_last_run", r#""2026-11-19T21:55:00.000Z""#),
+            ("provider_limits_auto_sync_last_run", "1795334320000"),
+            ("codex_catalog_revalidated_version", r#""3.2.1""#),
+            ("enableObservability", "true"),
+            ("password", r#""$2b$10$hash""#),
+        ] {
+            assert!(
+                matches!(classify(key, raw), SettingClass::Equivalent { .. }),
+                "{key}"
+            );
+        }
     }
 
     #[test]

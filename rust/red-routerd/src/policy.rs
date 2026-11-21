@@ -548,10 +548,15 @@ impl ClientPolicy {
 
     // Empty endpoint lists retain the product's unrestricted behavior.
     pub(crate) fn endpoint_allowed(&self, endpoint: &str) -> bool {
-        let scope_allowed = self.scopes.is_empty()
-            || self
-                .scopes
-                .iter()
+        // Only inference scopes restrict inference: a key holding only the
+        // legacy self-service scopes keeps unrestricted inference, as there.
+        let mut inference = self
+            .scopes
+            .iter()
+            .filter(|scope| scope.starts_with("inference:"))
+            .peekable();
+        let scope_allowed = inference.peek().is_none()
+            || inference
                 .any(|scope| scope == "inference:*" || scope == &format!("inference:{endpoint}"));
         scope_allowed
             && (self.allowed_endpoints.is_empty()
@@ -719,6 +724,16 @@ impl ClientPolicy {
             .map_or(tenant_id == "red", |identity| {
                 identity.tenant_id.as_ref() == tenant_id
             })
+    }
+
+    /// Whether the key holds this scope.
+    pub(crate) fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|held| held == scope)
+    }
+
+    /// The provider records the key is pinned to; empty means every one.
+    pub(crate) fn allowed_provider_ids(&self) -> &[String] {
+        &self.allowed_provider_ids
     }
 
     pub(crate) fn identity(&self) -> Option<&ClientIdentity> {

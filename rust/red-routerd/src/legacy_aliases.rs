@@ -292,11 +292,17 @@ pub async fn import(source: &Path, destination: &Path) -> Result<AliasImport, &'
                     provider.to_owned()
                 } else if let Some(provider) = custom_providers.get(legacy_provider) {
                     provider.clone()
-                } else {
-                    let provider = compatible_node_provider(&mut snapshot, &mut target, legacy_provider).await?
-                        .ok_or("legacy alias destination requires migration")?;
+                } else if let Some(provider) = compatible_node_provider(&mut snapshot, &mut target, legacy_provider).await? {
                     custom_providers.insert(legacy_provider.to_owned(), provider.clone());
                     provider
+                } else if crate::model_permissions::legacy_provider_spellings(legacy_provider).is_some() {
+                    // A known legacy provider without a native catalog entry
+                    // (OAuth, Cloudflare, Antigravity...): native aliases resolve
+                    // to the pool of that provider type, so the alias routes
+                    // once its accounts are adopted, as in the legacy store.
+                    provider.to_owned()
+                } else {
+                    return Err("legacy alias destination requires migration");
                 };
                 let record = StoredModelAlias { id: model_aliases::record_id("red", &alias), tenant_id: "red".into(), provider, alias, model: model.into(), protocol: "openai".into(), enabled: true, revision: 1 };
                 model_aliases::validate(&record)?;

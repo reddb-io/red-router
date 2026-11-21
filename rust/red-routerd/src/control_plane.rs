@@ -8054,6 +8054,54 @@ impl ControlPlane {
             .await
     }
 
+    /// The usage totals of one key in a window (legacy self-service status).
+    pub(crate) async fn key_usage_totals(
+        &self,
+        tenant_id: &str,
+        key_id: &str,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+    ) -> Result<crate::native_usage::UsageReport, &'static str> {
+        self.native_usage_report(
+            Some(tenant_id),
+            Some(key_id),
+            from_unix_ms,
+            to_unix_ms,
+            1,
+            None,
+        )
+        .await
+    }
+
+    /// The tenant's enabled provider records with their stored quota views.
+    pub(crate) async fn tenant_quota_accounts(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<(String, String, Option<ProviderQuotaView>)>, &'static str> {
+        let mut views: HashMap<String, ProviderQuotaView> = self
+            .quota_views(Some(tenant_id))
+            .await?
+            .into_iter()
+            .map(|view| (view.provider_id.clone(), view))
+            .collect();
+        let mut accounts: Vec<StoredProvider> = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .filter(|provider| provider.tenant_id == tenant_id && provider.enabled)
+            .collect();
+        accounts.sort_by(model_aliases::compare_accounts);
+        Ok(accounts
+            .into_iter()
+            .map(|provider| {
+                let view = views.remove(&provider.id);
+                (provider.id, provider.provider, view)
+            })
+            .collect())
+    }
+
     async fn native_usage_report(
         &self,
         tenant_id: Option<&str>,
@@ -13657,7 +13705,12 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
         || values.iter().any(|value| {
             !matches!(
                 value.as_str(),
-                "inference:*" | "inference:chat" | "inference:embeddings" | "inference:rerank"
+                "inference:*"
+                    | "inference:chat"
+                    | "inference:embeddings"
+                    | "inference:rerank"
+                    | crate::self_service::SELF_USAGE_SCOPE
+                    | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
             )
         })
     {

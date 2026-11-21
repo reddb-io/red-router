@@ -250,9 +250,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                     return Err("invalid legacy key IP allowlist; no keys imported");
                 }
             }
-            for field in ["scopes", "allowed_quotas"] {
-                if !empty_list(get(field)?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
-            }
+            if !empty_list(get("allowed_quotas")?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
+            // The self-service scopes import; any other legacy scope (manage,
+            // admin) has no native client-key equivalent yet.
+            let scopes = import_self_service_scopes(get("scopes")?.as_deref())?;
             // stream_default_mode=json only changes the legacy stream default for
             // source formats other than Chat Completions, Messages and Responses,
             // where an omitted `stream` is already non-streaming unless SSE is
@@ -325,8 +326,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if get("key_hash")?.is_some_and(|existing| !existing.is_empty() && existing != hash) || !hashes.insert(hash.clone()) {
                 return Err("legacy key digest mismatch or duplicate; no keys imported");
             }
-            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,'[]',?,?,?,?,0,?,?,1)")
-                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(allowed_endpoints).bind(allowed_models).bind(blocked_models).bind(allowed_connections).bind(max_rpm).bind(max_rpd).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
+            sqlx::query("INSERT INTO redrouter_control_client_keys (id,label,key_hash,enabled,expiry_unix,scopes_json,allowed_endpoints_json,allowed_models_json,blocked_models_json,allowed_provider_ids_json,max_concurrent,max_rpm,max_rpd,revision) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,1)")
+                .bind(&id).bind(&label).bind(&hash).bind(0_i64).bind(expiry).bind(&scopes).bind(allowed_endpoints).bind(allowed_models).bind(blocked_models).bind(allowed_connections).bind(max_rpm).bind(max_rpd).execute(&mut *target).await.map_err(|_| "cannot write destination key")?;
             sqlx::query("INSERT INTO redrouter_legacy_key_migration (key_id,source_is_active,source_is_banned,source_revoked_at) VALUES (?,?,?,?)")
                 .bind(&id).bind(active).bind(banned).bind(revoked).execute(&mut *target).await.map_err(|_| "cannot record source key status")?;
             sqlx::query("INSERT INTO redrouter_control_client_key_preferences (key_id,model_id_format,revision) VALUES (?,?,1)").bind(&id).bind(format).execute(&mut *target).await.map_err(|_| "cannot write key format")?;
@@ -494,6 +495,27 @@ fn import_rate_rules(value: Option<&str>) -> Result<Option<(i64, i64)>, &'static
         };
     }
     Ok(Some((rpm, rpd)))
+}
+
+/// The legacy key scopes as native scopes JSON: only the self-service
+/// scopes (`self:usage`, `self:account-quota`) have a native equivalent.
+fn import_self_service_scopes(value: Option<&str>) -> Result<String, &'static str> {
+    let scopes: Vec<String> = match value {
+        None | Some("") => Vec::new(),
+        Some(raw) => serde_json::from_str(raw).map_err(|_| "invalid legacy key policy")?,
+    };
+    if scopes.iter().any(|scope| {
+        !matches!(
+            scope.as_str(),
+            crate::self_service::SELF_USAGE_SCOPE | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
+        )
+    }) {
+        return Err("legacy key policy is unsupported; no keys imported");
+    }
+    let mut unique = scopes;
+    unique.sort();
+    unique.dedup();
+    serde_json::to_string(&unique).map_err(|_| "invalid legacy key policy")
 }
 
 fn empty_list(value: Option<&str>) -> Result<bool, &'static str> {

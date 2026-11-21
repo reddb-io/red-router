@@ -80,7 +80,7 @@ async fn legacy_aliases_preserve_settings_precedence_and_refuse_lossy_import() {
             .await
             .unwrap();
     sqlx::query("INSERT INTO key_value VALUES ('modelAliases','a-new',?),('modelAliases','z-unsupported',?)")
-        .bind(r#""openai/new""#).bind(r#""anthropic/claude""#).execute(&mut source_db).await.unwrap();
+        .bind(r#""openai/new""#).bind(r#""not-a-legacy-provider/claude""#).execute(&mut source_db).await.unwrap();
     source_db.close().await.unwrap();
     assert_eq!(
         legacy_aliases::import(&source, &destination)
