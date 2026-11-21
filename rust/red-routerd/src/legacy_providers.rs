@@ -434,9 +434,11 @@ async fn adopt_oauth(
             None | Some(serde_json::Value::Null) => None,
             Some(value) => Some(value.as_i64().ok_or("invalid legacy provider global priority")?),
         })?;
-        for field in ["per_key_proxy_enabled", "proxy_enabled"] {
-            match object.get(field) { Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
-        }
+        // proxy_enabled (schema default 1) only lets the connection use the
+        // global proxy, which the cutover refuses while one is configured;
+        // without one it is inert. A per-key proxy has no native equivalent.
+        match object.get("per_key_proxy_enabled") { None | Some(serde_json::Value::Null) => {}, Some(value) if value.as_i64() == Some(0) => {}, _ => return Err("legacy provider policy requires migration") }
+        match object.get("proxy_enabled") { None | Some(serde_json::Value::Null) => {}, Some(value) if matches!(value.as_i64(), Some(0 | 1)) => {}, _ => return Err("invalid legacy provider proxy setting") }
         // Request queue protection imports onto the connection queue policy.
         let rate_limit_protection = match object.get("rate_limit_protection") {
             Some(serde_json::Value::Null) => false,
@@ -880,9 +882,14 @@ pub async fn import(
             Err(_) => return Err("invalid legacy provider"),
         };
         let max_concurrent = legacy_concurrency(number("max_concurrent")?)?;
-        for field in ["per_key_proxy_enabled", "proxy_enabled"] {
-            if number(field)?.unwrap_or(0) != 0 { return Err("legacy provider policy requires migration"); }
-        }
+        // proxy_enabled (schema default 1) only lets the connection use the
+        // global proxy; with no global proxy configured in the source it is
+        // inert. A per-key proxy has no native equivalent.
+        if number("per_key_proxy_enabled")?.unwrap_or(0) != 0 { return Err("legacy provider policy requires migration"); }
+        if !matches!(number("proxy_enabled")?, None | Some(0 | 1)) { return Err("invalid legacy provider proxy setting"); }
+        let global_proxy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE (namespace='proxyConfig') OR (namespace='settings' AND key='proxyEnabled' AND value='true')")
+            .fetch_one(&mut *snapshot).await.unwrap_or(0);
+        if global_proxy != 0 { return Err("legacy global proxy requires migration"); }
         // Older schemas omit these columns. When present, never silently drop
         // account selection/admission policy merely because the API key imports.
         let priority = match row.try_get::<Option<i64>, _>("priority") {
