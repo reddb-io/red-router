@@ -95,6 +95,7 @@ pub mod shared_usage;
 mod shared_wallet_credits;
 pub mod spa;
 pub mod storage;
+pub mod stream_terminal;
 mod strict_system_hoist;
 mod tool_call_ids;
 mod tool_schemas;
