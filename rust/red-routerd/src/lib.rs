@@ -7279,6 +7279,8 @@ async fn proxy_request(
     let mut final_target_identity: Option<(Arc<str>, String)> = None;
     let mut final_accounting = None;
     let mut final_served_model = None;
+    // The provider that answered, for the legacy upstream error parse.
+    let mut final_provider_name: Option<String> = None;
     let mut final_load_guard = None;
     let mut final_signature_context = None;
     let mut last_retry_load_guard = None;
@@ -8818,6 +8820,7 @@ async fn proxy_request(
                 .map(|provider_id| (provider_id, target.model.clone()))
         });
         final_accounting = accounting_attempt;
+        final_provider_name = provider_name.map(str::to_ascii_lowercase);
         final_served_model = response
             .status()
             .is_success()
@@ -9365,6 +9368,24 @@ async fn proxy_request(
             return model_alias_response::rewrite(result, response_alias).await;
         }
     }
+    // Legacy chatCore createErrorResult: a failed chat, messages or responses
+    // request answers with the sanitized public envelope, never the raw
+    // provider body; a Claude-format client keeps an eligible 4xx shape.
+    if !response.status().is_success()
+        && matches!(
+            protocol,
+            ProviderProtocol::OpenAi
+                | ProviderProtocol::Anthropic
+                | ProviderProtocol::OpenAiResponses
+        )
+    {
+        return public_upstream_failure(
+            response,
+            protocol == ProviderProtocol::Anthropic,
+            final_provider_name.as_deref().unwrap_or_default(),
+        )
+        .await;
+    }
     let status = response.status();
     let mut headers = HeaderMap::new();
     for name in [
@@ -9390,6 +9411,81 @@ async fn proxy_request(
     *result.headers_mut() = headers;
     attach_served_model(&mut result, final_served_model.as_ref());
     model_alias_response::rewrite(result, response_alias).await
+}
+
+/// The upstream Retry-After header in milliseconds (legacy
+/// parseUpstreamError: whole seconds or a future HTTP date).
+fn retry_after_header_ms(headers: &HeaderMap) -> Option<u64> {
+    let value = headers.get(header::RETRY_AFTER)?.to_str().ok()?.trim();
+    // parseInt: the leading digits.
+    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+    if let Some(seconds) = digits.parse::<u64>().ok().filter(|seconds| *seconds > 0) {
+        return Some(seconds.saturating_mul(1000));
+    }
+    let at = httpdate_to_system_time(value)?;
+    at.duration_since(SystemTime::now())
+        .ok()
+        .map(|remaining| remaining.as_millis() as u64)
+        .filter(|ms| *ms > 0)
+}
+
+fn httpdate_to_system_time(value: &str) -> Option<SystemTime> {
+    let parsed = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    let millis = u64::try_from(parsed.timestamp_millis()).ok()?;
+    Some(SystemTime::UNIX_EPOCH + Duration::from_millis(millis))
+}
+
+/// The public answer to a provider failure (legacy createErrorResult over
+/// parseUpstreamError), with the upstream Retry-After kept.
+async fn public_upstream_failure(
+    response: ProviderResponse,
+    claude_client: bool,
+    provider: &str,
+) -> Response {
+    let status = response.status();
+    let retry_after = response.headers().get(header::RETRY_AFTER).cloned();
+    let header_ms = retry_after_header_ms(response.headers());
+    let text = match response.error_body() {
+        Some(body) => String::from_utf8_lossy(body).into_owned(),
+        None => match response.into_body_stream() {
+            Some(mut stream) => {
+                let read = async {
+                    let mut bytes = Vec::new();
+                    while let Some(chunk) = stream.next().await {
+                        let chunk = chunk.map_err(|_| ())?;
+                        if bytes.len().saturating_add(chunk.len()) > MAX_PROVIDER_ERROR_BODY_BYTES {
+                            return Err(());
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    Ok::<_, ()>(bytes)
+                };
+                match tokio::time::timeout(PROVIDER_ERROR_BODY_TIMEOUT, read).await {
+                    Ok(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+                    _ => String::new(),
+                }
+            }
+            None => String::new(),
+        },
+    };
+    let upstream = public_error::parse_upstream_error(status.as_u16(), &text, provider);
+    let retry_after_ms = public_error::upstream_retry_after_ms(
+        status.as_u16(),
+        provider,
+        &upstream.message,
+        header_ms,
+    );
+    let failure =
+        public_error::upstream_failure(status.as_u16(), &upstream, retry_after_ms, claude_client);
+    let mut result = (status, Json(failure.body)).into_response();
+    if let Some(seconds) = failure.retry_after_seconds {
+        if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+            result.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+    } else if let Some(value) = retry_after {
+        result.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    result
 }
 
 async fn record_route_outcome(

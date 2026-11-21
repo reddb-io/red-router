@@ -704,6 +704,63 @@ pub fn sanitized_upstream_error_body(status: u16, raw: &str, fallback_message: &
     build_error_body(status, fallback_message, None, &Classification::default())
 }
 
+static RESET_AFTER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i-u)reset after ([0-9]+h)?([0-9]+m)?([0-9]+s)?").expect("static pattern")
+});
+static RETRY_AFTER_SECONDS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"(?i)(?-u:retry){JS_S}+(?-u:after){JS_S}+([0-9]+){JS_S}*(?-u:s)"
+    ))
+    .expect("static pattern")
+});
+const MAX_RETRY_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Legacy `parseAntigravityRetryTime`: `reset after 2h7m23s` in milliseconds.
+pub fn parse_antigravity_retry_time(message: &str) -> Option<u64> {
+    let captures = RESET_AFTER.captures(message)?;
+    let part = |index: usize, unit: u64| {
+        captures.get(index).map_or(0, |part| {
+            let digits = &part.as_str()[..part.len() - 1];
+            digits
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+                .saturating_mul(unit)
+        })
+    };
+    let total = part(1, 3_600_000)
+        .saturating_add(part(2, 60_000))
+        .saturating_add(part(3, 1_000));
+    (total > 0).then_some(total)
+}
+
+/// Legacy `parseUpstreamError` retry delay: the header value, replaced for
+/// an Antigravity 429 by its prose, then on a 429 the `reset after` and
+/// `retry after Ns` prose; capped at 24 hours.
+pub fn upstream_retry_after_ms(
+    status: u16,
+    provider: &str,
+    message: &str,
+    header_ms: Option<u64>,
+) -> Option<u64> {
+    let mut retry = header_ms.filter(|ms| *ms > 0);
+    if status == 429 {
+        if provider == "antigravity" {
+            retry = parse_antigravity_retry_time(message);
+        }
+        if retry.is_none() {
+            retry = parse_antigravity_retry_time(message);
+        }
+        if retry.is_none() {
+            retry = RETRY_AFTER_SECONDS
+                .captures(message)
+                .and_then(|captures| captures[1].parse::<u64>().ok())
+                .map(|seconds| seconds.saturating_mul(1000))
+                .filter(|ms| *ms > 0);
+        }
+    }
+    retry.map(|ms| ms.min(MAX_RETRY_MS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,6 +841,39 @@ mod tests {
                 "{case}"
             );
         }
+    }
+
+    #[test]
+    fn retry_delays_follow_the_legacy_parse_order() {
+        assert_eq!(
+            parse_antigravity_retry_time("quota will reset after 2h7m23s."),
+            Some(7_643_000)
+        );
+        assert_eq!(parse_antigravity_retry_time("reset after 0s"), None);
+        assert_eq!(
+            upstream_retry_after_ms(429, "openai", "x", Some(5_000)),
+            Some(5_000)
+        );
+        assert_eq!(
+            upstream_retry_after_ms(429, "antigravity", "no hint", Some(5_000)),
+            None
+        );
+        assert_eq!(
+            upstream_retry_after_ms(429, "antigravity", "reset after 1m", Some(5_000)),
+            Some(60_000)
+        );
+        assert_eq!(
+            upstream_retry_after_ms(429, "qwen", "Please retry after 20s", None),
+            Some(20_000)
+        );
+        assert_eq!(
+            upstream_retry_after_ms(400, "qwen", "Please retry after 20s", None),
+            None
+        );
+        assert_eq!(
+            upstream_retry_after_ms(429, "x", "reset after 48h", None),
+            Some(MAX_RETRY_MS)
+        );
     }
 
     #[test]
