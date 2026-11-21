@@ -121,12 +121,32 @@ pub(crate) fn quota_failure_scope(
     }
 }
 
+/// `classify_provider_failure_with` for a connection whose quota signals are
+/// preserved on a 429 (an OAuth account, or an unknown provider as in the
+/// legacy `shouldPreserveQuotaSignals`). The unit tests use it; the proxy
+/// passes the connection's own flag.
+#[cfg(test)]
 pub(crate) fn classify_provider_failure(
     configured: RateLimitScope,
     provider: Option<&str>,
     status: StatusCode,
     headers: &HeaderMap,
     body: Option<&[u8]>,
+) -> ProviderFailureClass {
+    classify_provider_failure_with(configured, provider, status, headers, body, true)
+}
+
+/// Legacy `checkFallbackError` classification of a failed upstream response.
+/// `preserve_quota_signals` is the connection's OAuth flag: on a 429 the
+/// credit and quota text only counts for such an account or when the body
+/// itself names a long-period cap (legacy `shouldUseQuotaSignal`).
+pub(crate) fn classify_provider_failure_with(
+    configured: RateLimitScope,
+    provider: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+    preserve_quota_signals: bool,
 ) -> ProviderFailureClass {
     // Legacy checkFallbackError classifies a missing conversation or file
     // reference before every generic 404 rule.
@@ -165,18 +185,14 @@ pub(crate) fn classify_provider_failure(
     if matches!(status.as_u16(), 400 | 401 | 403 | 404) && model_failure_text(text) {
         return ProviderFailureClass::Model;
     }
-    if matches!(status.as_u16(), 401 | 403) && banned_text(text) {
+    // Legacy isAccountDeactivated runs before any status rule: a deactivation
+    // signal in the body of any failure parks the account, whatever the status
+    // (a 400, a 429 or a 5xx from a gateway included).
+    if (status.is_client_error() || status.is_server_error()) && banned_text(text) {
         return ProviderFailureClass::Banned;
     }
     if matches!(status.as_u16(), 401 | 403) && credential_failure_text(text) {
         return ProviderFailureClass::Expired;
-    }
-    // Every other Mistral 401 parks the connection as expired, unless the
-    // legacy soft lockout is on for an ambiguous one (mistral_ambiguous_auth).
-    if status == StatusCode::UNAUTHORIZED
-        && provider.is_some_and(|provider| provider.eq_ignore_ascii_case("mistral"))
-    {
-        return mistral_401_class(text, crate::mistral_ambiguous_auth::soft_lockout_enabled());
     }
     let failed = status.is_client_error() || status.is_server_error();
     if failed && matches_any(&MOVED_ENDPOINT_PATTERNS, text) {
@@ -199,7 +215,13 @@ pub(crate) fn classify_provider_failure(
     ) {
         return ProviderFailureClass::CreditsExhausted;
     }
-    if matches!(status.as_u16(), 400 | 402 | 403 | 429) && credits_exhausted_text(text) {
+    // Legacy isCreditsExhausted is a text rule like the deactivation one: it
+    // applies to any failing status. Only a 429 is gated, to avoid reading a
+    // short rate limit as an empty wallet.
+    let quota_signal = status != StatusCode::TOO_MANY_REQUESTS
+        || preserve_quota_signals
+        || looks_like_quota_exhausted(body);
+    if failed && quota_signal && credits_exhausted_text(text) {
         return if quota_failure_scope(configured, provider, StatusCode::PAYMENT_REQUIRED, headers)
             == FailureScope::Model
         {
@@ -207,6 +229,16 @@ pub(crate) fn classify_provider_failure(
         } else {
             ProviderFailureClass::CreditsExhausted
         };
+    }
+
+    // The Mistral 401 rule sits after the text rules in the legacy order, so a
+    // credit or quota body on a 401 is still read as exhausted credits.
+    // Every other Mistral 401 parks the connection as expired, unless the
+    // legacy soft lockout is on for an ambiguous one (mistral_ambiguous_auth).
+    if status == StatusCode::UNAUTHORIZED
+        && provider.is_some_and(|provider| provider.eq_ignore_ascii_case("mistral"))
+    {
+        return mistral_401_class(text, crate::mistral_ambiguous_auth::soft_lockout_enabled());
     }
 
     match status {
@@ -575,6 +607,96 @@ fn any_model_exhausted(value: &str) -> bool {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    /// The ban, credit and resource-not-found decisions of the legacy
+    /// `checkFallbackError` for 840 status, body and provider combinations
+    /// (`provider_failure_oracle.json`, run through the legacy function with
+    /// Node). Rows are [status, body, provider, credits, banned, request-scoped].
+    /// A credit failure on a per-model provider is a `Model` class here, which
+    /// is the legacy flag plus its `hasPerModelQuota` scope, so credits are
+    /// read with the connection scope forced. Bare 402s are not in the matrix:
+    /// the legacy rule table gives them no cooldown, which differs by policy.
+    #[test]
+    fn ban_credit_and_scope_decisions_match_the_legacy_check_fallback_error() {
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("provider_failure_oracle.json")).unwrap();
+        assert_eq!(rows.len(), 840);
+        for row in &rows {
+            let status = StatusCode::from_u16(row[0].as_u64().unwrap() as u16).unwrap();
+            let body = row[1].as_str().unwrap();
+            let provider = row[2].as_str();
+            // The legacy preserve gate: an unknown provider or an OAuth one.
+            let preserve = provider.is_none_or(|p| matches!(p, "codex" | "claude" | "github"));
+            let class = |scope| {
+                classify_provider_failure_with(
+                    scope,
+                    provider,
+                    status,
+                    &HeaderMap::new(),
+                    Some(body.as_bytes()),
+                    preserve,
+                )
+            };
+            let connection = class(RateLimitScope::Connection);
+            assert_eq!(
+                connection == ProviderFailureClass::CreditsExhausted,
+                row[3] == 1,
+                "credits {row}"
+            );
+            assert_eq!(
+                class(RateLimitScope::Auto) == ProviderFailureClass::Banned,
+                row[4] == 1,
+                "banned {row}"
+            );
+            assert_eq!(
+                class(RateLimitScope::Auto) == ProviderFailureClass::RequestScoped,
+                row[5] == 1,
+                "scoped {row}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_credit_body_on_a_429_needs_preserved_quota_signals() {
+        let body = Some(&b"insufficient credits"[..]);
+        let class = |preserve| {
+            classify_provider_failure_with(
+                RateLimitScope::Connection,
+                Some("openai"),
+                StatusCode::TOO_MANY_REQUESTS,
+                &HeaderMap::new(),
+                body,
+                preserve,
+            )
+        };
+        // Legacy shouldUseQuotaSignal: on a 429 the text counts for an OAuth
+        // account, or when the body itself names a long-period quota.
+        assert_eq!(class(true), ProviderFailureClass::CreditsExhausted);
+        let credit_balance = Some(&b"Your credit balance is too low"[..]);
+        assert_ne!(
+            classify_provider_failure_with(
+                RateLimitScope::Connection,
+                Some("openai"),
+                StatusCode::TOO_MANY_REQUESTS,
+                &HeaderMap::new(),
+                credit_balance,
+                false,
+            ),
+            ProviderFailureClass::CreditsExhausted
+        );
+        // Off a 429 the same text counts for any account.
+        assert_eq!(
+            classify_provider_failure_with(
+                RateLimitScope::Connection,
+                Some("openai"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &HeaderMap::new(),
+                credit_balance,
+                false,
+            ),
+            ProviderFailureClass::CreditsExhausted
+        );
+    }
 
     #[test]
     fn a_shared_wallet_402_exhausts_the_account_even_under_model_scope() {

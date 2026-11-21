@@ -4980,12 +4980,13 @@ async fn record_internal_provider_health(
     };
     let empty_headers = HeaderMap::new();
     let headers = headers.unwrap_or(&empty_headers);
-    let failure_class = resilience::classify_provider_failure(
+    let failure_class = resilience::classify_provider_failure_with(
         target.rate_limit_scope,
         Some(&target.provider_name),
         status,
         headers,
         error_body,
+        availability.preserves_quota_signals(),
     );
     if let Some(lockout_ms) =
         daily_quota_lockout(failure_class, availability, status, headers, error_body)
@@ -8532,12 +8533,13 @@ async fn proxy_request(
                     .as_ref()
                     .and_then(|provider| provider.provider_name.as_deref())
             });
-        let failure_class = resilience::classify_provider_failure(
+        let failure_class = resilience::classify_provider_failure_with(
             rate_limit_scope,
             provider_name,
             response.status(),
             response.headers(),
             response.error_body(),
+            availability.is_none_or(|availability| availability.preserves_quota_signals()),
         );
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
             let daily_lockout = daily_quota_lockout(
