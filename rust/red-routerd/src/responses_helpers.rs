@@ -285,3 +285,77 @@ mod text_tests {
         }
     }
 }
+
+fn non_empty_string(value: Option<&Value>) -> &str {
+    value
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("")
+}
+
+/// Legacy `extractReasoningDetailsText`: the `text` or `content` of every
+/// `reasoning_details` item, concatenated.
+fn reasoning_details_text(record: &serde_json::Map<String, Value>) -> String {
+    let Some(details) = record.get("reasoning_details").and_then(Value::as_array) else {
+        return String::new();
+    };
+    details
+        .iter()
+        .map(|detail| {
+            let item = detail.as_object();
+            let text = non_empty_string(item.and_then(|item| item.get("text")));
+            if text.is_empty() {
+                non_empty_string(item.and_then(|item| item.get("content")))
+            } else {
+                text
+            }
+            .to_owned()
+        })
+        .collect()
+}
+
+/// Legacy `getReadableReasoningValue`: `reasoning_content`, else `reasoning`.
+pub fn readable_reasoning(value: &Value) -> String {
+    let Some(record) = value.as_object() else {
+        return String::new();
+    };
+    let readable = non_empty_string(record.get("reasoning_content"));
+    if readable.is_empty() {
+        non_empty_string(record.get("reasoning")).to_owned()
+    } else {
+        readable.to_owned()
+    }
+}
+
+/// Legacy `getUnsupportedReasoningValue`: the first non-empty of
+/// `reasoning_text`, `thinking`, `thought` and the details text.
+pub fn unsupported_reasoning(value: &Value) -> String {
+    let Some(record) = value.as_object() else {
+        return String::new();
+    };
+    for key in ["reasoning_text", "thinking", "thought"] {
+        let text = non_empty_string(record.get(key));
+        if !text.is_empty() {
+            return text.to_owned();
+        }
+    }
+    reasoning_details_text(record)
+}
+
+#[cfg(test)]
+mod reasoning_tests {
+    use super::*;
+
+    /// Outputs the legacy reasoning field readers produced for the same
+    /// inputs (`reasoning_fields_oracle.json`, generated with Node).
+    #[test]
+    fn reasoning_readers_match_the_legacy_implementation() {
+        let oracle: Vec<(Value, String, String)> =
+            serde_json::from_str(include_str!("reasoning_fields_oracle.json")).unwrap();
+        assert_eq!(oracle.len(), 14);
+        for (input, readable, unsupported) in &oracle {
+            assert_eq!(&readable_reasoning(input), readable, "{input}");
+            assert_eq!(&unsupported_reasoning(input), unsupported, "{input}");
+        }
+    }
+}
