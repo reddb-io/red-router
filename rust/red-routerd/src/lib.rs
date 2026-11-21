@@ -1862,14 +1862,31 @@ impl ProxyState {
         quota: Arc<TargetQuota>,
         model_quota: Option<Arc<TargetQuota>>,
     ) -> ModelTarget {
+        let mut upstream = provider.upstream.clone();
+        let mut protocol = config.protocol;
+        let mut auth_scheme = provider.auth_scheme;
+        // OpenCode Go serves most models at chat completions, but its Anthropic
+        // Messages models are reached at /messages with an x-api-key, as the
+        // legacy OpencodeExecutor does (`opencode_go::target_format`).
+        if provider.provider_name.as_deref() == Some("opencode-go")
+            && protocol == ProviderProtocol::OpenAi
+            && opencode_go::target_format(&config.model) == opencode_go::TargetFormat::Messages
+        {
+            if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
+                let path = format!("{prefix}/messages");
+                upstream.set_path(&path);
+                protocol = ProviderProtocol::OpenAiToAnthropic;
+                auth_scheme = ProviderAuthScheme::XApiKey;
+            }
+        }
         ModelTarget {
             client: provider.client.clone(),
-            upstream: provider.upstream.clone(),
+            upstream,
             provider_key: provider.provider_key.clone(),
             custom_headers: provider.custom_headers.clone(),
             model: config.model,
-            protocol: config.protocol,
-            auth_scheme: provider.auth_scheme,
+            protocol,
+            auth_scheme,
             credential_expires_at_unix: provider.credential_expires_at_unix,
             product_connection: None,
             product_model: None,
@@ -10356,5 +10373,54 @@ mod address_tests {
                 assert!(selections.windows(2).all(|pair| pair[0] != pair[1]));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod opencode_go_target_tests {
+    use super::*;
+
+    async fn target_for(model: &str, provider: &str) -> ModelTarget {
+        let mut live = ProxyState::live_provider(
+            "http://127.0.0.1:9/zen/go/v1/chat/completions",
+            "go-key",
+            true,
+            ProviderAuthScheme::Bearer,
+            0,
+            "auto",
+            false,
+        )
+        .await
+        .unwrap();
+        live.provider_name = Some(Arc::from(provider));
+        ProxyState::control_target(
+            &live,
+            ControlTargetConfig {
+                protocol: ProviderProtocol::OpenAi,
+                model: model.to_owned(),
+                weight: 1,
+                input_cost_per_million: None,
+                output_cost_per_million: None,
+                context_window_tokens: None,
+                prompt: None,
+            },
+            Arc::new(TargetQuota::default()),
+            None,
+        )
+    }
+
+    // Legacy OpencodeExecutor: the claude format posts to /messages with x-api-key.
+    #[tokio::test]
+    async fn opencode_go_messages_models_use_the_anthropic_endpoint_and_key_header() {
+        let messages = target_for("minimax-m3", "opencode-go").await;
+        assert_eq!(messages.upstream.path(), "/zen/go/v1/messages");
+        assert!(messages.protocol == ProviderProtocol::OpenAiToAnthropic);
+        assert!(messages.auth_scheme == ProviderAuthScheme::XApiKey);
+        let other_provider = target_for("minimax-m3", "openrouter").await;
+        assert_eq!(
+            other_provider.upstream.path(),
+            "/zen/go/v1/chat/completions"
+        );
+        assert!(other_provider.protocol == ProviderProtocol::OpenAi);
     }
 }
