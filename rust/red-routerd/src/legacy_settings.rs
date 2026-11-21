@@ -825,6 +825,9 @@ const DASHBOARD: &[&str] = &[
     "hideEndpointNgrokTunnel",
     "quotaVisibility",
     "comboConfigMode",
+    // The routing card mirror of its combo round-robin toggle; the toggle
+    // writes the real default through comboDefaults, which is imported.
+    "comboStrategy",
     "theme",
     "language",
     "instanceName",
@@ -1572,11 +1575,11 @@ mod tests {
         assert_eq!(classify("requestRetry", "3"), SettingClass::AtDefault);
         assert_eq!(
             classify("comboStrategy", "\"fallback\""),
-            SettingClass::AtDefault
+            SettingClass::Dashboard
         );
         // A raw string that is not JSON compares as a string, as legacy parses it.
         assert_eq!(
-            classify("comboStrategy", "fallback"),
+            classify("oidcRedirectPath", "/api/auth/oidc/callback"),
             SettingClass::AtDefault
         );
         assert_eq!(classify("requestRetry", "5"), SettingClass::Imported);
@@ -1650,7 +1653,7 @@ mod tests {
             }
         );
         assert!(matches!(
-            classify("comboStrategy", "\"round-robin\""),
+            classify("connectionAwareExpansion", "true"),
             SettingClass::Refused { .. }
         ));
         assert_eq!(classify("theme", "\"dark\""), SettingClass::Dashboard);
@@ -2108,6 +2111,13 @@ mod tests {
             classify("modelLockout", r#"{"enabled":true}"#),
             SettingClass::Imported
         );
+    }
+
+    #[test]
+    fn the_combo_strategy_toggle_mirror_is_a_dashboard_preference() {
+        for raw in [r#""round-robin""#, r#""fallback""#] {
+            assert_eq!(classify("comboStrategy", raw), SettingClass::Dashboard);
+        }
     }
 
     #[test]

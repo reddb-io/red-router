@@ -15,6 +15,7 @@ async fn settings_inventory_classifies_rows_without_exposing_or_modifying_them()
          INSERT INTO key_value VALUES
            ('settings','requestRetry','3'),
            ('settings','comboStrategy','\"round-robin\"'),
+           ('settings','connectionAwareExpansion','true'),
            ('settings','theme','\"secret-theme\"'),
            ('settings','payloadRules','{\"secret\":true}'),
            ('settings','unknownFutureSetting','\"secret-value\"'),
@@ -37,8 +38,9 @@ async fn settings_inventory_classifies_rows_without_exposing_or_modifying_them()
             importer: "legacy_payload_rules"
         }
     );
+    assert_eq!(report.settings["comboStrategy"], SettingClass::Dashboard);
     assert!(matches!(
-        report.settings["comboStrategy"],
+        report.settings["connectionAwareExpansion"],
         SettingClass::Refused { .. }
     ));
     // Internal and empty rows are skipped like the legacy loader does.
@@ -46,7 +48,7 @@ async fn settings_inventory_classifies_rows_without_exposing_or_modifying_them()
     assert!(!report.settings.contains_key("nullValue"));
     let mut refused = report.refused().map(|(key, _)| key).collect::<Vec<_>>();
     refused.sort_unstable();
-    assert_eq!(refused, ["comboStrategy", "unknownFutureSetting"]);
+    assert_eq!(refused, ["connectionAwareExpansion", "unknownFutureSetting"]);
     // The report names keys only, never stored values.
     let encoded = serde_json::to_string(&report).unwrap();
     assert!(!encoded.contains("secret"));
@@ -134,7 +136,7 @@ async fn resilience_settings_import_onto_native_runtime_settings_once() {
     let mut db = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
         .await
         .unwrap();
-    sqlx::query("INSERT INTO key_value VALUES ('settings','comboStrategy','\"round-robin\"')")
+    sqlx::query("INSERT INTO key_value VALUES ('settings','connectionAwareExpansion','true')")
         .execute(&mut db)
         .await
         .unwrap();
