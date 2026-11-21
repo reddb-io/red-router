@@ -1865,6 +1865,7 @@ impl ProxyState {
         let mut upstream = provider.upstream.clone();
         let mut protocol = config.protocol;
         let mut auth_scheme = provider.auth_scheme;
+        let mut provider_key = provider.provider_key.clone();
         // OpenCode Go serves most models at chat completions, but its Anthropic
         // Messages models are reached at /messages with an x-api-key, as the
         // legacy OpencodeExecutor does (`opencode_go::target_format`).
@@ -1877,12 +1878,19 @@ impl ProxyState {
                 upstream.set_path(&path);
                 protocol = ProviderProtocol::OpenAiToAnthropic;
                 auth_scheme = ProviderAuthScheme::XApiKey;
+                // The stored credential carries the Bearer prefix of the chat scheme.
+                if let Some(raw) = provider_key.as_bytes().strip_prefix(b"Bearer ") {
+                    if let Ok(mut value) = HeaderValue::from_bytes(raw) {
+                        value.set_sensitive(true);
+                        provider_key = value;
+                    }
+                }
             }
         }
         ModelTarget {
             client: provider.client.clone(),
             upstream,
-            provider_key: provider.provider_key.clone(),
+            provider_key,
             custom_headers: provider.custom_headers.clone(),
             model: config.model,
             protocol,
