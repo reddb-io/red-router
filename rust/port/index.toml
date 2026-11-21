@@ -330,6 +330,32 @@ stripErrorStackTail = "red_routerd::error_path_redaction::strip_error_stack_tail
 stripRecognizedErrorStackTail = "red_routerd::error_path_redaction::strip_recognized_error_stack_tail"
 
 [[module]]
+ts = "open-sse/utils/errorSanitization.ts"
+status = "ported"
+rust = "error_sanitization.rs"
+module = "red_routerd::error_sanitization"
+ported_at = "2026-11-21T00:04:54Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/error-sensitive-redaction.test.ts",
+    "tests/unit/strong-credential-token-linear-scan.test.ts",
+]
+notes = "UTF-16 scanner with ASCII-only case folding as JavaScript /i; error_sanitization_oracle.json holds legacy outputs for 32 messages, 7 credential checks and 11 upstream bodies. Binary ArrayBuffer details do not occur in JSON bodies."
+
+[module.ts_blobs]
+"open-sse/utils/errorSanitization.ts" = "166932e1dfe8905499baa091002f435799290ac3"
+"tests/unit/error-sensitive-redaction.test.ts" = "187f9fa414a6047ed824c87d77f03d0088f2c3ae"
+"tests/unit/strong-credential-token-linear-scan.test.ts" = "ff8d7f93090e233500fad1dcb5b3b7d6db20a5e9"
+
+[module.symbols]
+containsSensitiveErrorCredential = "red_routerd::error_sanitization::contains_sensitive_error_credential"
+containsStrongCredentialToken = "red_routerd::error_sanitization::contains_strong_credential_token"
+redactSensitiveErrorText = "red_routerd::error_sanitization::redact_sensitive_error_text"
+sanitizeErrorMessage = "red_routerd::error_sanitization::sanitize_error_message"
+sanitizePassthroughUpstreamDetails = "red_routerd::error_sanitization::sanitize_passthrough_upstream_details"
+sanitizeUpstreamDetails = "red_routerd::error_sanitization::sanitize_upstream_details"
+
+[[module]]
 ts = "open-sse/utils/jsonHash.ts"
 status = "ported"
 rust = "json_hash.rs"

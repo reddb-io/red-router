@@ -151,6 +151,22 @@ fn replace_openai_compatible(text: &str, replacement: &str) -> (String, usize) {
     (out, count)
 }
 
+/// Legacy `redactKnownCredentialPatterns` (errorSanitization.ts): every
+/// catalog pattern but `auth_header` replaced by a bare `[REDACTED]`.
+pub fn redact_known_credential_patterns(text: &str) -> String {
+    let mut result = text.to_owned();
+    for pattern in CREDENTIAL_PATTERNS.iter() {
+        if pattern.name == "auth_header" {
+            continue;
+        }
+        result = match &pattern.regex {
+            Some(regex) => regex.replace_all(&result, "[REDACTED]").into_owned(),
+            None => replace_openai_compatible(&result, "[REDACTED]").0,
+        };
+    }
+    result
+}
+
 /// Legacy `redactCredentials`: the redacted text and, per pattern that
 /// matched, its name and match count.
 pub fn redact_credentials(text: &str) -> (String, Vec<(&'static str, usize)>) {
