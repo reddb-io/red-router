@@ -329,6 +329,10 @@ async fn legacy_combos_are_archived_for_adoption() {
         .execute(&mut legacy)
         .await
         .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('mitmAlias', 'antigravity', '{\"a\":\"b\"}')")
+        .execute(&mut legacy)
+        .await
+        .unwrap();
     legacy.close().await.unwrap();
     let file = Url::from_file_path(&destination).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
@@ -364,6 +368,13 @@ async fn legacy_combos_are_archived_for_adoption() {
             .await
             .unwrap();
     assert_eq!(archived, data);
+    let staged: String = sqlx::query_scalar(
+        "SELECT value FROM redrouter_legacy_key_value_staged WHERE namespace = 'mitmAlias' AND key = 'antigravity'",
+    )
+    .fetch_one(&mut saved)
+    .await
+    .unwrap();
+    assert_eq!(staged, r#"{"a":"b"}"#);
     saved.close().await.unwrap();
 }
 

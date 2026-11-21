@@ -223,6 +223,7 @@ pub async fn migrate(
             "migrate and verify legacy aliases and remaining model compatibility settings",
             "adopt and verify staged per-connection synced model inventories after provider migration",
             "adopt the archived legacy combos once their providers are adopted",
+            "adopt the staged Antigravity MITM aliases once the MITM proxy is ported",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

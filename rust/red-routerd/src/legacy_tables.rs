@@ -256,6 +256,14 @@ pub fn class(table: &str) -> Option<TableClass> {
         .map(|(_, class)| *class)
 }
 
+/// `key_value` namespaces staged losslessly in the archive for a feature
+/// the native daemon does not have yet, to be adopted once it does.
+pub const STAGED_NAMESPACES: &[&str] = &[
+    // Antigravity IDE MITM proxy aliases (cli-tools), staged until the proxy
+    // is ported with the CLI.
+    "mitmAlias",
+];
+
 /// Why a legacy `key_value` namespace is accepted or refused by the cutover.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamespaceClass {
@@ -263,6 +271,9 @@ pub enum NamespaceClass {
     Handled,
     /// Runtime state, a cache or bookkeeping; dropped by design.
     Dropped(&'static str),
+    /// Staged losslessly for adoption once the feature is ported
+    /// (see [`STAGED_NAMESPACES`]).
+    Staged(&'static str),
     /// Refused while it holds rows: the native daemon has no equivalent yet.
     Refused(&'static str),
     /// Seeded by a fresh install: refused for any row that is not a seed row.
@@ -409,7 +420,7 @@ const NAMESPACES: &[(&str, NamespaceClass)] = &[
         NamespaceClass::Refused("provider parameter filters"),
     ),
     ("serviceModels", NamespaceClass::Refused("service models")),
-    ("mitmAlias", NamespaceClass::Refused("MITM aliases")),
+    ("mitmAlias", NamespaceClass::Staged("MITM aliases")),
     (
         "ccDiscoveryAliases",
         NamespaceClass::Refused("Claude Code discovery aliases"),
@@ -470,7 +481,9 @@ async fn namespace_refusal(db: &mut SqliteConnection) -> Result<Option<String>, 
                 .await
                 .map_err(|_| "cannot inspect legacy key_value rows")?;
         let refusal = match namespace_class(&namespace) {
-            Some(NamespaceClass::Handled | NamespaceClass::Dropped(_)) => None,
+            Some(
+                NamespaceClass::Handled | NamespaceClass::Dropped(_) | NamespaceClass::Staged(_),
+            ) => None,
             Some(NamespaceClass::Refused(feature)) => (!rows.is_empty()).then(|| {
                 format!("legacy {feature} (key_value namespace {namespace}) have no native importer yet")
             }),

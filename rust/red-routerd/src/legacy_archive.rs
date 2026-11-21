@@ -144,6 +144,34 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
                 .execute(&mut *tx).await.map_err(|_| "cannot write archive manifest")?;
             report.push(ArchivedTable { source: table, rows: Some(source_count) });
         }
+        // key_value namespaces staged for a feature not ported yet: only
+        // these rows are copied, never the whole store (it holds secrets).
+        let staged_namespaces = crate::legacy_tables::STAGED_NAMESPACES;
+        let placeholders = vec!["?"; staged_namespaces.len()].join(",");
+        let has_key_value: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM legacy.sqlite_master WHERE type='table' AND name='key_value'")
+            .fetch_one(&mut *tx).await.map_err(|_| "cannot inspect legacy schema")?;
+        sqlx::query("CREATE TABLE redrouter_legacy_key_value_staged (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (namespace, key))")
+            .execute(&mut *tx).await.map_err(|_| "cannot stage legacy settings")?;
+        let source_rows: i64 = if has_key_value == 0 { 0 } else {
+            let sql = format!("SELECT COUNT(*) FROM legacy.key_value WHERE namespace IN ({placeholders})");
+            let mut query = sqlx::query_scalar(&sql);
+            for namespace in staged_namespaces {
+                query = query.bind(*namespace);
+            }
+            query.fetch_one(&mut *tx).await.map_err(|_| "cannot inspect staged legacy settings")?
+        };
+        if has_key_value != 0 {
+            let sql = format!("INSERT INTO redrouter_legacy_key_value_staged (namespace,key,value) SELECT namespace,key,value FROM legacy.key_value WHERE namespace IN ({placeholders})");
+            let mut query = sqlx::query(&sql);
+            for namespace in staged_namespaces {
+                query = query.bind(*namespace);
+            }
+            query.execute(&mut *tx).await.map_err(|_| "cannot stage legacy settings")?;
+        }
+        let staged_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_legacy_key_value_staged")
+            .fetch_one(&mut *tx).await.map_err(|_| "cannot verify staged legacy settings")?;
+        if staged_rows != source_rows { return Err("legacy archive verification failed"); }
+        report.push(ArchivedTable { source: "key_value (staged namespaces)", rows: Some(staged_rows) });
         Ok(ArchiveReport { tables: report })
     }.await;
     match result {
