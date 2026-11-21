@@ -14,7 +14,7 @@ async fn a_missing_request_resource_does_not_lock_the_model() {
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let (upstream, requests, status, body, upstream_task) =
-        counted_status_provider("resource-secret", StatusCode::NOT_FOUND, None).await;
+        counted_status_provider("resource-secret", StatusCode::NOT_FOUND, None, None).await;
     *body.write().await =
         r#"{"error":{"message":"[404]: Files [file-abc123] were not found","code":"model_not_found"}}"#
             .to_owned();
@@ -53,7 +53,9 @@ async fn a_missing_request_resource_does_not_lock_the_model() {
     // Without the cooldown wait, a locked model answers at once.
     assert_eq!(
         client
-            .put(format!("{base}/api/admin/global-settings/wait_for_cooldown"))
+            .put(format!(
+                "{base}/api/admin/global-settings/wait_for_cooldown"
+            ))
             .bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({
                 "enabled":false,
@@ -115,7 +117,7 @@ async fn an_opencode_free_tier_refusal_moves_on_without_a_cooldown() {
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let (refusing_url, refusing_requests, _status, body, refusing_task) =
-        counted_status_provider("refusing-secret", StatusCode::FORBIDDEN, None).await;
+        counted_status_provider("refusing-secret", StatusCode::FORBIDDEN, None, None).await;
     *body.write().await = r#"{"type":"error","error":{"type":"FreeTierError","message":"Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"}}"#.to_owned();
     let (serving_url, serving_task) = provider("serving-secret", "served").await;
     for (id, upstream, credential, priority) in [

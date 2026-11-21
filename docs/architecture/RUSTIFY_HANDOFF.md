@@ -28,7 +28,7 @@ Verified means a differential oracle, an integration test or a real-store run, n
 
 ## Open work, in rough order of leverage
 
-1. **Wire the failure-handling pieces.** Blocked on a policy decision (below). Also wire the service supervisor cooldown from `error_config.rs`: a 503 with `X-Omni-Fallback-Hint: connection_cooldown` is a 5 s connection cooldown that must not count against the provider breaker.
+1. **Wire the failure-handling pieces.** Blocked on a policy decision (below). The service supervisor cooldown from `error_config.rs` is already wired (a 503 with `X-Omni-Fallback-Hint: connection_cooldown` is a fixed 5 s connection cooldown, no backoff, not counted against the provider breaker); the rest of the pieces are not.
 2. **Adopt the remaining accounts of the real store.**
    - *OpenCode Go.* Needs a `ProviderProtocol` variant for OpenAI to Responses (about 25 match sites in `lib.rs` and `control_plane.rs`), a protocol chosen per model instead of per provider (`opencode_go.rs` has the per-model table: 32 chat completions, 16 Messages, 20 Responses), the Messages header and auth rules, and the request transforms of the legacy `OpencodeExecutor` (1,458 lines: effort tiers, Muse Spark minimum output tokens, the Zen `x-api-key` case). Adopting it with only the chat models would misroute 36 models silently, so the importer refuses.
    - *Antigravity IDE profile.* Native adoption covers only the CLI profile (`agy`). The IDE profile has its own headers, client version, IDE type enum and project bootstrap.

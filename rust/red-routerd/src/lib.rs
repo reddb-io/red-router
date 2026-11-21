@@ -4966,9 +4966,12 @@ async fn record_internal_provider_health(
     headers: Option<&HeaderMap>,
     error_body: Option<&[u8]>,
 ) -> Result<(), &'static str> {
+    let supervisor_cooldown = status
+        .and_then(|status| error_config::service_supervisor_cooldown(status.as_u16(), headers));
     if let (Some(circuit), Some(permit)) = (target.circuit.as_ref(), circuit_permit) {
         match status {
             None => circuit.record_failure(permit).await?,
+            Some(_) if supervisor_cooldown.is_some() => circuit.record_ignored(permit).await,
             Some(status) if circuit::provider_failure_status(status) => {
                 circuit.record_failure(permit).await?
             }
@@ -4983,6 +4986,11 @@ async fn record_internal_provider_health(
     else {
         return Ok(());
     };
+    if let Some(cooldown) = supervisor_cooldown {
+        return availability
+            .record_fixed_connection_cooldown(permit, status, cooldown.cooldown_ms)
+            .await;
+    }
     let empty_headers = HeaderMap::new();
     let headers = headers.unwrap_or(&empty_headers);
     let failure_class = resilience::classify_provider_failure_with(
@@ -8507,8 +8515,18 @@ async fn proxy_request(
                 }
             }
         }
+        // Legacy G-02: a 503 the embedded service supervisor marks with
+        // X-Omni-Fallback-Hint: connection_cooldown is local state changing, not
+        // the upstream failing, so it must not count against the provider breaker.
+        let supervisor_cooldown = error_config::service_supervisor_cooldown(
+            response.status().as_u16(),
+            Some(response.headers()),
+        );
         if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
-            let recorded = if circuit::provider_failure_status(response.status()) {
+            let recorded = if supervisor_cooldown.is_some() {
+                circuit.record_ignored(permit).await;
+                Ok(())
+            } else if circuit::provider_failure_status(response.status()) {
                 circuit.record_failure(permit).await
             } else if response.status().is_success() {
                 circuit.record_success(permit).await
@@ -8590,6 +8608,17 @@ async fn proxy_request(
                 }
             }
             let recorded = match failure_class {
+                _ if supervisor_cooldown.is_some() => {
+                    availability
+                        .record_fixed_connection_cooldown(
+                            permit,
+                            response.status(),
+                            supervisor_cooldown
+                                .as_ref()
+                                .map_or(0, |cooldown| cooldown.cooldown_ms),
+                        )
+                        .await
+                }
                 _ if daily_lockout.is_some() => {
                     availability
                         .record_connection_lockout(

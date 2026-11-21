@@ -8,7 +8,7 @@ async fn daily_quota_text_parks_the_connection_until_the_reset() {
         .await
         .unwrap();
     let (quota_url, quota_requests, _quota_status, quota_body, quota_task) =
-        counted_status_provider("quota-secret", StatusCode::FORBIDDEN, None).await;
+        counted_status_provider("quota-secret", StatusCode::FORBIDDEN, None, None).await;
     *quota_body.write().await =
         r#"{"error":{"message":"You have exceeded your daily quota for this model"}}"#.to_owned();
     let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;

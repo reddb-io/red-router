@@ -625,6 +625,7 @@ async fn counted_status_provider(
     expected_key: &'static str,
     initial_status: StatusCode,
     retry_after: Option<&'static str>,
+    extra_header: Option<(&'static str, &'static str)>,
 ) -> (
     String,
     Arc<AtomicUsize>,
@@ -655,6 +656,9 @@ async fn counted_status_provider(
                 let mut response = axum::http::Response::builder().status(status);
                 if let Some(retry_after) = retry_after {
                     response = response.header(header::RETRY_AFTER, retry_after);
+                }
+                if let Some((name, value)) = extra_header {
+                    response = response.header(name, value);
                 }
                 response
                     .body(Body::from(current_body.read().await.clone()))
@@ -11032,6 +11036,140 @@ async fn rust_control_plane_persists_provider_breaker_configuration_across_reset
     database.close().await.unwrap();
 }
 
+/// Legacy G-02: a 503 the embedded service supervisor marks with
+/// `X-Omni-Fallback-Hint: connection_cooldown` is a fixed 5 s connection
+/// cooldown. It is local state changing, not the upstream failing, so it does
+/// not take the escalating backoff of a plain 503 (3 s, level 1).
+#[tokio::test]
+async fn service_supervisor_hint_is_a_fixed_connection_cooldown_without_backoff() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("availability.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (limited_url, limited_requests, _limited_status, _limited_body, limited_task) =
+        counted_status_provider(
+            "limited-secret",
+            StatusCode::SERVICE_UNAVAILABLE,
+            None,
+            Some(("x-omni-fallback-hint", "connection_cooldown")),
+        )
+        .await;
+    let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("limited", limited_url.clone(), "limited-secret"),
+        ("healthy", healthy_url.clone(), "healthy-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider": if id == "limited" { "openai" } else { "openai-compatible" },
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/availability-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Availability client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["availability-combo","upstream-model"],
+                    "allowed_provider_ids":["limited","healthy"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/availability-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"priority",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"limited","model":"upstream-model"},
+                        {"provider_id":"healthy","model":"upstream-model"}
+                    ]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    // The failing target falls back, and the cooldown keeps it out of the
+    // second request.
+    for _ in 0..2 {
+        let response = chat_model(&client, &base, RUST_CLIENT_KEY, "availability-combo").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "healthy");
+    }
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 1);
+    let health = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let limited = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "limited")
+        .unwrap();
+    assert_eq!(limited["connection_last_status"], 503);
+    // A plain 503 would take the 3 s base at backoff level 1; the supervisor
+    // hint is a fixed 5 s with no backoff.
+    assert_eq!(limited["connection_backoff_level"], 0);
+    let retry_after = limited["connection_retry_after_ms"].as_u64().unwrap();
+    assert!(
+        retry_after > 3_000 && retry_after <= 5_000,
+        "retry_after_ms {retry_after}"
+    );
+
+    gateway_task.abort();
+    limited_task.abort();
+    healthy_task.abort();
+    database.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     let directory = TempDir::new().unwrap();
@@ -11042,7 +11180,13 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
         .await
         .unwrap();
     let (limited_url, limited_requests, limited_status, limited_body, limited_task) =
-        counted_status_provider("limited-secret", StatusCode::TOO_MANY_REQUESTS, Some("60")).await;
+        counted_status_provider(
+            "limited-secret",
+            StatusCode::TOO_MANY_REQUESTS,
+            Some("60"),
+            None,
+        )
+        .await;
     let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();

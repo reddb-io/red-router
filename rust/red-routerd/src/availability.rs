@@ -683,6 +683,38 @@ impl ProviderAvailability {
         Ok(())
     }
 
+    /// A fixed connection cooldown that does not escalate the backoff (legacy
+    /// `serviceSupervisorCooldown`, `newBackoffLevel: 0`): the embedded
+    /// supervisor changing state is not the upstream failing, so a repeat must
+    /// not make the next real failure wait longer.
+    pub(crate) async fn record_fixed_connection_cooldown(
+        &self,
+        permit: AvailabilityPermit,
+        status: StatusCode,
+        duration_ms: u64,
+    ) -> Result<(), &'static str> {
+        if !(status.is_client_error() || status.is_server_error()) {
+            return Err("invalid provider connection failure status");
+        }
+        let now = unix_ms()?;
+        let mut inner = self.inner.lock().await;
+        if permit.connection_generation != inner.connection_generation
+            || inner.cooldown_until_unix_ms > now
+        {
+            return Ok(());
+        }
+        let mut candidate = inner.clone();
+        candidate.cooldown_until_unix_ms =
+            now.saturating_add(duration_ms.clamp(1_000, RETRY_HINT_MAX_MS));
+        candidate.backoff_level = 0;
+        candidate.last_status = Some(status.as_u16());
+        candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
     /// A bare Mistral 401 can mean either a revoked credential or exhausted
     /// quota. Give it three durable, bounded cooldowns in a one-hour window;
     /// the next identical failure converges to terminal expiry.

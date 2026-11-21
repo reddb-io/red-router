@@ -13,8 +13,13 @@ async fn direct_routes_wait_for_a_short_connection_cooldown() {
     .unwrap();
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let (upstream, requests, status, _body, upstream_task) =
-        counted_status_provider("wait-secret", StatusCode::TOO_MANY_REQUESTS, Some("1")).await;
+    let (upstream, requests, status, _body, upstream_task) = counted_status_provider(
+        "wait-secret",
+        StatusCode::TOO_MANY_REQUESTS,
+        Some("1"),
+        None,
+    )
+    .await;
     assert_eq!(
         client
             .put(format!("{base}/api/admin/providers/wait-provider"))
@@ -131,6 +136,7 @@ async fn combos_wait_for_a_short_rate_limit_lockout() {
         "combo-wait-secret",
         StatusCode::TOO_MANY_REQUESTS,
         Some("1"),
+        None,
     )
     .await;
     assert_eq!(
@@ -248,9 +254,13 @@ async fn combos_skip_a_target_in_its_provider_cooldown() {
     .unwrap();
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let (failing_url, failing_requests, _status, _body, failing_task) =
-        counted_status_provider("pc-failing-secret", StatusCode::INTERNAL_SERVER_ERROR, None)
-            .await;
+    let (failing_url, failing_requests, _status, _body, failing_task) = counted_status_provider(
+        "pc-failing-secret",
+        StatusCode::INTERNAL_SERVER_ERROR,
+        None,
+        None,
+    )
+    .await;
     let (serving_url, serving_task) = provider("pc-serving-secret", "served").await;
     for (id, upstream, credential) in [
         ("pc-failing", &failing_url, "pc-failing-secret"),
@@ -310,7 +320,9 @@ async fn combos_skip_a_target_in_its_provider_cooldown() {
     );
     let cooldown = |enabled: bool| {
         client
-            .put(format!("{base}/api/admin/global-settings/provider_cooldown"))
+            .put(format!(
+                "{base}/api/admin/global-settings/provider_cooldown"
+            ))
             .bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({
                 "enabled":enabled,
@@ -341,7 +353,9 @@ async fn combos_skip_a_target_in_its_provider_cooldown() {
     served(2).await;
     assert_eq!(
         client
-            .put(format!("{base}/api/admin/global-settings/provider_cooldown"))
+            .put(format!(
+                "{base}/api/admin/global-settings/provider_cooldown"
+            ))
             .bearer_auth(ADMIN_KEY)
             .json(&serde_json::json!({
                 "enabled":true,

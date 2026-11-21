@@ -14,7 +14,7 @@ async fn api_key_connections_wait_for_their_request_queue_turn() {
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let (upstream, requests, _status, _body, upstream_task) =
-        counted_status_provider("queue-secret", StatusCode::OK, None).await;
+        counted_status_provider("queue-secret", StatusCode::OK, None, None).await;
     assert_eq!(
         client
             .put(format!("{base}/api/admin/providers/queue-provider"))

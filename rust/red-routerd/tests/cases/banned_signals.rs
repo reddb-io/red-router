@@ -8,7 +8,7 @@ async fn custom_banned_signals_persist_and_park_matching_accounts() {
         .await
         .unwrap();
     let (banned_url, banned_requests, _banned_status, banned_body, banned_task) =
-        counted_status_provider("banned-secret", StatusCode::FORBIDDEN, None).await;
+        counted_status_provider("banned-secret", StatusCode::FORBIDDEN, None, None).await;
     *banned_body.write().await =
         r#"{"error":{"message":"Account placed under Kestrel review"}}"#.to_owned();
     let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
