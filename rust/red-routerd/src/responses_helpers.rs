@@ -148,3 +148,140 @@ mod tests {
         assert_eq!(image_url_to_text(&json!({"url": 5})), "");
     }
 }
+
+/// Legacy `buildResponsesTextParts`: a content block (string or text-part
+/// array) as the Responses `input_text` parts of a message input item.
+pub fn build_text_parts(content: &Value) -> Vec<Value> {
+    let part = |text: &str| serde_json::json!({"type": "input_text", "text": text});
+    match content {
+        Value::String(text) => vec![part(text)],
+        Value::Array(items) => {
+            let mut parts = Vec::new();
+            for item in items {
+                // A bare string in the array is a real instruction, not a part.
+                if let Value::String(text) = item {
+                    parts.push(part(text));
+                    continue;
+                }
+                let record = item.as_object();
+                let is_text = record
+                    .and_then(|record| record.get("type"))
+                    .is_some_and(|kind| kind == "text");
+                let text = record.and_then(|record| record.get("text"));
+                if is_text || text.is_some_and(Value::is_string) {
+                    parts.push(part(text.and_then(Value::as_str).unwrap_or("")));
+                }
+            }
+            if parts.is_empty() {
+                vec![part("")]
+            } else {
+                parts
+            }
+        }
+        _ => vec![part("")],
+    }
+}
+
+/// Legacy `buildInstructionsText`: the text parts of a system content block
+/// joined for the string-valued `instructions` field.
+pub fn build_instructions_text(content: &Value) -> String {
+    if let Value::String(text) = content {
+        return text.clone();
+    }
+    build_text_parts(content)
+        .iter()
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// Legacy `mapChatResponseFormatToResponsesText`: Chat `response_format`
+/// into the Responses `text.format`, merged into an existing `text`.
+pub fn map_response_format(body: &Value, result: &mut serde_json::Map<String, Value>) {
+    let Some(format) = body.get("response_format").and_then(Value::as_object) else {
+        return;
+    };
+    let mut text = result
+        .get("text")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    match format.get("type").and_then(Value::as_str) {
+        Some("json_object") => {
+            text.insert(
+                "format".to_owned(),
+                serde_json::json!({"type": "json_object"}),
+            );
+        }
+        Some("json_schema") => {
+            let Some(schema) = format.get("json_schema").and_then(Value::as_object) else {
+                return;
+            };
+            let Some(body_schema) = schema.get("schema") else {
+                return;
+            };
+            let mut out = serde_json::Map::new();
+            out.insert("type".to_owned(), Value::String("json_schema".to_owned()));
+            out.insert(
+                "name".to_owned(),
+                Value::String(
+                    schema
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("codex_output_schema")
+                        .to_owned(),
+                ),
+            );
+            out.insert("schema".to_owned(), body_schema.clone());
+            for key in ["description", "strict"] {
+                if let Some(value) = schema.get(key) {
+                    out.insert(key.to_owned(), value.clone());
+                }
+            }
+            text.insert("format".to_owned(), Value::Object(out));
+        }
+        _ => return,
+    }
+    result.insert("text".to_owned(), Value::Object(text));
+}
+
+#[cfg(test)]
+mod text_tests {
+    use super::*;
+
+    fn from_oracle(value: &Value) -> Value {
+        match value.as_str() {
+            Some("__undefined") => Value::Null,
+            _ => value.clone(),
+        }
+    }
+
+    /// Outputs the legacy text helpers produced for the same inputs
+    /// (`responses_text_oracle.json`, evaluated from the legacy source).
+    #[test]
+    fn text_helpers_match_the_legacy_implementation() {
+        let oracle: Value =
+            serde_json::from_str(include_str!("responses_text_oracle.json")).unwrap();
+        for case in oracle["instructions"].as_array().unwrap() {
+            let content = from_oracle(&case[0]);
+            assert_eq!(
+                build_instructions_text(&content),
+                case[1].as_str().unwrap(),
+                "{case}"
+            );
+        }
+        for case in oracle["parts"].as_array().unwrap() {
+            let content = from_oracle(&case[0]);
+            assert_eq!(Value::Array(build_text_parts(&content)), case[1], "{case}");
+        }
+        for case in oracle["format"].as_array().unwrap() {
+            let mut result = serde_json::Map::new();
+            if let Some(existing) = case[1].as_object() {
+                result.insert("text".to_owned(), Value::Object(existing.clone()));
+            }
+            map_response_format(&case[0], &mut result);
+            assert_eq!(Value::Object(result), case[2], "{case}");
+        }
+    }
+}
