@@ -94,6 +94,7 @@ mod tool_call_ids;
 mod tool_schemas;
 mod translation;
 pub mod url_sanitize;
+pub mod usage_command;
 mod usage_stream;
 mod wildcard_router;
 use axum::{
@@ -6443,6 +6444,55 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
+    // Legacy internalUsageCommand: `@@om-usage` as the last user text is
+    // answered locally with the key's provider quota, never upstream.
+    if matches!(
+        protocol,
+        ProviderProtocol::OpenAi | ProviderProtocol::Anthropic | ProviderProtocol::OpenAiResponses
+    ) && usage_command::is_usage_command(&parsed)
+    {
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+        )
+        .unwrap_or_default();
+        let text = if !policy.has_scope(usage_command::USAGE_COMMAND_SCOPE) {
+            usage_command::USAGE_COMMAND_DISABLED_MESSAGE.to_owned()
+        } else {
+            match (&state.control_plane, policy.identity()) {
+                (Some(control), Some(identity)) => {
+                    let accounts = match control.tenant_quota_accounts(&identity.tenant_id).await {
+                        Ok(accounts) => accounts,
+                        Err(_) => {
+                            return error(
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                "Provider quota unavailable",
+                            )
+                        }
+                    };
+                    let allowed = policy.allowed_provider_ids();
+                    let accounts: Vec<_> = accounts
+                        .into_iter()
+                        .filter(|(id, _, _)| allowed.is_empty() || allowed.contains(id))
+                        .collect();
+                    usage_command::usage_text(
+                        &accounts,
+                        control.quota_threshold_percent().await,
+                        now,
+                    )
+                }
+                _ => usage_command::usage_text(&[], 2.0, now),
+            }
+        };
+        return usage_command::local_text_response(
+            protocol == ProviderProtocol::Anthropic,
+            &parsed,
+            &text,
+            now,
+        );
+    }
     // Legacy chat handler: a Responses continuation needs the stored
     // conversation, which only the legacy call-log artifacts keep.
     let previous_response_id_mode = match &state.control_plane {

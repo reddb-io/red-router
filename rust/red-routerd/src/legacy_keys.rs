@@ -212,7 +212,7 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 },
             }
             .encode();
-            for field in ["allow_usage_command", "usage_limit_enabled", "chaos_mode_enabled"] {
+            for field in ["usage_limit_enabled", "chaos_mode_enabled"] {
                 if number(field)?.unwrap_or(0) != 0 { return Err("legacy key policy is unsupported; no keys imported"); }
             }
             // Legacy request limits (fixed 60-second and one-day windows, used
@@ -253,7 +253,10 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
             if !empty_list(get("allowed_quotas")?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
             // The self-service and management scopes import; any other
             // legacy scope has no native client-key equivalent yet.
-            let scopes = import_self_service_scopes(get("scopes")?.as_deref())?;
+            let scopes = import_self_service_scopes(
+                get("scopes")?.as_deref(),
+                number("allow_usage_command")?.unwrap_or(0) != 0,
+            )?;
             // stream_default_mode=json only changes the legacy stream default for
             // source formats other than Chat Completions, Messages and Responses,
             // where an omitted `stream` is already non-streaming unless SSE is
@@ -500,7 +503,10 @@ fn import_rate_rules(value: Option<&str>) -> Result<Option<(i64, i64)>, &'static
 /// The legacy key scopes as native scopes JSON: the self-service scopes
 /// (`self:usage`, `self:account-quota`) and the management scopes
 /// (`manage`, `admin`) have native equivalents.
-fn import_self_service_scopes(value: Option<&str>) -> Result<String, &'static str> {
+fn import_self_service_scopes(
+    value: Option<&str>,
+    usage_command: bool,
+) -> Result<String, &'static str> {
     let scopes: Vec<String> = match value {
         None | Some("") => Vec::new(),
         Some(raw) => serde_json::from_str(raw).map_err(|_| "invalid legacy key policy")?,
@@ -517,6 +523,10 @@ fn import_self_service_scopes(value: Option<&str>) -> Result<String, &'static st
         return Err("legacy key policy is unsupported; no keys imported");
     }
     let mut unique = scopes;
+    // Legacy allow_usage_command opts the key into the in-chat usage command.
+    if usage_command {
+        unique.push(crate::usage_command::USAGE_COMMAND_SCOPE.to_owned());
+    }
     unique.sort();
     unique.dedup();
     serde_json::to_string(&unique).map_err(|_| "invalid legacy key policy")

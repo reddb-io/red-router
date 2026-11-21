@@ -164,3 +164,91 @@ async fn manage_scope_keys_reach_the_management_api() {
 
     gateway_task.abort();
 }
+
+// Ported from the legacy internalUsageCommand: `@@om-usage` is answered
+// locally, for a key holding `usage:command`, in the client's format.
+#[tokio::test]
+async fn the_usage_command_is_answered_locally() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("usage-command.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (id, key, scopes) in [
+        (
+            "usage-key",
+            "usage-command-client-key-0123456789",
+            serde_json::json!(["usage:command"]),
+        ),
+        (
+            "plain-key",
+            "plain-command-client-key-0123456789",
+            serde_json::json!([]),
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/client-keys/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(
+                    &serde_json::json!({"label":id, "api_key":key, "enabled":true, "scopes":scopes})
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK,
+            "{id}"
+        );
+    }
+    let ask = |key: &'static str| {
+        client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth(key)
+            .json(&serde_json::json!({"model":"any-model","messages":[{"role":"user","content":" @@om-usage "}]}))
+            .send()
+    };
+    let answer: serde_json::Value = ask("usage-command-client-key-0123456789")
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(answer["object"], "chat.completion");
+    assert_eq!(answer["model"], "any-model");
+    assert_eq!(
+        answer["choices"][0]["message"]["content"],
+        "Provider quota\nNo cached usage data available."
+    );
+    let disabled: serde_json::Value = ask("plain-command-client-key-0123456789")
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        disabled["choices"][0]["message"]["content"],
+        "Usage command is disabled for this API key."
+    );
+    let streamed = client
+        .post(format!("{base}/v1/messages"))
+        .bearer_auth("usage-command-client-key-0123456789")
+        .json(&serde_json::json!({"model":"claude-any","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"@@om-usage"}]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(streamed.status(), StatusCode::OK);
+    let text = streamed.text().await.unwrap();
+    assert!(text.starts_with("event: message_start\n"), "{text}");
+    assert!(text.contains("No cached usage data available."), "{text}");
+    assert!(
+        text.ends_with("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"),
+        "{text}"
+    );
+
+    gateway_task.abort();
+}

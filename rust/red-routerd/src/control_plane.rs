@@ -11616,6 +11616,17 @@ impl ControlPlane {
         Ok(statuses)
     }
 
+    /// The quota preflight cutoff in percent, applied by the usage command
+    /// whether or not preflight admission is enabled (legacy
+    /// `quotaPreflight.defaultThresholdPercent`).
+    pub(crate) async fn quota_threshold_percent(&self) -> f64 {
+        self.0
+            .runtime_settings
+            .read()
+            .await
+            .quota_preflight_threshold_percent
+    }
+
     pub(crate) async fn quota_preflight_threshold_ppm(&self) -> Option<i64> {
         let settings = self.0.runtime_settings.read().await;
         settings
@@ -13736,6 +13747,7 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
                     | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
                     | crate::self_service::MANAGE_SCOPE
                     | crate::self_service::ADMIN_SCOPE
+                    | crate::usage_command::USAGE_COMMAND_SCOPE
             )
         })
     {
