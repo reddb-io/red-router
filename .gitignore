@@ -308,3 +308,9 @@ docker-compose.yml.bak
 /release-artifacts/
 .red/tmp/
 .red/state/
+
+# Differential oracle tooling (scripts/legacy-oracle): installed deps and generated scratch files
+scripts/legacy-oracle/legacy-deps/
+scripts/legacy-oracle/.cache/
+scripts/legacy-oracle/*-slice.ts
+scripts/legacy-oracle/replayable-stub.ts

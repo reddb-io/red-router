@@ -39,6 +39,12 @@ remain an optional private Rust engine behind the RedRouter gateway, but it neve
 client authentication or durable product state. Do not add new durable writes or proxy
 features exclusively to the TypeScript server.
 
+Taking over the TypeScript to Rust migration: start from
+`docs/architecture/RUSTIFY_HANDOFF.md` (state, open work, decisions, how to verify and
+which runners CI uses), then the ledger `docs/architecture/RUSTIFY_MIGRATION_QUEUE.md`.
+Port a legacy module against `scripts/legacy-oracle` so the Rust side is pinned to what the
+TypeScript actually returns.
+
 The existing TypeScript product and the Rust server use local/offline SQLite by
 default for now. The Rust server also supports explicitly selected embedded RedDB,
 remote RedDB and PostgreSQL backends. Losing database connectivity
