@@ -1257,6 +1257,49 @@ impl ComboTarget {
     fn is_combo_reference(&self) -> bool {
         self.kind.as_deref() == Some("combo-ref")
     }
+
+    /// A legacy combo target: `provider_id` names a provider type whose
+    /// enabled accounts all serve the target, in account priority order.
+    fn is_provider_pool(&self) -> bool {
+        self.kind.as_deref() == Some(PROVIDER_POOL_TARGET)
+    }
+}
+
+/// The target kind of a provider pool (`provider/model` in a legacy combo).
+pub(crate) const PROVIDER_POOL_TARGET: &str = "provider-pool";
+
+/// Expands provider-pool targets in place into one concrete target per
+/// enabled account of that provider type in the combo's tenant, in account
+/// priority order: the legacy combo tries every account of a
+/// `provider/model` before the next model.
+fn expand_provider_pools(
+    targets: Vec<ComboTarget>,
+    tenant_id: &str,
+    providers: &[StoredProvider],
+) -> Vec<ComboTarget> {
+    let mut expanded = Vec::with_capacity(targets.len());
+    for target in targets {
+        if !target.is_provider_pool() {
+            expanded.push(target);
+            continue;
+        }
+        let mut accounts: Vec<&StoredProvider> = providers
+            .iter()
+            .filter(|provider| {
+                provider.enabled
+                    && provider.tenant_id == tenant_id
+                    && provider.provider == target.provider_id
+            })
+            .collect();
+        accounts.sort_by(|a, b| model_aliases::compare_accounts(a, b));
+        for account in accounts {
+            let mut concrete = target.clone();
+            concrete.kind = None;
+            concrete.provider_id = account.id.clone();
+            expanded.push(concrete);
+        }
+    }
+    expanded
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -7860,9 +7903,27 @@ impl ControlPlane {
         )?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
+            let accepts = |provider: &StoredProvider| {
+                ProviderProtocol::from_configuration(&provider.upstream_url, &provider.protocol)
+                    .ok()
+                    .is_some_and(|provider| protocol.accepts_provider(provider))
+            };
             if !input.targets.iter().all(|target| {
                 if target.is_combo_reference() {
                     return true;
+                }
+                if target.is_provider_pool() {
+                    // A pool needs at least one enabled account, and every
+                    // account it can expand into must speak the protocol.
+                    let mut accounts = providers
+                        .iter()
+                        .filter(|provider| {
+                            provider.provider == target.provider_id
+                                && provider.tenant_id == tenant_id
+                                && provider.enabled
+                        })
+                        .peekable();
+                    return accounts.peek().is_some() && accounts.all(accepts);
                 }
                 providers
                     .iter()
@@ -7871,14 +7932,7 @@ impl ControlPlane {
                             && provider.tenant_id == tenant_id
                             && provider.enabled
                     })
-                    .and_then(|provider| {
-                        ProviderProtocol::from_configuration(
-                            &provider.upstream_url,
-                            &provider.protocol,
-                        )
-                        .ok()
-                    })
-                    .is_some_and(|provider| protocol.accepts_provider(provider))
+                    .is_some_and(accepts)
             }) {
                 return Err("combo targets require enabled providers with the same protocol");
             }
@@ -10175,6 +10229,8 @@ impl ControlPlane {
                     &records,
                 )?
             };
+            let concrete_targets =
+                expand_provider_pools(concrete_targets, &record.tenant_id, &providers);
             let auto_weights =
                 view.auto
                     .as_ref()
@@ -13806,8 +13862,16 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             }
             continue;
         }
-        if target.kind.is_some() || target.combo_id.is_some() {
+        if (target.kind.is_some() && !target.is_provider_pool()) || target.combo_id.is_some() {
             return Err("invalid nested combo reference");
+        }
+        if target.is_provider_pool() {
+            // Account order inside a pool is the account priority, which only
+            // keeps the legacy meaning under a priority combo.
+            if input.strategy != "priority" || target.weight.is_some() {
+                return Err("provider-pool targets require a priority combo");
+            }
+            validate_provider(&target.provider_id)?;
         }
         validate_id(&target.provider_id)?;
         if target.model.is_empty()

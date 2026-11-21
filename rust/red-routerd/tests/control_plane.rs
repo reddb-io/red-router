@@ -12099,3 +12099,4 @@ include!("cases/credential_masker.rs");
 include!("cases/claude_classifier_compat.rs");
 include!("cases/public_upstream_failure.rs");
 include!("cases/model_spec_guards.rs");
+include!("cases/provider_pool_target.rs");
