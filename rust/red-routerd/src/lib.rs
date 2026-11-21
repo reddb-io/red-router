@@ -80,6 +80,7 @@ mod request_cap;
 mod request_queue;
 mod request_resource_errors;
 mod resilience;
+pub mod responses_helpers;
 mod responses_state;
 pub mod retained_size;
 mod role_normalizer;
