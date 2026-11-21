@@ -275,6 +275,48 @@ async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
     db.close().await.unwrap();
 }
 
+/// OpenCode Go serves chat completions at its own base, so an API-key account
+/// of it adopts onto that endpoint; the models that need Messages or Responses
+/// are refused later, per model.
+#[tokio::test]
+async fn imports_an_opencode_go_account_on_its_chat_completions_endpoint() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id) VALUES ('go-1','opencode-go','apikey','My OpenCode Go',1,?,'red')")
+        .bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let report = legacy_providers::import(&source, &dest, "go-1", STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.imported, 1);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(
+        providers[0].upstream_url,
+        "https://opencode.ai/zen/go/v1/chat/completions"
+    );
+    db.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn stages_encrypted_provider_credential_without_activating_or_exposing_it() {
     let dir = TempDir::new().unwrap();

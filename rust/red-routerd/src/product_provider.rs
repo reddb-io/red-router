@@ -18,6 +18,9 @@ pub fn chat_url(provider: &str) -> Option<&'static str> {
         "moonshot" | "kimi" => Some("https://api.moonshot.ai/v1/chat/completions"),
         "siliconflow" => Some("https://api.siliconflow.com/v1/chat/completions"),
         "novita" => Some("https://api.novita.ai/openai/v1/chat/completions"),
+        // OpenCode Go serves chat completions at its own base; the models that
+        // need Anthropic Messages or Responses are refused in `supports_model`.
+        "opencode-go" => Some("https://opencode.ai/zen/go/v1/chat/completions"),
         _ => None,
     }
 }
@@ -66,14 +69,42 @@ pub fn supports_model(provider: &str, model: &str) -> bool {
     if chat_url(provider).is_none() || model.is_empty() || model.trim() != model {
         return false;
     }
-    provider != "fireworks"
-        || ["accounts/fireworks/models/", "accounts/fireworks/routers/"]
+    match provider {
+        "fireworks" => ["accounts/fireworks/models/", "accounts/fireworks/routers/"]
             .iter()
             .any(|prefix| {
                 model
                     .strip_prefix(prefix)
                     .is_some_and(|suffix| !suffix.is_empty())
-            })
+            }),
+        // Only the chat completions models: the Messages and Responses ones
+        // need transports the daemon does not have yet (see `opencode_go`).
+        "opencode-go" => {
+            crate::opencode_go::target_format(model)
+                == crate::opencode_go::TargetFormat::ChatCompletions
+        }
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod opencode_go_tests {
+    use super::*;
+
+    #[test]
+    fn opencode_go_supports_only_its_chat_completions_models() {
+        assert_eq!(
+            chat_url("opencode-go"),
+            Some("https://opencode.ai/zen/go/v1/chat/completions")
+        );
+        // A Messages model and a Responses model are refused; an unlisted id
+        // falls back to chat completions like the legacy executor.
+        assert!(!supports_model("opencode-go", "minimax-m3"));
+        assert!(!supports_model("opencode-go", "muse-spark-1.2-contributor"));
+        assert!(supports_model("opencode-go", "model-not-in-the-registry"));
+        assert!(!supports_model("opencode-go", " padded"));
+        assert!(!supports_model("opencode-go", ""));
+    }
 }
 
 #[cfg(test)]
