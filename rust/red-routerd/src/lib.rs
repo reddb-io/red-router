@@ -24,6 +24,7 @@ pub mod credential_masker;
 pub mod credential_patterns;
 mod daily_quota_reset;
 pub mod data_paths;
+pub mod error_config;
 pub mod error_path_redaction;
 pub mod error_sanitization;
 pub mod fastllm_control;
