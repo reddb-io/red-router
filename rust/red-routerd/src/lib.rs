@@ -74,6 +74,8 @@ mod provider_quota;
 pub mod proxy_echo_target;
 pub mod proxy_family;
 pub mod public_error;
+pub mod quota_reset_parsing;
+pub mod quota_text_cooldowns;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
