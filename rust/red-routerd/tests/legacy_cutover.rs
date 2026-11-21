@@ -242,3 +242,62 @@ async fn orchestrated_migration_restores_destination_when_a_later_slice_fails() 
     assert_eq!(sentinel, "unchanged");
     assert_eq!(imported, 0);
 }
+
+/// The database a fresh legacy install creates (`fixtures/legacy_reference`,
+/// generated from the legacy bootstrap and migrations) goes through the whole
+/// offline cutover with no refusal, and the legacy file is left untouched.
+#[tokio::test]
+async fn a_fresh_legacy_install_cuts_over_without_refusals() {
+    let directory = tempdir().unwrap();
+    let source = directory.path().join("legacy.sqlite");
+    let destination = directory.path().join("rust.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "fixtures/legacy_reference/legacy_reference.sql"
+    ))
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    // Every store carries the seeded detailed-logging flag (legacy migration 014).
+    let seeded: String = sqlx::query_scalar(
+        "SELECT value FROM key_value WHERE namespace='settings' AND key='call_log_pipeline_enabled'",
+    )
+    .fetch_one(&mut legacy)
+    .await
+    .unwrap();
+    assert_eq!(seeded, "0");
+    let api_key_columns: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('api_keys')")
+            .fetch_one(&mut legacy)
+            .await
+            .unwrap();
+    assert_eq!(api_key_columns, 42);
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let rollback = directory.path().join("rollback.sqlite");
+
+    let report = legacy_cutover::migrate(&source, &destination, &rollback, STORAGE_KEY)
+        .await
+        .unwrap();
+
+    assert!(report.activation_required);
+    assert!(!report.settings.runtime_settings_imported);
+    assert_eq!(report.keys.imported, 0);
+    assert_eq!(report.providers.staged, 0);
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    assert!(rollback.exists());
+}

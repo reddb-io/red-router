@@ -1091,6 +1091,22 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 None => SettingClass::AtDefault,
             };
         }
+        // Seeded by legacy migration 014 on every store. Legacy chatCore and
+        // isDetailedLoggingEnabled treat only JSON true or the strings "1" and
+        // "true" as on; the seeded 0 is a number and stays off.
+        "call_log_pipeline_enabled" => {
+            let enabled = matches!(parse_value(raw), Value::Bool(true))
+                || matches!(parse_value(raw), Value::String(value) if value == "1" || value == "true");
+            return if enabled {
+                SettingClass::Refused {
+                    reason: "the native daemon has no detailed request payload logs",
+                }
+            } else {
+                SettingClass::Equivalent {
+                    reason: "detailed request payload capture is off, as in the native daemon",
+                }
+            };
+        }
         // Legacy authz: a manage-scope key (or dashboard session) may reach
         // LOCAL_ONLY routes under these prefixes from a non-loopback client.
         // The native management API has no loopback-only routes, so there is
@@ -2111,6 +2127,28 @@ mod tests {
             classify("modelLockout", r#"{"enabled":true}"#),
             SettingClass::Imported
         );
+    }
+
+    #[test]
+    fn the_seeded_detailed_logging_flag_imports_only_while_off() {
+        for raw in ["0", "false", "1", "\"0\"", "null"] {
+            assert!(
+                matches!(
+                    classify("call_log_pipeline_enabled", raw),
+                    SettingClass::Equivalent { .. }
+                ),
+                "{raw}"
+            );
+        }
+        for raw in ["true", "\"1\"", "\"true\""] {
+            assert!(
+                matches!(
+                    classify("call_log_pipeline_enabled", raw),
+                    SettingClass::Refused { .. }
+                ),
+                "{raw}"
+            );
+        }
     }
 
     #[test]
