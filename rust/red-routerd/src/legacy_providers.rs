@@ -873,8 +873,19 @@ pub async fn import(
         }
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.as_deref().is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
-        let model_rules = crate::control_plane::provider_rules::parse_legacy(text("provider_specific_data")?.as_deref())?;
-        let auto_sync = crate::control_plane::provider_rules::legacy_auto_sync(text("provider_specific_data")?.as_deref())?;
+        // Cloudflare Workers AI keeps its account ID in the specific data;
+        // it builds the transport URL and is not a routing rule.
+        let mut specific_data = text("provider_specific_data")?;
+        let mut cloudflare_url = None;
+        if provider == "cloudflare-ai" {
+            let mut value: serde_json::Value = serde_json::from_str(specific_data.as_deref().unwrap_or("{}")).map_err(|_| "invalid legacy provider configuration")?;
+            let account = value.as_object_mut().and_then(|object| object.remove("accountId"));
+            let account = account.as_ref().and_then(serde_json::Value::as_str).ok_or("legacy Cloudflare account ID is missing")?;
+            cloudflare_url = Some(crate::product_provider::cloudflare_chat_url(account).ok_or("invalid legacy Cloudflare account ID")?);
+            specific_data = Some(value.to_string());
+        }
+        let model_rules = crate::control_plane::provider_rules::parse_legacy(specific_data.as_deref())?;
+        let auto_sync = crate::control_plane::provider_rules::legacy_auto_sync(specific_data.as_deref())?;
         if text("quota_window_thresholds_json")?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
         let rate_limit_overrides = match row.try_get::<Option<String>, _>("rate_limit_overrides_json") {
             Ok(value) => value,
@@ -927,7 +938,7 @@ pub async fn import(
         let tenant = text("tenant_id")?.ok_or("legacy provider tenant is missing")?;
         let tenant_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_tenants WHERE id=? AND enabled=1").bind(&tenant).fetch_one(&mut *target).await.map_err(|_| "destination tenant schema unavailable")?;
         if tenant_exists != 1 { return Err("legacy provider tenant is unavailable"); }
-        let node = if crate::product_provider::chat_url(&provider).is_some() {
+        let node = if crate::product_provider::chat_url(&provider).is_some() || cloudflare_url.is_some() {
             None
         } else {
             Some(compatible_node(&mut target, &provider, &tenant).await?)
@@ -941,9 +952,12 @@ pub async fn import(
             ),
             None => (
                 provider.clone(),
-                crate::product_provider::chat_url(&provider)
-                    .ok_or("legacy provider transport is unsupported")?
-                    .to_owned(),
+                match cloudflare_url {
+                    Some(url) => url,
+                    None => crate::product_provider::chat_url(&provider)
+                        .ok_or("legacy provider transport is unsupported")?
+                        .to_owned(),
+                },
                 None,
                 None,
             ),

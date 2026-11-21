@@ -3040,6 +3040,9 @@ fn apply_openai_target_rules(
         // The filter maps `developer` to `system`; strict providers still
         // need a single leading one.
         strict_system_hoist::hoist_leading_system_message(payload, provider);
+        if provider == "cloudflare-ai" {
+            product_provider::flatten_text_only_content(payload);
+        }
     }
 }
 
