@@ -526,12 +526,31 @@ async fn adopt_oauth(
             (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, parsed.email, crate::control_plane::CODEX_PROVIDER_URL)
         } else if provider == "claude" {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Claude identity token requires migration"); }
-            let allowed = ["accountUUID", "organizationUUID", "organizationName", "organizationType", "rateLimitTier", "scopes", "subscriptionType", "bootstrapEmail", "importedAt", "cliUserID", "userID"];
+            // organizationRateLimitTier is the organization metadata of the CLI bootstrap, kept beside
+            // organizationName and organizationType; expiredRetry is the token health check's own
+            // bookkeeping ({count, at}). Both stay in the retained legacy record below.
+            let allowed = ["accountUUID", "organizationUUID", "organizationName", "organizationType", "organizationRateLimitTier", "rateLimitTier", "scopes", "subscriptionType", "bootstrapEmail", "importedAt", "cliUserID", "userID", "expiredRetry"];
             if specific.keys().any(|key| !allowed.contains(&key.as_str())) { return Err("legacy Claude configuration requires migration"); }
+            match specific.get("expiredRetry") {
+                None | Some(serde_json::Value::Null) => {},
+                Some(serde_json::Value::Object(retry)) if retry.keys().all(|key| matches!(key.as_str(), "count" | "at")) && retry.get("count").is_none_or(serde_json::Value::is_number) => {},
+                Some(_) => return Err("invalid legacy Claude retry bookkeeping"),
+            }
             let account = specific.get("accountUUID").and_then(serde_json::Value::as_str).filter(|value| valid_uuid(value)).ok_or("legacy Claude account identity is missing")?;
-            let device = specific.get("cliUserID").or_else(|| specific.get("userID")).and_then(serde_json::Value::as_str)
-                .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-                .ok_or("legacy Claude device identity is missing")?;
+            // The legacy executor draws a random device id per process when the record has none, so an
+            // absent one is generated here once and kept; a present one must be 64 hex characters.
+            let device_field = |name: &str| specific.get(name).filter(|value| !value.is_null());
+            let device = match device_field("cliUserID").or_else(|| device_field("userID")) {
+                Some(value) => value.as_str()
+                    .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                    .map(str::to_owned)
+                    .ok_or("invalid legacy Claude device identity")?,
+                None => {
+                    let mut random = [0_u8; 32];
+                    getrandom::fill(&mut random).map_err(|_| "cannot generate a Claude device identity")?;
+                    random.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+                }
+            };
             let expiry = text("token_expires_at")?.filter(|value| !value.is_empty()).or(text("expires_at")?.filter(|value| !value.is_empty())).ok_or("legacy OAuth expiry is missing")?;
             let scopes = match specific.get("scopes") {
                 None | Some(serde_json::Value::Null) => text("scope")?.map(|scope| scope.split_whitespace().map(str::to_owned).collect::<Vec<_>>()).unwrap_or_default(),

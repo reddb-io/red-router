@@ -275,6 +275,91 @@ async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
     db.close().await.unwrap();
 }
 
+/// A Claude account as the real legacy store holds one: organization rate limit
+/// tier metadata, the token health check's retry bookkeeping and no device id.
+/// It adopts, with a generated device id; a present but malformed one refuses.
+#[tokio::test]
+async fn adopts_a_claude_account_with_bootstrap_metadata_and_no_device_id() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,project_id TEXT,token_type TEXT,scope TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
+        .execute(&mut input).await.unwrap();
+    for (id, device) in [
+        ("claude-real", None),
+        ("claude-bad-device", Some("not-hex")),
+    ] {
+        let mut psd = serde_json::json!({
+            "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
+            "organizationUUID":"123e4567-e89b-42d3-a456-426614174001",
+            "organizationName":"Legacy team",
+            "organizationType":"team",
+            "organizationRateLimitTier":"default_claude_max_5x",
+            "expiredRetry":{"count":3,"at":1700000000000i64},
+            "autoFetchModels":true,
+            "autoSync":false
+        });
+        if let Some(device) = device {
+            psd["cliUserID"] = serde_json::json!(device);
+        }
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at,test_status) VALUES (?,'claude','oauth',0,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z','expired')")
+            .bind(id)
+            .bind(psd.to_string())
+            .execute(&mut input)
+            .await
+            .unwrap();
+    }
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::adopt_claude(&dest, "claude-bad-device", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy Claude device identity")
+    );
+    let result = legacy_providers::adopt_claude(&dest, "claude-real", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(result.imported, 1);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.provider_id == "claude-real")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "claude-real:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        metadata["legacyClaude"]["organizationRateLimitTier"],
+        "default_claude_max_5x"
+    );
+    assert_eq!(metadata["legacyClaude"]["expiredRetry"]["count"], 3);
+    db.close().await.unwrap();
+}
+
 /// OpenCode Go serves chat completions at its own base, so an API-key account
 /// of it adopts onto that endpoint; the models that need Messages or Responses
 /// are refused later, per model.
