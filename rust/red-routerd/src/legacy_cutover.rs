@@ -222,6 +222,7 @@ pub async fn migrate(
             "import compatible-provider accounts by id to bind their reusable definitions",
             "migrate and verify legacy aliases and remaining model compatibility settings",
             "adopt and verify staged per-connection synced model inventories after provider migration",
+            "adopt the archived legacy combos once their providers are adopted",
             "adopt quota state with explicit reservation bounds",
             "verify providers, policies, counters and historical usage",
             "enable migrated providers and client keys only after verification",

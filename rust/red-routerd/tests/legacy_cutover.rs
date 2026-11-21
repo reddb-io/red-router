@@ -302,11 +302,11 @@ async fn a_fresh_legacy_install_cuts_over_without_refusals() {
     assert!(rollback.exists());
 }
 
-/// Rows in a legacy table no stage imports stop the cutover instead of being
-/// left behind: a fresh legacy install plus one combo is refused, and the
-/// destination is not touched.
+/// Legacy combos are staged losslessly in the archive for adoption once
+/// their providers are adopted: a fresh legacy install plus one combo cuts
+/// over, and the combo row is kept exactly.
 #[tokio::test]
-async fn legacy_combos_are_refused_until_they_have_an_importer() {
+async fn legacy_combos_are_archived_for_adoption() {
     let directory = tempdir().unwrap();
     let source = directory.path().join("legacy.sqlite");
     let destination = directory.path().join("rust.sqlite");
@@ -323,7 +323,9 @@ async fn legacy_combos_are_refused_until_they_have_an_importer() {
     .execute(&mut legacy)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO combos (id, name, data, sort_order, created_at, updated_at, context_cache_protection) VALUES ('combo-1', 'my-combo', '{\"id\":\"combo-1\",\"name\":\"my-combo\",\"models\":[{\"provider\":\"openai\",\"model\":\"gpt-5.6\"}],\"strategy\":\"priority\",\"config\":{}}', 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 0)")
+    let data = r#"{"id":"combo-1","name":"my-combo","models":[{"provider":"openai","model":"gpt-5.6"}],"strategy":"priority","config":{}}"#;
+    sqlx::query("INSERT INTO combos (id, name, data, sort_order, created_at, updated_at, context_cache_protection) VALUES ('combo-1', 'my-combo', ?, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 0)")
+        .bind(data)
         .execute(&mut legacy)
         .await
         .unwrap();
@@ -336,23 +338,33 @@ async fn legacy_combos_are_refused_until_they_have_an_importer() {
         .close()
         .await
         .unwrap();
-    let before = tokio::fs::read(&destination).await.unwrap();
 
-    let error = legacy_cutover::migrate(
+    let report = legacy_cutover::migrate(
         &source,
         &destination,
         &directory.path().join("rollback.sqlite"),
         STORAGE_KEY,
     )
     .await
-    .err()
     .unwrap();
 
-    assert!(
-        error.contains("legacy combos (combos) have no native importer yet"),
-        "{error}"
-    );
-    assert_eq!(before, tokio::fs::read(&destination).await.unwrap());
+    assert!(report
+        .usage_archive
+        .tables
+        .iter()
+        .any(|table| table.source == "combos" && table.rows == Some(1)));
+    assert!(report.follow_up.iter().any(|item| item.contains("combos")));
+    let mut saved =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let archived: String =
+        sqlx::query_scalar("SELECT data FROM redrouter_legacy_combos WHERE id = 'combo-1'")
+            .fetch_one(&mut saved)
+            .await
+            .unwrap();
+    assert_eq!(archived, data);
+    saved.close().await.unwrap();
 }
 
 /// The table inventory over a fresh legacy install: its seeded rows pass; a

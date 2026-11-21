@@ -34,6 +34,8 @@ use TableClass::{Archived, Dropped, Handled, Refused, Seeded};
 
 /// Legacy logs and history copied by `legacy_archive`.
 pub const ARCHIVED: &[&str] = &[
+    // Staged for adoption once their providers are adopted.
+    "combos",
     "call_logs",
     "proxy_logs",
     "request_detail_logs",
@@ -125,7 +127,6 @@ const INVENTORY: &[(&str, TableClass)] = &[
     ("memory_fts", Dropped("full-text index over memories")),
     ("memory_vec_meta", Dropped("vector index bookkeeping")),
     // Configuration and features without a native importer yet.
-    ("combos", Refused("combos")),
     ("redrouter_usage_sinks", Refused("usage sinks")),
     ("files", Refused("uploaded files")),
     ("domain_fallback_chains", Refused("per-model fallback chains")),
