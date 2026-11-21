@@ -4,9 +4,23 @@
 
 use crate::responses_stream_pure::{
     normalize_tool_name, strip_empty_optional_tool_args_str, strip_empty_optional_tool_args_value,
+    UpstreamFailure,
 };
 use serde_json::{json, Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+/// A function call that was opened but not yet closed (legacy
+/// `toolCallByCallId` entry).
+#[derive(Debug, Clone, Default)]
+pub struct ToolCallEntry {
+    /// The chat tool call index, claimed when the call gets a name.
+    pub index: Option<u64>,
+    pub name: String,
+    pub args_buffer: String,
+    /// The name was empty at `output_item.added`; emission waits for `.done`.
+    pub deferred: bool,
+    pub needs_normalization: bool,
+}
 
 /// The state the Responses to Chat stream translator keeps between events.
 /// Only the fields the synthesis path reads and writes live here so far; the
@@ -30,6 +44,23 @@ pub struct ResponsesStreamState {
     pub role_emitted: bool,
     /// The request's tool schemas by tool name.
     pub tool_schemas: HashMap<String, Value>,
+    /// The first event arrived.
+    pub started: bool,
+    /// Calls in flight, in the order they were opened.
+    pub tool_call_by_call_id: Vec<(String, ToolCallEntry)>,
+    pub tool_call_item_to_call_id: HashMap<String, String>,
+    /// Keyed by the JSON text of the event's `output_index`.
+    pub tool_call_output_index_to_call_id: HashMap<String, String>,
+    pub reasoning_delta_emitted: bool,
+    pub reasoning_items_with_delta: HashSet<String>,
+    /// The last summary index per reasoning item; `None` is the legacy `null`.
+    pub reasoning_summary_index: HashMap<String, Option<f64>>,
+    pub accumulated_reasoning: String,
+    pub upstream_error: Option<UpstreamFailure>,
+    /// The completed calls by index, shared with the Claude translation; only
+    /// kept when the caller provides the map.
+    pub tool_calls: Option<BTreeMap<u64, Value>>,
+    pub copilot_compatible_reasoning: bool,
 }
 
 /// Legacy `fallbackToolCallId(index)`: an id for a call the provider left
@@ -80,7 +111,7 @@ pub fn with_assistant_role_on_first_delta(state: &mut ResponsesStreamState, chun
     }
 }
 
-fn base_chunk(state: &ResponsesStreamState) -> Map<String, Value> {
+pub(crate) fn base_chunk(state: &ResponsesStreamState) -> Map<String, Value> {
     let mut chunk = Map::new();
     chunk.insert("id".to_owned(), json!(state.chat_id));
     chunk.insert("object".to_owned(), json!("chat.completion.chunk"));
@@ -94,7 +125,7 @@ fn base_chunk(state: &ResponsesStreamState) -> Map<String, Value> {
     chunk
 }
 
-fn chunk_with(state: &ResponsesStreamState, choice: Value) -> Value {
+pub(crate) fn chunk_with(state: &ResponsesStreamState, choice: Value) -> Value {
     let mut chunk = base_chunk(state);
     chunk.insert("choices".to_owned(), json!([choice]));
     Value::Object(chunk)
