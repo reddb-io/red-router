@@ -106,3 +106,61 @@ async fn keys_with_self_usage_read_their_own_status() {
     gateway_task.abort();
     upstream_task.abort();
 }
+
+// Legacy manage-scope API keys reach the management API; a key without the
+// scope does not.
+#[tokio::test]
+async fn manage_scope_keys_reach_the_management_api() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("manage-scope.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (id, key, scopes) in [
+        (
+            "manage-key",
+            "manage-scope-client-key-0123456789",
+            serde_json::json!(["manage", "self:usage"]),
+        ),
+        (
+            "plain-key",
+            "plain-scope-client-key-0123456789",
+            serde_json::json!([]),
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/client-keys/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(
+                    &serde_json::json!({"label":id, "api_key":key, "enabled":true, "scopes":scopes})
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK,
+            "{id}"
+        );
+    }
+    let managed = client
+        .get(format!("{base}/api/admin/combos"))
+        .bearer_auth("manage-scope-client-key-0123456789")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(managed.status(), StatusCode::OK);
+    let refused = client
+        .get(format!("{base}/api/admin/combos"))
+        .bearer_auth("plain-scope-client-key-0123456789")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+
+    gateway_task.abort();
+}

@@ -251,8 +251,8 @@ pub async fn import(source: &Path, destination: &Path) -> Result<KeyImport, &'st
                 }
             }
             if !empty_list(get("allowed_quotas")?.as_deref())? { return Err("legacy key policy is unsupported; no keys imported"); }
-            // The self-service scopes import; any other legacy scope (manage,
-            // admin) has no native client-key equivalent yet.
+            // The self-service and management scopes import; any other
+            // legacy scope has no native client-key equivalent yet.
             let scopes = import_self_service_scopes(get("scopes")?.as_deref())?;
             // stream_default_mode=json only changes the legacy stream default for
             // source formats other than Chat Completions, Messages and Responses,
@@ -497,8 +497,9 @@ fn import_rate_rules(value: Option<&str>) -> Result<Option<(i64, i64)>, &'static
     Ok(Some((rpm, rpd)))
 }
 
-/// The legacy key scopes as native scopes JSON: only the self-service
-/// scopes (`self:usage`, `self:account-quota`) have a native equivalent.
+/// The legacy key scopes as native scopes JSON: the self-service scopes
+/// (`self:usage`, `self:account-quota`) and the management scopes
+/// (`manage`, `admin`) have native equivalents.
 fn import_self_service_scopes(value: Option<&str>) -> Result<String, &'static str> {
     let scopes: Vec<String> = match value {
         None | Some("") => Vec::new(),
@@ -507,7 +508,10 @@ fn import_self_service_scopes(value: Option<&str>) -> Result<String, &'static st
     if scopes.iter().any(|scope| {
         !matches!(
             scope.as_str(),
-            crate::self_service::SELF_USAGE_SCOPE | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
+            crate::self_service::SELF_USAGE_SCOPE
+                | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
+                | crate::self_service::MANAGE_SCOPE
+                | crate::self_service::ADMIN_SCOPE
         )
     }) {
         return Err("legacy key policy is unsupported; no keys imported");

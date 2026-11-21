@@ -12113,6 +12113,9 @@ impl ControlPlane {
     }
 
     async fn management_scope(&self, headers: &HeaderMap) -> Option<ManagementScope> {
+        if let Some(scope) = self.management_key_scope(headers).await {
+            return Some(scope);
+        }
         let actor = self.authorized_actor(headers).await?;
         if actor.matches("bootstrap-admin") {
             return Some(ManagementScope {
@@ -12144,6 +12147,26 @@ impl ControlPlane {
         } else {
             None
         }
+    }
+
+    /// Legacy manage-scope API keys (`manage` or `admin`): an active client
+    /// key holding one manages the instance when it belongs to the default
+    /// tenant, and only its own tenant otherwise (the legacy store is single
+    /// tenant in practice; a broader grant would escalate a tenant key).
+    async fn management_key_scope(&self, headers: &HeaderMap) -> Option<ManagementScope> {
+        let policies = self.client_policies().await.ok()??;
+        let policy = policies.authenticate(headers, ProviderProtocol::OpenAi)?;
+        if !(policy.has_scope(crate::self_service::MANAGE_SCOPE)
+            || policy.has_scope(crate::self_service::ADMIN_SCOPE))
+        {
+            return None;
+        }
+        let identity = policy.identity()?;
+        Some(ManagementScope {
+            actor: format!("client-key:{}", identity.id),
+            tenant_id: (identity.tenant_id.as_ref() != "red")
+                .then(|| identity.tenant_id.to_string()),
+        })
     }
 
     async fn authorized_tenant_issuer(
@@ -13711,6 +13734,8 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
                     | "inference:rerank"
                     | crate::self_service::SELF_USAGE_SCOPE
                     | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
+                    | crate::self_service::MANAGE_SCOPE
+                    | crate::self_service::ADMIN_SCOPE
             )
         })
     {

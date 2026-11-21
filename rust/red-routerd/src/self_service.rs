@@ -24,6 +24,10 @@ use serde_json::{json, Map, Value};
 pub const SELF_USAGE_SCOPE: &str = "self:usage";
 /// Legacy `SELF_ACCOUNT_QUOTA_SCOPE`.
 pub const SELF_ACCOUNT_QUOTA_SCOPE: &str = "self:account-quota";
+/// Legacy `MANAGE_SCOPE`: management API access with a client key.
+pub const MANAGE_SCOPE: &str = "manage";
+/// Legacy `admin` key scope, a superset of `manage`.
+pub const ADMIN_SCOPE: &str = "admin";
 
 fn auth_error(status: StatusCode) -> Response {
     let message = if status == StatusCode::UNAUTHORIZED {
