@@ -64,6 +64,7 @@ mod policy;
 pub mod product;
 pub mod product_combo;
 pub mod product_provider;
+pub mod prometheus_text;
 mod provider_cooldown;
 mod provider_inference;
 mod provider_quota;

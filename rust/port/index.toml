@@ -634,6 +634,28 @@ extractClientIp = "red_routerd::ip_utils::extract_client_ip"
 getClientIpFromRequest = "red_routerd::ip_utils::client_ip_from_request"
 
 [[module]]
+ts = "src/lib/metrics/prometheusText.ts"
+status = "ported"
+rust = "prometheus_text.rs"
+module = "red_routerd::prometheus_text"
+ported_at = "2026-11-21T03:31:59Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "prometheus_text_oracle.json holds the legacy text for an empty and a full snapshot (escaping, exponent values, short bucket lists); format_value reproduces JavaScript Number toString."
+
+[module.ts_blobs]
+"src/lib/metrics/prometheusText.ts" = "52e8e78bd7cc51c73ec0b00146da444bf5b4ed8a"
+
+[module.symbols]
+CIRCUIT_BREAKER_STATES = "red_routerd::prometheus_text::CIRCUIT_BREAKER_STATES"
+MetricsSnapshot = "red_routerd::prometheus_text::MetricsSnapshot"
+PROMETHEUS_CONTENT_TYPE = "red_routerd::prometheus_text::PROMETHEUS_CONTENT_TYPE"
+REQUEST_DURATION_BUCKETS_SECONDS = "red_routerd::prometheus_text::REQUEST_DURATION_BUCKETS_SECONDS"
+escapeHelp = "red_routerd::prometheus_text::escape_help"
+escapeLabelValue = "red_routerd::prometheus_text::escape_label_value"
+formatValue = "red_routerd::prometheus_text::format_value"
+renderPrometheusText = "red_routerd::prometheus_text::render_prometheus_text"
+
+[[module]]
 ts = "src/lib/proxyEchoTarget.ts"
 status = "ported"
 rust = "proxy_echo_target.rs"
