@@ -443,3 +443,55 @@ mod tests {
         }
     }
 }
+
+/// Legacy `extractReplayableResponsesReasoningText` (`reasoningInputPolicy.ts`):
+/// the plaintext of a Responses `reasoning` item, its non-blank
+/// `reasoning_text` parts joined by a blank line. An item carrying only
+/// opaque state yields nothing.
+pub fn extract_replayable_reasoning_text(value: &Value) -> String {
+    let Some(item) = value.as_object() else {
+        return String::new();
+    };
+    if item.get("type").and_then(Value::as_str) != Some("reasoning") {
+        return String::new();
+    }
+    let Some(parts) = item.get("content").and_then(Value::as_array) else {
+        return String::new();
+    };
+    parts
+        .iter()
+        .filter_map(|part| {
+            let part = part.as_object()?;
+            (part.get("type").and_then(Value::as_str) == Some("reasoning_text"))
+                .then(|| part.get("text").and_then(Value::as_str))
+                .flatten()
+        })
+        .filter(|text| {
+            !text
+                .trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+                .is_empty()
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+#[cfg(test)]
+mod replayable_tests {
+    use super::*;
+
+    /// Outputs the legacy function produced for the same inputs
+    /// (`reasoning_replayable_oracle.json`, evaluated from the legacy source).
+    #[test]
+    fn replayable_reasoning_matches_the_legacy_function() {
+        let oracle: Vec<(Value, String)> =
+            serde_json::from_str(include_str!("reasoning_replayable_oracle.json")).unwrap();
+        assert!(oracle.len() >= 15);
+        for (input, expected) in &oracle {
+            assert_eq!(
+                &extract_replayable_reasoning_text(input),
+                expected,
+                "{input}"
+            );
+        }
+    }
+}
