@@ -653,6 +653,43 @@ notes = "Walks serde_json values, so getters, cycles, buffers and exotic types c
 estimateRetainedBytes = "red_routerd::retained_size::estimate_retained_bytes"
 
 [[module]]
+ts = "src/shared/constants/modelSpecs.ts"
+status = "ported"
+rust = "model_specs.rs"
+module = "red_routerd::model_specs"
+ported_at = "2026-11-21T01:52:41Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/model-spec-lookup-index-8697.test.ts",
+    "tests/unit/resolve-model-alias-index-8697.test.ts",
+    "tests/unit/combo-thinking-disabled-fable5-3554.test.ts",
+]
+notes = "MODEL_SPECS and the two authority tables live in model_specs.json, generated from the legacy module in insertion order; model_specs_oracle.json pins 559 lookups and the thinking/tool-choice normalizations against the legacy outputs. Not yet wired into dispatch."
+
+[module.ts_blobs]
+"src/shared/constants/modelSpecs.ts" = "ad2788482e3be3defccc9f10d902f8ccb12b278a"
+"tests/unit/combo-thinking-disabled-fable5-3554.test.ts" = "3db0f142fe6692738d087626fe66479814b412ca"
+"tests/unit/model-spec-lookup-index-8697.test.ts" = "24618149f29fd5b6ba080ce1880b28459382fafb"
+"tests/unit/resolve-model-alias-index-8697.test.ts" = "f521014b8942d9a80d49b4f382460bca2664d3fb"
+
+[module.symbols]
+MODEL_SPECS = "-"
+ModelSpec = "red_routerd::model_specs::ModelSpec"
+capMaxOutputTokens = "red_routerd::model_specs::cap_max_output_tokens"
+capThinkingBudget = "red_routerd::model_specs::cap_thinking_budget"
+findModelSpecIdByExactOrAlias = "red_routerd::model_specs::find_model_spec_id_by_exact_or_alias"
+getAuthoritativeContextWindow = "red_routerd::model_specs::authoritative_context_window"
+getAuthoritativeProviderContextWindow = "red_routerd::model_specs::authoritative_provider_context_window"
+getCanonicalModelSpecId = "red_routerd::model_specs::canonical_model_spec_id"
+getDefaultThinkingBudget = "red_routerd::model_specs::default_thinking_budget"
+getMaxEffortWhenThinkingDisabled = "red_routerd::model_specs::max_effort_when_thinking_disabled"
+getModelSpec = "red_routerd::model_specs::model_spec"
+isAdaptiveThinkingOnly = "red_routerd::model_specs::is_adaptive_thinking_only"
+normalizeForcedToolChoiceForModel = "red_routerd::model_specs::normalize_forced_tool_choice_for_model"
+normalizeThinkingForModel = "red_routerd::model_specs::normalize_thinking_for_model"
+resolveModelAlias = "red_routerd::model_specs::resolve_model_alias"
+
+[[module]]
 ts = "src/shared/validation/iconUrl.ts"
 status = "ported"
 rust = "icon_url.rs"

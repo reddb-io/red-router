@@ -51,6 +51,7 @@ mod model_alias_response;
 mod model_endpoint_policy;
 mod model_permissions;
 mod model_scope_providers;
+pub mod model_specs;
 mod native_usage;
 mod no_thinking_alias;
 pub mod non_retryable_upstream;
