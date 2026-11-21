@@ -82,6 +82,38 @@ fn normalize(values: &[String]) -> Result<Vec<String>, &'static str> {
     Ok(result)
 }
 
+/// Legacy per-connection outbound proxy fields: at their defaults (off,
+/// no URL, no bypass list) they mean "no proxy", as the native daemon does,
+/// and are removed; a configured proxy has no native equivalent yet.
+pub(crate) fn take_default_proxy_fields(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), &'static str> {
+    let blank = |value: Option<&serde_json::Value>| match value {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(text)) => text.trim().is_empty(),
+        _ => false,
+    };
+    let enabled = match object.get("connectionProxyEnabled") {
+        None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => false,
+        Some(serde_json::Value::Bool(true)) => true,
+        Some(_) => return Err("invalid legacy connection proxy setting"),
+    };
+    if enabled
+        || !blank(object.get("connectionProxyUrl"))
+        || !blank(object.get("connectionNoProxy"))
+    {
+        return Err("legacy per-connection proxy requires migration");
+    }
+    for key in [
+        "connectionProxyEnabled",
+        "connectionProxyUrl",
+        "connectionNoProxy",
+    ] {
+        object.remove(key);
+    }
+    Ok(())
+}
+
 /// Accept only the legacy fields whose effects this module implements.
 pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static str> {
     let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
@@ -92,9 +124,12 @@ pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static st
     if value.is_null() || value.as_array().is_some_and(Vec::is_empty) {
         return Ok(Vec::new());
     }
-    let object = value
+    let mut object = value
         .as_object()
-        .ok_or("legacy provider configuration requires migration")?;
+        .ok_or("legacy provider configuration requires migration")?
+        .clone();
+    take_default_proxy_fields(&mut object)?;
+    let object = &object;
     if object
         .keys()
         .any(|key| !matches!(key.as_str(), "excludedModels" | "excluded_models"))
@@ -108,6 +143,7 @@ pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static st
 pub(crate) fn take_legacy(
     object: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<Vec<String>, &'static str> {
+    take_default_proxy_fields(object)?;
     let mut rules = serde_json::Map::new();
     for key in ["excludedModels", "excluded_models"] {
         if let Some(value) = object.remove(key) {
@@ -320,6 +356,23 @@ pub async fn put_rules(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_connection_proxy_fields_mean_no_proxy() {
+        let defaults = r#"{"connectionProxyEnabled":false,"connectionProxyUrl":"","connectionNoProxy":"","excludedModels":["gpt-old*"]}"#;
+        assert_eq!(parse_legacy(Some(defaults)).unwrap(), ["gpt-old*"]);
+        for configured in [
+            r#"{"connectionProxyEnabled":true,"connectionProxyUrl":"","connectionNoProxy":""}"#,
+            r#"{"connectionProxyEnabled":false,"connectionProxyUrl":"http://proxy:8080"}"#,
+            r#"{"connectionNoProxy":"localhost"}"#,
+        ] {
+            assert_eq!(
+                parse_legacy(Some(configured)).unwrap_err(),
+                "legacy per-connection proxy requires migration",
+                "{configured}"
+            );
+        }
+    }
     #[test]
     fn legacy_patterns_match_prefix_context_case_and_wildcards() {
         let patterns =
