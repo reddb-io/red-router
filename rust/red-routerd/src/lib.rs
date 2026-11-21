@@ -9281,6 +9281,15 @@ async fn proxy_request(
             return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
         };
         if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+            // The usage wrapper reads the provider's own stream, so a translated
+            // stream cannot be settled yet; fail closed rather than leave the
+            // reservation open.
+            if final_accounting.is_some() {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting is unavailable for translated Responses streams",
+                );
+            }
             let stream = responses_adapter::translate(response).map(move |chunk| {
                 let _keep_alive = (&permit, &client_permit, &provider_load_guard);
                 chunk
@@ -9313,6 +9322,24 @@ async fn proxy_request(
             Ok(Ok(mut value)) => {
                 if credential_redaction {
                     credential_masker::redact_value(&mut value);
+                }
+                if let Some(accounting) = final_accounting {
+                    let Ok(usage) = accounting::ChatUsage::from_response(&value) else {
+                        return error(
+                            StatusCode::BAD_GATEWAY,
+                            "Provider response is missing valid token usage",
+                        );
+                    };
+                    if accounting
+                        .record(product_access.as_ref(), &usage)
+                        .await
+                        .is_err()
+                    {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        );
+                    }
                 }
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
