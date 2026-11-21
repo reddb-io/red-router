@@ -68,6 +68,7 @@ pub mod product_combo;
 pub mod product_provider;
 pub mod prometheus_text;
 mod provider_cooldown;
+pub mod provider_error_rules;
 mod provider_inference;
 mod provider_quota;
 pub mod proxy_echo_target;
