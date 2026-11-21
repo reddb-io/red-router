@@ -80,6 +80,9 @@ pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
 pub(crate) const COMBO_AUTO_PROMOTE: &str = "combo_auto_promote";
 pub(crate) const CREDENTIAL_REDACTION: &str = "credential_redaction";
+/// Provider records whose model list is refreshed periodically (legacy
+/// per-connection `providerSpecificData.autoSync`).
+pub(crate) const MODEL_AUTO_SYNC_PROVIDERS: &str = "model_auto_sync_providers";
 pub(crate) const CLAUDE_CLASSIFIER_COMPAT: &str = "claude_classifier_compat";
 pub(crate) const ANTIGRAVITY_SIGNATURE_CACHE_MODE: &str = "antigravity_signature_cache_mode";
 pub(crate) const RESPONSES_PREVIOUS_RESPONSE_ID_MODE: &str = "responses_previous_response_id_mode";
@@ -219,6 +222,7 @@ pub(crate) struct Snapshot {
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
     combo_auto_promote: bool,
     credential_redaction: bool,
+    model_auto_sync_providers: Vec<String>,
     claude_classifier_compat: crate::claude_classifier_compat::ClaudeClassifierCompatMode,
     signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
     previous_response_id_mode: crate::responses_state::PreviousResponseIdMode,
@@ -347,6 +351,11 @@ impl Snapshot {
     /// Whether the credential masker guardrail is on.
     pub(crate) fn credential_redaction(&self) -> bool {
         self.credential_redaction
+    }
+
+    /// The provider records with periodic model sync.
+    pub(crate) fn model_auto_sync_providers(&self) -> &[String] {
+        &self.model_auto_sync_providers
     }
 
     /// Whether a combo's successful target moves to the front (legacy
@@ -484,6 +493,27 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .is_boolean()
             .then_some(value)
             .ok_or("invalid credential redaction"),
+        MODEL_AUTO_SYNC_PROVIDERS => {
+            let ids: Vec<String> =
+                serde_json::from_value(value).map_err(|_| "invalid model auto-sync providers")?;
+            let mut unique = ids.clone();
+            unique.sort();
+            unique.dedup();
+            if ids.len() > 10_000
+                || unique.len() != ids.len()
+                || ids.iter().any(|id| {
+                    id.is_empty()
+                        || id.len() > 128
+                        || !id.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || matches!(byte, b'-' | b'_' | b'.' | b':')
+                        })
+                })
+            {
+                return Err("invalid model auto-sync providers");
+            }
+            serde_json::to_value(unique).map_err(|_| "invalid model auto-sync providers")
+        }
         CLAUDE_FAST_MODE => {
             let mode: ClaudeFastMode =
                 serde_json::from_value(value).map_err(|_| "invalid Claude fast mode")?;
@@ -594,6 +624,10 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             CREDENTIAL_REDACTION => {
                 snapshot.credential_redaction = value == Value::Bool(true);
+            }
+            MODEL_AUTO_SYNC_PROVIDERS => {
+                snapshot.model_auto_sync_providers = serde_json::from_value(value)
+                    .map_err(|_| "invalid model auto-sync providers")?;
             }
             COMBO_AUTO_PROMOTE => {
                 snapshot.combo_auto_promote = value == Value::Bool(true);

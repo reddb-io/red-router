@@ -127,6 +127,42 @@ async fn record_imported_queue_policy(
     Ok(())
 }
 
+/// Add an imported provider to the native model auto-sync list (legacy
+/// per-connection `autoSync`).
+async fn record_model_auto_sync(db: &mut SqliteConnection, id: &str) -> Result<(), &'static str> {
+    let key = crate::global_settings::MODEL_AUTO_SYNC_PROVIDERS;
+    let stored: Option<(String, i64)> = sqlx::query_as(
+        "SELECT value_json,revision FROM redrouter_control_global_settings WHERE setting_key=?",
+    )
+    .bind(key)
+    .fetch_optional(&mut *db)
+    .await
+    .map_err(|_| "cannot read destination model auto-sync providers")?;
+    let (mut ids, revision) = match stored {
+        Some((json, revision)) => (
+            serde_json::from_str::<Vec<String>>(&json)
+                .map_err(|_| "invalid destination model auto-sync providers")?,
+            revision,
+        ),
+        None => (Vec::new(), 0),
+    };
+    if !ids.iter().any(|existing| existing == id) {
+        ids.push(id.to_owned());
+    }
+    let value = crate::global_settings::validate(
+        key,
+        serde_json::to_value(&ids).map_err(|_| "invalid model auto-sync providers")?,
+    )?;
+    sqlx::query("INSERT INTO redrouter_control_global_settings (setting_key,value_json,revision) VALUES (?,?,?) ON CONFLICT(setting_key) DO UPDATE SET value_json=excluded.value_json,revision=excluded.revision")
+        .bind(key)
+        .bind(serde_json::to_string(&value).map_err(|_| "invalid model auto-sync providers")?)
+        .bind(revision + 1)
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot write model auto-sync providers")?;
+    Ok(())
+}
+
 async fn record_imported_concurrency(
     db: &mut SqliteConnection,
     id: &str,
@@ -454,6 +490,7 @@ async fn adopt_oauth(
         };
         let specific = specific.as_object_mut().ok_or("invalid legacy OAuth metadata")?;
         let model_rules = crate::control_plane::provider_rules::take_legacy(specific)?;
+        let auto_sync = crate::control_plane::provider_rules::take_model_sync_flags(specific)?;
         let (access, refresh, session, parsed_expiry, parsed_email, upstream) = if provider == "codex" {
             let id_token = token("id_token")?;
             let parsed = crate::control_plane::parse_codex_auth(serde_json::json!({"auth_mode":"chatgpt", "tokens": {"access_token":access.as_str(),"refresh_token":refresh.as_str(),"id_token":id_token.as_str()}}))?;
@@ -610,6 +647,9 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         record_imported_availability(&mut db, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut db, id, max_concurrent).await?;
+        if auto_sync {
+            record_model_auto_sync(&mut db, id).await?;
+        }
         record_imported_queue_policy(&mut db, id, queue_policy).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut db).await.map_err(|_| "cannot write provider priority")?;
@@ -832,6 +872,7 @@ pub async fn import(
         let default_model = text("default_model")?.filter(|value| !value.is_empty());
         if default_model.as_deref().is_some_and(|value| !crate::control_plane::model_aliases::valid_model_name(value)) { return Err("invalid legacy provider default model"); }
         let model_rules = crate::control_plane::provider_rules::parse_legacy(text("provider_specific_data")?.as_deref())?;
+        let auto_sync = crate::control_plane::provider_rules::legacy_auto_sync(text("provider_specific_data")?.as_deref())?;
         if text("quota_window_thresholds_json")?.is_some_and(|value| !matches!(value.trim(), "" | "null" | "{}" | "[]")) { return Err("legacy provider configuration requires migration"); }
         let rate_limit_overrides = match row.try_get::<Option<String>, _>("rate_limit_overrides_json") {
             Ok(value) => value,
@@ -920,6 +961,9 @@ pub async fn import(
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         record_imported_availability(&mut target, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut target, id, max_concurrent).await?;
+        if auto_sync {
+            record_model_auto_sync(&mut target, id).await?;
+        }
         record_imported_queue_policy(&mut target, id, queue_policy).await?;
         if priority != 0 {
             sqlx::query("INSERT INTO redrouter_control_provider_priorities (record_id,provider_id,account_rank,revision) VALUES (?,?,?,1)").bind(format!("{id}:1")).bind(id).bind(priority).execute(&mut *target).await.map_err(|_| "cannot write provider priority")?;

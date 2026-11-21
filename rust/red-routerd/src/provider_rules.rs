@@ -114,6 +114,35 @@ pub(crate) fn take_default_proxy_fields(
     Ok(())
 }
 
+/// Legacy per-connection model sync flags: `autoSync` (periodic model
+/// refresh, carried as the native model auto-sync list) and
+/// `autoFetchModels` (fetch the list when the connection is added, which
+/// discovery does natively). Both are removed; returns `autoSync`.
+pub(crate) fn take_model_sync_flags(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<bool, &'static str> {
+    let flag = |value: Option<serde_json::Value>| match value {
+        None | Some(serde_json::Value::Null) => Ok(false),
+        Some(serde_json::Value::Bool(value)) => Ok(value),
+        Some(_) => Err("invalid legacy model auto-sync setting"),
+    };
+    flag(object.remove("autoFetchModels"))?;
+    flag(object.remove("autoSync"))
+}
+
+/// Whether a legacy connection's provider-specific data enables model auto-sync.
+pub(crate) fn legacy_auto_sync(raw: Option<&str>) -> Result<bool, &'static str> {
+    let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
+        return Ok(false);
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| "invalid legacy provider configuration")?;
+    let Some(object) = value.as_object() else {
+        return Ok(false);
+    };
+    take_model_sync_flags(&mut object.clone())
+}
+
 /// Accept only the legacy fields whose effects this module implements.
 pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static str> {
     let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
@@ -129,6 +158,7 @@ pub(crate) fn parse_legacy(raw: Option<&str>) -> Result<Vec<String>, &'static st
         .ok_or("legacy provider configuration requires migration")?
         .clone();
     take_default_proxy_fields(&mut object)?;
+    take_model_sync_flags(&mut object)?;
     let object = &object;
     if object
         .keys()

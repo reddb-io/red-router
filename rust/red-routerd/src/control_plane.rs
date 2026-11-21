@@ -72,6 +72,12 @@ const MODEL_CATALOG_AUTO_LEASE_MS: i64 = 120_000;
 const MODEL_CATALOG_AUTO_DAY_MS: i64 = 24 * 60 * 60 * 1_000;
 const SYNCED_MODEL_MAX_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
 const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
+/// Legacy modelSyncScheduler DEFAULT_INTERVAL_MS (6 hours).
+const MODEL_SYNC_DEFAULT_INTERVAL: Duration = Duration::from_secs(6 * 3_600);
+/// Legacy MODEL_SYNC_STARTUP_DELAY_MS.
+const MODEL_SYNC_STARTUP_DELAY: Duration = Duration::from_secs(90);
+/// Legacy MODEL_SYNC_STAGGER_OFFSET_MS.
+const MODEL_SYNC_STAGGER_OFFSET: Duration = Duration::from_secs(45 * 60);
 const CONTROL_SNAPSHOT_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_DIAGNOSTIC_MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -2448,6 +2454,7 @@ impl ControlPlane {
             plane.spawn_oauth_refresh_sync(oauth_refresh_cadence);
             plane.spawn_provider_quota_sync(quota_cadence);
             plane.spawn_usage_maintenance(USAGE_MAINTENANCE_INTERVAL);
+            plane.spawn_model_auto_sync();
         }
         Ok(plane)
     }
@@ -11819,6 +11826,74 @@ impl ControlPlane {
     /// `credentialRedactionEnabled`).
     pub(crate) async fn credential_redaction(&self) -> bool {
         self.0.global_settings.read().await.credential_redaction()
+    }
+
+    /// Legacy modelSyncScheduler: refresh the model list of every enabled
+    /// provider marked for auto-sync. Errors stay per provider, as there.
+    pub(crate) async fn run_model_auto_sync(&self) -> usize {
+        let ids = self
+            .0
+            .global_settings
+            .read()
+            .await
+            .model_auto_sync_providers()
+            .to_vec();
+        if ids.is_empty() {
+            return 0;
+        }
+        let Ok(providers) = self.0.database.providers().await else {
+            return 0;
+        };
+        let mut synced = 0;
+        for id in ids {
+            let Some(provider) = providers
+                .iter()
+                .find(|provider| provider.id == id && provider.enabled)
+            else {
+                continue;
+            };
+            match self
+                .sync_provider_models(&provider.id, Some(&provider.tenant_id))
+                .await
+            {
+                Ok(_) => synced += 1,
+                Err(error) => eprintln!("Model auto-sync failed for a provider: {error}"),
+            }
+        }
+        synced
+    }
+
+    /// Legacy startModelSyncScheduler: the first cycle 90 seconds after boot,
+    /// then every interval (6 hours, or MODEL_SYNC_INTERVAL_HOURS), armed 45
+    /// minutes after boot so it does not collide with the usage maintenance.
+    pub(crate) fn spawn_model_auto_sync(&self) {
+        let interval = std::env::var("MODEL_SYNC_INTERVAL_HOURS")
+            .ok()
+            .and_then(|hours| hours.trim().parse::<u64>().ok())
+            .filter(|hours| *hours > 0)
+            .map_or(MODEL_SYNC_DEFAULT_INTERVAL, |hours| {
+                Duration::from_secs(hours * 3_600)
+            });
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            tokio::time::sleep(MODEL_SYNC_STARTUP_DELAY).await;
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            ControlPlane(inner).run_model_auto_sync().await;
+            tokio::time::sleep(MODEL_SYNC_STAGGER_OFFSET.saturating_sub(MODEL_SYNC_STARTUP_DELAY))
+                .await;
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                ControlPlane(inner).run_model_auto_sync().await;
+            }
+        });
     }
 
     /// Whether a combo's successful target moves to the front (legacy

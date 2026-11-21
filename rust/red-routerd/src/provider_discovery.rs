@@ -966,6 +966,17 @@ impl ControlPlane {
         Ok(models.len())
     }
 
+    /// Refresh one provider record's model inventory (legacy model auto-sync).
+    pub(crate) async fn sync_provider_models(
+        &self,
+        id: &str,
+        tenant: Option<&str>,
+    ) -> Result<usize, &'static str> {
+        self.discover_models(id, tenant)
+            .await
+            .map(|models| models.len())
+    }
+
     async fn discover_models(
         &self,
         id: &str,

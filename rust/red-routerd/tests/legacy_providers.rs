@@ -689,12 +689,6 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         Some("legacy Codex scope cooldown is still pending")
     );
     assert_eq!(
-        legacy_providers::adopt_codex(&dest, "codex-auto", STORAGE_KEY, STORAGE_KEY)
-            .await
-            .err(),
-        Some("legacy model auto-sync requires migration")
-    );
-    assert_eq!(
         legacy_providers::adopt_codex(&dest, "codex-wrong-user", STORAGE_KEY, STORAGE_KEY)
             .await
             .err(),
@@ -729,12 +723,6 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
     )
     .await
     .is_err());
-    assert_eq!(
-        legacy_providers::adopt_github(&dest, "github-autosync", STORAGE_KEY, STORAGE_KEY)
-            .await
-            .err(),
-        Some("legacy model auto-sync requires migration")
-    );
     assert_eq!(
         legacy_providers::adopt_github(&dest, "github-renewal", STORAGE_KEY, STORAGE_KEY)
             .await
@@ -1100,4 +1088,22 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .windows(secret.len())
             .any(|window| window == secret.as_bytes()));
     }
+    // Legacy per-connection autoSync joins the native model auto-sync list.
+    legacy_providers::adopt_codex(&dest, "codex-auto", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    legacy_providers::adopt_github(&dest, "github-autosync", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    let mut saved = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let synced: String = sqlx::query_scalar(
+        "SELECT value_json FROM redrouter_control_global_settings WHERE setting_key='model_auto_sync_providers'",
+    )
+    .fetch_one(&mut saved)
+    .await
+    .unwrap();
+    assert_eq!(synced, r#"["codex-auto","github-autosync"]"#);
+    saved.close().await.unwrap();
 }
