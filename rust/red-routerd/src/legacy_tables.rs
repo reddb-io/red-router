@@ -34,6 +34,7 @@ use TableClass::{Archived, Dropped, Handled, Refused, Seeded};
 
 /// Legacy logs and history copied by `legacy_archive`.
 pub const ARCHIVED: &[&str] = &[
+    "audit_log",
     // Staged for adoption once their providers are adopted.
     "combos",
     "call_logs",
@@ -114,6 +115,7 @@ const INVENTORY: &[(&str, TableClass)] = &[
     ("context_handoffs", Dropped("context-relay summaries of active sessions")),
     ("ccr_blocks", Dropped("CCR block store with a 24-hour TTL")),
     ("semantic_cache", Dropped("response cache")),
+    ("cache_metrics", Dropped("cache metrics")),
     ("reasoning_cache", Dropped("reasoning cache")),
     ("compression_cache_stats", Dropped("compression cache counters")),
     ("discovery_results", Dropped("provider discovery cache")),
@@ -161,8 +163,20 @@ const INVENTORY: &[(&str, TableClass)] = &[
     ("quota_schedules", Refused("quota schedules")),
     ("tier_config", Refused("tiers")),
     ("tier_assignments", Refused("tiers")),
-    ("model_intelligence", Refused("model intelligence scores")),
-    ("model_context_overrides", Refused("model context overrides")),
+    (
+        "model_intelligence",
+        Seeded {
+            feature: "model intelligence overrides",
+            seed: "source <> 'user_override'",
+        },
+    ),
+    (
+        "model_context_overrides",
+        Seeded {
+            feature: "model context overrides",
+            seed: "source LIKE 'auto:%'",
+        },
+    ),
     ("model_capability_overrides", Refused("model capability overrides")),
     ("reasoning_routing_rules", Refused("reasoning routing rules")),
     ("auto_candidate_overrides", Refused("auto-combo candidate overrides")),
@@ -205,7 +219,7 @@ const INVENTORY: &[(&str, TableClass)] = &[
         "compression_combos",
         Seeded {
             feature: "prompt compression",
-            seed: "id = 'default-caveman' AND name = 'Standard Savings' AND description = 'Default RTK + Caveman compression pipeline' AND pipeline = '[{\"engine\":\"rtk\",\"intensity\":\"standard\"},{\"engine\":\"caveman\",\"intensity\":\"full\"}]' AND language_packs = '[\"en\"]' AND output_mode = 0 AND output_mode_intensity = 'full' AND is_default = 1",
+            seed: "(id = 'default-caveman' AND name = 'Standard Savings' AND description = 'Default lossless dedup and whitespace compression' AND pipeline = '[{\"engine\":\"session-dedup\"},{\"engine\":\"lite\"}]' AND language_packs = '[\"en\"]' AND output_mode = 0 AND output_mode_intensity = 'full' AND is_default = 1) OR (id = 'default-caveman' AND name = 'Standard Savings' AND description = 'Default RTK + Caveman compression pipeline' AND pipeline = '[{\"engine\":\"rtk\",\"intensity\":\"standard\"},{\"engine\":\"caveman\",\"intensity\":\"full\"}]' AND language_packs = '[\"en\"]' AND output_mode = 0 AND output_mode_intensity = 'full' AND is_default = 1)",
         },
     ),
     (
@@ -226,7 +240,7 @@ const INVENTORY: &[(&str, TableClass)] = &[
         "jobs",
         Seeded {
             feature: "background jobs",
-            seed: "(id = 'budget_reset' AND type = 'interval' AND cron IS NULL AND interval_ms = 600000 AND enabled = 1 AND env_flag IS NULL AND config = '{}') OR (id = 'warmup' AND type = 'cron' AND cron = '0 7 * * *' AND interval_ms IS NULL AND enabled = 0 AND env_flag = 'OMNIROUTE_WARMUP_ENABLED' AND config = '{\"timezone\":\"America/Los_Angeles\",\"envDefault\":false}') OR (id = 'token_health_check' AND type = 'interval' AND cron IS NULL AND interval_ms = 60000 AND enabled = 1 AND env_flag IS NULL AND config = '{}')",
+            seed: "(id = 'budget_reset' AND type = 'interval' AND cron IS NULL AND interval_ms = 600000 AND enabled = 1 AND env_flag IS NULL AND config = '{}') OR (id = 'warmup' AND type = 'cron' AND cron = '0 7 * * *' AND interval_ms IS NULL AND enabled = 0 AND env_flag = 'OMNIROUTE_WARMUP_ENABLED' AND config = '{\"timezone\":\"America/Los_Angeles\",\"envDefault\":false}') OR (id = 'token_health_check' AND type = 'interval' AND cron IS NULL AND interval_ms = 60000 AND enabled = 1 AND env_flag IS NULL AND config = '{}') OR (id = 'log_export' AND type = 'cron' AND cron = '0 * * * *' AND interval_ms IS NULL AND enabled = 1 AND env_flag IS NULL AND config = '{\"timezone\":\"UTC\"}') OR (id = 'redrouter_usage_sinks' AND type = 'interval' AND cron IS NULL AND interval_ms = 10000 AND enabled = 1 AND env_flag IS NULL AND config = '{}')",
         },
     ),
 ];
@@ -325,6 +339,10 @@ const NAMESPACES: &[(&str, NamespaceClass)] = &[
     // Dashboard session signing and the key-checksum secret: imported keys
     // authenticate by their SHA-256 hash and the native API has no login.
     ("secrets", NamespaceClass::Dropped("legacy process secrets")),
+    (
+        "arena_elo",
+        NamespaceClass::Dropped("arena ELO sync bookkeeping"),
+    ),
     (
         "lkgp",
         NamespaceClass::Dropped("learned last-known-good route pins"),
