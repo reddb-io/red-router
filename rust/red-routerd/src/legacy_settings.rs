@@ -1088,6 +1088,15 @@ pub(crate) fn classify(key: &str, raw: &str) -> SettingClass {
                 None => SettingClass::AtDefault,
             };
         }
+        // Legacy authz: a manage-scope key (or dashboard session) may reach
+        // LOCAL_ONLY routes under these prefixes from a non-loopback client.
+        // The native management API has no loopback-only routes, so there is
+        // nothing for the bypass to open, whatever its value.
+        "localOnlyManageScopeBypassEnabled" | "localOnlyManageScopeBypassPrefixes" => {
+            return SettingClass::Equivalent {
+                reason: "the native management API has no loopback-only routes to bypass",
+            };
+        }
         // Hiding no-think variants matches the native catalog, which does not
         // advertise them (requests may still name them).
         "hideNoThinkVariants" if parse_value(raw) == Value::Bool(true) => {
@@ -2099,6 +2108,24 @@ mod tests {
             classify("modelLockout", r#"{"enabled":true}"#),
             SettingClass::Imported
         );
+    }
+
+    #[test]
+    fn the_local_only_manage_scope_bypass_has_nothing_to_open_natively() {
+        for (key, raw) in [
+            ("localOnlyManageScopeBypassEnabled", "false"),
+            ("localOnlyManageScopeBypassEnabled", "true"),
+            (
+                "localOnlyManageScopeBypassPrefixes",
+                r#"["/api/mcp/","/api/custom/"]"#,
+            ),
+            ("localOnlyManageScopeBypassPrefixes", "[]"),
+        ] {
+            assert!(
+                matches!(classify(key, raw), SettingClass::Equivalent { .. }),
+                "{key}={raw}"
+            );
+        }
     }
 
     #[test]
