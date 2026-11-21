@@ -67,6 +67,7 @@ mod provider_inference;
 mod provider_quota;
 pub mod proxy_echo_target;
 pub mod proxy_family;
+pub mod public_error;
 mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;

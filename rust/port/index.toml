@@ -419,6 +419,22 @@ requiresReasoningContentPresence = "red_routerd::reasoning_placeholder::requires
 stripInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::strip_internal_reasoning_placeholder"
 
 [[module]]
+ts = "open-sse/utils/upstreamErrorPassthrough.ts"
+status = "ported"
+rust = "public_error.rs"
+module = "red_routerd::public_error"
+ported_at = "2026-11-21T00:18:25Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "public_error_oracle.json checks eligibility and the passthrough body plus Retry-After against the legacy createErrorResult."
+
+[module.ts_blobs]
+"open-sse/utils/upstreamErrorPassthrough.ts" = "00f3bb8aaeb1ab1c121abc5894f63090320ebc0f"
+
+[module.symbols]
+buildPassthroughErrorResponse = "red_routerd::public_error::upstream_failure"
+shouldPassthroughUpstreamError = "red_routerd::public_error::should_passthrough_upstream_error"
+
+[[module]]
 ts = "open-sse/utils/urlSanitize.ts"
 status = "ported"
 rust = "url_sanitize.rs"

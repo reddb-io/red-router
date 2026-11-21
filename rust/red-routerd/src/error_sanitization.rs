@@ -23,7 +23,7 @@ const REDACTED: &str = "[REDACTED]";
 
 /// JavaScript `\s` and `\S` as regex classes. ASCII-only case folding
 /// (`(?-u)`) mirrors JavaScript `/i` without the `u` flag.
-const JS_S: &str = r"[\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]";
+pub(crate) const JS_S: &str = r"[\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]";
 const JS_NS: &str = r"[^\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]";
 
 /// Legacy `STRONG_CREDENTIAL_TOKEN`; the two lookbehind alternatives are the
@@ -42,13 +42,13 @@ static BEARER_BASIC: LazyLock<Regex> = LazyLock::new(|| {
 });
 static CLI_CREDENTIAL_FLAG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(?i)(?:^|{JS_S})--(?:api[-_]?key|token|password|secret){JS_S}+(?:"[^"]*"|'[^']*'|{JS_NS}+)"#
+        r#"(?i)(?:^|{JS_S})(?-u:--(?:api[-_]?key|token|password|secret)){JS_S}+(?:"[^"]*"|'[^']*'|{JS_NS}+)"#
     ))
     .expect("static pattern")
 });
 static CREDENTIAL_ASSIGNMENT_HINT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|secret)["']?{JS_S}*[:=]{JS_S}*["']?[^"'\\,\t\n\x0B\x0C\r \x{{A0}}\x{{1680}}\x{{2000}}-\x{{200A}}\x{{2028}}\x{{2029}}\x{{202F}}\x{{205F}}\x{{3000}}\x{{FEFF}}}}]{{6,}}"#
+        r#"(?i)(?-u:(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|secret)["']?){JS_S}*[:=]{JS_S}*["']?[^"'\\,\t\n\x0B\x0C\r \x{{A0}}\x{{1680}}\x{{2000}}-\x{{200A}}\x{{2028}}\x{{2029}}\x{{202F}}\x{{205F}}\x{{3000}}\x{{FEFF}}}}]{{6,}}"#
     ))
     .expect("static pattern")
 });
