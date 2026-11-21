@@ -1891,6 +1891,18 @@ impl ProxyState {
                 }
             }
         }
+        // Its Responses models are reached at /responses with the Bearer key, and
+        // answer a stream the handler translates back (`responses_adapter`).
+        if provider.provider_name.as_deref() == Some("opencode-go")
+            && protocol == ProviderProtocol::OpenAi
+            && opencode_go::target_format(&config.model) == opencode_go::TargetFormat::Responses
+        {
+            if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
+                let path = format!("{prefix}/responses");
+                upstream.set_path(&path);
+                protocol = ProviderProtocol::OpenAiToResponses;
+            }
+        }
         ModelTarget {
             client: provider.client.clone(),
             upstream,
@@ -7390,6 +7402,7 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_antigravity_translated = false;
+    let mut final_responses_translated = false;
     // A Codex answer streamed for a client that asked for one object.
     let mut final_codex_folded = false;
     // The connection and model that answered, for combo auto-promotion.
@@ -7848,6 +7861,8 @@ async fn proxy_request(
         };
         let translate_anthropic =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
+        let translate_responses =
+            target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToResponses);
         let translate_antigravity =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAntigravity);
         let attempt_signature_context = if translate_antigravity {
@@ -7942,6 +7957,23 @@ async fn proxy_request(
                         );
                         serde_json::to_vec(&value).map_err(|_| ())
                     })
+                } else if translate_responses {
+                    // Legacy openaiToOpenAIResponsesRequest: the upstream is always
+                    // streamed, and the answer is folded or translated back.
+                    let mut value = responses_request::openai_to_responses_request(
+                        &serde_json::Value::String(target.model.clone()),
+                        &attempt_parsed,
+                        false,
+                        target.provider_name.as_deref(),
+                        &mut responses_request::generate_tool_call_id,
+                    );
+                    apply_target_payload_rules(
+                        &mut value,
+                        payload_rules.as_deref(),
+                        target,
+                        Some("openai-responses"),
+                    );
+                    serde_json::to_vec(&value).map_err(|_| ())
                 } else if translate_anthropic {
                     translation::request(&attempt_parsed, &target.model).and_then(|mut value| {
                         claude_adaptive_thinking::normalize_attempt_body(
@@ -8963,6 +8995,7 @@ async fn proxy_request(
         }
         final_translated = translate_anthropic;
         final_antigravity_translated = translate_antigravity;
+        final_responses_translated = translate_responses;
         final_codex_folded = codex_folded;
         final_target_identity = target.and_then(|target| {
             target
@@ -9071,6 +9104,7 @@ async fn proxy_request(
         && response.status().is_success()
         && !final_translated
         && !final_antigravity_translated
+        && !final_responses_translated
         && parsed.get("stream").and_then(serde_json::Value::as_bool) != Some(true)
         && response
             .headers()
@@ -9241,6 +9275,51 @@ async fn proxy_request(
         let mut result = (StatusCode::OK, Json(value)).into_response();
         attach_served_model(&mut result, final_served_model.as_ref());
         return model_alias_response::rewrite(result, response_alias).await;
+    }
+    if final_responses_translated && response.status().is_success() {
+        let Some(response) = response.into_streaming() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
+        if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+            let stream = responses_adapter::translate(response).map(move |chunk| {
+                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                chunk
+            });
+            let mut result = (
+                [
+                    (header::CONTENT_TYPE, "text/event-stream"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                    (header::HeaderName::from_static("x-accel-buffering"), "no"),
+                ],
+                Body::from_stream(stream),
+            )
+                .into_response();
+            attach_served_model(&mut result, final_served_model.as_ref());
+            return model_alias_response::rewrite(result, response_alias).await;
+        }
+        let read = async {
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            responses_adapter::aggregate(&bytes)
+        };
+        return match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+            Ok(Ok(mut value)) => {
+                if credential_redaction {
+                    credential_masker::redact_value(&mut value);
+                }
+                let mut result = (StatusCode::OK, Json(value)).into_response();
+                attach_served_model(&mut result, final_served_model.as_ref());
+                model_alias_response::rewrite(result, response_alias).await
+            }
+            _ => error(StatusCode::BAD_GATEWAY, "Invalid Responses stream"),
+        };
     }
     if final_translated && response.status().is_success() {
         let Some(response) = response.into_streaming() else {

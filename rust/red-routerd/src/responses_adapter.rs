@@ -1,7 +1,3 @@
-// Not wired into the handler yet (steps 3 to 5 of the OpenCode Go Responses plan in
-// docs/architecture/RUSTIFY_HANDOFF.md); remove this allow when it is.
-#![allow(dead_code)]
-
 //! Adapts a Responses API event stream (what `OpenAiToResponses` targets answer,
 //! always streamed, as the legacy request builder forces `stream: true`) to
 //! Chat Completions, either as a chunk stream or folded into one JSON body.
