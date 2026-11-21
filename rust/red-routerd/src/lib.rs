@@ -657,6 +657,7 @@ pub(crate) enum ProviderProtocol {
     CohereRerank,
     Anthropic,
     OpenAiToAnthropic,
+    OpenAiToResponses,
     OpenAiToAntigravity,
     Gemini,
     Antigravity,
@@ -1724,7 +1725,9 @@ impl ProxyState {
             || (!endpoint_policy.custom_path
                 && !upstream.path().ends_with(match protocol {
                     ProviderProtocol::OpenAi => "/chat/completions",
-                    ProviderProtocol::OpenAiResponses => "/responses",
+                    ProviderProtocol::OpenAiResponses | ProviderProtocol::OpenAiToResponses => {
+                        "/responses"
+                    }
                     ProviderProtocol::OpenAiEmbeddings => "/embeddings",
                     ProviderProtocol::CohereRerank => "/rerank",
                     ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
@@ -2424,6 +2427,7 @@ impl ProviderProtocol {
             "cohere-rerank" => Ok(Self::CohereRerank),
             "anthropic" => Ok(Self::Anthropic),
             "openai-to-anthropic" => Ok(Self::OpenAiToAnthropic),
+            "openai-to-responses" => Ok(Self::OpenAiToResponses),
             "openai-to-antigravity" => Ok(Self::OpenAiToAntigravity),
             "gemini" => Ok(Self::Gemini),
             "antigravity" => Ok(Self::Antigravity),
@@ -2458,6 +2462,7 @@ impl ProviderProtocol {
             || matches!(
                 (self, provider),
                 (Self::OpenAiToAnthropic, Self::Anthropic)
+                    | (Self::OpenAiToResponses, Self::OpenAiResponses)
                     | (Self::OpenAiToAntigravity, Self::Antigravity)
             )
     }
@@ -2971,7 +2976,9 @@ fn model_list_response(
 fn payload_rule_format(protocol: ProviderProtocol) -> Option<&'static str> {
     match protocol {
         ProviderProtocol::OpenAi => Some("openai"),
-        ProviderProtocol::OpenAiResponses => Some("openai-responses"),
+        ProviderProtocol::OpenAiResponses | ProviderProtocol::OpenAiToResponses => {
+            Some("openai-responses")
+        }
         ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => Some("claude"),
         ProviderProtocol::Gemini => Some("gemini"),
         ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity => {
@@ -6211,6 +6218,7 @@ fn inject_context_relay_handoff(
         }
         ProviderProtocol::OpenAi
         | ProviderProtocol::OpenAiToAnthropic
+        | ProviderProtocol::OpenAiToResponses
         | ProviderProtocol::OpenAiToAntigravity => {
             let messages = object
                 .entry("messages")

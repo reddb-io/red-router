@@ -12459,12 +12459,14 @@ async fn probe_provider(
             "max_tokens":1,
             "stream":false
         }),
-        ProviderProtocol::OpenAiResponses => serde_json::json!({
-            "model":&model,
-            "input":"Reply with OK.",
-            "max_output_tokens":1,
-            "stream":false
-        }),
+        ProviderProtocol::OpenAiResponses | ProviderProtocol::OpenAiToResponses => {
+            serde_json::json!({
+                "model":&model,
+                "input":"Reply with OK.",
+                "max_output_tokens":1,
+                "stream":false
+            })
+        }
         ProviderProtocol::OpenAiEmbeddings => serde_json::json!({
             "model":&model,
             "input":"RedRouter connection test"
