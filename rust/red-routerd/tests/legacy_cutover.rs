@@ -412,3 +412,64 @@ async fn the_table_inventory_accepts_seeds_and_refuses_configuration() {
         "{refusal}"
     );
 }
+
+/// key_value namespaces follow the same inventory: process secrets pass, a
+/// configured seed, a feature without an importer and an unknown namespace
+/// refuse.
+#[tokio::test]
+async fn key_value_namespaces_have_explicit_cutover_decisions() {
+    let directory = tempdir().unwrap();
+    let source = directory.path().join("legacy.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "fixtures/legacy_reference/legacy_reference.sql"
+    ))
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('secrets', 'jwtSecret', '\"generated\"')")
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        red_routerd::legacy_tables::refusal(&source).await.unwrap(),
+        None
+    );
+
+    for (setup, expected) in [
+        (
+            "UPDATE key_value SET value = '30' WHERE namespace = 'databaseSettings' AND key = 'usageHistory'",
+            "database settings (key_value namespace databaseSettings)",
+        ),
+        (
+            "INSERT INTO key_value VALUES ('feature_flags', 'SOME_FLAG', 'true')",
+            "feature flag overrides (key_value namespace feature_flags)",
+        ),
+        (
+            "INSERT INTO key_value VALUES ('futureNamespace', 'k', 'v')",
+            "key_value namespace futureNamespace is not in the migration inventory",
+        ),
+    ] {
+        let copy = directory.path().join("copy.sqlite");
+        std::fs::copy(&source, &copy).unwrap();
+        let mut legacy =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&copy))
+                .await
+                .unwrap();
+        sqlx::query(setup).execute(&mut legacy).await.unwrap();
+        legacy.close().await.unwrap();
+        let refusal = red_routerd::legacy_tables::refusal(&copy)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(refusal.contains(expected), "{setup}: {refusal}");
+        std::fs::remove_file(&copy).unwrap();
+    }
+}

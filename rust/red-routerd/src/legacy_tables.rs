@@ -241,6 +241,243 @@ pub fn class(table: &str) -> Option<TableClass> {
         .map(|(_, class)| *class)
 }
 
+/// Why a legacy `key_value` namespace is accepted or refused by the cutover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamespaceClass {
+    /// An importer stage reads it and applies its own refusals.
+    Handled,
+    /// Runtime state, a cache or bookkeeping; dropped by design.
+    Dropped(&'static str),
+    /// Refused while it holds rows: the native daemon has no equivalent yet.
+    Refused(&'static str),
+    /// Seeded by a fresh install: refused for any row that is not a seed row.
+    Seeded {
+        feature: &'static str,
+        rows: &'static [(&'static str, &'static str)],
+    },
+    /// Seeded bookkeeping: only these keys, with any value, are accepted.
+    SeededKeys {
+        feature: &'static str,
+        keys: &'static [&'static str],
+    },
+}
+
+const COMPRESSION_SEED: &[(&str, &str)] = &[
+    ("enabled", "false"),
+    ("defaultMode", "\"off\""),
+    ("autoTriggerTokens", "0"),
+    ("cacheMinutes", "5"),
+    ("preserveSystemPrompt", "true"),
+    ("comboOverrides", "{}"),
+    ("cavemanConfig", "{\"enabled\":true,\"compressRoles\":[\"user\"],\"skipRules\":[],\"minMessageLength\":50,\"preservePatterns\":[]}"),
+    ("mcpAccessibility", "{\"enabled\":true,\"maxTextChars\":50000,\"collapseThreshold\":30,\"collapseKeepHead\":10,\"collapseKeepTail\":5,\"minLengthToProcess\":2000}"),
+    ("activeComboId", "null"),
+];
+
+const DATABASESETTINGS_SEED: &[(&str, &str)] = &[
+    ("detailedLogsEnabled", "true"),
+    ("callLogPipelineEnabled", "true"),
+    ("maxDetailSizeKb", "500"),
+    ("ringBufferSize", "1000"),
+    ("autoBackupEnabled", "false"),
+    ("autoBackupFrequency", "\"never\""),
+    ("keepLastNBackups", "3"),
+    ("semanticCacheEnabled", "true"),
+    ("semanticCacheMaxSize", "100"),
+    ("semanticCacheTTL", "1800000"),
+    ("promptCacheEnabled", "true"),
+    ("promptCacheStrategy", "\"auto\""),
+    ("alwaysPreserveClientCache", "\"auto\""),
+    ("quotaSnapshots", "90"),
+    ("compressionAnalytics", "30"),
+    ("mcpAudit", "30"),
+    ("configAudit", "30"),
+    ("a2aEvents", "30"),
+    ("callLogs", "90"),
+    ("usageHistory", "365"),
+    ("memoryEntries", "180"),
+    ("autoCleanupEnabled", "true"),
+    ("aggregationEnabled", "false"),
+    ("rawDataRetentionDays", "7"),
+    ("granularity", "\"daily\""),
+    ("autoVacuumMode", "\"INCREMENTAL\""),
+    ("scheduledVacuum", "\"weekly\""),
+    ("pageSize", "4096"),
+    ("cacheSize", "16384"),
+    ("mmapSize", "268435456"),
+];
+
+const NAMESPACES: &[(&str, NamespaceClass)] = &[
+    ("settings", NamespaceClass::Handled),
+    ("pricing", NamespaceClass::Handled),
+    ("pricing_synced", NamespaceClass::Handled),
+    ("models_dev_pricing", NamespaceClass::Handled),
+    ("customModels", NamespaceClass::Handled),
+    ("syncedAvailableModels", NamespaceClass::Handled),
+    ("modelAliases", NamespaceClass::Handled),
+    ("providerAliases", NamespaceClass::Handled),
+    ("managedModelAliasNames", NamespaceClass::Handled),
+    ("modelCompatOverrides", NamespaceClass::Handled),
+    ("api_key_id_format", NamespaceClass::Handled),
+    ("api_key_tags", NamespaceClass::Handled),
+    ("api_key_usage_attributes", NamespaceClass::Handled),
+    // Dashboard session signing and the key-checksum secret: imported keys
+    // authenticate by their SHA-256 hash and the native API has no login.
+    ("secrets", NamespaceClass::Dropped("legacy process secrets")),
+    (
+        "lkgp",
+        NamespaceClass::Dropped("learned last-known-good route pins"),
+    ),
+    (
+        "antigravityCreditBalance",
+        NamespaceClass::Dropped("Antigravity credit balance cache"),
+    ),
+    (
+        "gemini_thought_signatures",
+        NamespaceClass::Dropped("Gemini thought signature cache"),
+    ),
+    (
+        "models_dev_snapshot",
+        NamespaceClass::Dropped("models.dev catalog cache"),
+    ),
+    (
+        "pricing_sync_status",
+        NamespaceClass::Dropped("pricing sync status"),
+    ),
+    (
+        "providerLimitsCache",
+        NamespaceClass::Dropped("provider limits cache"),
+    ),
+    (
+        "remoteRouterCatalog",
+        NamespaceClass::Dropped("remote router catalog cache"),
+    ),
+    (
+        "ccDiscoveryMetrics",
+        NamespaceClass::Dropped("Claude Code discovery metrics"),
+    ),
+    (
+        "walMaintenance",
+        NamespaceClass::Dropped("legacy WAL maintenance bookkeeping"),
+    ),
+    (
+        "scheduler",
+        NamespaceClass::Dropped("legacy vacuum scheduler bookkeeping"),
+    ),
+    (
+        "friday_legacy",
+        NamespaceClass::Dropped("v0.33 import bookkeeping"),
+    ),
+    (
+        "dbBackup",
+        NamespaceClass::Refused("database backup settings"),
+    ),
+    (
+        "feature_flags",
+        NamespaceClass::Refused("feature flag overrides"),
+    ),
+    (
+        "proxyConfig",
+        NamespaceClass::Refused("outbound proxy configuration"),
+    ),
+    ("ipFilter", NamespaceClass::Refused("IP filtering")),
+    (
+        "interception_rules",
+        NamespaceClass::Refused("interception rules"),
+    ),
+    (
+        "provider_param_filters",
+        NamespaceClass::Refused("provider parameter filters"),
+    ),
+    ("serviceModels", NamespaceClass::Refused("service models")),
+    ("mitmAlias", NamespaceClass::Refused("MITM aliases")),
+    (
+        "ccDiscoveryAliases",
+        NamespaceClass::Refused("Claude Code discovery aliases"),
+    ),
+    ("conductor", NamespaceClass::Refused("the Conductor bridge")),
+    (
+        "functionalGatewayMirrors",
+        NamespaceClass::Refused("functional gateway mirrors"),
+    ),
+    ("local_corpus", NamespaceClass::Refused("the local corpus")),
+    ("notion", NamespaceClass::Refused("the Notion integration")),
+    (
+        "obsidian",
+        NamespaceClass::Refused("the Obsidian integration"),
+    ),
+    (
+        "compression",
+        NamespaceClass::Seeded {
+            feature: "prompt compression settings",
+            rows: COMPRESSION_SEED,
+        },
+    ),
+    (
+        "databaseSettings",
+        NamespaceClass::Seeded {
+            feature: "database settings",
+            rows: DATABASESETTINGS_SEED,
+        },
+    ),
+    (
+        "apiKeySelfService",
+        NamespaceClass::SeededKeys {
+            feature: "API key self-service bookkeeping",
+            keys: &["usageScopesBackfilled"],
+        },
+    ),
+];
+
+/// The inventory class of a legacy `key_value` namespace, `None` when unknown.
+pub fn namespace_class(namespace: &str) -> Option<NamespaceClass> {
+    NAMESPACES
+        .iter()
+        .find(|(name, _)| *name == namespace)
+        .map(|(_, class)| *class)
+}
+
+async fn namespace_refusal(db: &mut SqliteConnection) -> Result<Option<String>, &'static str> {
+    let namespaces: Vec<String> =
+        sqlx::query_scalar("SELECT DISTINCT namespace FROM key_value ORDER BY namespace")
+            .fetch_all(&mut *db)
+            .await
+            .map_err(|_| "cannot inspect legacy key_value namespaces")?;
+    for namespace in namespaces {
+        let rows: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT key, value FROM key_value WHERE namespace = ?")
+                .bind(&namespace)
+                .fetch_all(&mut *db)
+                .await
+                .map_err(|_| "cannot inspect legacy key_value rows")?;
+        let refusal = match namespace_class(&namespace) {
+            Some(NamespaceClass::Handled | NamespaceClass::Dropped(_)) => None,
+            Some(NamespaceClass::Refused(feature)) => (!rows.is_empty()).then(|| {
+                format!("legacy {feature} (key_value namespace {namespace}) have no native importer yet")
+            }),
+            Some(NamespaceClass::Seeded { feature, rows: seed }) => rows
+                .iter()
+                .any(|(key, value)| {
+                    !seed
+                        .iter()
+                        .any(|(seed_key, seed_value)| key == seed_key && value.as_deref() == Some(*seed_value))
+                })
+                .then(|| format!("legacy {feature} (key_value namespace {namespace}) were configured and have no native importer yet")),
+            Some(NamespaceClass::SeededKeys { feature, keys }) => rows
+                .iter()
+                .any(|(key, _)| !keys.contains(&key.as_str()))
+                .then(|| format!("legacy {feature} (key_value namespace {namespace}) hold rows without a native importer")),
+            None => Some(format!(
+                "legacy key_value namespace {namespace} is not in the migration inventory"
+            )),
+        };
+        if refusal.is_some() {
+            return Ok(refusal);
+        }
+    }
+    Ok(None)
+}
+
 fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -274,6 +511,11 @@ pub async fn refusal(source: &Path) -> Result<Option<String>, &'static str> {
                 continue;
             }
             let class = class(table);
+            if table == "key_value" {
+                if let Some(refusal) = namespace_refusal(&mut db).await? {
+                    return Ok(Some(refusal));
+                }
+            }
             let filter = match class {
                 Some(Handled | Archived | Dropped(_)) => continue,
                 Some(Seeded { seed, .. }) => format!(" WHERE NOT ({seed})"),
