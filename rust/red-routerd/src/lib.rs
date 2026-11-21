@@ -13,6 +13,7 @@ mod catalog_listing;
 mod catalog_order;
 pub mod catalog_version;
 mod circuit;
+pub mod claude_adaptive_thinking;
 pub mod claude_classifier_compat;
 pub mod client_key_catalog;
 pub mod client_key_limits;
@@ -7828,6 +7829,11 @@ async fn proxy_request(
                     })
                 } else if translate_anthropic {
                     translation::request(&attempt_parsed, &target.model).and_then(|mut value| {
+                        claude_adaptive_thinking::normalize_attempt_body(
+                            &mut value,
+                            &target.model,
+                            target.provider_name.as_deref(),
+                        );
                         apply_target_payload_rules(
                             &mut value,
                             payload_rules.as_deref(),
@@ -7840,6 +7846,13 @@ async fn proxy_request(
                     if protocol != ProviderProtocol::Gemini {
                         attempt_parsed["model"] = serde_json::Value::String(target.model.clone());
                     }
+                    // Legacy normalizeAttemptBody: the model-keyed thinking and
+                    // tool-choice guards for the model actually called.
+                    claude_adaptive_thinking::normalize_attempt_body(
+                        &mut attempt_parsed,
+                        &target.model,
+                        target.provider_name.as_deref(),
+                    );
                     apply_target_payload_rules(
                         &mut attempt_parsed,
                         payload_rules.as_deref(),

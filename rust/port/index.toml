@@ -138,6 +138,28 @@ isSharedWalletCredits402 = "red_routerd::shared_wallet_credits::is_shared_wallet
 matchesSharedWalletCreditsBody = "red_routerd::shared_wallet_credits::matches_shared_wallet_credits_body"
 
 [[module]]
+ts = "open-sse/services/claudeAdaptiveThinking.ts"
+status = "ported"
+rust = "claude_adaptive_thinking.rs"
+module = "red_routerd::claude_adaptive_thinking"
+ported_at = "2026-11-21T02:06:01Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/claude-adaptive-thinking-normalize.test.ts",
+    "tests/unit/minimax-m3-adaptive-thinking-12132.test.ts",
+]
+notes = "normalize_attempt_body runs normalizeThinkingForModel, this guard and the disabled-effort cap in the legacy normalizeAttemptBody order on routed passthrough and Claude-translated bodies (case model_spec_guards.rs)."
+
+[module.ts_blobs]
+"open-sse/services/claudeAdaptiveThinking.ts" = "f50ea6bc211771b6a0d846562ab790770530c334"
+"tests/unit/claude-adaptive-thinking-normalize.test.ts" = "d1c80538c1a2f8701d07034181449c098966f80d"
+"tests/unit/minimax-m3-adaptive-thinking-12132.test.ts" = "960bf7eb963abfeab0415a666fda47e3a40563e5"
+
+[module.symbols]
+normalizeClaudeAdaptiveThinking = "red_routerd::claude_adaptive_thinking::normalize_claude_adaptive_thinking"
+normalizeClaudeDisabledThinkingEffort = "red_routerd::claude_adaptive_thinking::normalize_claude_disabled_thinking_effort"
+
+[[module]]
 ts = "open-sse/services/dailyQuotaReset.ts"
 status = "ported"
 rust = "daily_quota_reset.rs"
