@@ -48,7 +48,10 @@ async fn settings_inventory_classifies_rows_without_exposing_or_modifying_them()
     assert!(!report.settings.contains_key("nullValue"));
     let mut refused = report.refused().map(|(key, _)| key).collect::<Vec<_>>();
     refused.sort_unstable();
-    assert_eq!(refused, ["connectionAwareExpansion", "unknownFutureSetting"]);
+    assert_eq!(
+        refused,
+        ["connectionAwareExpansion", "unknownFutureSetting"]
+    );
     // The report names keys only, never stored values.
     let encoded = serde_json::to_string(&report).unwrap();
     assert!(!encoded.contains("secret"));
