@@ -60,6 +60,7 @@ pub mod non_retryable_upstream;
 mod oidc;
 mod openai_content;
 mod opencode_geo_block;
+pub mod opencode_go;
 mod payload_rules;
 mod policy;
 pub mod product;
