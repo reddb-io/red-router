@@ -88,8 +88,8 @@ pub async fn archive(source: &Path, destination: &Path) -> Result<ArchiveReport,
         if marker != 0 { return Err("legacy archive already exists; nothing overwritten"); }
         sqlx::query("CREATE TABLE redrouter_legacy_archive_manifest (source_table TEXT PRIMARY KEY, row_count BIGINT)")
             .execute(&mut *tx).await.map_err(|_| "cannot initialize legacy archive")?;
-        let mut report = Vec::with_capacity(TABLES.len());
-        for &table in TABLES {
+        let mut report = Vec::with_capacity(TABLES.len() + crate::legacy_tables::ARCHIVED.len());
+        for &table in TABLES.iter().chain(crate::legacy_tables::ARCHIVED) {
             let definition: Option<String> = sqlx::query_scalar("SELECT sql FROM legacy.sqlite_master WHERE type='table' AND name=?")
                 .bind(table).fetch_optional(&mut *tx).await.map_err(|_| "cannot inspect legacy schema")?;
             let Some(definition) = definition else {

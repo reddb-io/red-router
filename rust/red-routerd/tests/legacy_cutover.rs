@@ -349,8 +349,66 @@ async fn legacy_combos_are_refused_until_they_have_an_importer() {
     .unwrap();
 
     assert!(
-        error.contains("legacy combos have no native importer yet"),
+        error.contains("legacy combos (combos) have no native importer yet"),
         "{error}"
     );
     assert_eq!(before, tokio::fs::read(&destination).await.unwrap());
+}
+
+/// The table inventory over a fresh legacy install: its seeded rows pass; a
+/// configured seed or an unknown table with rows does not.
+#[tokio::test]
+async fn the_table_inventory_accepts_seeds_and_refuses_configuration() {
+    let directory = tempdir().unwrap();
+    let source = directory.path().join("legacy.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "fixtures/legacy_reference/legacy_reference.sql"
+    ))
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    // The seeded rows of a fresh install are accepted.
+    legacy.close().await.unwrap();
+    assert_eq!(
+        red_routerd::legacy_tables::refusal(&source).await.unwrap(),
+        None
+    );
+
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE jobs SET enabled = 1 WHERE id = 'warmup'")
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let refusal = red_routerd::legacy_tables::refusal(&source)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(refusal.contains("background jobs (jobs)"), "{refusal}");
+
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("UPDATE jobs SET enabled = 0 WHERE id = 'warmup'; CREATE TABLE future_feature (id TEXT); INSERT INTO future_feature VALUES ('x');")
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let refusal = red_routerd::legacy_tables::refusal(&source)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        refusal.contains("future_feature is not in the migration inventory"),
+        "{refusal}"
+    );
 }

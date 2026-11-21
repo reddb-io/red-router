@@ -5,7 +5,7 @@
 //! leave an operator with a partially migrated Rust database.
 use crate::{
     legacy_aliases, legacy_archive, legacy_keys, legacy_models, legacy_payload_rules,
-    legacy_preflight, legacy_provider_nodes, legacy_providers, legacy_settings,
+    legacy_preflight, legacy_provider_nodes, legacy_providers, legacy_settings, legacy_tables,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -29,22 +29,6 @@ pub struct CutoverReport {
     pub usage_archive: legacy_archive::ArchiveReport,
     pub activation_required: bool,
     pub follow_up: Vec<&'static str>,
-}
-
-/// Legacy tables the preflight counts that no cutover stage imports or
-/// archives: the first one holding rows, by its human name.
-fn unimported_rows(preflight: &legacy_preflight::LegacyPreflight) -> Option<&'static str> {
-    const UNIMPORTED: &[(&str, &str)] = &[
-        ("combos", "combos"),
-        ("redrouter_usage_sinks", "usage sinks"),
-    ];
-    UNIMPORTED.iter().find_map(|(table, label)| {
-        preflight
-            .tables
-            .iter()
-            .any(|count| count.table == *table && count.rows.unwrap_or(0) > 0)
-            .then_some(*label)
-    })
 }
 
 fn sidecars(path: &Path) -> [PathBuf; 3] {
@@ -151,12 +135,13 @@ pub async fn migrate(
     let preflight = legacy_preflight::inspect(&source)
         .await
         .map_err(str::to_owned)?;
-    // No stage imports these yet; a store that has rows in them must not
-    // cut over as if they did not exist.
-    if let Some(table) = unimported_rows(&preflight) {
-        return Err(format!(
-            "legacy {table} have no native importer yet; nothing migrated"
-        ));
+    // Every legacy table with rows needs an accepting decision: no table is
+    // left behind silently.
+    if let Some(reason) = legacy_tables::refusal(&source)
+        .await
+        .map_err(str::to_owned)?
+    {
+        return Err(format!("{reason}; nothing migrated"));
     }
     std::fs::copy(&destination, &rollback).map_err(|_| "cannot create rollback copy".to_owned())?;
 

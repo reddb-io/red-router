@@ -47,6 +47,7 @@ pub mod legacy_provider_nodes;
 pub mod legacy_providers;
 pub mod legacy_quota;
 pub mod legacy_settings;
+pub mod legacy_tables;
 mod mistral_ambiguous_auth;
 mod model_alias_response;
 mod model_endpoint_policy;
