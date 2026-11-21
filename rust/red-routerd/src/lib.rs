@@ -27,6 +27,7 @@ pub mod data_paths;
 pub mod error_config;
 pub mod error_path_redaction;
 pub mod error_sanitization;
+pub mod error_text_classification;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;

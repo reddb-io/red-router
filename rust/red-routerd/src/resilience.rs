@@ -486,7 +486,7 @@ pub(crate) fn set_custom_banned_signals(signals: Vec<String>) {
     }
 }
 
-fn banned_text(text: &str) -> bool {
+pub(crate) fn banned_text(text: &str) -> bool {
     // As in the legacy matcher, the body is lowercased but a custom signal is
     // compared as stored.
     let custom = CUSTOM_BANNED_SIGNALS
@@ -507,7 +507,7 @@ fn banned_text(text: &str) -> bool {
         )
 }
 
-fn credits_exhausted_text(text: &str) -> bool {
+pub(crate) fn credits_exhausted_text(text: &str) -> bool {
     contains_any(
         text,
         &[
@@ -516,7 +516,9 @@ fn credits_exhausted_text(text: &str) -> bool {
             "exceeded your current quota",
             "exceeded your current usage quota",
             "credit_balance_too_low",
-            "credit balance is too low",
+            // Legacy anchors this on "your"; a bare "credit balance is too low"
+            // is not a signal.
+            "your credit balance is too low",
             "credits exhausted",
             "out of credits",
             "payment required",
@@ -527,6 +529,7 @@ fn credits_exhausted_text(text: &str) -> bool {
             "insufficient balance",
             "insufficient_balance",
             "insufficient account balance",
+            "insufficient credit balance",
             "insufficient credit",
             "exhausted all your credits",
             // Shared-wallet providers (Grok Build) report the weekly pool.
