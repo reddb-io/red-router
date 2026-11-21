@@ -8,6 +8,8 @@ Finish the migration of the legacy TypeScript backend (baseline `525a71de`) to t
 
 The maintainer chose the **cutover** criterion as the definition of done for the first goal: the cutover imports a reference legacy database with no refusal. It is met (see below). The full migration is a much larger goal; treat the open work as a new goal with fronts prioritized by the maintainer.
 
+**Closed on 2026-11-21 by the maintainer on the cutover criterion.** At close: the offline cutover imports the real legacy store with no refusal; four of its six provider accounts adopt (OpenRouter, Cloudflare Workers AI, OpenCode Go with all 68 models on the control-plane path, and Claude); Codex (no refresh token in the legacy store) and Antigravity IDE (needs the IDE profile) still do not. Ledger fronts 6 and 8 to 15 and the front 7 remainder (wiring the failure classifier, which waits on the credit cooldown policy) are future work, as are translated-stream usage accounting, the fusion-panel branches for the Messages and Responses protocols, and `product_provider::supports_model` on the product path.
+
 ## Where things live
 
 - `rust/red-routerd` is the destination daemon (axum, sqlx, tokio, reqwest). Unit tests sit next to the code; `tests/` holds integration tests and `tests/cases/*.rs` are pulled in with `include!` (run `rustfmt` on them directly before pushing).
