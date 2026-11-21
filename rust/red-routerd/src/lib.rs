@@ -85,6 +85,7 @@ mod request_cap;
 mod request_queue;
 mod request_resource_errors;
 mod resilience;
+mod responses_adapter;
 pub mod responses_helpers;
 pub mod responses_request;
 mod responses_state;
