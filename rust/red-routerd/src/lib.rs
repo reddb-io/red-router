@@ -35,6 +35,7 @@ pub mod fastllm_supervisor;
 mod global_settings;
 mod icon_url;
 mod idempotency;
+mod image_generation;
 pub mod ip_utils;
 pub mod json_hash;
 mod kafka_export;
@@ -141,6 +142,8 @@ const MAX_IN_FLIGHT: usize = 64;
 const MAX_ROUTE_TARGETS: usize = 8;
 const NO_ROUTE_TARGET: usize = usize::MAX;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
+const MAX_IMAGE_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+const IMAGE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(300);
 const ANTIGRAVITY_CREDITS_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 const PROVIDER_ERROR_BODY_TIMEOUT: Duration = Duration::from_secs(2);
 const RED_ROUTER_CATALOG_VERSION: &str = "x-redrouter-catalog-version";
@@ -657,6 +660,7 @@ pub(crate) enum ProviderProtocol {
     OpenAi,
     OpenAiResponses,
     OpenAiEmbeddings,
+    OpenAiImages,
     CohereRerank,
     Anthropic,
     OpenAiToAnthropic,
@@ -1733,6 +1737,7 @@ impl ProxyState {
                         "/responses"
                     }
                     ProviderProtocol::OpenAiEmbeddings => "/embeddings",
+                    ProviderProtocol::OpenAiImages => "/images/generations",
                     ProviderProtocol::CohereRerank => "/rerank",
                     ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
                         "/messages"
@@ -1905,6 +1910,13 @@ impl ProxyState {
                 let path = format!("{prefix}/responses");
                 upstream.set_path(&path);
                 protocol = ProviderProtocol::OpenAiToResponses;
+            }
+        }
+        // An image request to a chat provider goes to its sibling images endpoint.
+        if protocol == ProviderProtocol::OpenAiImages {
+            if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
+                let path = format!("{prefix}/images/generations");
+                upstream.set_path(&path);
             }
         }
         ModelTarget {
@@ -2109,6 +2121,9 @@ impl ProxyState {
                 Some(value) if value.as_str() == Some("openai-embeddings") => {
                     ProviderProtocol::OpenAiEmbeddings
                 }
+                Some(value) if value.as_str() == Some("openai-images") => {
+                    ProviderProtocol::OpenAiImages
+                }
                 Some(value) if value.as_str() == Some("cohere-rerank") => {
                     ProviderProtocol::CohereRerank
                 }
@@ -2165,7 +2180,9 @@ impl ProxyState {
                 RouteStrategy::ContextRelay | RouteStrategy::Fusion | RouteStrategy::Pipeline
             ) && matches!(
                 protocol,
-                ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+                ProviderProtocol::OpenAiEmbeddings
+                    | ProviderProtocol::OpenAiImages
+                    | ProviderProtocol::CohereRerank
             ) {
                 return Err("strategy requires a conversational protocol");
             }
@@ -2431,6 +2448,7 @@ impl ProviderProtocol {
             Self::OpenAi
             | Self::OpenAiResponses
             | Self::OpenAiEmbeddings
+            | Self::OpenAiImages
             | Self::CohereRerank
             | Self::Anthropic
             | Self::Gemini => Ok(protocol),
@@ -2443,6 +2461,7 @@ impl ProviderProtocol {
             "openai" => Ok(Self::OpenAi),
             "openai-responses" => Ok(Self::OpenAiResponses),
             "openai-embeddings" => Ok(Self::OpenAiEmbeddings),
+            "openai-images" => Ok(Self::OpenAiImages),
             "cohere-rerank" => Ok(Self::CohereRerank),
             "anthropic" => Ok(Self::Anthropic),
             "openai-to-anthropic" => Ok(Self::OpenAiToAnthropic),
@@ -2461,6 +2480,8 @@ impl ProviderProtocol {
             Ok(Self::OpenAi)
         } else if path.ends_with("/responses") {
             Ok(Self::OpenAiResponses)
+        } else if path.ends_with("/images/generations") {
+            Ok(Self::OpenAiImages)
         } else if path.ends_with("/embeddings") {
             Ok(Self::OpenAiEmbeddings)
         } else if path.ends_with("/rerank") {
@@ -2918,6 +2939,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
+        .route("/v1/images/generations", post(images_generations))
         .route("/v1/rerank", post(rerank))
         .route("/v1/messages", post(messages))
         .route("/v1/me/status", get(self_service::me_status))
@@ -3003,7 +3025,9 @@ fn payload_rule_format(protocol: ProviderProtocol) -> Option<&'static str> {
         ProviderProtocol::Antigravity | ProviderProtocol::OpenAiToAntigravity => {
             Some("antigravity")
         }
-        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank => None,
+        ProviderProtocol::OpenAiEmbeddings
+        | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::CohereRerank => None,
     }
 }
 
@@ -3294,6 +3318,7 @@ fn attach_served_model(response: &mut Response, served_model: Option<&HeaderValu
 fn route_category(protocol: ProviderProtocol) -> &'static str {
     match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
+        ProviderProtocol::OpenAiImages => "images",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     }
@@ -3302,6 +3327,7 @@ fn route_category(protocol: ProviderProtocol) -> &'static str {
 fn route_model_type(protocol: ProviderProtocol) -> &'static str {
     match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embedding",
+        ProviderProtocol::OpenAiImages => "image",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     }
@@ -4245,6 +4271,10 @@ async fn responses(State(state): State<ProxyState>, request: Request) -> Respons
 
 async fn embeddings(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::OpenAiEmbeddings, None).await
+}
+
+async fn images_generations(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::OpenAiImages, None).await
 }
 
 async fn rerank(State(state): State<ProxyState>, request: Request) -> Response {
@@ -6249,7 +6279,9 @@ fn inject_context_relay_handoff(
                 .ok_or(())?;
             messages.insert(0, serde_json::json!({"role":"system", "content":content}));
         }
-        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank => return Err(()),
+        ProviderProtocol::OpenAiEmbeddings
+        | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::CohereRerank => return Err(()),
     }
     Ok(())
 }
@@ -6475,6 +6507,7 @@ async fn proxy_request(
     }
     let category = match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
+        ProviderProtocol::OpenAiImages => "images",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     };
@@ -8174,6 +8207,20 @@ async fn proxy_request(
                 Err(()) => return error(StatusCode::BAD_REQUEST, "Invalid Codex request body"),
             };
         }
+        if attempt_protocol == ProviderProtocol::OpenAiImages {
+            let routed = target.map_or(model.as_str(), |target| target.model.as_str());
+            let shaped = serde_json::from_slice::<serde_json::Value>(&payload)
+                .map_err(|_| "Invalid JSON body".to_owned())
+                .and_then(|value| image_generation::request_body(&value, routed, &requested_model));
+            payload = match shaped {
+                Ok(payload) => payload,
+                Err(message) => return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": {"message": message, "type": "proxy_error"}})),
+                )
+                    .into_response(),
+            };
+        }
         let claude_identity = target
             .and_then(|target| target.claude_identity.as_deref())
             .or_else(|| {
@@ -9698,6 +9745,41 @@ async fn proxy_request(
             return model_alias_response::rewrite(result, response_alias).await;
         }
     }
+    // Legacy fetchImageEndpoint: an image answer is reduced to {created, data}, and
+    // a 2xx without a usable image is a retryable 502.
+    if protocol == ProviderProtocol::OpenAiImages && response.status().is_success() {
+        let Some(response) = response.into_streaming() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
+        let read = async {
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_IMAGE_RESPONSE_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(bytes)
+        };
+        let bytes = match tokio::time::timeout(IMAGE_RESPONSE_TIMEOUT, read).await {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(())) => return error(StatusCode::BAD_GATEWAY, "Invalid image response"),
+            Err(_) => return error(StatusCode::GATEWAY_TIMEOUT, "Image provider timed out"),
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        return match image_generation::normalize_response(&bytes, now) {
+            Ok(value) => {
+                let mut result = (StatusCode::OK, Json(value)).into_response();
+                attach_served_model(&mut result, final_served_model.as_ref());
+                model_alias_response::rewrite(result, response_alias).await
+            }
+            Err(message) => error(StatusCode::BAD_GATEWAY, message),
+        };
+    }
     // Legacy chatCore createErrorResult: a failed chat, messages or responses
     // request answers with the sanitized public envelope, never the raw
     // provider body; a Claude-format client keeps an eligible 4xx shape.
@@ -9707,6 +9789,7 @@ async fn proxy_request(
             ProviderProtocol::OpenAi
                 | ProviderProtocol::Anthropic
                 | ProviderProtocol::OpenAiResponses
+                | ProviderProtocol::OpenAiImages
         )
     {
         return public_upstream_failure(

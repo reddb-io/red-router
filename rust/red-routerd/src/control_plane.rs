@@ -5021,6 +5021,14 @@ impl ControlPlane {
                     (ProviderProtocol::OpenAi, ProviderProtocol::Antigravity) => {
                         ProviderProtocol::OpenAiToAntigravity
                     }
+                    // Legacy imageRegistry: these providers serve images beside chat.
+                    (ProviderProtocol::OpenAiImages, ProviderProtocol::OpenAi)
+                        if crate::image_generation::serves_images_beside_chat(
+                            &account.record.provider,
+                        ) =>
+                    {
+                        ProviderProtocol::OpenAiImages
+                    }
                     (requested, actual) if requested == actual => requested,
                     _ => return None,
                 };
@@ -12503,6 +12511,10 @@ async fn probe_provider(
             "model":&model,
             "input":"RedRouter connection test"
         }),
+        ProviderProtocol::OpenAiImages => serde_json::json!({
+            "model":&model,
+            "prompt":"RedRouter connection test"
+        }),
         ProviderProtocol::CohereRerank => serde_json::json!({
             "model":&model,
             "query":"RedRouter connection test",
@@ -13851,6 +13863,7 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
                 "inference:*"
                     | "inference:chat"
                     | "inference:embeddings"
+                    | "inference:images"
                     | "inference:rerank"
                     | crate::self_service::SELF_USAGE_SCOPE
                     | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
@@ -13869,7 +13882,7 @@ fn validate_endpoint_list(values: &[String]) -> Result<(), &'static str> {
     if values.len() > 20
         || values
             .iter()
-            .any(|value| !matches!(value.as_str(), "chat" | "embeddings" | "rerank"))
+            .any(|value| !matches!(value.as_str(), "chat" | "embeddings" | "images" | "rerank"))
     {
         return Err("invalid client key endpoint grants");
     }
@@ -14033,7 +14046,9 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         "context-relay" | "fusion" | "pipeline"
     ) && matches!(
         protocol,
-        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+        ProviderProtocol::OpenAiEmbeddings
+            | ProviderProtocol::OpenAiImages
+            | ProviderProtocol::CohereRerank
     ) {
         return Err("strategy requires a conversational protocol");
     }

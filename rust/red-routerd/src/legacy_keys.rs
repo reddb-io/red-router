@@ -431,7 +431,7 @@ fn import_schedule(raw: Option<&str>) -> Result<String, &'static str> {
     serde_json::to_string(&schedule).map_err(|_| "cannot encode legacy access schedule")
 }
 /// Legacy endpoint categories as native grants. The native router gates
-/// `chat`, `embeddings` and `rerank`; the legacy `models` category has no
+/// `chat`, `embeddings`, `images` and `rerank`; the legacy `models` category has no
 /// native gate (listing stays available). A list that keeps no native
 /// category cannot be expressed, since an empty native list allows all.
 fn import_endpoint_grants(value: Option<&str>) -> Result<String, &'static str> {
@@ -447,7 +447,7 @@ fn import_endpoint_grants(value: Option<&str>) -> Result<String, &'static str> {
     let mut grants: Vec<String> = Vec::new();
     for category in &categories {
         match category.as_str() {
-            "chat" | "embeddings" | "rerank" => {
+            "chat" | "embeddings" | "images" | "rerank" => {
                 if !grants.contains(category) {
                     grants.push(category.clone());
                 }
