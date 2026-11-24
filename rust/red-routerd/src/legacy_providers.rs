@@ -635,7 +635,10 @@ async fn adopt_oauth(
             (access, refresh, session, expiry, None, upstream)
         } else {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Antigravity identity token requires migration"); }
-            if text("scope")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy Antigravity OAuth scope requires migration"); }
+            // The IDE account's granted scope list is informational (the refresh grant does not send
+            // it), so it is kept beside the session; the CLI account never carried one.
+            let granted_scope = text("scope")?.filter(|value| !value.trim().is_empty());
+            if granted_scope.is_some_and(|value| !ide_profile || value.len() > 4096 || value.chars().any(char::is_control)) { return Err("legacy Antigravity OAuth scope requires migration"); }
             if specific.keys().any(|key| !matches!(key.as_str(), "projectId" | "clientProfile" | "authMethod" | "tokenType") && !(ide_profile && matches!(key.as_str(), "tier" | "subscriptionTier" | "plan" | "autoFetchModels"))) { return Err("legacy Antigravity configuration requires migration"); }
             // Legacy normalizeAntigravityClientProfile: the IDE account defaults to ide, and the
             // harness and sdk spellings read as cli; the CLI account is always cli.
@@ -661,6 +664,8 @@ async fn adopt_oauth(
             if ide_profile {
                 // Plan labels are informational; they stay beside the session for the operator.
                 let plan: serde_json::Map<String, serde_json::Value> = ["tier", "subscriptionTier", "plan"].iter().filter_map(|key| specific.get(*key).filter(|value| value.is_string()).map(|value| ((*key).to_owned(), value.clone()))).collect();
+                let mut plan = plan;
+                if let Some(scope) = granted_scope { plan.insert("scope".to_owned(), serde_json::Value::String(scope.to_owned())); }
                 session["legacyAntigravity"] = serde_json::Value::Object(plan);
             }
             let session = Zeroizing::new(session.to_string());
