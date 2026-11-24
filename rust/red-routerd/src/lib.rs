@@ -329,6 +329,7 @@ pub(crate) struct LiveProvider {
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     /// The ChatGPT workspace a Codex account is bound to (legacy
     /// `providerSpecificData.workspaceId`).
@@ -689,6 +690,7 @@ pub(crate) struct ModelTarget {
     provider_name: Option<Arc<str>>,
     model_rules: Option<Arc<control_plane::provider_rules::ModelRules>>,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     codex_account: Option<Arc<codex_request::CodexAccount>>,
     rate_limit_scope: resilience::RateLimitScope,
@@ -1847,6 +1849,7 @@ impl ProxyState {
             provider_id: None,
             provider_name: None,
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             codex_account: None,
             tenant_id: Arc::from("red"),
@@ -1919,6 +1922,7 @@ impl ProxyState {
             provider_name: provider.provider_name.clone(),
             model_rules: None,
             antigravity_project: provider.antigravity_project.clone(),
+            antigravity_profile: provider.antigravity_profile,
             claude_identity: provider.claude_identity.clone(),
             codex_account: provider.codex_account.clone(),
             rate_limit_scope: provider.rate_limit_scope,
@@ -2354,6 +2358,7 @@ impl ProxyState {
                     provider_name: None,
                     model_rules: None,
                     antigravity_project: None,
+                    antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
                     claude_identity: None,
                     codex_account: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
@@ -4282,8 +4287,6 @@ const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
 const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
 const CONTEXT_RELAY_SUMMARY_DEADLINE: Duration = Duration::from_secs(45);
-const ANTIGRAVITY_CLI_USER_AGENT: &str =
-    "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CLAUDE_SENTINEL: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
@@ -4448,6 +4451,7 @@ struct ContextRelaySummaryTarget {
     provider_name: String,
     model: String,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
@@ -4628,6 +4632,7 @@ fn context_relay_summary_target(
         provider_name: provider,
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        antigravity_profile: target.antigravity_profile,
         claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
@@ -4879,9 +4884,10 @@ async fn generate_context_relay_summary(
             }
         }
         if antigravity {
-            request = request
-                .header(header::ACCEPT, "text/event-stream")
-                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            request = request.header(header::ACCEPT, "text/event-stream").header(
+                header::USER_AGENT,
+                antigravity_headers::request_user_agent(target.antigravity_profile),
+            );
             if include_antigravity_project {
                 if let Some(project) = target.antigravity_project.as_deref() {
                     request = request.header("x-goog-user-project", project);
@@ -5192,6 +5198,7 @@ fn internal_target_from_model(
             .to_ascii_lowercase(),
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        antigravity_profile: target.antigravity_profile,
         claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
@@ -5586,9 +5593,10 @@ async fn execute_fusion_panel_target(
             request = request.header("anthropic-version", "2023-06-01");
         }
         if antigravity {
-            request = request
-                .header(header::ACCEPT, "text/event-stream")
-                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            request = request.header(header::ACCEPT, "text/event-stream").header(
+                header::USER_AGENT,
+                antigravity_headers::request_user_agent(target.antigravity_profile),
+            );
             if include_project {
                 if let Some(project) = target.antigravity_project.as_deref() {
                     request = request.header("x-goog-user-project", project);
@@ -8267,6 +8275,14 @@ async fn proxy_request(
                     .map(str::to_owned)
             })
             .flatten();
+        let antigravity_profile = target
+            .map(|target| target.antigravity_profile)
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .map(|provider| provider.antigravity_profile)
+            })
+            .unwrap_or(antigravity_headers::ClientProfile::Cli);
         // Keep the finite JSON upload replayable. Antigravity's official CLI
         // retries a project-scoped 403 once without x-goog-user-project because
         // consumer accounts can have a valid session but no permission to bill
@@ -8329,9 +8345,10 @@ async fn proxy_request(
                 }
             }
             if attempt_antigravity {
-                upstream = upstream
-                    .header(header::ACCEPT, "text/event-stream")
-                    .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+                upstream = upstream.header(header::ACCEPT, "text/event-stream").header(
+                    header::USER_AGENT,
+                    antigravity_headers::request_user_agent(antigravity_profile),
+                );
                 if include_antigravity_project {
                     if let Some(project) = antigravity_project.as_deref() {
                         upstream = upstream.header("x-goog-user-project", project);
@@ -10177,7 +10194,9 @@ mod address_tests {
                             );
                             assert_eq!(
                                 headers[header::USER_AGENT].to_str().unwrap(),
-                                ANTIGRAVITY_CLI_USER_AGENT
+                                antigravity_headers::request_user_agent(
+                                    antigravity_headers::ClientProfile::Cli
+                                )
                             );
                             observed.lock().unwrap().push(body);
                             if attempt == 0 {
@@ -10235,6 +10254,7 @@ mod address_tests {
             provider_name: "google".to_owned(),
             model: "gemini-2.5-flash".to_owned(),
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
@@ -10281,6 +10301,7 @@ mod address_tests {
             provider_name: "agy".to_owned(),
             model: "gemini-2.5-pro".to_owned(),
             antigravity_project: Some(Arc::from("relay-project")),
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
@@ -10422,6 +10443,7 @@ mod address_tests {
             provider_name: Some(Arc::from("antigravity")),
             model_rules: None,
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             codex_account: None,
             rate_limit_scope: resilience::RateLimitScope::Model,

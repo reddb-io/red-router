@@ -1,5 +1,6 @@
-// Dead code until the IDE profile is wired into the request path (step 3 of the Antigravity IDE plan in
-// docs/architecture/RUSTIFY_HANDOFF.md); remove this allow when it is.
+// `request_user_agent` is wired into the model request path. The remaining helpers (OAuth and
+// loadCodeAssist identity, IDE-Node headers) port the legacy surface for the native token refresh
+// and project bootstrap, which do not exist yet; remove this allow when they do.
 #![allow(dead_code)]
 
 //! Antigravity client identity headers (legacy `open-sse/services/antigravityHeaders.ts`).
@@ -81,12 +82,18 @@ fn with_bearer(
     headers
 }
 
-/// Legacy `getAntigravityContentHeaders` at the fallback versions.
-pub fn content_headers(profile: ClientProfile, token: Option<&str>) -> Vec<(&'static str, String)> {
-    let agent = match profile {
+/// The user agent of the model request: the CLI string for the CLI profile,
+/// the IDE string otherwise (legacy `getAntigravityContentHeaders`).
+pub fn request_user_agent(profile: ClientProfile) -> String {
+    match profile {
         ClientProfile::Cli => cli_user_agent(CLI_FALLBACK_VERSION, "consumer"),
         ClientProfile::Ide => ide_user_agent(IDE_FALLBACK_VERSION),
-    };
+    }
+}
+
+/// Legacy `getAntigravityContentHeaders` at the fallback versions.
+pub fn content_headers(profile: ClientProfile, token: Option<&str>) -> Vec<(&'static str, String)> {
+    let agent = request_user_agent(profile);
     with_bearer(
         vec![
             ("Content-Type", "application/json".to_owned()),
@@ -154,6 +161,18 @@ mod tests {
         assert_eq!(
             oauth_user_agent(ClientProfile::Ide),
             ide_node_user_agent("2.1.1")
+        );
+    }
+
+    #[test]
+    fn the_request_user_agent_follows_the_profile() {
+        assert_eq!(
+            request_user_agent(ClientProfile::Cli),
+            "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)"
+        );
+        assert_eq!(
+            request_user_agent(ClientProfile::Ide),
+            "antigravity/ide/2.1.1 darwin/arm64"
         );
     }
 

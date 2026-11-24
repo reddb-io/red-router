@@ -431,6 +431,7 @@ struct DirectAccount {
     auth: StoredProviderAuth,
     rate_limit_scope: RateLimitScope,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<crate::ClaudeIdentity>>,
     codex_account: Option<Arc<crate::codex_request::CodexAccount>>,
     quota: Arc<TargetQuota>,
@@ -4738,6 +4739,7 @@ impl ControlPlane {
                 runtime.tenant_id = Arc::from(provider.tenant_id.clone());
                 runtime.rate_limit_scope = account.rate_limit_scope;
                 runtime.antigravity_project = account.antigravity_project.clone();
+                runtime.antigravity_profile = account.antigravity_profile;
                 runtime.claude_identity = account.claude_identity.clone();
                 runtime.codex_account = account.codex_account.clone();
                 let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
@@ -10112,7 +10114,13 @@ impl ControlPlane {
                 live.availability = Some(availability);
                 live.antigravity_project = antigravity_projects
                     .get(&(record.id.clone(), record.updated_at))
-                    .cloned();
+                    .map(|(project, _)| project.clone());
+                live.antigravity_profile = antigravity_projects
+                    .get(&(record.id.clone(), record.updated_at))
+                    .map_or(
+                        crate::antigravity_headers::ClientProfile::Cli,
+                        |(_, profile)| *profile,
+                    );
                 live.claude_identity = claude_identities
                     .get(&(record.id.clone(), record.updated_at))
                     .cloned();
@@ -10340,7 +10348,13 @@ impl ControlPlane {
                         .and_then(|cap| usize::try_from(cap).ok());
                     runtime.antigravity_project = antigravity_projects
                         .get(&(provider.id.clone(), provider.updated_at))
-                        .cloned();
+                        .map(|(project, _)| project.clone());
+                    runtime.antigravity_profile = antigravity_projects
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .map_or(
+                            crate::antigravity_headers::ClientProfile::Cli,
+                            |(_, profile)| *profile,
+                        );
                     runtime.claude_identity = claude_identities
                         .get(&(provider.id.clone(), provider.updated_at))
                         .cloned();
@@ -10536,7 +10550,13 @@ impl ControlPlane {
                     .cloned()
                     .unwrap_or_else(|| default_provider_auth(provider)),
                 rate_limit_scope: resilience.get(&key).copied().unwrap_or_default(),
-                antigravity_project: antigravity_projects.get(&key).cloned(),
+                antigravity_project: antigravity_projects
+                    .get(&key)
+                    .map(|(project, _)| project.clone()),
+                antigravity_profile: antigravity_projects.get(&key).map_or(
+                    crate::antigravity_headers::ClientProfile::Cli,
+                    |(_, profile)| *profile,
+                ),
                 claude_identity: claude_identities.get(&key).cloned(),
                 codex_account: codex_accounts.get(&key).cloned(),
                 quota: self.quota_state(&provider.id).await,
@@ -10969,7 +10989,12 @@ impl ControlPlane {
             .collect()
     }
 
-    async fn antigravity_projects(&self) -> Result<HashMap<(String, i64), Arc<str>>, &'static str> {
+    async fn antigravity_projects(
+        &self,
+    ) -> Result<
+        HashMap<(String, i64), (Arc<str>, crate::antigravity_headers::ClientProfile)>,
+        &'static str,
+    > {
         let mut projects = HashMap::new();
         for record in self.0.database.provider_sessions().await? {
             if record.provider != "agy" {
@@ -10990,10 +11015,17 @@ impl ControlPlane {
             if project.len() > 256 || project.chars().any(char::is_control) {
                 return Err("invalid Antigravity project identifier");
             }
+            // Sessions written before the profile marker are CLI sessions.
+            let profile = match metadata.get("clientProfile") {
+                None | Some(serde_json::Value::Null) => {
+                    crate::antigravity_headers::ClientProfile::Cli
+                }
+                value => crate::antigravity_headers::ClientProfile::normalize(value),
+            };
             if projects
                 .insert(
                     (record.provider_id, record.revision),
-                    Arc::from(project.to_owned()),
+                    (Arc::from(project.to_owned()), profile),
                 )
                 .is_some()
             {
