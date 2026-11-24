@@ -17,6 +17,60 @@ pub(crate) fn serves_images_beside_chat(provider: &str) -> bool {
     )
 }
 
+/// Cloudflare Workers AI (`cloudflare-ai-image` format): the image URL is
+/// derived from the account's chat URL, so the account ID is already known.
+pub(crate) fn is_cloudflare(provider: &str) -> bool {
+    provider == "cloudflare-ai"
+}
+
+/// Providers whose accounts can serve `/v1/images/generations`.
+pub(crate) fn serves_images(provider: &str) -> bool {
+    serves_images_beside_chat(provider) || is_cloudflare(provider)
+}
+
+/// Legacy `handleCloudflareAiImageGeneration` body: the prompt, the
+/// `WIDTHxHEIGHT` size split into numbers (`auto` and malformed sizes are
+/// dropped), and numeric `seed` / `num_steps`.
+pub(crate) fn cloudflare_request_body(
+    body: &Value,
+    requested_model: &str,
+) -> Result<Vec<u8>, String> {
+    let object = body.as_object().ok_or("Invalid JSON body")?;
+    let prompt = object
+        .get("prompt")
+        .and_then(Value::as_str)
+        .filter(|prompt| !prompt.trim().is_empty())
+        .ok_or_else(|| format!("Prompt is required for image model: {requested_model}"))?;
+    let mut upstream = Map::new();
+    upstream.insert("prompt".to_owned(), json!(prompt));
+    if let Some((width, height)) = object
+        .get("size")
+        .and_then(Value::as_str)
+        .and_then(|size| size.split_once('x'))
+        .and_then(|(width, height)| {
+            let parse = |part: &str| {
+                (!part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+                    .then(|| part.parse::<u64>().ok())
+                    .flatten()
+            };
+            Some((parse(width)?, parse(height)?))
+        })
+    {
+        if width != 0 {
+            upstream.insert("width".to_owned(), json!(width));
+        }
+        if height != 0 {
+            upstream.insert("height".to_owned(), json!(height));
+        }
+    }
+    for field in ["seed", "num_steps"] {
+        if let Some(value) = object.get(field).filter(|value| value.is_number()) {
+            upstream.insert(field.to_owned(), value.clone());
+        }
+    }
+    serde_json::to_vec(&Value::Object(upstream)).map_err(|_| "Invalid JSON body".to_owned())
+}
+
 /// The legacy upstream body: the routed model and prompt, plus the optional
 /// parameters that are passed through when present.
 pub(crate) fn request_body(
@@ -48,8 +102,28 @@ pub(crate) fn request_body(
 /// Legacy `fetchImageEndpoint` on a 2xx: answer `{created, data}`, and refuse an
 /// answer without a single usable image (`b64_json` or `url`), which the legacy
 /// router reports as a retryable 502 so combos fall back.
-pub(crate) fn normalize_response(bytes: &[u8], now_secs: u64) -> Result<Value, &'static str> {
+pub(crate) fn normalize_response(
+    bytes: &[u8],
+    now_secs: u64,
+    prompt: Option<&str>,
+) -> Result<Value, &'static str> {
     let parsed: Value = serde_json::from_slice(bytes).map_err(|_| "Invalid image response")?;
+    // Cloudflare answers `{result:{image}, success}` with a raw base64 image.
+    if let Some(result) = parsed.get("result").filter(|result| result.is_object()) {
+        let image = result
+            .get("image")
+            .and_then(Value::as_str)
+            .filter(|image| !image.is_empty());
+        return match image {
+            Some(image) if parsed.get("success").and_then(Value::as_bool) == Some(true) => {
+                Ok(json!({
+                    "created": now_secs,
+                    "data": [{"b64_json": image, "revised_prompt": prompt.unwrap_or_default()}]
+                }))
+            }
+            _ => Err("No image returned from Cloudflare Workers AI"),
+        };
+    }
     let items = parsed
         .get("data")
         .and_then(Value::as_array)
@@ -128,15 +202,17 @@ mod tests {
         let answer = normalize_response(
             br#"{"created":123,"data":[{"b64_json":"AAAA","revised_prompt":"r"}],"usage":{"x":1}}"#,
             999,
+            None,
         )
         .unwrap();
         assert_eq!(
             answer,
             json!({"created":123,"data":[{"b64_json":"AAAA","revised_prompt":"r"}]})
         );
-        let by_url = normalize_response(br#"{"data":[{"url":"https://img/1"}]}"#, 999).unwrap();
+        let by_url =
+            normalize_response(br#"{"data":[{"url":"https://img/1"}]}"#, 999, None).unwrap();
         assert_eq!(by_url["created"], 999);
-        let zero = normalize_response(br#"{"created":0,"data":[{"url":"u"}]}"#, 999).unwrap();
+        let zero = normalize_response(br#"{"created":0,"data":[{"url":"u"}]}"#, 999, None).unwrap();
         assert_eq!(zero["created"], 999);
     }
 
@@ -148,13 +224,59 @@ mod tests {
             br#"{"data":[{"b64_json":""},{"url":""},{"other":"x"},"text"]}"#,
         ] {
             assert_eq!(
-                normalize_response(body, 1).unwrap_err(),
+                normalize_response(body, 1, None).unwrap_err(),
                 "Image provider returned a success status without an image payload"
             );
         }
         assert_eq!(
-            normalize_response(b"not json", 1).unwrap_err(),
+            normalize_response(b"not json", 1, None).unwrap_err(),
             "Invalid image response"
         );
+    }
+
+    #[test]
+    fn a_cloudflare_body_splits_the_size_and_keeps_numeric_options() {
+        let body = json!({"prompt":"a fox","size":"1024x768","seed":7,"num_steps":4,"n":2});
+        let upstream: Value =
+            serde_json::from_slice(&cloudflare_request_body(&body, "x").unwrap()).unwrap();
+        assert_eq!(
+            upstream,
+            json!({"prompt":"a fox","width":1024,"height":768,"seed":7,"num_steps":4})
+        );
+        for size in ["auto", "big", "10x", "x10", "-1x5"] {
+            let body = json!({"prompt":"p","size":size,"seed":"7"});
+            let upstream: Value =
+                serde_json::from_slice(&cloudflare_request_body(&body, "x").unwrap()).unwrap();
+            assert_eq!(upstream, json!({"prompt":"p"}), "{size}");
+        }
+        assert_eq!(
+            cloudflare_request_body(&json!({"prompt":" "}), "cf/m").unwrap_err(),
+            "Prompt is required for image model: cf/m"
+        );
+        assert!(is_cloudflare("cloudflare-ai") && serves_images("cloudflare-ai"));
+    }
+
+    #[test]
+    fn a_cloudflare_answer_becomes_one_b64_image() {
+        let answer = normalize_response(
+            br#"{"result":{"image":"QUJD"},"success":true,"errors":[]}"#,
+            50,
+            Some("a fox"),
+        )
+        .unwrap();
+        assert_eq!(
+            answer,
+            json!({"created":50,"data":[{"b64_json":"QUJD","revised_prompt":"a fox"}]})
+        );
+        for body in [
+            &br#"{"result":{"image":"QUJD"},"success":false}"#[..],
+            br#"{"result":{},"success":true}"#,
+            br#"{"result":{"image":""},"success":true}"#,
+        ] {
+            assert_eq!(
+                normalize_response(body, 1, None).unwrap_err(),
+                "No image returned from Cloudflare Workers AI"
+            );
+        }
     }
 }

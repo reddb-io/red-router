@@ -5023,9 +5023,7 @@ impl ControlPlane {
                     }
                     // Legacy imageRegistry: these providers serve images beside chat.
                     (ProviderProtocol::OpenAiImages, ProviderProtocol::OpenAi)
-                        if crate::image_generation::serves_images_beside_chat(
-                            &account.record.provider,
-                        ) =>
+                        if crate::image_generation::serves_images(&account.record.provider) =>
                     {
                         ProviderProtocol::OpenAiImages
                     }

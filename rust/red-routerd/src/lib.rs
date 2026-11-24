@@ -1913,7 +1913,18 @@ impl ProxyState {
             }
         }
         // An image request to a chat provider goes to its sibling images endpoint.
-        if protocol == ProviderProtocol::OpenAiImages {
+        if protocol == ProviderProtocol::OpenAiImages
+            && provider
+                .provider_name
+                .as_deref()
+                .is_some_and(image_generation::is_cloudflare)
+        {
+            // Workers AI runs a model at `.../ai/run/<model>`.
+            if let Some(prefix) = upstream.path().strip_suffix("/ai/v1/chat/completions") {
+                let path = format!("{prefix}/ai/run/{}", config.model);
+                upstream.set_path(&path);
+            }
+        } else if protocol == ProviderProtocol::OpenAiImages {
             if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
                 let path = format!("{prefix}/images/generations");
                 upstream.set_path(&path);
@@ -8211,7 +8222,16 @@ async fn proxy_request(
             let routed = target.map_or(model.as_str(), |target| target.model.as_str());
             let shaped = serde_json::from_slice::<serde_json::Value>(&payload)
                 .map_err(|_| "Invalid JSON body".to_owned())
-                .and_then(|value| image_generation::request_body(&value, routed, &requested_model));
+                .and_then(|value| {
+                    if target
+                        .and_then(|target| target.provider_name.as_deref())
+                        .is_some_and(image_generation::is_cloudflare)
+                    {
+                        image_generation::cloudflare_request_body(&value, &requested_model)
+                    } else {
+                        image_generation::request_body(&value, routed, &requested_model)
+                    }
+                });
             payload = match shaped {
                 Ok(payload) => payload,
                 Err(message) => return (
@@ -9771,7 +9791,8 @@ async fn proxy_request(
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs());
-        return match image_generation::normalize_response(&bytes, now) {
+        let prompt = parsed["prompt"].as_str().map(str::to_owned);
+        return match image_generation::normalize_response(&bytes, now, prompt.as_deref()) {
             Ok(value) => {
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
