@@ -2,6 +2,7 @@
 pub mod account_rotation;
 pub mod accounting;
 mod anthropic_stream;
+pub mod antigravity_headers;
 mod antigravity_translation;
 pub mod audit_export;
 mod availability;
