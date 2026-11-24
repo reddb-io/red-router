@@ -96,6 +96,39 @@ async fn opencode_go_messages_model_is_sent_to_the_messages_endpoint() {
     assert_eq!(seen[0].0, "messages");
     assert_eq!(seen[0].1.as_deref(), Some("go-secret"));
     assert_eq!(seen[0].2["model"], "minimax-m3");
+
+    // The translated answer settles usage: 2 tokens used under a 3-token daily limit
+    // with a 2-token reservation, so the second request no longer fits.
+    let quota_key = "go-msg-quota-key-1234567890123456789";
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/go-msg-quota"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Go Messages quota","api_key":quota_key,
+                "scopes":["inference:chat"],"allowed_endpoints":["chat"],
+                "allowed_models":["opencode-go/minimax-m3"],"allowed_provider_ids":["go"],
+                "max_tokens_per_day":3,"reservation_tokens":2
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let ask = || {
+        chat_model_with_body(
+            &client,
+            &base,
+            quota_key,
+            serde_json::json!({"model":"opencode-go/minimax-m3","messages":[{"role":"user","content":"hi"}]}),
+        )
+    };
+    let accounted = ask().await;
+    let status = accounted.status();
+    let text = accounted.text().await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert_eq!(ask().await.status(), StatusCode::TOO_MANY_REQUESTS);
     gateway_task.abort();
     provider_task.abort();
     database.close().await.unwrap();
@@ -220,6 +253,44 @@ async fn opencode_go_responses_model_is_translated_both_ways() {
         assert_eq!(body["stream"], true);
         assert!(body.get("input").is_some(), "{body}");
     }
+
+    // A translated stream settles usage: the upstream reports 6 tokens, so under a
+    // 10-token daily limit with an 8-token reservation the second request no longer
+    // fits (an unsettled reservation would be released and let it through).
+    let quota_key = "go-quota-key-12345678901234567890123";
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/go-quota"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Go quota","api_key":quota_key,
+                "scopes":["inference:chat"],"allowed_endpoints":["chat"],
+                "allowed_models":["opencode-go/grok-4.7"],"allowed_provider_ids":["go"],
+                "max_tokens_per_day":10,"reservation_tokens":8
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    // Usage accounting requires a streaming client to ask for the usage chunk.
+    let accounted_request = || {
+        let mut body = request(true);
+        body["stream_options"] = serde_json::json!({"include_usage":true});
+        body
+    };
+    let accounted = chat_model_with_body(&client, &base, quota_key, accounted_request()).await;
+    let status = accounted.status();
+    let text = accounted.text().await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert!(text.trim_end().ends_with("data: [DONE]"), "{text}");
+    assert_eq!(
+        chat_model_with_body(&client, &base, quota_key, accounted_request())
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
     gateway_task.abort();
     provider_task.abort();
     database.close().await.unwrap();

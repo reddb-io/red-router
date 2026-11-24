@@ -9299,26 +9299,39 @@ async fn proxy_request(
             return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
         };
         if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
-            // The usage wrapper reads the provider's own stream, so a translated
-            // stream cannot be settled yet; fail closed rather than leave the
-            // reservation open.
-            if final_accounting.is_some() {
-                return error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Usage accounting is unavailable for translated Responses streams",
-                );
-            }
-            let stream = responses_adapter::translate(response).map(move |chunk| {
-                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
-                chunk
-            });
+            // The translated frames are Chat Completions SSE ending in a usage chunk,
+            // so the usage wrapper settles the reservation on the translated stream.
+            let body = if let Some(accounting) = final_accounting {
+                let context = match accounting.into_context(product_access.as_ref()) {
+                    Ok(context) => context,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        )
+                    }
+                };
+                usage_stream::forward_source(
+                    Box::pin(responses_adapter::translate(response)),
+                    ProviderProtocol::OpenAi,
+                    context,
+                    (permit, client_permit),
+                    provider_load_guard,
+                )
+            } else {
+                let stream = responses_adapter::translate(response).map(move |chunk| {
+                    let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                    chunk
+                });
+                Body::from_stream(stream)
+            };
             let mut result = (
                 [
                     (header::CONTENT_TYPE, "text/event-stream"),
                     (header::CACHE_CONTROL, "no-cache"),
                     (header::HeaderName::from_static("x-accel-buffering"), "no"),
                 ],
-                Body::from_stream(stream),
+                body,
             )
                 .into_response();
             attach_served_model(&mut result, final_served_model.as_ref());
@@ -9391,17 +9404,41 @@ async fn proxy_request(
                 .pointer("/stream_options/include_usage")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
-            let stream = anthropic_stream::translate(response, include_usage).map(move |chunk| {
-                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
-                chunk
-            });
+            // The translated frames are Chat Completions SSE ending in a usage chunk
+            // (accounted clients must ask for it), so the usage wrapper settles the
+            // reservation on the translated stream.
+            let body = if let Some(accounting) = final_accounting {
+                let context = match accounting.into_context(product_access.as_ref()) {
+                    Ok(context) => context,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        )
+                    }
+                };
+                usage_stream::forward_source(
+                    Box::pin(anthropic_stream::translate(response, include_usage)),
+                    ProviderProtocol::OpenAi,
+                    context,
+                    (permit, client_permit),
+                    provider_load_guard,
+                )
+            } else {
+                let stream =
+                    anthropic_stream::translate(response, include_usage).map(move |chunk| {
+                        let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                        chunk
+                    });
+                Body::from_stream(stream)
+            };
             let mut result = (
                 [
                     (header::CONTENT_TYPE, "text/event-stream"),
                     (header::CACHE_CONTROL, "no-cache"),
                     (header::HeaderName::from_static("x-accel-buffering"), "no"),
                 ],
-                Body::from_stream(stream),
+                body,
             )
                 .into_response();
             attach_served_model(&mut result, final_served_model.as_ref());
@@ -9424,6 +9461,24 @@ async fn proxy_request(
             Ok(Ok(mut value)) => {
                 if credential_redaction {
                     credential_masker::redact_value(&mut value);
+                }
+                if let Some(accounting) = final_accounting {
+                    let Ok(usage) = accounting::ChatUsage::from_response(&value) else {
+                        return error(
+                            StatusCode::BAD_GATEWAY,
+                            "Provider response is missing valid token usage",
+                        );
+                    };
+                    if accounting
+                        .record(product_access.as_ref(), &usage)
+                        .await
+                        .is_err()
+                    {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        );
+                    }
                 }
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
