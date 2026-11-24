@@ -7,12 +7,12 @@ app = 'omniroute'
 primary_region = 'sin'
 
 [build]
+  dockerfile = 'Dockerfile.rust'
 
 [processes]
-  app = 'node run-standalone.mjs'
+  app = 'red-routerd'
 
 [deploy]
-#  release_command = "node ./dbsetup.js"
 
 [[mounts]]
   source = 'data'
@@ -22,7 +22,7 @@ primary_region = 'sin'
   auto_extend_size_limit = '10GB'
 
 [http_service]
-  internal_port = 20128
+  internal_port = 25050
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
@@ -36,12 +36,14 @@ primary_region = 'sin'
   memory_mb = 1024
 
 [env]
-  TZ = "Asia/Shanghai"
+  TZ = "America/Sao_Paulo"
 
   # Bind to all interfaces for Fly runtime networking.
-  HOST = "0.0.0.0"
-  HOSTNAME = "0.0.0.0"
-  BIND = "0.0.0.0"
+  RED_ROUTER_LISTEN = "0.0.0.0:25050"
+  RED_ROUTER_ALLOW_REMOTE_LISTEN = "1"
+  RED_ROUTER_DB_BACKEND = "sqlite"
+  RED_ROUTER_DATABASE_URL = "sqlite:///data/red-router.sqlite"
+  RED_ROUTER_SPA_DIR = "/app/dashboard"
 
   # #13679: a Fly deployment is reachable over the public internet by design
   # (force_https + Fly's edge proxy in [http_service] above) — unlike the

@@ -1,0 +1,1015 @@
+use red_routerd::legacy_preflight;
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
+use tempfile::TempDir;
+use url::Url;
+
+#[tokio::test]
+async fn inspection_counts_known_tables_without_exposing_or_modifying_records() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let mut db = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT, api_key TEXT); INSERT INTO provider_connections VALUES ('private-id','secret-provider'); CREATE TABLE api_keys (id TEXT, key TEXT); INSERT INTO api_keys VALUES ('private-key','secret-client'); CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT); INSERT INTO key_value VALUES ('pricing','cohere','secret-pricing'),('settings','unrelated','secret-setting'),('customModels','private-provider','secret-model'),('modelAliases','private-alias','secret-target'),('syncedAvailableModels','private-provider:private-id','secret-inventory');")
+        .execute(&mut db).await.unwrap();
+    db.close().await.unwrap();
+    let before = tokio::fs::read(&path).await.unwrap();
+    let report = legacy_preflight::inspect(&path).await.unwrap();
+    let encoded = serde_json::to_string(&report).unwrap();
+    assert!(!report.migration_ready);
+    assert_eq!(report.pricing_rows, Some(1));
+    assert_eq!(report.version, 2);
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "syncedAvailableModels")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "customModels")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "modelAliases")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .model_namespaces
+            .iter()
+            .find(|item| item.namespace == "providerAliases")
+            .unwrap()
+            .rows,
+        Some(0)
+    );
+    assert_eq!(
+        report
+            .tables
+            .iter()
+            .find(|item| item.table == "provider_connections")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .tables
+            .iter()
+            .find(|item| item.table == "api_keys")
+            .unwrap()
+            .rows,
+        Some(1)
+    );
+    assert_eq!(
+        report
+            .tables
+            .iter()
+            .find(|item| item.table == "combos")
+            .unwrap()
+            .rows,
+        None
+    );
+    assert!(!encoded.contains("secret-"));
+    assert!(!encoded.contains("private-"));
+    assert_eq!(before, tokio::fs::read(&path).await.unwrap());
+}
+
+#[tokio::test]
+async fn inspection_distinguishes_missing_model_storage_from_empty_namespaces() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("legacy.sqlite");
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let db = SqliteConnection::connect_with(&options).await.unwrap();
+    db.close().await.unwrap();
+    let report = legacy_preflight::inspect(&path).await.unwrap();
+    assert!(report
+        .model_namespaces
+        .iter()
+        .all(|item| item.rows.is_none()));
+}
+
+#[tokio::test]
+async fn inspection_refuses_missing_database_without_creating_it() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("missing.sqlite");
+    assert!(legacy_preflight::inspect(&path).await.is_err());
+    assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn synced_model_staging_preserves_full_records_and_rolls_back_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT); INSERT INTO key_value VALUES('syncedAvailableModels','provider:z','[{\"id\":\"old\",\"future\":true}]'),('syncedAvailableModels','provider:null',NULL),('modelCompatOverrides','provider','[{\"id\":\"old\",\"isHidden\":true}]'),('customModels','provider-null',NULL);").execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&destination)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap()
+    .close()
+    .await
+    .unwrap();
+    let original = tokio::fs::read(&source).await.unwrap();
+    let first = legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((first.staged, first.already_present), (2, 0));
+    assert_eq!(
+        (first.visibility_staged, first.visibility_already_present),
+        (2, 0)
+    );
+    let repeat = legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((repeat.staged, repeat.already_present), (0, 2));
+    assert_eq!(
+        (repeat.visibility_staged, repeat.visibility_already_present),
+        (0, 2)
+    );
+    assert_eq!(tokio::fs::read(&source).await.unwrap(), original);
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("INSERT INTO key_value VALUES('syncedAvailableModels','provider:a','[]'); UPDATE key_value SET value='[{\"id\":\"changed\"}]' WHERE key='provider:z';").execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    assert!(legacy_preflight::stage_synced_models(&source, &destination)
+        .await
+        .unwrap_err()
+        .contains("conflicting"));
+    let mut result =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT legacy_key,value FROM redrouter_legacy_synced_model_records ORDER BY legacy_key",
+    )
+    .fetch_all(&mut result)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("provider:null".to_owned(), None),
+            (
+                "provider:z".to_owned(),
+                Some("[{\"id\":\"old\",\"future\":true}]".to_owned())
+            )
+        ]
+    );
+    let visibility: String = sqlx::query_scalar("SELECT value FROM redrouter_legacy_model_visibility_records WHERE namespace='modelCompatOverrides' AND legacy_key='provider'")
+        .fetch_one(&mut result).await.unwrap();
+    assert_eq!(visibility, "[{\"id\":\"old\",\"isHidden\":true}]");
+    result.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_custom_model_activation_preserves_default_and_override_precedence() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)").bind(r#"[{"id":"default","source":"manual"},{"id":"custom-active","source":"manual","isHidden":false},{"id":"compat-active","source":"manual"},{"id":"custom-wins","source":"manual","isHidden":false},{"id":"scoped-hide","source":"manual"},{"id":"scoped-show","source":"manual"}]"#).execute(&mut legacy).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"compat-active","isHidden":false},{"id":"custom-wins","isHidden":true},{"id":"scoped-hide","isHidden":false,"hiddenModalities":{"chat":true,"images":false}},{"id":"scoped-show","isHidden":true,"hiddenModalities":{"chat":false,"embeddings":true}}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','codex',?)")
+        .bind(r#"[{"id":"cross-key","source":"manual","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','cx',?)")
+        .bind(r#"[{"id":"cross-key","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap()
+            .imported,
+        7
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    for (id, hidden) in [
+        ("default", true),
+        ("custom-active", false),
+        ("compat-active", false),
+        ("custom-wins", false),
+        ("scoped-hide", true),
+        ("scoped-show", false),
+        ("cross-key", true),
+    ] {
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.metadata.id == id)
+                .unwrap()
+                .hidden,
+            hidden,
+            "{id}"
+        );
+    }
+    db.close().await.unwrap();
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='cx'")
+        .bind(r#"[{"id":"cross-key","targetFormat":"claude"}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model compatibility settings require migration"
+    );
+}
+
+#[tokio::test]
+async fn legacy_visibility_without_custom_models_hides_canonical_catalog_entries() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','cx',?)")
+        .bind(r#"[{"id":"private-model","isHidden":true},{"id":"only-active","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','opencode',?)")
+        .bind(r#"[{"id":"shared-model","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let first = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((first.imported, first.already_present), (5, 0));
+    let second = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((second.imported, second.already_present), (0, 5));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 5);
+    assert!(models.iter().any(|model| model.provider == "codex"
+        && model.metadata.id == "private-model"
+        && model.hidden));
+    assert!(models.iter().any(|model| model.provider == "codex"
+        && model.metadata.id == "only-active"
+        && !model.hidden
+        && model.visibility_only));
+    for provider in ["opencode", "opencode-zen", "opencode-go"] {
+        assert!(models.iter().any(|model| model.provider == provider
+            && model.metadata.id == "shared-model"
+            && model.hidden));
+    }
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_model_headers_import_encrypted_without_changing_visibility() {
+    use red_routerd::{
+        control_plane::ControlPlane,
+        legacy_models, router,
+        storage::{Backend, Database},
+        ProxyState,
+    };
+    use std::sync::Arc;
+    const KEY: &str = "test-storage-key-at-least-16-bytes";
+    const ADMIN: &str = "legacy-model-headers-admin-key-12345";
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(
+            r#"[{"id":"gpt-headers","normalizeToolCallId":true,"preserveOpenAIDeveloperRole":false,"preserveVideoUrl":true,"upstreamHeaders":{" X-Title ":" model-secret ","Host":"dropped"},"compatByProtocol":{"claude":{"upstreamHeaders":{"x-scope":"messages"}}}},
+               {"id":"gpt-hidden","isHidden":true,"upstreamHeaders":{"x-title":"hidden-model"}},
+               {"id":"custom-headers","upstreamHeaders":{"x-compat":"ignored"}}]"#,
+        )
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    // The legacy reader takes a custom row's own headers over compat entries.
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)")
+        .bind(r#"[{"id":"custom-headers","source":"manual","upstreamHeaders":{"x-row":"row-secret"},"compatByProtocol":{"openai":{"normalizeToolCallId":true}}}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model headers require the storage encryption key"
+    );
+    let first = legacy_models::import_with_key(&source, &destination, Some(KEY))
+        .await
+        .unwrap();
+    assert_eq!((first.imported, first.already_present), (3, 0));
+    // A repeat import accepts the same headers despite a fresh nonce.
+    let second = legacy_models::import_with_key(&source, &destination, Some(KEY))
+        .await
+        .unwrap();
+    assert_eq!((second.imported, second.already_present), (0, 3));
+    let db = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let models = db.provider_models().await.unwrap();
+    let headers_only = models
+        .iter()
+        .find(|model| model.metadata.id == "gpt-headers")
+        .unwrap();
+    assert!(headers_only.headers_only && !headers_only.hidden && !headers_only.visibility_only);
+    assert!(!headers_only
+        .headers_ciphertext
+        .as_deref()
+        .unwrap()
+        .contains("model-secret"));
+    let hidden = models
+        .iter()
+        .find(|model| model.metadata.id == "gpt-hidden")
+        .unwrap();
+    assert!(hidden.visibility_only && hidden.hidden && hidden.headers_ciphertext.is_some());
+    let control = ControlPlane::new(db.clone(), ADMIN, KEY, true)
+        .await
+        .unwrap();
+    let state = ProxyState::new(
+        "http://127.0.0.1:1/v1/chat/completions",
+        "legacy-model-headers-client-key-123",
+        "placeholder",
+        true,
+    )
+    .await
+    .unwrap()
+    .with_control_plane(control);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let view: serde_json::Value = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!(
+            "{base}/api/admin/provider-models/{}/headers",
+            headers_only.id
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // Trimmed like sanitizeUpstreamHeadersMap; Host is never sent by the legacy server.
+    assert_eq!(view["names"], serde_json::json!(["x-title"]));
+    assert_eq!(
+        view["by_protocol"],
+        serde_json::json!({"claude":["x-scope"]})
+    );
+    let custom = models
+        .iter()
+        .find(|model| model.metadata.id == "custom-headers")
+        .unwrap();
+    assert!(!custom.visibility_only && !custom.headers_only);
+    let custom_compat = custom.compat.as_ref().unwrap();
+    assert!(custom_compat.normalize_tool_call_id(Some("openai")));
+    assert!(!custom_compat.normalize_tool_call_id(Some("claude")));
+    let flags = headers_only.compat.as_ref().unwrap();
+    assert!(flags.normalize_tool_call_id(None));
+    assert_eq!(flags.preserve_openai_developer_role(None), Some(false));
+    assert_eq!(flags.preserve_video_url, Some(true));
+    let view: serde_json::Value = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!(
+            "{base}/api/admin/provider-models/{}/headers",
+            custom.id
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(view["names"], serde_json::json!(["x-row"]));
+    server.abort();
+    // A credential header the legacy server would send has no safe equivalent.
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='openai'",
+    )
+    .bind(r#"[{"id":"gpt-auth","upstreamHeaders":{"Authorization":"Bearer model-token"}}]"#)
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import_with_key(&source, &destination, Some(KEY))
+            .await
+            .unwrap_err(),
+        "legacy model headers require migration"
+    );
+}
+
+#[tokio::test]
+async fn legacy_payload_rules_import_normalized_once() {
+    use red_routerd::{
+        legacy_payload_rules,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut legacy)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('settings','payloadRules',?)")
+        .bind(r#"{"override":[{"models":[{"name":"gpt-*"}],"params":{"temperature":0.1}},{"models":[],"params":{"x":1}}],"default-raw":[{"models":[{"name":"*"}],"params":{"stop":"[\"END\"]"}}]}"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let first = legacy_payload_rules::import(&source, &destination)
+        .await
+        .unwrap();
+    assert!(first.found && first.imported && !first.already_present);
+    let second = legacy_payload_rules::import(&source, &destination)
+        .await
+        .unwrap();
+    assert!(second.found && !second.imported && second.already_present);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let stored = db.payload_rules().await.unwrap().unwrap();
+    let rules: serde_json::Value = serde_json::from_str(&stored.config_json).unwrap();
+    // The rule without models is dropped; default-raw joins defaultRaw.
+    assert_eq!(rules["override"].as_array().unwrap().len(), 1);
+    assert_eq!(rules["defaultRaw"][0]["params"]["stop"], "[\"END\"]");
+    db.close().await.unwrap();
+    let mut legacy = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='settings' AND key='payloadRules'")
+        .bind(r#"{"filter":[{"models":[{"name":"*"}],"params":["stream_options"]}]}"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    legacy.close().await.unwrap();
+    assert_eq!(
+        legacy_payload_rules::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "destination contains different payload rules"
+    );
+}
+
+#[tokio::test]
+async fn legacy_activation_is_migrated_for_each_provider_organization() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key)); CREATE TABLE provider_connections(provider TEXT,tenant_id TEXT); INSERT INTO provider_connections VALUES('openai','red'),('openai','acme');")
+        .execute(&mut legacy).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('customModels','openai',?)")
+        .bind(r#"[{"id":"custom","source":"manual","isHidden":false}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"synced","isHidden":false},{"id":"hidden","isHidden":true}]"#)
+        .execute(&mut legacy)
+        .await
+        .unwrap();
+    sqlx::raw_sql("INSERT INTO key_value VALUES('customModels','cohere',NULL),('modelCompatOverrides','anthropic',NULL);")
+        .execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_tenants VALUES ('acme','acme','Acme',1,1)")
+        .execute(&mut target)
+        .await
+        .unwrap();
+    target.close().await.unwrap();
+    let result = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!(result.imported, 6);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    for tenant in ["red", "acme"] {
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "custom"
+            && !model.hidden
+            && !model.visibility_only));
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "synced"
+            && !model.hidden
+            && model.visibility_only));
+        assert!(models.iter().any(|model| model.tenant_id == tenant
+            && model.metadata.id == "hidden"
+            && model.hidden
+            && model.visibility_only));
+    }
+    db.close().await.unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    let defaults: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM redrouter_control_model_activation_defaults WHERE provider='openai'",
+    )
+    .fetch_one(&mut target)
+    .await
+    .unwrap();
+    assert_eq!(defaults, 2);
+    let empty_defaults: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_model_activation_defaults WHERE tenant_id='red' AND provider IN ('cohere','anthropic')").fetch_one(&mut target).await.unwrap();
+    assert_eq!(empty_defaults, 2);
+    target.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_activation_does_not_change_an_existing_native_provider() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.sqlite");
+    let destination = dir.path().join("destination.sqlite");
+    let mut legacy = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value(namespace TEXT,key TEXT,value TEXT,PRIMARY KEY(namespace,key)); INSERT INTO key_value VALUES('customModels','openai','[{\"id\":\"example\",\"source\":\"manual\"}]');")
+        .execute(&mut legacy).await.unwrap();
+    legacy.close().await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_providers VALUES ('existing','openai','https://example.test/v1/chat/completions','opaque',1,1)")
+        .execute(&mut target).await.unwrap();
+    target.close().await.unwrap();
+    let before = tokio::fs::read(&destination).await.unwrap();
+    assert!(legacy_models::import(&source, &destination)
+        .await
+        .unwrap_err()
+        .contains("activation reconciliation"));
+    assert_eq!(tokio::fs::read(&destination).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn pricing_import_is_atomic_idempotent_and_does_not_touch_source() {
+    let directory = TempDir::new().unwrap();
+    let source = directory.path().join("legacy.sqlite");
+    let destination = directory.path().join("rust.sqlite");
+    let options = |path: &std::path::Path| {
+        SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+    };
+    let mut input = SqliteConnection::connect_with(&options(&source))
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key)); INSERT INTO key_value VALUES ('pricing','a','{\"price\":1}'),('pricing','b','{\"price\":2}'),('settings','secret','do-not-copy');")
+        .execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let source_bytes = tokio::fs::read(&source).await.unwrap();
+    let mut output = SqliteConnection::connect_with(&options(&destination))
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key)); INSERT INTO key_value VALUES ('pricing','b','different');")
+        .execute(&mut output).await.unwrap();
+    output.close().await.unwrap();
+
+    assert!(legacy_preflight::import_pricing(&source, &destination)
+        .await
+        .is_err());
+    let mut output = SqliteConnection::connect_with(&options(&destination))
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE key = 'a'")
+        .fetch_one(&mut output)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "conflict must roll back earlier inserts");
+    sqlx::query("UPDATE key_value SET value = ? WHERE namespace='pricing' AND key='b'")
+        .bind(r#"{"price":2}"#)
+        .execute(&mut output)
+        .await
+        .unwrap();
+    output.close().await.unwrap();
+
+    let imported = legacy_preflight::import_pricing(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((imported.inserted, imported.already_present), (1, 1));
+    let repeated = legacy_preflight::import_pricing(&source, &destination)
+        .await
+        .unwrap();
+    assert_eq!((repeated.inserted, repeated.already_present), (0, 2));
+    assert_eq!(source_bytes, tokio::fs::read(&source).await.unwrap());
+    let mut output = SqliteConnection::connect_with(&options(&destination))
+        .await
+        .unwrap();
+    let settings: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM key_value WHERE namespace='settings'")
+            .fetch_one(&mut output)
+            .await
+            .unwrap();
+    assert_eq!(settings, 0);
+    assert!(legacy_preflight::import_pricing(&source, &source)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn custom_model_import_is_transactional_and_preserves_metadata() {
+    use red_routerd::{
+        legacy_models,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let destination = dir.path().join("native.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key))",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','openai',?)")
+        .bind(r#"[{"id":"custom-1","name":"Custom Model","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":32000,"outputTokenLimit":4000,"supportsThinking":false,"supportsVision":true,"isHidden":true},{"id":"synced-1","source":"auto-sync","apiFormat":"embeddings","supportedEndpoints":["embeddings"]}]"#)
+        .execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (1, 0));
+    // A row the legacy model sync wrote is catalog provenance, not a model.
+    assert_eq!(report.skipped_synced_custom_models, 1);
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (0, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].provider, "openai");
+    assert_eq!(models[0].metadata.name.as_deref(), Some("Custom Model"));
+    assert_eq!(models[0].metadata.reasoning, Some(false));
+    let modalities = models[0].metadata.modalities.as_ref().unwrap();
+    assert_eq!(modalities.input, ["text", "image"]);
+    assert_eq!(modalities.output, ["text"]);
+    assert!(models[0].hidden);
+    assert_eq!(
+        models[0].metadata.limit.as_ref().unwrap().input,
+        Some(32000)
+    );
+    assert_eq!(
+        models[0].metadata.limit.as_ref().unwrap().output,
+        Some(4000)
+    );
+    db.close().await.unwrap();
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','z-provider',?)")
+        .bind(r#"[{"id":"unsafe","targetFormat":"claude"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='customModels' AND key='openai'")
+        .bind(r#"[{"id":"new-model","source":"manual"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert!(legacy_models::import(&source, &destination).await.is_err());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        db.provider_models().await.unwrap().len(),
+        1,
+        "a later unsupported model must roll back earlier inserts"
+    );
+    db.close().await.unwrap();
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM key_value WHERE namespace='customModels' AND key='z-provider'")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelCompatOverrides','openai',?)")
+        .bind(r#"[{"id":"new-model","isHidden":true}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap()
+            .imported,
+        1
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        db.provider_models().await.unwrap().len(),
+        2,
+        "the compatibility visibility must be imported with the model"
+    );
+    assert!(db
+        .provider_models()
+        .await
+        .unwrap()
+        .iter()
+        .any(|model| model.metadata.id == "new-model" && model.hidden));
+    db.close().await.unwrap();
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE key_value SET value=? WHERE namespace='modelCompatOverrides' AND key='openai'",
+    )
+    .bind(r#"[{"id":"different-model","isHidden":true},{"id":"new-model","isDeleted":true}]"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap()
+            .already_present,
+        1,
+        "legacy tombstones must not change an already hidden model"
+    );
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels','opencode-zen',?)")
+        .bind(r#"[{"id":"sibling-model","source":"manual"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('modelCompatOverrides','opencode',?)")
+        .bind(r#"[{"id":"sibling-model","targetFormat":"claude"}]"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_models::import(&source, &destination)
+            .await
+            .unwrap_err(),
+        "legacy model compatibility settings require migration",
+        "legacy no-auth sibling overrides must not be dropped"
+    );
+}
+
+#[tokio::test]
+async fn custom_node_model_import_preserves_tenant_and_requires_matching_definition() {
+    use red_routerd::{
+        legacy_models, legacy_provider_nodes,
+        storage::{Backend, Database},
+    };
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-node.sqlite");
+    let destination = dir.path().join("native-node.sqlite");
+    let id = "openai-compatible-chat-12345678-1234-1234-1234-123456789abc";
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT, PRIMARY KEY(namespace,key)); CREATE TABLE provider_nodes (id TEXT PRIMARY KEY, type TEXT, name TEXT, prefix TEXT, base_url TEXT, tenant_id TEXT);").execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_nodes VALUES (?,'openai-compatible','Gateway','acme-gateway','https://gateway.example/v1','acme')").bind(id).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('customModels',?,?)").bind(id).bind(r#"[{"id":"internal-model","name":"Internal","source":"manual","apiFormat":"chat-completions","supportedEndpoints":["chat"],"inputTokenLimit":8192}]"#).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&destination).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut target =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&destination))
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO redrouter_control_tenants VALUES ('acme','acme','Acme',1,1)")
+        .execute(&mut target)
+        .await
+        .unwrap();
+    target.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "missing definition must not be guessed"
+    );
+    legacy_provider_nodes::import(&source, &destination, "test-storage-key-at-least-16-bytes")
+        .await
+        .unwrap();
+    let report = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((report.imported, report.already_present), (1, 0));
+    let repeat = legacy_models::import(&source, &destination).await.unwrap();
+    assert_eq!((repeat.imported, repeat.already_present), (0, 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let models = db.provider_models().await.unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        (&models[0].tenant_id, &models[0].provider),
+        (&"acme".to_owned(), &"acme-gateway".to_owned())
+    );
+    assert_eq!(models[0].metadata.limit.as_ref().unwrap().input, Some(8192));
+    db.close().await.unwrap();
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_nodes SET prefix='changed' WHERE id=?")
+        .bind(id)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "a mismatched definition must fail closed"
+    );
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_nodes SET prefix='acme-gateway',base_url='https://other.example/v1' WHERE id=?").bind(id).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    assert!(
+        legacy_models::import(&source, &destination).await.is_err(),
+        "a changed endpoint must not be mistaken for the imported definition"
+    );
+}

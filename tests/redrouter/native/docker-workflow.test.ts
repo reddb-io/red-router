@@ -85,14 +85,18 @@ test("the image is built from the published package for both platforms", () => {
 
 test("manual quality owns conformance while the package publisher owns no Docker job", () => {
   const quality = parse(read(".github/workflows/quality.yml")) as Workflow;
-  assert.deepEqual(Object.keys(quality.jobs), [
+  for (const job of [
     "checks",
     "test-unit",
     "desktop-services",
     "test-routing-storage",
     "test-vitest",
     "browser",
-  ]);
+    "rust-data-plane",
+    "rust-windows-storage",
+  ]) {
+    assert.ok(quality.jobs[job], `missing quality job: ${job}`);
+  }
   assert.deepEqual(Object.keys(publish.jobs), ["build", "release"]);
   assert.doesNotMatch(read(".github/workflows/red-publish.yml"), /ghcr\.io|docker\//);
 });

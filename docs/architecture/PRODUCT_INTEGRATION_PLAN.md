@@ -274,12 +274,12 @@ Highest-value gaps (`head` missing or partial, value H), ordered by effort, then
 | ai-identity-linking: Identity linking by issuer and subject | missing | M | E-A | Govern > Identity |
 | pa-price-context-db: LiteLLM price and context DB v2 with provenance panel | partial | M | L1 | System > Pricing |
 | cu-key-limits: Per-key limits (four mechanisms) | partial | M | L2 | Operate > Endpoint & Keys > Keys |
-| cu-budget-engine: Reusable budgets with scopes | missing | M | L2 | Govern > Budgets |
-| cu-attribution: Attribution stamping, end users and tags | missing | M | L3 | Operate > Usage |
+| cu-budget-engine: Reusable budgets with scopes | partial | M | L2 | Govern > Budgets |
+| cu-attribution: Attribution stamping, end users and tags | implemented | M | L3 | Operate > Usage |
 | ob-prometheus: Prometheus metrics endpoint | missing | M | L4 | System > Integrations > Metrics |
 | ob-alerts: Webhooks, chat integrations and alert events | partial | M | L4 | System > Integrations > Webhooks |
 | sg-assignment: Guardrail assignment and priority | missing | M | L5 | Govern > Guardrails |
-| cu-team-user-budgets: Team, user and tenant budgets | missing | M | L6 | Govern > Budgets |
+| cu-team-user-budgets: Team, user and tenant budgets | partial | M | L6 | Govern > Budgets |
 | ai-saml: SAML SP login | missing | M | L7 | Govern > Identity |
 | rd-autopilot-page: Autopilot page: decision router, reasoning, Test run | missing | M | X-AUTOPILOT | Operate > Autopilot |
 | nd-ci-fixtures: CI fixture e2e (routing, remote router, system one, conformance) | missing | M | X-CIFIX | System > Data |

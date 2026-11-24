@@ -54,22 +54,34 @@ export class PgRoutingSnapshotStorage implements RoutingSnapshotStorage {
 
   async load(): Promise<{ revision: number; data: string }> {
     try {
-      const { rows } = await (
-        await this.pool()
-      ).query("SELECT revision, snapshot_json FROM redrouter_routing_state WHERE id = $1", [
-        "routing",
-      ]);
-      const row = rows[0];
-      if (!row) throw new RoutingStorageError("not_initialized");
-      const revision = Number(row.revision);
-      if (
-        !Number.isSafeInteger(revision) ||
-        revision < 0 ||
-        typeof row.snapshot_json !== "string"
-      ) {
-        throw new RoutingStorageError("invalid_snapshot");
+      // RedDB currently exposes a very short empty-read window while a
+      // concurrent conditional UPDATE replaces the single snapshot row. Do
+      // not seed or switch authority: retry only that empty result, then keep
+      // the existing not_initialized contract for a genuinely missing row.
+      const attempts = this.config.backend === "reddb" ? 6 : 1;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        const { rows } = await (
+          await this.pool()
+        ).query("SELECT revision, snapshot_json FROM redrouter_routing_state WHERE id = $1", [
+          "routing",
+        ]);
+        const row = rows[0];
+        if (row) {
+          const revision = Number(row.revision);
+          if (
+            !Number.isSafeInteger(revision) ||
+            revision < 0 ||
+            typeof row.snapshot_json !== "string"
+          ) {
+            throw new RoutingStorageError("invalid_snapshot");
+          }
+          return { revision, data: row.snapshot_json };
+        }
+        if (attempt + 1 < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, 1 << attempt));
+        }
       }
-      return { revision, data: row.snapshot_json };
+      throw new RoutingStorageError("not_initialized");
     } catch (error) {
       if (error instanceof RoutingStorageError) throw error;
       throw new RoutingStorageError("unavailable");

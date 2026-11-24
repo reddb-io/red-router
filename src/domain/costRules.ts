@@ -335,14 +335,16 @@ export function deleteBudget(apiKeyId: string) {
  * @param {RecordCostDetails} [details] - Optional per-request breakdown.
  */
 export function recordCost(apiKeyId: string, cost: number, details?: RecordCostDetails): void {
-  const eventId = details?.requestId
-    ? costLedgerEventId({
-        apiKeyId,
-        provider: details.provider || "unknown",
-        model: details.model || "unknown",
-        requestId: details.requestId,
-      })
-    : null;
+  const eventId = details?.skipRequestLedger
+    ? null
+    : details?.requestId
+      ? costLedgerEventId({
+          apiKeyId,
+          provider: details.provider || "unknown",
+          model: details.model || "unknown",
+          requestId: details.requestId,
+        })
+      : null;
   if (eventId) {
     if (pendingCostEvents.has(eventId)) return;
     try {
@@ -370,7 +372,7 @@ export function recordCost(apiKeyId: string, cost: number, details?: RecordCostD
   } catch (error) {
     logger.error({ err: error, module: "cost-accounting" }, "Per-key spend recording failed");
   }
-  if (details) {
+  if (details && !details.skipRequestLedger) {
     // Fire-and-forget — never block the response on ledger I/O.
     void recordLedgerFromCost({
       apiKeyId,
@@ -387,7 +389,7 @@ export function recordCost(apiKeyId: string, cost: number, details?: RecordCostD
     }).finally(() => {
       if (eventId) pendingCostEvents.delete(eventId);
     });
-  } else if (apiKeyId && Number.isFinite(cost) && cost > 0) {
+  } else if (!details && apiKeyId && Number.isFinite(cost) && cost > 0) {
     // Search and other amount-only charges previously disappeared from the
     // request ledger, so quotas and downstream cost export undercounted them.
     recordLedgerEntrySafe({
@@ -414,6 +416,8 @@ export interface RecordCostDetails {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  /** The shared reservation transaction already committed this request ledger row. */
+  skipRequestLedger?: boolean;
   /** Who the call was for (`lib/usage/attribution`); stamped on the ledger row and budget scopes. */
   attribution?: {
     endUser?: string | null;

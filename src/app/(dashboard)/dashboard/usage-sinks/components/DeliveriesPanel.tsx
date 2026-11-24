@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Select } from "@/shared/components";
 import { errorText, type Delivery } from "../types";
+import { usageSinkFetch } from "../usageSinkFetch";
 
 const PAGE_SIZE = 10;
 
@@ -35,7 +36,7 @@ export function DeliveriesPanel({ sinkId, onChange }: DeliveriesPanelProps) {
   const load = useCallback(async () => {
     const query = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
     if (status) query.set("status", status);
-    const res = await fetch(`/api/usage-sinks/${sinkId}/deliveries?${query}`);
+    const res = await usageSinkFetch(`/api/usage-sinks/${sinkId}/deliveries?${query}`);
     const data = await res.json().catch(() => ({}));
     setDeliveries(Array.isArray(data.deliveries) ? data.deliveries : []);
     setTotal(typeof data.total === "number" ? data.total : 0);
@@ -51,7 +52,7 @@ export function DeliveriesPanel({ sinkId, onChange }: DeliveriesPanelProps) {
     setRetrying(delivery.id);
     setNotice(null);
     try {
-      const res = await fetch(`/api/usage-sinks/${sinkId}/deliveries/${delivery.id}/retry`, {
+      const res = await usageSinkFetch(`/api/usage-sinks/${sinkId}/deliveries/${delivery.id}/retry`, {
         method: "POST",
       });
       const data = await res.json().catch(() => ({}));

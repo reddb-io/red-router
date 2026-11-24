@@ -30,6 +30,7 @@ export type RecordStreamingUsageStatsContext = {
     | {
         id?: string | null;
         name?: string | null;
+        sharedRpmReserved?: boolean;
         attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
       }
     | null
@@ -39,6 +40,8 @@ export type RecordStreamingUsageStatsContext = {
   comboStrategy: string | null | undefined;
   endpoint?: string | null | undefined;
   cpaAuthIndex?: string | null | undefined;
+  /** A shared SQLite transaction owns TPM for this completed provider attempt. */
+  sharedUsageReserved?: boolean;
 };
 
 function persistStreamingUsageRow(usage: object, ctx: RecordStreamingUsageStatsContext): void {
@@ -70,7 +73,10 @@ function recordStreamingBillableTokens(usage: object, ctx: RecordStreamingUsageS
   try {
     const billable = computeBillableTokens(usage);
     // Key-quota tpm/rpm counters advance on every completed stream.
-    recordKeyQuotaUsage(ctx.apiKeyInfo.id, billable);
+    recordKeyQuotaUsage(ctx.apiKeyInfo.id, billable, {
+      skipRpm: ctx.apiKeyInfo.sharedRpmReserved === true,
+      skipTpm: ctx.sharedUsageReserved === true,
+    });
     // Reusable budgets' tokens-per-minute counters advance on the same completed stream.
     recordBudgetTokensFor(ctx.apiKeyInfo, ctx.provider, billable);
     if (billable > 0)

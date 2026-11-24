@@ -1,0 +1,753 @@
+# Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
+
+[[module]]
+ts = "open-sse/executors/codex/reasoningSuffix.ts"
+status = "ported"
+rust = "codex_request.rs"
+module = "red_routerd::codex_request"
+ported_at = "2026-11-20T19:10:18Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/codex-reasoning-suffix.test.ts"]
+notes = "The alias effort cap is folded into clamp_effort, which also applies the legacy MAX_EFFORT_BY_MODEL caps; effort levels are plain strings in Rust."
+
+[module.ts_blobs]
+"open-sse/executors/codex/reasoningSuffix.ts" = "22b9d9f8a47191960be27f666e2a419da4163667"
+"tests/unit/codex-reasoning-suffix.test.ts" = "5ade599beae5a73e6751d43a6a392fd9b999c2ef"
+
+[module.symbols]
+CODEX_EFFORT_ORDER = "red_routerd::codex_request::EFFORT_ORDER"
+CODEX_MAX_ALIAS_MODELS = "red_routerd::codex_request::MAX_ALIAS_MODELS"
+CODEX_ULTRA_ALIAS_MODELS = "red_routerd::codex_request::ULTRA_ALIAS_MODELS"
+CodexEffortLevel = "-"
+getCodexAliasEffortCap = "red_routerd::codex_request::clamp_effort"
+splitCodexReasoningSuffix = "red_routerd::codex_request::split_reasoning_suffix"
+
+[[module]]
+ts = "open-sse/executors/codex/toolCallRepair.ts"
+status = "ported"
+rust = "codex_request.rs"
+module = "red_routerd::codex_request"
+ported_at = "2026-11-20T19:15:02Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "Runs inside codex_request::shape_passthrough after the orphaned function_call_output strip, as in the legacy transformRequest."
+
+[module.ts_blobs]
+"open-sse/executors/codex/toolCallRepair.ts" = "b2a4a49c9e4460141ea76e6c5fef745a9a686ea7"
+
+[module.symbols]
+repairMissingCodexToolCallOutputs = "red_routerd::codex_request::repair_missing_tool_call_outputs"
+
+[[module]]
+ts = "open-sse/executors/opencodeGeoBlock.ts"
+status = "ported"
+rust = "opencode_geo_block.rs"
+module = "red_routerd::opencode_geo_block"
+ported_at = "2026-11-20T02:51:08Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/opencode-free-tier-refusal-predicate.test.ts",
+    "tests/unit/opencode-geo-block-predicate.test.ts",
+    "tests/unit/opencode-user-blocked-predicate.test.ts",
+]
+notes = "The free-tier refusal gives the request-refusal failure class: the next account is tried and nothing is recorded on the connection or model, as the legacy auth guard does. The geo and user-blocked predicates are ported for the OpenCode executor; proxyKeyOf and poolReselectKeyOf key the egress proxy pool reselection, which has no Rust counterpart yet (egress proxies are not ported). The lookbehind boundaries of the legacy regexes are matched explicitly, as the regex crate has no lookaround."
+
+[module.ts_blobs]
+"open-sse/executors/opencodeGeoBlock.ts" = "32ec130d7b9c6ad66b51b8add7a4df3be9bbbab8"
+"tests/unit/opencode-free-tier-refusal-predicate.test.ts" = "0e3928d19bd369e402486c418244986a1588d2fe"
+"tests/unit/opencode-geo-block-predicate.test.ts" = "50d8e2c037ee91373c46ce0af374e8b527da0d1d"
+"tests/unit/opencode-user-blocked-predicate.test.ts" = "0799a51d7f170383489d842a13f768896adc7f8f"
+
+[module.symbols]
+isOpencodeFreeTierRefusal = "red_routerd::opencode_geo_block::is_opencode_free_tier_refusal"
+isOpencodeFreeTierRefusalForProvider = "red_routerd::opencode_geo_block::is_opencode_free_tier_refusal_for_provider"
+isOpencodeGeoBlocked = "red_routerd::opencode_geo_block::is_opencode_geo_blocked"
+isOpencodeUserBlocked = "red_routerd::opencode_geo_block::is_opencode_user_blocked"
+poolReselectKeyOf = "-"
+proxyKeyOf = "-"
+
+[[module]]
+ts = "open-sse/services/accountFallback/cooldownCap.ts"
+status = "ported"
+rust = "availability.rs"
+module = "red_routerd::availability"
+ported_at = "2026-11-20T22:17:13Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "connection_cooldown_duration applies it with the connection cooldown ceiling (modelLockout.maxCooldownMs, default 30 minutes) and that default as the fallback."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/cooldownCap.ts" = "66a50da03bb7e6d6298cca15c5de006f5833f754"
+
+[module.symbols]
+capScaledCooldownMs = "red_routerd::availability::cap_scaled_cooldown_ms"
+
+[[module]]
+ts = "open-sse/services/accountFallback/mistralAmbiguousAuth.ts"
+status = "ported"
+rust = "mistral_ambiguous_auth.rs"
+module = "red_routerd::mistral_ambiguous_auth"
+ported_at = "2026-11-19T21:17:14Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/provider-401-ambiguous-runtime.test.ts"]
+notes = "The soft lockout is the legacy flag of the same name, read from the environment (the settings importer will carry a stored value). Strikes are counted durably per connection by the availability state (record_ambiguous_auth_failure), so the in-memory strike map and its test reset have no Rust counterpart."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/mistralAmbiguousAuth.ts" = "5f1ba872a1d279354f87224b43fbdef1b44dbf0f"
+"tests/unit/provider-401-ambiguous-runtime.test.ts" = "15422df01c85de57fb5b1b14b978cf250f5c640f"
+
+[module.symbols]
+MISTRAL_AMBIGUOUS_401_MAX_SOFT_STRIKES = "red_routerd::mistral_ambiguous_auth::MAX_SOFT_STRIKES"
+MISTRAL_AMBIGUOUS_401_STRIKE_WINDOW_MS = "red_routerd::mistral_ambiguous_auth::STRIKE_WINDOW_MS"
+isMistralAmbiguous401 = "red_routerd::mistral_ambiguous_auth::is_mistral_ambiguous_401"
+resetMistralAmbiguous401Strikes = "-"
+takeMistralAmbiguous401SoftStrike = "-"
+
+[[module]]
+ts = "open-sse/services/accountFallback/nonRetryableUpstream.ts"
+status = "ported"
+rust = "non_retryable_upstream.rs"
+module = "red_routerd::non_retryable_upstream"
+ported_at = "2026-11-20T22:28:01Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/account-fallback-cf1010-no-retry-8775.test.ts"]
+notes = "The API-key 403 branch is a RequestRefusal class in classify_provider_failure (no cooldown, the request moves on); API-key providers are every provider but the adopted OAuth ones, as the legacy registry defaults unknown providers to apikey."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/nonRetryableUpstream.ts" = "df4084b49c9e1f4d3e9780f4aa28d6a40372c124"
+"tests/unit/account-fallback-cf1010-no-retry-8775.test.ts" = "cf20707761809cd7cec458596c54671d91c86c95"
+
+[module.symbols]
+isNonRetryableCloudflareError = "red_routerd::non_retryable_upstream::is_non_retryable_cloudflare_error"
+resolveApiKeyForbiddenFallback = "red_routerd::resilience::classify_provider_failure"
+
+[[module]]
+ts = "open-sse/services/accountFallback/sharedWalletCredits.ts"
+status = "ported"
+rust = "shared_wallet_credits.rs"
+module = "red_routerd::shared_wallet_credits"
+ported_at = "2026-11-19T19:16:10Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "The failure classifier parks the account on a shared-wallet 402 whatever scope is configured; an unrelated 402 from these providers takes the per-model scope (model_scope_providers)."
+
+[module.ts_blobs]
+"open-sse/services/accountFallback/sharedWalletCredits.ts" = "d24341bfc06e0fd6e0a6d78dd09b32b72ef78b2a"
+
+[module.symbols]
+GROK_BUILD_USAGE_BALANCE_SIGNAL = "red_routerd::shared_wallet_credits::GROK_BUILD_USAGE_BALANCE_SIGNAL"
+isCreditsExhaustedWithSharedWallet = "red_routerd::shared_wallet_credits::is_credits_exhausted_with_shared_wallet"
+isSharedWalletCredits402 = "red_routerd::shared_wallet_credits::is_shared_wallet_credits_402"
+matchesSharedWalletCreditsBody = "red_routerd::shared_wallet_credits::matches_shared_wallet_credits_body"
+
+[[module]]
+ts = "open-sse/services/claudeAdaptiveThinking.ts"
+status = "ported"
+rust = "claude_adaptive_thinking.rs"
+module = "red_routerd::claude_adaptive_thinking"
+ported_at = "2026-11-21T02:06:01Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/claude-adaptive-thinking-normalize.test.ts",
+    "tests/unit/minimax-m3-adaptive-thinking-12132.test.ts",
+]
+notes = "normalize_attempt_body runs normalizeThinkingForModel, this guard and the disabled-effort cap in the legacy normalizeAttemptBody order on routed passthrough and Claude-translated bodies (case model_spec_guards.rs)."
+
+[module.ts_blobs]
+"open-sse/services/claudeAdaptiveThinking.ts" = "f50ea6bc211771b6a0d846562ab790770530c334"
+"tests/unit/claude-adaptive-thinking-normalize.test.ts" = "d1c80538c1a2f8701d07034181449c098966f80d"
+"tests/unit/minimax-m3-adaptive-thinking-12132.test.ts" = "960bf7eb963abfeab0415a666fda47e3a40563e5"
+
+[module.symbols]
+normalizeClaudeAdaptiveThinking = "red_routerd::claude_adaptive_thinking::normalize_claude_adaptive_thinking"
+normalizeClaudeDisabledThinkingEffort = "red_routerd::claude_adaptive_thinking::normalize_claude_disabled_thinking_effort"
+
+[[module]]
+ts = "open-sse/services/dailyQuotaReset.ts"
+status = "ported"
+rust = "daily_quota_reset.rs"
+module = "red_routerd::daily_quota_reset"
+ported_at = "2026-11-19T17:13:11Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/daily-quota-reset.test.ts",
+    "tests/unit/daily-reset-dst-gap.test.ts",
+]
+notes = "Node clocks come from provider definitions; connection lockouts use them for daily-quota and TPD failures. TpdCooldownOptions is a parameter list in Rust. Timezone names are matched case-sensitively."
+
+[module.ts_blobs]
+"open-sse/services/dailyQuotaReset.ts" = "fd9360d49b0d1d947e48bbf9741c7a1b0e11467e"
+"tests/unit/daily-quota-reset.test.ts" = "0d2c78cfaff459a40837f3cc26b6ec71cf3a9c6a"
+"tests/unit/daily-reset-dst-gap.test.ts" = "0ae77e9104c36a55477353ba6b85f8a682d8f731"
+
+[module.symbols]
+TpdCooldownOptions = "-"
+isTpdRateLimit = "red_routerd::daily_quota_reset::is_tpd_rate_limit"
+isValidIanaTimeZone = "red_routerd::daily_quota_reset::is_valid_iana_time_zone"
+isValidResetHour = "red_routerd::daily_quota_reset::is_valid_reset_hour"
+nextConfiguredResetMs = "red_routerd::daily_quota_reset::next_configured_reset_ms"
+nextDailyResetAtMs = "red_routerd::daily_quota_reset::next_daily_reset_at_ms"
+nodeDailyResetConfigured = "red_routerd::daily_quota_reset::node_daily_reset_configured"
+parseTpdLimitFromText = "red_routerd::daily_quota_reset::parse_tpd_limit_from_text"
+resolveTpdCooldownMs = "red_routerd::daily_quota_reset::resolve_tpd_cooldown_ms"
+
+[[module]]
+ts = "open-sse/services/modelEndpointPolicy.ts"
+status = "ported"
+rust = "model_endpoint_policy.rs"
+module = "red_routerd::model_endpoint_policy"
+ported_at = "2026-11-18T20:09:51Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/model-endpoint-policy.test.ts"]
+notes = "filterChatSelectableModels is Iterator::filter over is_chat_selectable_model."
+
+[module.ts_blobs]
+"open-sse/services/modelEndpointPolicy.ts" = "c92e881263fe6e1783f26e0b52cdad55207777e5"
+"tests/unit/model-endpoint-policy.test.ts" = "d57d9b9ded2791f9085ab70d665142362068f40a"
+
+[module.symbols]
+ModelEndpointDecision = "red_routerd::model_endpoint_policy::ModelEndpointDecision"
+ModelEndpointKind = "red_routerd::model_endpoint_policy::ModelEndpointKind"
+declaresOnlyNonChatEndpoints = "red_routerd::model_endpoint_policy::declares_only_non_chat_endpoints"
+filterChatSelectableModels = "-"
+getModelEndpointDecision = "red_routerd::model_endpoint_policy::model_endpoint_decision"
+isChatSelectableModel = "red_routerd::model_endpoint_policy::is_chat_selectable_model"
+isOpenRouterDecisionFamilyModelId = "red_routerd::model_endpoint_policy::is_openrouter_decision_family_model_id"
+isOpenRouterSystemOneModelId = "red_routerd::model_endpoint_policy::is_openrouter_system_one_model_id"
+
+[[module]]
+ts = "open-sse/services/rateLimitManager/requestCap.ts"
+status = "ported"
+rust = "request_cap.rs"
+module = "red_routerd::request_cap"
+ported_at = "2026-11-20T13:10:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/rate-limit-learned-cap-13594.test.ts"]
+notes = "The cap-word lookahead is checked per cap word, as the regex crate has no lookaround. requestCapSettings reduces to the gap: the request queue applies the refill and interval of the cap itself when a 429 states it (or a learned cap rebuilds the limiter), skipping a cap whose gap exceeds the queue wait budget as the legacy capSettingsWithinBudget does."
+
+[module.ts_blobs]
+"open-sse/services/rateLimitManager/requestCap.ts" = "84b558df2d5ddb2d4f77ea66edb2ef4c4033cb50"
+"tests/unit/rate-limit-learned-cap-13594.test.ts" = "e826fc22167b4fb333299cb5b34a701fb6cac7d6"
+
+[module.symbols]
+RequestCap = "red_routerd::request_cap::RequestCap"
+RequestCapSettings = "-"
+isValidRequestCap = "red_routerd::request_cap::is_valid_request_cap"
+parseRequestCapFromBody = "red_routerd::request_cap::parse_request_cap_from_body"
+requestCapSettings = "red_routerd::request_cap::request_cap_min_time_ms"
+
+[[module]]
+ts = "open-sse/services/requestResourceErrors.ts"
+status = "ported"
+rust = "request_resource_errors.rs"
+module = "red_routerd::request_resource_errors"
+ported_at = "2026-11-20T02:37:28Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "The patterns run over the raw error body (the legacy helper stringifies an object body, which is that JSON). The failure classifier gives such a 404 the request-scoped class before every other rule: no fallback, cooldown or model lockout, as the legacy checkFallbackError and classifyProviderError do."
+
+[module.ts_blobs]
+"open-sse/services/requestResourceErrors.ts" = "ce11c281b2122234ad740b4d7c660c56853145af"
+
+[module.symbols]
+isResourceNotFoundResponse = "red_routerd::request_resource_errors::is_resource_not_found_response"
+
+[[module]]
+ts = "open-sse/services/roleNormalizer.ts"
+status = "ported"
+rust = "role_normalizer.rs"
+module = "red_routerd::role_normalizer"
+ported_at = "2026-11-19T04:27:37Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/role-normalizer.test.ts"]
+notes = "Applied to Chat Completions bodies sent to a target with a known provider; preserveDeveloperRole comes from the model compatibility flag."
+
+[module.ts_blobs]
+"open-sse/services/roleNormalizer.ts" = "51268eeaef7e873af5547a52313a60e26a5f1e50"
+"tests/unit/role-normalizer.test.ts" = "af29f5f07564d601b9cdfbb8ef553b9c226bc81e"
+
+[module.symbols]
+normalizeDeveloperRole = "red_routerd::role_normalizer::normalize_developer_role"
+normalizeModelRole = "red_routerd::role_normalizer::normalize_model_role"
+normalizeRoles = "red_routerd::role_normalizer::normalize_roles"
+normalizeSystemRole = "red_routerd::role_normalizer::normalize_system_role"
+
+[[module]]
+ts = "open-sse/services/wildcardRouter.ts"
+status = "ported"
+rust = "wildcard_router.rs"
+module = "red_routerd::wildcard_router"
+ported_at = "2026-11-19T01:14:17Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/wildcard-router.test.ts"]
+notes = "resolveModel is the exact-then-glob step of AliasSnapshot::resolve_route; the glob step applies only to names without a provider prefix, as in getModelInfoCore."
+
+[module.ts_blobs]
+"open-sse/services/wildcardRouter.ts" = "7f101489ce97f6bb431052b5a83035a5b444b3fc"
+"tests/unit/wildcard-router.test.ts" = "f1eb4199cb41dd033031256fb2f2ba92631b90f0"
+
+[module.symbols]
+getSpecificity = "red_routerd::wildcard_router::get_specificity"
+resolveModel = "red_routerd::control_plane::model_aliases::AliasSnapshot::resolve_route"
+resolveWildcardAlias = "red_routerd::wildcard_router::resolve_wildcard_alias"
+wildcardMatch = "red_routerd::wildcard_router::wildcard_match"
+
+[[module]]
+ts = "open-sse/translator/helpers/openaiHelper.ts"
+status = "ported"
+rust = "openai_content.rs"
+module = "red_routerd::openai_content"
+ported_at = "2026-11-19T11:19:59Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/openai-developer-role-normalize.test.ts",
+    "tests/unit/translator-strip-client-metadata-1157.test.ts",
+    "tests/unit/translator-helper-tool-description-coercion.test.ts",
+    "tests/unit/strip-reasoning-blobs-agentic-context-1599.test.ts",
+]
+notes = "Applied to Chat Completions bodies sent to a target with a known provider. VALID_OPENAI_MESSAGE_TYPES has no reader in the filter. Reasoning replay uses the legacy provider list and model patterns without the registry interleavedField; cache_control follows the auto cache mode without per-connection overrides."
+
+[module.ts_blobs]
+"open-sse/translator/helpers/openaiHelper.ts" = "2a4a5feafce8c06f44e7070ec05ed2583d031f51"
+"tests/unit/openai-developer-role-normalize.test.ts" = "8d6d5190eee5aeb84626b564ef28f8620b0399b9"
+"tests/unit/strip-reasoning-blobs-agentic-context-1599.test.ts" = "8b3059236dd14f322048b056b46c1ab0722aa36f"
+"tests/unit/translator-helper-tool-description-coercion.test.ts" = "12e47f12ad82acbbe88735ebfb7ecffea7d296b3"
+"tests/unit/translator-strip-client-metadata-1157.test.ts" = "243b1407a3b035dccb8770cb30135638221ac6d8"
+
+[module.symbols]
+FilterToOpenAIFormatOptions = "red_routerd::openai_content::FilterOptions"
+VALID_OPENAI_CONTENT_TYPES = "red_routerd::openai_content::VALID_CONTENT_TYPES"
+VALID_OPENAI_MESSAGE_TYPES = "-"
+filterToOpenAIFormat = "red_routerd::openai_content::filter_to_openai_format"
+
+[[module]]
+ts = "open-sse/utils/credentialPatterns.ts"
+status = "ported"
+rust = "credential_patterns.rs"
+module = "red_routerd::credential_patterns"
+ported_at = "2026-11-20T23:05:09Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = 'JavaScript \b is an ASCII word boundary ((?-u:\b)); the openai_compatible lookbehind is a scanner that takes the leftmost valid key as the JavaScript engine does. redact_credentials (legacy credentialMasker.ts) applies the catalog in order.'
+
+[module.ts_blobs]
+"open-sse/utils/credentialPatterns.ts" = "24083675c11db579c00b162acb697dc576636742"
+
+[module.symbols]
+CREDENTIAL_PATTERNS = "red_routerd::credential_patterns::CREDENTIAL_PATTERNS"
+CredentialPattern = "red_routerd::credential_patterns::CredentialPattern"
+
+[[module]]
+ts = "open-sse/utils/errorPathRedaction.ts"
+status = "ported"
+rust = "error_path_redaction.rs"
+module = "red_routerd::error_path_redaction"
+ported_at = "2026-11-20T23:48:05Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/error-path-redaction-route-truncation-13144.test.ts"]
+notes = 'Scans UTF-16 code units with JavaScript \s, toLowerCase and lastIndexOf semantics; error_path_redaction_oracle.json holds the legacy outputs for a 37-case corpus, checked by outputs_match_the_legacy_implementation.'
+
+[module.ts_blobs]
+"open-sse/utils/errorPathRedaction.ts" = "24bdd68b4fa4ec1735d73f4f1e95c2b4b973789c"
+"tests/unit/error-path-redaction-route-truncation-13144.test.ts" = "38fdf30eee1e6c138ea9b1002981c17d87afd237"
+
+[module.symbols]
+redactErrorPaths = "red_routerd::error_path_redaction::redact_error_paths"
+stripErrorStackTail = "red_routerd::error_path_redaction::strip_error_stack_tail"
+stripRecognizedErrorStackTail = "red_routerd::error_path_redaction::strip_recognized_error_stack_tail"
+
+[[module]]
+ts = "open-sse/utils/errorSanitization.ts"
+status = "ported"
+rust = "error_sanitization.rs"
+module = "red_routerd::error_sanitization"
+ported_at = "2026-11-21T00:04:54Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/error-sensitive-redaction.test.ts",
+    "tests/unit/strong-credential-token-linear-scan.test.ts",
+]
+notes = "UTF-16 scanner with ASCII-only case folding as JavaScript /i; error_sanitization_oracle.json holds legacy outputs for 32 messages, 7 credential checks and 11 upstream bodies. Binary ArrayBuffer details do not occur in JSON bodies."
+
+[module.ts_blobs]
+"open-sse/utils/errorSanitization.ts" = "166932e1dfe8905499baa091002f435799290ac3"
+"tests/unit/error-sensitive-redaction.test.ts" = "187f9fa414a6047ed824c87d77f03d0088f2c3ae"
+"tests/unit/strong-credential-token-linear-scan.test.ts" = "ff8d7f93090e233500fad1dcb5b3b7d6db20a5e9"
+
+[module.symbols]
+containsSensitiveErrorCredential = "red_routerd::error_sanitization::contains_sensitive_error_credential"
+containsStrongCredentialToken = "red_routerd::error_sanitization::contains_strong_credential_token"
+redactSensitiveErrorText = "red_routerd::error_sanitization::redact_sensitive_error_text"
+sanitizeErrorMessage = "red_routerd::error_sanitization::sanitize_error_message"
+sanitizePassthroughUpstreamDetails = "red_routerd::error_sanitization::sanitize_passthrough_upstream_details"
+sanitizeUpstreamDetails = "red_routerd::error_sanitization::sanitize_upstream_details"
+
+[[module]]
+ts = "open-sse/utils/jsonHash.ts"
+status = "ported"
+rust = "json_hash.rs"
+module = "red_routerd::json_hash"
+ported_at = "2026-11-20T21:54:13Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/json-hash.test.ts"]
+notes = "serde_json streams into the hasher; object keys use the sorted map order, so the digest is stable for one server but differs from the legacy insertion-order digest. JSON values cannot hold undefined, functions, BigInt or cycles."
+
+[module.ts_blobs]
+"open-sse/utils/jsonHash.ts" = "cea9e350700d7bcaec0eb9dcb1eedd3df5a6354d"
+"tests/unit/json-hash.test.ts" = "3b8494d3f758eadc1e6bb5028b5fd088964eb9ba"
+
+[module.symbols]
+jsonSha256 = "red_routerd::json_hash::json_sha256"
+
+[[module]]
+ts = "open-sse/utils/proxyFamily.ts"
+status = "ported"
+rust = "proxy_family.rs"
+module = "red_routerd::proxy_family"
+ported_at = "2026-11-20T21:13:06Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/proxy-family.test.ts"]
+notes = "IP literals are parsed with std::net; Node isIP IPv6 zone suffixes (fe80::1%eth0) are not treated as literals."
+
+[module.ts_blobs]
+"open-sse/utils/proxyFamily.ts" = "f6694f73c8780454a43ac2dc425c9e057db3d102"
+"tests/unit/proxy-family.test.ts" = "c48bb25638cf85b7b8627cb16515175c1f559e4f"
+
+[module.symbols]
+ProxyFamily = "red_routerd::proxy_family::ProxyFamily"
+detectIpLiteralFamily = "red_routerd::proxy_family::detect_ip_literal_family"
+parseProxyFamily = "red_routerd::proxy_family::parse_proxy_family"
+stripIpv6Brackets = "red_routerd::proxy_family::strip_ipv6_brackets"
+
+[[module]]
+ts = "open-sse/utils/reasoningPlaceholder.ts"
+status = "ported"
+rust = "reasoning_placeholder.rs"
+module = "red_routerd::reasoning_placeholder"
+ported_at = "2026-11-19T18:25:28Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/reasoning-placeholder-strip.test.ts",
+    "tests/unit/reasoning-fields-placeholder-strip.test.ts",
+    "tests/unit/opencode-reasoning-presence-responses.test.ts",
+]
+notes = "Request-side replay uses the recognizer and the presence rule. The visible-content strip waits for the response translators; until then it is covered by unit tests only."
+
+[module.ts_blobs]
+"open-sse/utils/reasoningPlaceholder.ts" = "438cc1894f979fc39ab0b55275df977300884eec"
+"tests/unit/opencode-reasoning-presence-responses.test.ts" = "a205957934b7b330f926e360ec730beb42c60891"
+"tests/unit/reasoning-fields-placeholder-strip.test.ts" = "566d1dee120ab615afc7f12c2115671c28cdd599"
+"tests/unit/reasoning-placeholder-strip.test.ts" = "fc3f3a3e8b3e18d4502154ec9073088ec2621855"
+
+[module.symbols]
+NON_ANTHROPIC_THINKING_PLACEHOLDER = "red_routerd::reasoning_placeholder::NON_ANTHROPIC_THINKING_PLACEHOLDER"
+isInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::is_internal_reasoning_placeholder"
+requiresReasoningContentPresence = "red_routerd::reasoning_placeholder::requires_reasoning_content_presence"
+stripInternalReasoningPlaceholder = "red_routerd::reasoning_placeholder::strip_internal_reasoning_placeholder"
+
+[[module]]
+ts = "open-sse/utils/upstreamErrorPassthrough.ts"
+status = "ported"
+rust = "public_error.rs"
+module = "red_routerd::public_error"
+ported_at = "2026-11-21T00:18:25Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "public_error_oracle.json checks eligibility and the passthrough body plus Retry-After against the legacy createErrorResult."
+
+[module.ts_blobs]
+"open-sse/utils/upstreamErrorPassthrough.ts" = "00f3bb8aaeb1ab1c121abc5894f63090320ebc0f"
+
+[module.symbols]
+buildPassthroughErrorResponse = "red_routerd::public_error::upstream_failure"
+shouldPassthroughUpstreamError = "red_routerd::public_error::should_passthrough_upstream_error"
+
+[[module]]
+ts = "open-sse/utils/urlSanitize.ts"
+status = "ported"
+rust = "url_sanitize.rs"
+module = "red_routerd::url_sanitize"
+ported_at = "2026-11-20T21:08:25Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/url-sanitize.test.ts",
+    "tests/unit/refactor-urlSanitize.test.ts",
+]
+notes = "A missing or non-string base URL is None; trim drops whitespace and a byte-order mark as JavaScript trim does."
+
+[module.ts_blobs]
+"open-sse/utils/urlSanitize.ts" = "3cdb8ddd9080451353f40a9dd769cf420e42a934"
+"tests/unit/refactor-urlSanitize.test.ts" = "227404dadb57f7040d296df7337001dc2da58228"
+"tests/unit/url-sanitize.test.ts" = "656373177c2739926885ee25d157cbe2636927b8"
+
+[module.symbols]
+normalizeBaseUrl = "red_routerd::url_sanitize::normalize_base_url"
+stripTrailingSlashes = "red_routerd::url_sanitize::strip_trailing_slashes"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogCapabilities.ts"
+status = "ported"
+rust = "catalog_capabilities.rs"
+module = "red_routerd::catalog_capabilities"
+ported_at = "2026-11-18T20:14:27Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-capabilities.test.ts"]
+notes = "Typed decision rows do not yet carry availability and supported_endpoints."
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogCapabilities.ts" = "916a2f463e275ac5659489d77162f465419b8f5b"
+"tests/redrouter/native/catalog-capabilities.test.ts" = "b4515fd631c7fbc1f5ca38e0289f7ef4d56671b7"
+
+[module.symbols]
+CatalogCapability = "red_routerd::catalog_capabilities::CatalogCapability"
+catalogCapabilityCacheKey = "red_routerd::catalog_capabilities::catalog_capability_cache_key"
+filterCatalogCapabilities = "red_routerd::catalog_capabilities::filter_catalog_capabilities"
+parseCatalogCapabilities = "red_routerd::catalog_capabilities::parse_catalog_capabilities"
+withCatalogRoleCapabilities = "red_routerd::catalog_capabilities::with_catalog_role_capabilities"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogDedupe.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T20:00:39Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/models-catalog-exact-dup-4424.test.ts"]
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogDedupe.ts" = "29f48ac35df0565fa108c315ddf97d63ac2e9328"
+"tests/unit/models-catalog-exact-dup-4424.test.ts" = "7dfd3cd8ed7e402d37e2c65e1095be60fda501e0"
+
+[module.symbols]
+dedupeExactCatalogIds = "red_routerd::catalog_listing::dedupe_exact_catalog_ids"
+
+[[module]]
+ts = "src/app/api/v1/models/catalogPagination.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T19:55:57Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/models-catalog-pagination.test.ts"]
+notes = "axum Json already sends one buffered body with Content-Length; the chunked writer has no Rust counterpart."
+
+[module.ts_blobs]
+"src/app/api/v1/models/catalogPagination.ts" = "1fbecde59f43035c3370280f829a00c0e49514fa"
+"tests/unit/models-catalog-pagination.test.ts" = "8bf903e7de3b6ae06e67b91c9d21a166345bf670"
+
+[module.symbols]
+CATALOG_BODY_CHUNK_BYTES = "-"
+CATALOG_PAGE_LIMIT_MAX = "red_routerd::catalog_listing::CATALOG_PAGE_LIMIT_MAX"
+CatalogPage = "red_routerd::catalog_listing::CatalogPage"
+CatalogPageResult = "red_routerd::catalog_listing::CatalogPageResult"
+applyCatalogPage = "red_routerd::catalog_listing::apply_catalog_page"
+catalogJsonResponse = "-"
+catalogPageCacheKey = "red_routerd::catalog_listing::CatalogPage::cache_key"
+catalogStringResponse = "-"
+parseCatalogPage = "red_routerd::catalog_listing::parse_catalog_page"
+
+[[module]]
+ts = "src/app/api/v1/models/displayNames.ts"
+status = "ported"
+rust = "catalog_listing.rs"
+module = "red_routerd::catalog_listing"
+ported_at = "2026-11-18T20:05:12Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-display-names.test.ts"]
+notes = "Ported as functions; not wired until the Rust listing emits model names."
+
+[module.ts_blobs]
+"src/app/api/v1/models/displayNames.ts" = "32becf5c38517e388bb42c38e2cfe2d69281958a"
+"tests/redrouter/native/catalog-display-names.test.ts" = "66418d5989abc05649cdf039bb3cc3d7141c8937"
+
+[module.symbols]
+normalizeCatalogDisplayName = "red_routerd::catalog_listing::normalize_catalog_display_name"
+normalizeCatalogModelNames = "red_routerd::catalog_listing::normalize_catalog_model_names"
+
+[[module]]
+ts = "src/lib/catalogVersion.ts"
+status = "ported"
+rust = "catalog_version.rs"
+module = "red_routerd::catalog_version"
+ported_at = "2026-11-20T21:24:19Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/catalog-version.test.ts"]
+notes = "serde_json sorts object keys, so the digest differs from the legacy one for the same catalog; it is opaque and only compared against what the same server served, so clients re-read once after the cutover."
+
+[module.ts_blobs]
+"src/lib/catalogVersion.ts" = "63313ac26219e81ec6d89eaebd483c23b33aded7"
+"tests/redrouter/native/catalog-version.test.ts" = "3afc2166ca08d865021555892ee03cce1cbd6e12"
+
+[module.symbols]
+catalogVersionFromBody = "red_routerd::catalog_version::catalog_version_from_body"
+computeCatalogVersion = "red_routerd::catalog_version::compute_catalog_version"
+
+[[module]]
+ts = "src/lib/dataPaths.ts"
+status = "ported"
+rust = "data_paths.rs"
+module = "red_routerd::data_paths"
+ported_at = "2026-11-20T22:09:38Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/data-dir-writable-fallback.test.ts"]
+notes = "The environment is an explicit DataDirEnv. The Node test and eval-probe guard (isTestContext, #10428) is a Node process concern: Rust tests pass their own directories, so it is not ported."
+
+[module.ts_blobs]
+"src/lib/dataPaths.ts" = "5ab6ee0623c88187648b5b8119913311a267ca24"
+"tests/unit/data-dir-writable-fallback.test.ts" = "57cbf1def82b622ce28538baffc2dccf7b9d3635"
+
+[module.symbols]
+APP_NAME = "red_routerd::data_paths::APP_NAME"
+getDefaultDataDir = "red_routerd::data_paths::default_data_dir"
+getLegacyDotDataDir = "red_routerd::data_paths::legacy_dot_data_dir"
+isSamePath = "red_routerd::data_paths::is_same_path"
+isTestContext = "-"
+resolveDataDir = "red_routerd::data_paths::resolve_data_dir"
+resolveWritableDataDir = "red_routerd::data_paths::resolve_writable_data_dir"
+
+[[module]]
+ts = "src/lib/healthzLag.ts"
+status = "skipped"
+ported_at = "2026-11-20T21:36:30Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "Measures Node event-loop delay for the /healthz warning; the Rust daemon runs on tokio and has no single event loop to sample."
+
+[module.ts_blobs]
+"src/lib/healthzLag.ts" = "fb4f17567ec47c3acd33c85666b0da9752a93bdf"
+
+[[module]]
+ts = "src/lib/ipUtils.ts"
+status = "ported"
+rust = "ip_utils.rs"
+module = "red_routerd::ip_utils"
+ported_at = "2026-11-20T21:45:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/ipUtils.test.ts",
+    "tests/unit/8336-audit-loopback-login.test.ts",
+]
+notes = "The request is its headers and the TCP peer address; addresses are validated with std::net, so Node isIP IPv6 zone suffixes are not literals."
+
+[module.ts_blobs]
+"src/lib/ipUtils.ts" = "66e016555e186d1e6a9ab13f192b51d67d1b66c2"
+"tests/unit/8336-audit-loopback-login.test.ts" = "038311cf1be12d3f2abcdd0ed4a8b4fe1e039620"
+"tests/unit/ipUtils.test.ts" = "cb1c83f63848fa89369b96c14edd5957f853d26d"
+
+[module.symbols]
+IpScope = "red_routerd::ip_utils::IpScope"
+classifyIpScope = "red_routerd::ip_utils::classify_ip_scope"
+extractClientIp = "red_routerd::ip_utils::extract_client_ip"
+getClientIpFromRequest = "red_routerd::ip_utils::client_ip_from_request"
+
+[[module]]
+ts = "src/lib/metrics/prometheusText.ts"
+status = "ported"
+rust = "prometheus_text.rs"
+module = "red_routerd::prometheus_text"
+ported_at = "2026-11-21T03:31:59Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+notes = "prometheus_text_oracle.json holds the legacy text for an empty and a full snapshot (escaping, exponent values, short bucket lists); format_value reproduces JavaScript Number toString."
+
+[module.ts_blobs]
+"src/lib/metrics/prometheusText.ts" = "52e8e78bd7cc51c73ec0b00146da444bf5b4ed8a"
+
+[module.symbols]
+CIRCUIT_BREAKER_STATES = "red_routerd::prometheus_text::CIRCUIT_BREAKER_STATES"
+MetricsSnapshot = "red_routerd::prometheus_text::MetricsSnapshot"
+PROMETHEUS_CONTENT_TYPE = "red_routerd::prometheus_text::PROMETHEUS_CONTENT_TYPE"
+REQUEST_DURATION_BUCKETS_SECONDS = "red_routerd::prometheus_text::REQUEST_DURATION_BUCKETS_SECONDS"
+escapeHelp = "red_routerd::prometheus_text::escape_help"
+escapeLabelValue = "red_routerd::prometheus_text::escape_label_value"
+formatValue = "red_routerd::prometheus_text::format_value"
+renderPrometheusText = "red_routerd::prometheus_text::render_prometheus_text"
+
+[[module]]
+ts = "src/lib/proxyEchoTarget.ts"
+status = "ported"
+rust = "proxy_echo_target.rs"
+module = "red_routerd::proxy_echo_target"
+ported_at = "2026-11-20T22:01:21Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/proxy-echo-ipv4-fallback-9694.test.ts"]
+notes = "The override is passed in instead of read from process.env; the outcome is a (result, url) tuple, and a failure with no attempt is Err(None)."
+
+[module.ts_blobs]
+"src/lib/proxyEchoTarget.ts" = "84cd9ef35c72c21a80d5469503682e22d9944a76"
+"tests/unit/proxy-echo-ipv4-fallback-9694.test.ts" = "ac19c21ff57bf87bc6a1359cd67284cb180b753d"
+
+[module.symbols]
+EGRESS_ECHO_URL_DUAL = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_DUAL"
+EGRESS_ECHO_URL_ENV = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_ENV"
+EGRESS_ECHO_URL_V4 = "red_routerd::proxy_echo_target::EGRESS_ECHO_URL_V4"
+EchoAttemptOutcome = "-"
+MIN_ECHO_ATTEMPT_MS = "red_routerd::proxy_echo_target::MIN_ECHO_ATTEMPT_MS"
+probeEchoTargets = "red_routerd::proxy_echo_target::probe_echo_targets"
+resolveEgressEchoUrls = "red_routerd::proxy_echo_target::resolve_egress_echo_urls"
+splitEchoAttemptBudget = "red_routerd::proxy_echo_target::split_echo_attempt_budget"
+
+[[module]]
+ts = "src/lib/retainedSize.ts"
+status = "ported"
+rust = "retained_size.rs"
+module = "red_routerd::retained_size"
+ported_at = "2026-11-20T21:31:42Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/redrouter/native/retained-size.test.ts"]
+notes = "Walks serde_json values, so getters, cycles, buffers and exotic types cannot occur; over budget or deeper than 64 levels is None (the legacy Infinity)."
+
+[module.ts_blobs]
+"src/lib/retainedSize.ts" = "29e33ace3f29a0276071ea747907837098cfc1dc"
+"tests/redrouter/native/retained-size.test.ts" = "98c025afb5d8eefce53ec3944a3f7a99b174482b"
+
+[module.symbols]
+estimateRetainedBytes = "red_routerd::retained_size::estimate_retained_bytes"
+
+[[module]]
+ts = "src/shared/constants/modelSpecs.ts"
+status = "ported"
+rust = "model_specs.rs"
+module = "red_routerd::model_specs"
+ported_at = "2026-11-21T01:52:41Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = [
+    "tests/unit/model-spec-lookup-index-8697.test.ts",
+    "tests/unit/resolve-model-alias-index-8697.test.ts",
+    "tests/unit/combo-thinking-disabled-fable5-3554.test.ts",
+]
+notes = "MODEL_SPECS and the two authority tables live in model_specs.json, generated from the legacy module in insertion order; model_specs_oracle.json pins 559 lookups and the thinking/tool-choice normalizations against the legacy outputs. Not yet wired into dispatch."
+
+[module.ts_blobs]
+"src/shared/constants/modelSpecs.ts" = "ad2788482e3be3defccc9f10d902f8ccb12b278a"
+"tests/unit/combo-thinking-disabled-fable5-3554.test.ts" = "3db0f142fe6692738d087626fe66479814b412ca"
+"tests/unit/model-spec-lookup-index-8697.test.ts" = "24618149f29fd5b6ba080ce1880b28459382fafb"
+"tests/unit/resolve-model-alias-index-8697.test.ts" = "f521014b8942d9a80d49b4f382460bca2664d3fb"
+
+[module.symbols]
+MODEL_SPECS = "-"
+ModelSpec = "red_routerd::model_specs::ModelSpec"
+capMaxOutputTokens = "red_routerd::model_specs::cap_max_output_tokens"
+capThinkingBudget = "red_routerd::model_specs::cap_thinking_budget"
+findModelSpecIdByExactOrAlias = "red_routerd::model_specs::find_model_spec_id_by_exact_or_alias"
+getAuthoritativeContextWindow = "red_routerd::model_specs::authoritative_context_window"
+getAuthoritativeProviderContextWindow = "red_routerd::model_specs::authoritative_provider_context_window"
+getCanonicalModelSpecId = "red_routerd::model_specs::canonical_model_spec_id"
+getDefaultThinkingBudget = "red_routerd::model_specs::default_thinking_budget"
+getMaxEffortWhenThinkingDisabled = "red_routerd::model_specs::max_effort_when_thinking_disabled"
+getModelSpec = "red_routerd::model_specs::model_spec"
+isAdaptiveThinkingOnly = "red_routerd::model_specs::is_adaptive_thinking_only"
+normalizeForcedToolChoiceForModel = "red_routerd::model_specs::normalize_forced_tool_choice_for_model"
+normalizeThinkingForModel = "red_routerd::model_specs::normalize_thinking_for_model"
+resolveModelAlias = "red_routerd::model_specs::resolve_model_alias"
+
+[[module]]
+ts = "src/shared/validation/iconUrl.ts"
+status = "ported"
+rust = "icon_url.rs"
+module = "red_routerd::icon_url"
+ported_at = "2026-11-19T16:10:04Z"
+ts_base = "260cf34b57b536c4211186e93357f7b1a996f7a0"
+tests = ["tests/unit/provider-icon-url-validator.test.ts"]
+notes = "Validates provider definition icons in the admin API and the legacy node importer."
+
+[module.ts_blobs]
+"src/shared/validation/iconUrl.ts" = "e3c0876b7ec1aaf2fbb5fb963d5204095638e084"
+"tests/unit/provider-icon-url-validator.test.ts" = "9a6c1425a3b609420d9df50a6e86259d3bb5b05b"
+
+[module.symbols]
+MAX_ICON_DATA_URL_LENGTH = "red_routerd::icon_url::MAX_ICON_DATA_URL_LENGTH"
+MAX_ICON_URL_LENGTH = "red_routerd::icon_url::MAX_ICON_URL_LENGTH"
+isValidProviderIconUrl = "red_routerd::icon_url::is_valid_provider_icon_url"

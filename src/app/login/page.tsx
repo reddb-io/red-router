@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { Button, Input } from "@/shared/components";
 import { useBranding } from "@/shared/components/BrandingProvider";
 import { useRouter } from "next/navigation";
+import { createRustAdminSession, readRustAuthConfig } from "@/lib/rustControlPlane/browserClient";
 
 import TenantSignIn from "./TenantSignIn";
 
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const [oidcEnabled, setOidcEnabled] = useState<boolean | null>(null);
   const [oidcDisablePasswordLogin, setOidcDisablePasswordLogin] = useState<boolean | null>(null);
   const [samlEnabled, setSamlEnabled] = useState(false);
+  const [rustBackend, setRustBackend] = useState(false);
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
@@ -44,6 +46,20 @@ export default function LoginPage() {
       const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
       try {
+        try {
+          const rust = await readRustAuthConfig(controller.signal);
+          if (rust?.backend === "rust") {
+            clearTimeout(timeoutId);
+            setRustBackend(true);
+            setHasPassword(true);
+            setSetupComplete(rust.control_plane_enabled);
+            setOidcEnabled(rust.oidc_browser_login);
+            setOidcDisablePasswordLogin(!rust.password_login);
+            return;
+          }
+        } catch {
+          // The legacy Next.js backend does not expose the Rust bootstrap route.
+        }
         const res = await fetch(`${baseUrl}/api/settings/require-login`, {
           signal: controller.signal,
         });
@@ -90,6 +106,11 @@ export default function LoginPage() {
     setError("");
 
     try {
+      if (rustBackend) {
+        await createRustAdminSession(password);
+        enterDashboard();
+        return;
+      }
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -235,6 +256,25 @@ export default function LoginPage() {
 
           <p className="text-center text-xs text-text-muted/60 mt-8">
             {brand.name} — {t("unifiedProxy")}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (rustBackend && !oidcEnabled) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 shadow-soft">
+          <div className="mb-4 flex items-center gap-3">
+            <Icon icon={ShieldUser} size="lg" color="primary" />
+            <h1 className="text-xl font-semibold text-text-main">
+              Dashboard sign-in is not configured
+            </h1>
+          </div>
+          <p className="text-sm leading-relaxed text-text-muted">
+            The Rust control plane is running, but browser OIDC is not enabled. Configure it with
+            the recovery admin credential before opening the static dashboard.
           </p>
         </div>
       </div>
@@ -474,15 +514,17 @@ export default function LoginPage() {
               </div>
             )}
 
-            <div className="mt-4 text-center">
-              <a
-                href="/login#tenant"
-                onClick={() => setTenantMode({ token: null })}
-                className="text-sm text-text-muted underline underline-offset-4"
-              >
-                Tenant sign-in
-              </a>
-            </div>
+            {!rustBackend && (
+              <div className="mt-4 text-center">
+                <a
+                  href="/login#tenant"
+                  onClick={() => setTenantMode({ token: null })}
+                  className="text-sm text-text-muted underline underline-offset-4"
+                >
+                  Tenant sign-in
+                </a>
+              </div>
+            )}
 
             {brand.login.footer && (
               <p className="mt-6 text-center text-xs text-text-muted">{brand.login.footer}</p>

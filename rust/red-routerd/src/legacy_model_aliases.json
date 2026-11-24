@@ -1,0 +1,2357 @@
+{
+  "source_commit": "525a71de4ac25968d0a25e52eeb1b09cc21c6e92",
+  "aliases": {
+    "1min": [
+      "oneminai",
+      "1min"
+    ],
+    "360ai": [
+      "360ai",
+      "360ai"
+    ],
+    "9router": [
+      "9router",
+      "nr"
+    ],
+    "aai": [
+      "assemblyai",
+      "aai"
+    ],
+    "adapta-web": [
+      "adapta-web",
+      "adp-web"
+    ],
+    "adobe-firefly": [
+      "adobe-firefly",
+      "firefly"
+    ],
+    "adp-web": [
+      "adapta-web",
+      "adp-web"
+    ],
+    "af": [
+      "api-airforce",
+      "af"
+    ],
+    "ag": [
+      "antigravity",
+      "antigravity"
+    ],
+    "agentrouter": [
+      "agentrouter",
+      "agentrouter"
+    ],
+    "agnes": [
+      "agnes",
+      "agnes"
+    ],
+    "agnes-cn": [
+      "agnes-cn",
+      "agnescn"
+    ],
+    "agnescn": [
+      "agnes-cn",
+      "agnescn"
+    ],
+    "agy": [
+      "agy",
+      "agy"
+    ],
+    "ai21": [
+      "ai21",
+      "ai21"
+    ],
+    "aihorde": [
+      "aihorde",
+      "horde"
+    ],
+    "aiml": [
+      "aimlapi",
+      "aiml"
+    ],
+    "aimlapi": [
+      "aimlapi",
+      "aiml"
+    ],
+    "ainative": [
+      "ainative",
+      "ainative"
+    ],
+    "aion": [
+      "aion",
+      "aion"
+    ],
+    "airforce": [
+      "api-airforce",
+      "af"
+    ],
+    "ali": [
+      "alibaba",
+      "ali"
+    ],
+    "ali-cn": [
+      "alibaba-cn",
+      "ali-cn"
+    ],
+    "alibaba": [
+      "alibaba",
+      "ali"
+    ],
+    "alibaba-cn": [
+      "alibaba-cn",
+      "ali-cn"
+    ],
+    "alicode": [
+      "alicode",
+      "alicode"
+    ],
+    "alicode-intl": [
+      "alicode-intl",
+      "alicode-intl"
+    ],
+    "alims-intl": [
+      "alims-intl",
+      "alims-intl"
+    ],
+    "alitp-intl": [
+      "alitp-intl",
+      "alitp-intl"
+    ],
+    "amazon-q": [
+      "amazon-q",
+      "aq"
+    ],
+    "ant-ling": [
+      "ant-ling",
+      "ling"
+    ],
+    "anthropic": [
+      "anthropic",
+      "anthropic"
+    ],
+    "antigravity": [
+      "antigravity",
+      "antigravity"
+    ],
+    "anyapi": [
+      "anyapi",
+      "anyapi"
+    ],
+    "anysearch": [
+      "anysearch-search",
+      "anysearch"
+    ],
+    "anysearch-search": [
+      "anysearch-search",
+      "anysearch"
+    ],
+    "api-airforce": [
+      "api-airforce",
+      "af"
+    ],
+    "aq": [
+      "amazon-q",
+      "aq"
+    ],
+    "arcee": [
+      "arcee-ai",
+      "arcee"
+    ],
+    "arcee-ai": [
+      "arcee-ai",
+      "arcee"
+    ],
+    "ark": [
+      "volcengine-coding-plan",
+      "vecp"
+    ],
+    "assemblyai": [
+      "assemblyai",
+      "aai"
+    ],
+    "atria": [
+      "atria",
+      "atria"
+    ],
+    "aug": [
+      "auggie",
+      "aug"
+    ],
+    "auggie": [
+      "auggie",
+      "aug"
+    ],
+    "auriko": [
+      "auriko",
+      "auriko"
+    ],
+    "auto": [
+      "auto",
+      "auto"
+    ],
+    "aws-polly": [
+      "aws-polly",
+      "polly"
+    ],
+    "azure": [
+      "azure-openai",
+      "azure"
+    ],
+    "azure-ai": [
+      "azure-ai",
+      "azure-ai"
+    ],
+    "azure-openai": [
+      "azure-openai",
+      "azure"
+    ],
+    "bai": [
+      "bai",
+      "bai"
+    ],
+    "baichuan": [
+      "baichuan",
+      "baichuan"
+    ],
+    "baidu": [
+      "baidu",
+      "baidu"
+    ],
+    "bailian-coding-plan": [
+      "bailian-coding-plan",
+      "bcp"
+    ],
+    "baseten": [
+      "baseten",
+      "baseten"
+    ],
+    "bazaarlink": [
+      "bazaarlink",
+      "bzl"
+    ],
+    "bb": [
+      "blackbox",
+      "bb"
+    ],
+    "bb-web": [
+      "blackbox-web",
+      "bb-web"
+    ],
+    "bcp": [
+      "bailian-coding-plan",
+      "bcp"
+    ],
+    "bedrock": [
+      "bedrock",
+      "bedrock"
+    ],
+    "bfl": [
+      "black-forest-labs",
+      "bfl"
+    ],
+    "black-forest-labs": [
+      "black-forest-labs",
+      "bfl"
+    ],
+    "blackbox": [
+      "blackbox",
+      "bb"
+    ],
+    "blackbox-web": [
+      "blackbox-web",
+      "bb-web"
+    ],
+    "bluesminds": [
+      "bluesminds",
+      "bm"
+    ],
+    "bm": [
+      "bluesminds",
+      "bm"
+    ],
+    "bpm": [
+      "byteplus",
+      "bpm"
+    ],
+    "brave": [
+      "brave-search",
+      "brave-search"
+    ],
+    "brave-search": [
+      "brave-search",
+      "brave-search"
+    ],
+    "byteplus": [
+      "byteplus",
+      "bpm"
+    ],
+    "bytez": [
+      "bytez",
+      "bytez"
+    ],
+    "bzl": [
+      "bazaarlink",
+      "bzl"
+    ],
+    "cartesia": [
+      "cartesia",
+      "cartesia"
+    ],
+    "cbai": [
+      "codebuddy-intl",
+      "cbai"
+    ],
+    "cbcn": [
+      "codebuddy-cn",
+      "cbcn"
+    ],
+    "cc": [
+      "claude",
+      "cc"
+    ],
+    "cerebras": [
+      "cerebras",
+      "cerebras"
+    ],
+    "cf": [
+      "cloudflare-ai",
+      "cf"
+    ],
+    "cfaig": [
+      "cloudflare-ai-gateway",
+      "cfaig"
+    ],
+    "cfp": [
+      "cloudflare-playground",
+      "cfp"
+    ],
+    "cgpt-codex": [
+      "chatgpt-web-codex",
+      "cgpt-codex"
+    ],
+    "ch": [
+      "chutes",
+      "chutes"
+    ],
+    "charm-hyper": [
+      "charm-hyper",
+      "charm-hyper"
+    ],
+    "chat-oripe": [
+      "chat-oripe",
+      "chat-oripe"
+    ],
+    "chatanywhere": [
+      "chatanywhere",
+      "chatanywhere"
+    ],
+    "chatgpt-web": [
+      "chatgpt-web",
+      "chatgpt-web"
+    ],
+    "chatgpt-web-codex": [
+      "chatgpt-web-codex",
+      "cgpt-codex"
+    ],
+    "cheaperinference": [
+      "cheaperinference",
+      "cinf"
+    ],
+    "chenzk": [
+      "chenzk",
+      "chenzk"
+    ],
+    "chutes": [
+      "chutes",
+      "chutes"
+    ],
+    "cinf": [
+      "cheaperinference",
+      "cinf"
+    ],
+    "cl": [
+      "cline",
+      "cl"
+    ],
+    "clarifai": [
+      "clarifai",
+      "clarifai"
+    ],
+    "claude": [
+      "claude",
+      "cc"
+    ],
+    "claude-web": [
+      "claude-web",
+      "cw"
+    ],
+    "cline": [
+      "cline",
+      "cl"
+    ],
+    "clinepass": [
+      "clinepass",
+      "cp"
+    ],
+    "cliproxyapi": [
+      "cliproxyapi",
+      "cpa"
+    ],
+    "cloudcode-one": [
+      "cloudcode-one",
+      "cloudcode-one"
+    ],
+    "cloudflare-ai": [
+      "cloudflare-ai",
+      "cf"
+    ],
+    "cloudflare-ai-gateway": [
+      "cloudflare-ai-gateway",
+      "cfaig"
+    ],
+    "cloudflare-playground": [
+      "cloudflare-playground",
+      "cfp"
+    ],
+    "clova": [
+      "clova-studio",
+      "clova"
+    ],
+    "clova-studio": [
+      "clova-studio",
+      "clova"
+    ],
+    "cmc": [
+      "command-code",
+      "cmd"
+    ],
+    "cmd": [
+      "command-code",
+      "cmd"
+    ],
+    "cnl": [
+      "conol-web",
+      "cnl"
+    ],
+    "codebuddy-cn": [
+      "codebuddy-cn",
+      "cbcn"
+    ],
+    "codebuddy-intl": [
+      "codebuddy-intl",
+      "cbai"
+    ],
+    "codestral": [
+      "codestral",
+      "codestral"
+    ],
+    "codex": [
+      "codex",
+      "cx"
+    ],
+    "codex-app-server": [
+      "codex-app-server",
+      "cxa"
+    ],
+    "codex-cloud": [
+      "codex-cloud",
+      "codex-cloud"
+    ],
+    "cohere": [
+      "cohere",
+      "cohere"
+    ],
+    "comfyui": [
+      "comfyui",
+      "comfyui"
+    ],
+    "command-code": [
+      "command-code",
+      "cmd"
+    ],
+    "commandcode": [
+      "command-code",
+      "cmd"
+    ],
+    "conol-web": [
+      "conol-web",
+      "cnl"
+    ],
+    "context7": [
+      "context7",
+      "context7"
+    ],
+    "copilot": [
+      "copilot-web",
+      "copilot"
+    ],
+    "copilot-m365-web": [
+      "copilot-m365-web",
+      "m365copilot"
+    ],
+    "copilot-web": [
+      "copilot-web",
+      "copilot"
+    ],
+    "coze": [
+      "coze",
+      "coze"
+    ],
+    "cp": [
+      "clinepass",
+      "cp"
+    ],
+    "cpa": [
+      "cliproxyapi",
+      "cpa"
+    ],
+    "crof": [
+      "crof",
+      "crof"
+    ],
+    "cu": [
+      "cursor",
+      "cu"
+    ],
+    "cua": [
+      "cursor-api",
+      "cua"
+    ],
+    "cursor": [
+      "cursor",
+      "cu"
+    ],
+    "cursor-api": [
+      "cursor-api",
+      "cua"
+    ],
+    "cw": [
+      "claude-web",
+      "cw"
+    ],
+    "cx": [
+      "codex",
+      "cx"
+    ],
+    "cxa": [
+      "codex-app-server",
+      "cxa"
+    ],
+    "dahl": [
+      "dahl",
+      "dahl"
+    ],
+    "dai": [
+      "dit",
+      "dai"
+    ],
+    "databricks": [
+      "databricks",
+      "databricks"
+    ],
+    "datarobot": [
+      "datarobot",
+      "datarobot"
+    ],
+    "db": [
+      "doubao-web",
+      "db"
+    ],
+    "ddgw": [
+      "duckduckgo-web",
+      "ddgw"
+    ],
+    "deepai": [
+      "deepai",
+      "deepai"
+    ],
+    "deepgram": [
+      "deepgram",
+      "dg"
+    ],
+    "deepinfra": [
+      "deepinfra",
+      "deepinfra"
+    ],
+    "deepseek": [
+      "deepseek",
+      "ds"
+    ],
+    "deepseek-web": [
+      "deepseek-web",
+      "ds-web"
+    ],
+    "devin": [
+      "devin",
+      "devin"
+    ],
+    "devin-cli": [
+      "devin-cli",
+      "dv"
+    ],
+    "devin-cli-agentic": [
+      "devin-cli-agentic",
+      "dva"
+    ],
+    "devin-desktop": [
+      "devin-desktop",
+      "devin-desktop"
+    ],
+    "dg": [
+      "deepgram",
+      "dg"
+    ],
+    "dgrid": [
+      "dgrid",
+      "dgrid"
+    ],
+    "dify": [
+      "dify",
+      "dify"
+    ],
+    "digitalocean": [
+      "digitalocean",
+      "digitalocean"
+    ],
+    "dit": [
+      "dit",
+      "dai"
+    ],
+    "dmr": [
+      "docker-model-runner",
+      "dmr"
+    ],
+    "docker-model-runner": [
+      "docker-model-runner",
+      "dmr"
+    ],
+    "doubao": [
+      "doubao",
+      "doubao"
+    ],
+    "doubao-web": [
+      "doubao-web",
+      "db"
+    ],
+    "ds": [
+      "deepseek",
+      "ds"
+    ],
+    "ds-web": [
+      "deepseek-web",
+      "ds-web"
+    ],
+    "duckduckgo-web": [
+      "duckduckgo-web",
+      "ddgw"
+    ],
+    "dv": [
+      "devin-cli",
+      "dv"
+    ],
+    "dva": [
+      "devin-cli-agentic",
+      "dva"
+    ],
+    "dxnt": [
+      "dxnt",
+      "dxnt"
+    ],
+    "edge-tts": [
+      "edge-tts",
+      "edge-tts"
+    ],
+    "el": [
+      "elevenlabs",
+      "el"
+    ],
+    "electronhub": [
+      "electronhub",
+      "electronhub"
+    ],
+    "elevenlabs": [
+      "elevenlabs",
+      "el"
+    ],
+    "empower": [
+      "empower",
+      "empower"
+    ],
+    "ernie": [
+      "baidu",
+      "baidu"
+    ],
+    "eurouter": [
+      "eurouter",
+      "eurouter"
+    ],
+    "exa-search": [
+      "exa-search",
+      "exa-search"
+    ],
+    "factory": [
+      "factory",
+      "factory"
+    ],
+    "faik": [
+      "freeaiapikey",
+      "faik"
+    ],
+    "fal": [
+      "fal-ai",
+      "fal"
+    ],
+    "fal-ai": [
+      "fal-ai",
+      "fal"
+    ],
+    "fastrouter": [
+      "fastrouter",
+      "fastrouter"
+    ],
+    "fc": [
+      "firecrawl",
+      "fc"
+    ],
+    "featherless": [
+      "featherless-ai",
+      "featherless"
+    ],
+    "featherless-ai": [
+      "featherless-ai",
+      "featherless"
+    ],
+    "fenayai": [
+      "fenayai",
+      "fenayai"
+    ],
+    "firecrawl": [
+      "firecrawl",
+      "fc"
+    ],
+    "firefly": [
+      "adobe-firefly",
+      "firefly"
+    ],
+    "fireworks": [
+      "fireworks",
+      "fireworks"
+    ],
+    "fish": [
+      "fishaudio",
+      "fishaudio"
+    ],
+    "fishaudio": [
+      "fishaudio",
+      "fishaudio"
+    ],
+    "fmd": [
+      "freemodel-dev",
+      "fmd"
+    ],
+    "free-ai": [
+      "free-ai",
+      "free-ai"
+    ],
+    "freeaiapikey": [
+      "freeaiapikey",
+      "faik"
+    ],
+    "freebuff": [
+      "freebuff",
+      "freebuff"
+    ],
+    "freeinference": [
+      "freeinference",
+      "freeinference"
+    ],
+    "freemodel-dev": [
+      "freemodel-dev",
+      "fmd"
+    ],
+    "freepik": [
+      "magnific",
+      "freepik"
+    ],
+    "freetheai": [
+      "freetheai",
+      "fta"
+    ],
+    "friendli": [
+      "friendliai",
+      "friendli"
+    ],
+    "friendliai": [
+      "friendliai",
+      "friendli"
+    ],
+    "fta": [
+      "freetheai",
+      "fta"
+    ],
+    "g4f-gemini": [
+      "g4f-gemini",
+      "g4fgem"
+    ],
+    "g4f-groq": [
+      "g4f-groq",
+      "g4fgroq"
+    ],
+    "g4f-nvidia": [
+      "g4f-nvidia",
+      "g4fnv"
+    ],
+    "g4f-ollama": [
+      "g4f-ollama",
+      "g4foll"
+    ],
+    "g4f-pollinations": [
+      "g4f-pollinations",
+      "g4fpol"
+    ],
+    "g4fgem": [
+      "g4f-gemini",
+      "g4fgem"
+    ],
+    "g4fgroq": [
+      "g4f-groq",
+      "g4fgroq"
+    ],
+    "g4fnv": [
+      "g4f-nvidia",
+      "g4fnv"
+    ],
+    "g4foll": [
+      "g4f-ollama",
+      "g4foll"
+    ],
+    "g4fpol": [
+      "g4f-pollinations",
+      "g4fpol"
+    ],
+    "galadriel": [
+      "galadriel",
+      "galadriel"
+    ],
+    "gb": [
+      "grok-cli",
+      "gc"
+    ],
+    "gc": [
+      "grok-cli",
+      "gc"
+    ],
+    "gcli": [
+      "grok-cli",
+      "gc"
+    ],
+    "gemini": [
+      "gemini",
+      "gemini"
+    ],
+    "gemini-web": [
+      "gemini-web",
+      "gweb"
+    ],
+    "getgoapi": [
+      "getgoapi",
+      "ggo"
+    ],
+    "ggo": [
+      "getgoapi",
+      "ggo"
+    ],
+    "gh": [
+      "github",
+      "gh"
+    ],
+    "ghe-copilot": [
+      "ghe-copilot",
+      "ghe-copilot"
+    ],
+    "gigachat": [
+      "gigachat",
+      "gigachat"
+    ],
+    "github": [
+      "github",
+      "gh"
+    ],
+    "gitlab": [
+      "gitlab",
+      "gitlab"
+    ],
+    "gitlab-duo": [
+      "gitlab-duo",
+      "gitlab-duo"
+    ],
+    "gitlawb": [
+      "gitlawb",
+      "glb"
+    ],
+    "gitlawb-gmi": [
+      "gitlawb-gmi",
+      "glb-gmi"
+    ],
+    "gladia": [
+      "gladia",
+      "gladia"
+    ],
+    "glb": [
+      "gitlawb",
+      "glb"
+    ],
+    "glb-gmi": [
+      "gitlawb-gmi",
+      "glb-gmi"
+    ],
+    "glm": [
+      "glm",
+      "glm"
+    ],
+    "glm-cn": [
+      "glm-cn",
+      "glmcn"
+    ],
+    "glmcn": [
+      "glm-cn",
+      "glmcn"
+    ],
+    "glmt": [
+      "glmt",
+      "glmt"
+    ],
+    "google-pse": [
+      "google-pse-search",
+      "google-pse"
+    ],
+    "google-pse-search": [
+      "google-pse-search",
+      "google-pse"
+    ],
+    "gpse": [
+      "google-pse-search",
+      "google-pse"
+    ],
+    "greenpt": [
+      "greenpt",
+      "greenpt"
+    ],
+    "grok-build": [
+      "grok-cli",
+      "gc"
+    ],
+    "grok-cli": [
+      "grok-cli",
+      "gc"
+    ],
+    "grok-web": [
+      "grok-web",
+      "gw"
+    ],
+    "groq": [
+      "groq",
+      "groq"
+    ],
+    "gw": [
+      "grok-web",
+      "gw"
+    ],
+    "gweb": [
+      "gemini-web",
+      "gweb"
+    ],
+    "ha": [
+      "hyperagent",
+      "ha"
+    ],
+    "haiper": [
+      "haiper",
+      "hp"
+    ],
+    "hcnsec": [
+      "hcnsec",
+      "hcnsec"
+    ],
+    "helicone": [
+      "helicone",
+      "helicone"
+    ],
+    "helixmind": [
+      "helixmind",
+      "helixmind"
+    ],
+    "helyxai": [
+      "helyxai",
+      "helyxai"
+    ],
+    "heroku": [
+      "heroku",
+      "heroku"
+    ],
+    "hf": [
+      "huggingface",
+      "hf"
+    ],
+    "horde": [
+      "aihorde",
+      "horde"
+    ],
+    "hp": [
+      "haiper",
+      "hp"
+    ],
+    "huggingchat": [
+      "huggingchat",
+      "huggingchat"
+    ],
+    "huggingface": [
+      "huggingface",
+      "hf"
+    ],
+    "hunyuan": [
+      "tencent",
+      "tencent"
+    ],
+    "hyp": [
+      "hyperbolic",
+      "hyp"
+    ],
+    "hyperagent": [
+      "hyperagent",
+      "ha"
+    ],
+    "hyperbolic": [
+      "hyperbolic",
+      "hyp"
+    ],
+    "ideo": [
+      "ideogram",
+      "ideo"
+    ],
+    "ideogram": [
+      "ideogram",
+      "ideo"
+    ],
+    "if": [
+      "qoder",
+      "if"
+    ],
+    "iflow": [
+      "iflow",
+      "iflow"
+    ],
+    "iflytek": [
+      "iflytek",
+      "iflytek"
+    ],
+    "in-ai": [
+      "inner-ai",
+      "in-ai"
+    ],
+    "inception": [
+      "inception",
+      "inception"
+    ],
+    "inet": [
+      "inference-net",
+      "inet"
+    ],
+    "inference-net": [
+      "inference-net",
+      "inet"
+    ],
+    "inner-ai": [
+      "inner-ai",
+      "in-ai"
+    ],
+    "internlm": [
+      "internlm",
+      "internlm"
+    ],
+    "inworld": [
+      "inworld",
+      "inworld"
+    ],
+    "jev": [
+      "typesafe-ai",
+      "jev"
+    ],
+    "jina": [
+      "jina-ai",
+      "jina"
+    ],
+    "jina-ai": [
+      "jina-ai",
+      "jina"
+    ],
+    "jina-reader": [
+      "jina-reader",
+      "jr"
+    ],
+    "jr": [
+      "jina-reader",
+      "jr"
+    ],
+    "jules": [
+      "jules",
+      "jules"
+    ],
+    "kc": [
+      "kilocode",
+      "kc"
+    ],
+    "kenari": [
+      "kenari",
+      "kenari"
+    ],
+    "kg": [
+      "kilo-gateway",
+      "kg"
+    ],
+    "kgw": [
+      "kilo-gateway",
+      "kg"
+    ],
+    "kie": [
+      "kie",
+      "kie"
+    ],
+    "kilo-gateway": [
+      "kilo-gateway",
+      "kg"
+    ],
+    "kilocode": [
+      "kilocode",
+      "kc"
+    ],
+    "kimchi": [
+      "kimchi",
+      "kimchi"
+    ],
+    "kimi": [
+      "kimi",
+      "kimi"
+    ],
+    "kimi-coding": [
+      "kimi-coding",
+      "kmc"
+    ],
+    "kimi-coding-apikey": [
+      "kimi-coding-apikey",
+      "kmca"
+    ],
+    "kimi-web": [
+      "kimi-web",
+      "kimi-web"
+    ],
+    "kiro": [
+      "kiro",
+      "kr"
+    ],
+    "kmc": [
+      "kimi-coding",
+      "kmc"
+    ],
+    "kmca": [
+      "kimi-coding-apikey",
+      "kmca"
+    ],
+    "kr": [
+      "kiro",
+      "kr"
+    ],
+    "lambda": [
+      "lambda-ai",
+      "lambda"
+    ],
+    "lambda-ai": [
+      "lambda-ai",
+      "lambda"
+    ],
+    "laozhang": [
+      "laozhang",
+      "lz"
+    ],
+    "lc": [
+      "longcat",
+      "lc"
+    ],
+    "lemonade": [
+      "lemonade",
+      "lemonade"
+    ],
+    "leo": [
+      "leonardo",
+      "leo"
+    ],
+    "leonardo": [
+      "leonardo",
+      "leo"
+    ],
+    "ling": [
+      "ant-ling",
+      "ling"
+    ],
+    "linkup": [
+      "linkup-search",
+      "linkup"
+    ],
+    "linkup-search": [
+      "linkup-search",
+      "linkup"
+    ],
+    "liquid": [
+      "liquid",
+      "liquid"
+    ],
+    "literouter": [
+      "literouter",
+      "literouter"
+    ],
+    "llama-cpp": [
+      "llama-cpp",
+      "llamacpp"
+    ],
+    "llamacpp": [
+      "llama-cpp",
+      "llamacpp"
+    ],
+    "llamafile": [
+      "llamafile",
+      "llamafile"
+    ],
+    "llamagate": [
+      "llamagate",
+      "llamagate"
+    ],
+    "llm-7": [
+      "llm7",
+      "llm7"
+    ],
+    "llm-kiwi": [
+      "llm-kiwi",
+      "llmkiwi"
+    ],
+    "llm7": [
+      "llm7",
+      "llm7"
+    ],
+    "llmgateway": [
+      "llmgateway",
+      "llmgateway"
+    ],
+    "llmkiwi": [
+      "llm-kiwi",
+      "llmkiwi"
+    ],
+    "lm-studio": [
+      "lm-studio",
+      "lmstudio"
+    ],
+    "lma": [
+      "lmarena",
+      "lma"
+    ],
+    "lmarena": [
+      "lmarena",
+      "lma"
+    ],
+    "lmstudio": [
+      "lm-studio",
+      "lmstudio"
+    ],
+    "local-device": [
+      "local-device",
+      "local-device"
+    ],
+    "logfare": [
+      "logfare",
+      "logfare"
+    ],
+    "longcat": [
+      "longcat",
+      "lc"
+    ],
+    "lyceum": [
+      "lyceum",
+      "lyceum"
+    ],
+    "lz": [
+      "laozhang",
+      "lz"
+    ],
+    "m365copilot": [
+      "copilot-m365-web",
+      "m365copilot"
+    ],
+    "magnific": [
+      "magnific",
+      "freepik"
+    ],
+    "maritalk": [
+      "maritalk",
+      "maritalk"
+    ],
+    "maxai": [
+      "maxai",
+      "mx"
+    ],
+    "mc": [
+      "muse-code",
+      "mc"
+    ],
+    "mdl": [
+      "modal",
+      "mdl"
+    ],
+    "meganova-ai": [
+      "meganova-ai",
+      "meganova-ai"
+    ],
+    "meta": [
+      "meta-llama",
+      "meta"
+    ],
+    "meta-llama": [
+      "meta-llama",
+      "meta"
+    ],
+    "mimo": [
+      "xiaomi-mimo",
+      "mimo"
+    ],
+    "mimo-free": [
+      "mimo-free",
+      "mmf"
+    ],
+    "mimotp": [
+      "xiaomi-mimo-token-plan",
+      "mimotp"
+    ],
+    "minimax": [
+      "minimax",
+      "minimax"
+    ],
+    "minimax-cn": [
+      "minimax-cn",
+      "minimax-cn"
+    ],
+    "mistral": [
+      "mistral",
+      "mistral"
+    ],
+    "mixedbread": [
+      "mixedbread",
+      "mxbai"
+    ],
+    "mixlayer": [
+      "mixlayer",
+      "mixlayer"
+    ],
+    "mlx-gemma": [
+      "mlx-gemma",
+      "mlx-gemma"
+    ],
+    "mlx-qwen": [
+      "mlx-qwen",
+      "mlx-qwen"
+    ],
+    "mmf": [
+      "mimo-free",
+      "mmf"
+    ],
+    "mnn-ai": [
+      "mnn-ai",
+      "mnn-ai"
+    ],
+    "modal": [
+      "modal",
+      "mdl"
+    ],
+    "modelscope": [
+      "modelscope",
+      "ms"
+    ],
+    "monster": [
+      "monsterapi",
+      "monster"
+    ],
+    "monsterapi": [
+      "monsterapi",
+      "monster"
+    ],
+    "moonshot": [
+      "moonshot",
+      "moonshot"
+    ],
+    "morph": [
+      "morph",
+      "morph"
+    ],
+    "morphllm": [
+      "morph",
+      "morph"
+    ],
+    "ms": [
+      "modelscope",
+      "ms"
+    ],
+    "ms-web": [
+      "muse-spark-web",
+      "ms-web"
+    ],
+    "muse-code": [
+      "muse-code",
+      "mc"
+    ],
+    "muse-spark-web": [
+      "muse-spark-web",
+      "ms-web"
+    ],
+    "mx": [
+      "maxai",
+      "mx"
+    ],
+    "mxbai": [
+      "mixedbread",
+      "mxbai"
+    ],
+    "naga": [
+      "naga-ac",
+      "naga"
+    ],
+    "naga-ac": [
+      "naga-ac",
+      "naga"
+    ],
+    "naga-ai": [
+      "naga-ai",
+      "naga-ai"
+    ],
+    "nanogpt": [
+      "nanogpt",
+      "nanogpt"
+    ],
+    "nara": [
+      "nara",
+      "nara"
+    ],
+    "navy": [
+      "navy",
+      "navy"
+    ],
+    "nebius": [
+      "nebius",
+      "nebius"
+    ],
+    "nimble": [
+      "nimble-search",
+      "nimble"
+    ],
+    "nimble-search": [
+      "nimble-search",
+      "nimble"
+    ],
+    "nlpc": [
+      "nlpcloud",
+      "nlpc"
+    ],
+    "nlpcloud": [
+      "nlpcloud",
+      "nlpc"
+    ],
+    "nomic": [
+      "nomic",
+      "nomic"
+    ],
+    "notion-web": [
+      "notion-web",
+      "nw"
+    ],
+    "nous": [
+      "nous-research",
+      "nous"
+    ],
+    "nous-research": [
+      "nous-research",
+      "nous"
+    ],
+    "novita": [
+      "novita",
+      "novita"
+    ],
+    "nr": [
+      "9router",
+      "nr"
+    ],
+    "nscale": [
+      "nscale",
+      "nscale"
+    ],
+    "nube": [
+      "nube",
+      "nube"
+    ],
+    "nvidia": [
+      "nvidia",
+      "nvidia"
+    ],
+    "nw": [
+      "notion-web",
+      "nw"
+    ],
+    "oad": [
+      "openadapter",
+      "oad"
+    ],
+    "oc": [
+      "opencode",
+      "oc"
+    ],
+    "ocg": [
+      "opencode-go",
+      "opencode-go"
+    ],
+    "oci": [
+      "oci",
+      "oci"
+    ],
+    "ocz": [
+      "opencode-zen",
+      "opencode-zen"
+    ],
+    "of": [
+      "openference",
+      "of"
+    ],
+    "ofa": [
+      "openference-api",
+      "ofa"
+    ],
+    "ofoxai": [
+      "ofoxai",
+      "ofoxai"
+    ],
+    "ollama": [
+      "ollama-local",
+      "ollama"
+    ],
+    "ollama-cloud": [
+      "ollama-cloud",
+      "ollamacloud"
+    ],
+    "ollama-local": [
+      "ollama-local",
+      "ollama"
+    ],
+    "ollama-search": [
+      "ollama-search",
+      "ollama-search"
+    ],
+    "ollamacloud": [
+      "ollama-cloud",
+      "ollamacloud"
+    ],
+    "oneminai": [
+      "oneminai",
+      "1min"
+    ],
+    "ooba": [
+      "oobabooga",
+      "ooba"
+    ],
+    "oobabooga": [
+      "oobabooga",
+      "ooba"
+    ],
+    "openadapter": [
+      "openadapter",
+      "oad"
+    ],
+    "openai": [
+      "openai",
+      "openai"
+    ],
+    "opencode": [
+      "opencode",
+      "oc"
+    ],
+    "opencode-go": [
+      "opencode-go",
+      "opencode-go"
+    ],
+    "opencode-zen": [
+      "opencode-zen",
+      "opencode-zen"
+    ],
+    "openference": [
+      "openference",
+      "of"
+    ],
+    "openference-api": [
+      "openference-api",
+      "ofa"
+    ],
+    "openrouter": [
+      "openrouter",
+      "openrouter"
+    ],
+    "openvecta": [
+      "openvecta",
+      "openvecta"
+    ],
+    "opper": [
+      "opper",
+      "opper"
+    ],
+    "orcarouter": [
+      "orcarouter",
+      "orcarouter"
+    ],
+    "ovh": [
+      "ovhcloud",
+      "ovh"
+    ],
+    "ovhcloud": [
+      "ovhcloud",
+      "ovh"
+    ],
+    "perplexity": [
+      "perplexity",
+      "pplx"
+    ],
+    "perplexity-agent": [
+      "perplexity-agent",
+      "pplx-agent"
+    ],
+    "perplexity-search": [
+      "perplexity-search",
+      "pplx-search"
+    ],
+    "perplexity-web": [
+      "perplexity-web",
+      "pplx-web"
+    ],
+    "pi": [
+      "piapi",
+      "pi"
+    ],
+    "piapi": [
+      "piapi",
+      "pi"
+    ],
+    "pioneer": [
+      "pioneer",
+      "pn"
+    ],
+    "plamo": [
+      "plamo",
+      "plamo"
+    ],
+    "playht": [
+      "playht",
+      "playht"
+    ],
+    "pn": [
+      "pioneer",
+      "pn"
+    ],
+    "poe": [
+      "poe",
+      "poe"
+    ],
+    "poe-web": [
+      "poe-web",
+      "poe"
+    ],
+    "poixe-ai": [
+      "poixe-ai",
+      "poixe-ai"
+    ],
+    "pol": [
+      "pollinations",
+      "pol"
+    ],
+    "pollinations": [
+      "pollinations",
+      "pol"
+    ],
+    "polly": [
+      "aws-polly",
+      "polly"
+    ],
+    "poolside": [
+      "poolside",
+      "poolside"
+    ],
+    "portkey": [
+      "portkey",
+      "portkey"
+    ],
+    "pplx": [
+      "perplexity",
+      "pplx"
+    ],
+    "pplx-agent": [
+      "perplexity-agent",
+      "pplx-agent"
+    ],
+    "pplx-search": [
+      "perplexity-search",
+      "pplx-search"
+    ],
+    "pplx-web": [
+      "perplexity-web",
+      "pplx-web"
+    ],
+    "pql": [
+      "promptql",
+      "pql"
+    ],
+    "predibase": [
+      "predibase",
+      "predibase"
+    ],
+    "promptql": [
+      "promptql",
+      "pql"
+    ],
+    "publicai": [
+      "publicai",
+      "publicai"
+    ],
+    "pw": [
+      "perplexity-web",
+      "pplx-web"
+    ],
+    "qct": [
+      "qwen-cloud-token-plan",
+      "qct"
+    ],
+    "qd": [
+      "qoder",
+      "if"
+    ],
+    "qdcn": [
+      "qoder-cn",
+      "qdcn"
+    ],
+    "qianfan": [
+      "qianfan",
+      "qianfan"
+    ],
+    "qiniu": [
+      "qiniu",
+      "qiniu"
+    ],
+    "qoder": [
+      "qoder",
+      "if"
+    ],
+    "qoder-cn": [
+      "qoder-cn",
+      "qdcn"
+    ],
+    "qwc": [
+      "qwen-cloud",
+      "qwc"
+    ],
+    "qwen-cloud": [
+      "qwen-cloud",
+      "qwc"
+    ],
+    "qwen-cloud-token-plan": [
+      "qwen-cloud-token-plan",
+      "qct"
+    ],
+    "recraft": [
+      "recraft",
+      "recraft"
+    ],
+    "red": [
+      "red-router",
+      "red"
+    ],
+    "red-router": [
+      "red-router",
+      "red"
+    ],
+    "redrouter": [
+      "red-router",
+      "red"
+    ],
+    "regolo": [
+      "regolo",
+      "regolo"
+    ],
+    "reka": [
+      "reka",
+      "reka"
+    ],
+    "requesty": [
+      "requesty",
+      "requesty"
+    ],
+    "rev-ai": [
+      "rev-ai",
+      "revai"
+    ],
+    "revai": [
+      "rev-ai",
+      "revai"
+    ],
+    "routeway": [
+      "routeway",
+      "routeway"
+    ],
+    "runway": [
+      "runwayml",
+      "runway"
+    ],
+    "runwayml": [
+      "runwayml",
+      "runway"
+    ],
+    "samba": [
+      "sambanova",
+      "samba"
+    ],
+    "sambanova": [
+      "sambanova",
+      "samba"
+    ],
+    "sap": [
+      "sap",
+      "sap"
+    ],
+    "sarvam": [
+      "sarvam",
+      "sarvam"
+    ],
+    "scaleway": [
+      "scaleway",
+      "scw"
+    ],
+    "scw": [
+      "scaleway",
+      "scw"
+    ],
+    "sdwebui": [
+      "sdwebui",
+      "sdwebui"
+    ],
+    "sealion": [
+      "sealion",
+      "sealion"
+    ],
+    "searchapi": [
+      "searchapi-search",
+      "searchapi"
+    ],
+    "searchapi-search": [
+      "searchapi-search",
+      "searchapi"
+    ],
+    "searxng": [
+      "searxng-search",
+      "searxng"
+    ],
+    "searxng-search": [
+      "searxng-search",
+      "searxng"
+    ],
+    "seekai": [
+      "seekai",
+      "ska"
+    ],
+    "segmind": [
+      "segmind",
+      "segmind"
+    ],
+    "selfhosted-embedding": [
+      "selfhosted-embedding",
+      "selfhosted-embedding"
+    ],
+    "selfhosted-stt": [
+      "selfhosted-stt",
+      "selfhosted-stt"
+    ],
+    "selfhosted-tts": [
+      "selfhosted-tts",
+      "selfhosted-tts"
+    ],
+    "sensenova": [
+      "sensenova",
+      "sensenova"
+    ],
+    "serper-search": [
+      "serper-search",
+      "serper-search"
+    ],
+    "siliconflow": [
+      "siliconflow",
+      "siliconflow"
+    ],
+    "ska": [
+      "seekai",
+      "ska"
+    ],
+    "sm": [
+      "speechmatics",
+      "sm"
+    ],
+    "snowflake": [
+      "snowflake",
+      "snowflake"
+    ],
+    "soniox": [
+      "soniox",
+      "sx"
+    ],
+    "sparkdesk": [
+      "sparkdesk",
+      "sparkdesk"
+    ],
+    "speechmatics": [
+      "speechmatics",
+      "sm"
+    ],
+    "speka": [
+      "speka",
+      "speka"
+    ],
+    "stability": [
+      "stability-ai",
+      "stability"
+    ],
+    "stability-ai": [
+      "stability-ai",
+      "stability"
+    ],
+    "stepfun": [
+      "stepfun",
+      "stepfun"
+    ],
+    "sumopod": [
+      "sumopod",
+      "sumopod"
+    ],
+    "sx": [
+      "soniox",
+      "sx"
+    ],
+    "synthetic": [
+      "synthetic",
+      "synthetic"
+    ],
+    "t3-web": [
+      "t3-web",
+      "t3chat"
+    ],
+    "t3chat": [
+      "t3-web",
+      "t3chat"
+    ],
+    "tabitoken": [
+      "tabitoken",
+      "tabitoken"
+    ],
+    "tasw": [
+      "tencent-aistudio-web",
+      "tasw"
+    ],
+    "tavily-search": [
+      "tavily-search",
+      "tavily-search"
+    ],
+    "tcw": [
+      "tinycms-web",
+      "tcw"
+    ],
+    "tencent": [
+      "tencent",
+      "tencent"
+    ],
+    "tencent-aistudio-web": [
+      "tencent-aistudio-web",
+      "tasw"
+    ],
+    "tf": [
+      "tinyfish",
+      "tf"
+    ],
+    "thebai": [
+      "thebai",
+      "thebai"
+    ],
+    "tinycms-web": [
+      "tinycms-web",
+      "tcw"
+    ],
+    "tinyfish": [
+      "tinyfish",
+      "tf"
+    ],
+    "tk": [
+      "token-kiosk",
+      "tk"
+    ],
+    "together": [
+      "together",
+      "together"
+    ],
+    "token-kiosk": [
+      "token-kiosk",
+      "tk"
+    ],
+    "tokenharbor": [
+      "tokenharbor",
+      "tokenharbor"
+    ],
+    "tokenreply": [
+      "tokenreply",
+      "tokenreply"
+    ],
+    "tokenrouter": [
+      "tokenrouter",
+      "trk"
+    ],
+    "topaz": [
+      "topaz",
+      "topaz"
+    ],
+    "tr": [
+      "trae",
+      "tr"
+    ],
+    "trae": [
+      "trae",
+      "tr"
+    ],
+    "triton": [
+      "triton",
+      "triton"
+    ],
+    "trk": [
+      "tokenrouter",
+      "trk"
+    ],
+    "typesafe": [
+      "typesafe-ai",
+      "jev"
+    ],
+    "typesafe-ai": [
+      "typesafe-ai",
+      "jev"
+    ],
+    "typhoon": [
+      "typhoon",
+      "typhoon"
+    ],
+    "uc": [
+      "uc",
+      "ucn"
+    ],
+    "uc-direct": [
+      "uc-direct",
+      "ucd"
+    ],
+    "ucd": [
+      "uc-direct",
+      "ucd"
+    ],
+    "ucn": [
+      "uc",
+      "ucn"
+    ],
+    "udio": [
+      "udio",
+      "udio"
+    ],
+    "unc": [
+      "uncloseai",
+      "unc"
+    ],
+    "uncloseai": [
+      "uncloseai",
+      "unc"
+    ],
+    "unorouter": [
+      "unorouter",
+      "unorouter"
+    ],
+    "upstage": [
+      "upstage",
+      "upstage"
+    ],
+    "v0": [
+      "v0-vercel",
+      "v0"
+    ],
+    "v0-vercel": [
+      "v0-vercel",
+      "v0"
+    ],
+    "v0-vercel-web": [
+      "v0-vercel-web",
+      "v0-vercel-web"
+    ],
+    "vag": [
+      "vercel-ai-gateway",
+      "vag"
+    ],
+    "veap": [
+      "volcengine-agent-plan",
+      "veap"
+    ],
+    "vecp": [
+      "volcengine-coding-plan",
+      "vecp"
+    ],
+    "ven": [
+      "venice-web",
+      "ven"
+    ],
+    "venice": [
+      "venice",
+      "venice"
+    ],
+    "venice-web": [
+      "venice-web",
+      "ven"
+    ],
+    "veo-free": [
+      "veoaifree-web",
+      "veo-free"
+    ],
+    "veoaifree-web": [
+      "veoaifree-web",
+      "veo-free"
+    ],
+    "vercel": [
+      "vercel-ai-gateway",
+      "vag"
+    ],
+    "vercel-ai-gateway": [
+      "vercel-ai-gateway",
+      "vag"
+    ],
+    "vertex": [
+      "vertex",
+      "vertex"
+    ],
+    "vertex-partner": [
+      "vertex-partner",
+      "vp"
+    ],
+    "vllm": [
+      "vllm",
+      "vllm"
+    ],
+    "void-ai": [
+      "void-ai",
+      "void-ai"
+    ],
+    "volcengine": [
+      "volcengine",
+      "volcengine"
+    ],
+    "volcengine-agent-plan": [
+      "volcengine-agent-plan",
+      "veap"
+    ],
+    "volcengine-ark": [
+      "volcengine-coding-plan",
+      "vecp"
+    ],
+    "volcengine-coding-plan": [
+      "volcengine-coding-plan",
+      "vecp"
+    ],
+    "voyage": [
+      "voyage-ai",
+      "voyage"
+    ],
+    "voyage-ai": [
+      "voyage-ai",
+      "voyage"
+    ],
+    "vp": [
+      "vertex-partner",
+      "vp"
+    ],
+    "vx": [
+      "vertex",
+      "vertex"
+    ],
+    "vxp": [
+      "vertex-partner",
+      "vp"
+    ],
+    "wafer": [
+      "wafer",
+      "wafer"
+    ],
+    "wandb": [
+      "wandb",
+      "wandb"
+    ],
+    "watsonx": [
+      "watsonx",
+      "watsonx"
+    ],
+    "windsurf": [
+      "windsurf",
+      "ws"
+    ],
+    "writer": [
+      "writer",
+      "writer"
+    ],
+    "ws": [
+      "windsurf",
+      "ws"
+    ],
+    "x-search": [
+      "x-search",
+      "x_search"
+    ],
+    "x5lab": [
+      "x5lab",
+      "x5lab"
+    ],
+    "x_search": [
+      "x-search",
+      "x_search"
+    ],
+    "xai": [
+      "xai",
+      "xai"
+    ],
+    "xai-oauth": [
+      "xai-oauth",
+      "xao"
+    ],
+    "xao": [
+      "xai-oauth",
+      "xao"
+    ],
+    "xiaomi-mimo": [
+      "xiaomi-mimo",
+      "mimo"
+    ],
+    "xiaomi-mimo-token-plan": [
+      "xiaomi-mimo-token-plan",
+      "mimotp"
+    ],
+    "xiaomi-tokenplan": [
+      "xiaomi-mimo-token-plan",
+      "mimotp"
+    ],
+    "xinference": [
+      "xinference",
+      "xinference"
+    ],
+    "xkiro": [
+      "xkiro",
+      "xkiro"
+    ],
+    "xmtp": [
+      "xiaomi-mimo-token-plan",
+      "mimotp"
+    ],
+    "xquik": [
+      "xquik-search",
+      "xquik"
+    ],
+    "xquik-search": [
+      "xquik-search",
+      "xquik"
+    ],
+    "ybw": [
+      "yuanbao-web",
+      "ybw"
+    ],
+    "yi": [
+      "yi",
+      "yi"
+    ],
+    "yolo-auto": [
+      "yolo-auto",
+      "yolo-auto"
+    ],
+    "youcom-search": [
+      "youcom-search",
+      "youcom-search"
+    ],
+    "yuanbao-web": [
+      "yuanbao-web",
+      "ybw"
+    ],
+    "zai": [
+      "zai",
+      "zai"
+    ],
+    "zai-web": [
+      "zai-web",
+      "zw"
+    ],
+    "zc": [
+      "zcode",
+      "zc"
+    ],
+    "zcode": [
+      "zcode",
+      "zc"
+    ],
+    "zd": [
+      "zed",
+      "zd"
+    ],
+    "zed": [
+      "zed",
+      "zd"
+    ],
+    "zed-hosted": [
+      "zed-hosted",
+      "zed-hosted"
+    ],
+    "zenmux": [
+      "zenmux",
+      "zm"
+    ],
+    "zenmux-free": [
+      "zenmux-free",
+      "zmf"
+    ],
+    "zerolimitai": [
+      "zerolimitai",
+      "zerolimitai"
+    ],
+    "zm": [
+      "zenmux",
+      "zm"
+    ],
+    "zmf": [
+      "zenmux-free",
+      "zmf"
+    ],
+    "zw": [
+      "zai-web",
+      "zw"
+    ],
+    "zylo": [
+      "zylo-api",
+      "zylo"
+    ],
+    "zylo-api": [
+      "zylo-api",
+      "zylo"
+    ],
+    "undefined": [
+      "antigravity",
+      "antigravity"
+    ]
+  }
+}

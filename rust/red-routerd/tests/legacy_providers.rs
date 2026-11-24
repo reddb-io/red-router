@@ -1,0 +1,1236 @@
+use aes_gcm::{
+    aead::{consts::U16, Aead, KeyInit, Payload},
+    aes::Aes256,
+    AesGcm, Nonce,
+};
+use red_routerd::{
+    legacy_provider_nodes, legacy_providers,
+    storage::{Backend, Database},
+};
+use sha2::{Digest, Sha256};
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
+use tempfile::TempDir;
+use url::Url;
+
+type Cipher = AesGcm<Aes256, U16>;
+const STORAGE_KEY: &str = "a-test-storage-password-1234";
+const SECRET: &str = "provider-secret-do-not-expose";
+
+fn legacy_ciphertext() -> String {
+    let mut key = [0u8; 32];
+    let params = scrypt::Params::new(14, 8, 1, 32).unwrap();
+    scrypt::scrypt(
+        STORAGE_KEY.as_bytes(),
+        b"omniroute-field-encryption-v1",
+        &params,
+        &mut key,
+    )
+    .unwrap();
+    let iv = [7u8; 16];
+    let cipher = Cipher::new_from_slice(&key).unwrap();
+    let encrypted = cipher
+        .encrypt(Nonce::<U16>::from_slice(&iv), SECRET.as_bytes())
+        .unwrap();
+    let (body, tag) = encrypted.split_at(encrypted.len() - 16);
+    format!(
+        "enc:v1:{}:{}:{}",
+        hex::encode(iv),
+        hex::encode(body),
+        hex::encode(tag)
+    )
+}
+
+fn decrypt_rust_ciphertext(value: &str, id: &str) -> String {
+    let parts: Vec<_> = value.split(':').collect();
+    assert_eq!(&parts[..2], &["rr", "v1"]);
+    let salt = hex::decode(parts[2]).unwrap();
+    let nonce = hex::decode(parts[3]).unwrap();
+    let ciphertext = hex::decode(parts[4]).unwrap();
+    let mut key = [0u8; 32];
+    scrypt::scrypt(
+        STORAGE_KEY.as_bytes(),
+        &salt,
+        &scrypt::Params::new(14, 8, 1, 32).unwrap(),
+        &mut key,
+    )
+    .unwrap();
+    let cipher = Cipher::new_from_slice(&key).unwrap();
+    String::from_utf8(
+        cipher
+            .decrypt(
+                Nonce::<U16>::from_slice(&nonce),
+                Payload {
+                    msg: &ciphertext,
+                    aad: id.as_bytes(),
+                },
+            )
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+fn node_header_aad(
+    id: &str,
+    tenant: &str,
+    prefix: &str,
+    protocol: &str,
+    upstream_url: &str,
+) -> String {
+    let subject = format!("node:{tenant}:{id}");
+    let mut digest = Sha256::new();
+    for value in [&subject, tenant, prefix, upstream_url] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    if protocol != "auto" {
+        for value in ["protocol", protocol] {
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value.as_bytes());
+        }
+    }
+    format!(
+        "{subject}:request-headers:{}",
+        hex::encode(digest.finalize())
+    )
+}
+
+#[tokio::test]
+async fn imports_reusable_provider_nodes_with_custom_paths_and_encrypted_headers() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-nodes.sqlite");
+    let dest = dir.path().join("rust-nodes.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql(
+        "CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,chat_path TEXT,models_path TEXT,custom_headers_json TEXT,icon_url TEXT,daily_quota_reset_timezone TEXT,daily_quota_reset_hour INTEGER,created_at TEXT,updated_at TEXT);",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    let id = "openai-compatible-responses-12345678-1234-1234-1234-123456789abc";
+    sqlx::query("INSERT INTO provider_nodes (id,type,name,prefix,api_type,base_url,chat_path,models_path,custom_headers_json,daily_quota_reset_timezone,daily_quota_reset_hour,created_at,updated_at) VALUES (?,'openai-compatible','Internal Gateway','internal-gateway','responses','https://gateway.example/v1','/responses?api-version=2026-11-01','/models?api-version=2026-11-01','{\"x-team\":\"red\"}',' America/Sao_Paulo ',6,'now','now')")
+        .bind(id)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id) VALUES ('gateway-account',?,'apikey','Gateway Account',1,?,'red')")
+        .bind(id).bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    let report = legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.imported, 1);
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let nodes = db.provider_nodes().await.unwrap();
+    assert_eq!(nodes.len(), 1);
+    let node = &nodes[0];
+    assert_eq!(node.id, id);
+    assert_eq!(node.tenant_id, "red");
+    assert_eq!(node.prefix, "internal-gateway");
+    assert_eq!(node.protocol, "openai-responses");
+    assert_eq!(
+        node.upstream_url,
+        "https://gateway.example/v1/responses?api-version=2026-11-01"
+    );
+    assert_eq!(
+        node.models_path.as_deref(),
+        Some("/models?api-version=2026-11-01")
+    );
+    // The legacy node clock for daily quota resets carries over.
+    assert_eq!(
+        node.daily_quota_reset_timezone.as_deref(),
+        Some("America/Sao_Paulo")
+    );
+    assert_eq!(node.daily_quota_reset_hour, Some(6));
+    let headers = node.header_config.as_ref().unwrap();
+    assert!(!headers.ciphertext.contains(r#"{"x-team":"red"}"#));
+    let aad = node_header_aad(
+        &node.id,
+        &node.tenant_id,
+        &node.prefix,
+        &node.protocol,
+        &node.upstream_url,
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&headers.ciphertext, &aad),
+        r#"{"x-team":"red"}"#
+    );
+    db.close().await.unwrap();
+    let account = legacy_providers::import(&source, &dest, "gateway-account", STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!((account.imported, account.enabled), (1, false));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let account = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|provider| provider.id == "gateway-account")
+        .unwrap();
+    assert_eq!(account.node_id.as_deref(), Some(id));
+    assert_eq!(account.provider, "internal-gateway");
+    assert_eq!(account.protocol, "openai-responses");
+    assert_eq!(
+        account.upstream_url,
+        "https://gateway.example/v1/responses?api-version=2026-11-01"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&account.credential_ciphertext, "gateway-account"),
+        SECRET
+    );
+    db.close().await.unwrap();
+    assert!(legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn provider_node_import_rolls_back_when_a_field_has_no_rust_contract() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy-nodes-unsupported.sqlite");
+    let dest = dir.path().join("rust-nodes-unsupported.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_nodes (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT,api_type TEXT,base_url TEXT,icon_url TEXT,created_at TEXT,updated_at TEXT); INSERT INTO provider_nodes VALUES ('node-one','openai-compatible','One','node-one','chat','https://one.example/v1',NULL,'now','now'); INSERT INTO provider_nodes VALUES ('node-two','openai-compatible','Two','node-two','chat','https://two.example/v1','javascript:alert(1)','now','now');")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy provider node icon")
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(db.provider_nodes().await.unwrap().is_empty());
+    db.close().await.unwrap();
+
+    // A valid legacy icon (http(s) or data:image URL) imports with its node.
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE provider_nodes SET icon_url='https://icons.example/two.png' WHERE id='node-two'",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    assert_eq!(
+        legacy_provider_nodes::import(&source, &dest, STORAGE_KEY)
+            .await
+            .unwrap()
+            .imported,
+        2
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let nodes = db.provider_nodes().await.unwrap();
+    let icon = |id: &str| {
+        nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap()
+            .icon_url
+            .clone()
+    };
+    assert_eq!(
+        icon("node-two").as_deref(),
+        Some("https://icons.example/two.png")
+    );
+    assert_eq!(icon("node-one"), None);
+    db.close().await.unwrap();
+}
+
+/// A Claude account as the real legacy store holds one: organization rate limit
+/// tier metadata, the token health check's retry bookkeeping and no device id.
+/// It adopts, with a generated device id; a present but malformed one refuses.
+#[tokio::test]
+async fn adopts_a_claude_account_with_bootstrap_metadata_and_no_device_id() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,project_id TEXT,token_type TEXT,scope TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
+        .execute(&mut input).await.unwrap();
+    for (id, device) in [
+        ("claude-real", None),
+        ("claude-bad-device", Some("not-hex")),
+    ] {
+        let mut psd = serde_json::json!({
+            "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
+            "organizationUUID":"123e4567-e89b-42d3-a456-426614174001",
+            "organizationName":"Legacy team",
+            "organizationType":"team",
+            "organizationRateLimitTier":"default_claude_max_5x",
+            "expiredRetry":{"count":3,"at":1700000000000i64},
+            "autoFetchModels":true,
+            "autoSync":false
+        });
+        if let Some(device) = device {
+            psd["cliUserID"] = serde_json::json!(device);
+        }
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at,test_status) VALUES (?,'claude','oauth',0,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z','expired')")
+            .bind(id)
+            .bind(psd.to_string())
+            .execute(&mut input)
+            .await
+            .unwrap();
+    }
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::adopt_claude(&dest, "claude-bad-device", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy Claude device identity")
+    );
+    let result = legacy_providers::adopt_claude(&dest, "claude-real", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(result.imported, 1);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.provider_id == "claude-real")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "claude-real:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        metadata["legacyClaude"]["organizationRateLimitTier"],
+        "default_claude_max_5x"
+    );
+    assert_eq!(metadata["legacyClaude"]["expiredRetry"]["count"], 3);
+    db.close().await.unwrap();
+}
+
+/// OpenCode Go serves chat completions at its own base, so an API-key account
+/// of it adopts onto that endpoint; the models that need Messages or Responses
+/// are refused later, per model.
+#[tokio::test]
+async fn imports_an_opencode_go_account_on_its_chat_completions_endpoint() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id) VALUES ('go-1','opencode-go','apikey','My OpenCode Go',1,?,'red')")
+        .bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let report = legacy_providers::import(&source, &dest, "go-1", STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.imported, 1);
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(
+        providers[0].upstream_url,
+        "https://opencode.ai/zen/go/v1/chat/completions"
+    );
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn stages_encrypted_provider_credential_without_activating_or_exposing_it() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,name TEXT,display_name TEXT,email TEXT,is_active INTEGER,api_key TEXT,tenant_id TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,expires_at TEXT,token_expires_at TEXT,scope TEXT,project_id TEXT,provider_specific_data TEXT,rate_limited_until TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,default_model TEXT,\"group\" TEXT,test_status TEXT);")
+        .execute(&mut input).await.unwrap();
+    // A transient legacy cooldown does not block the import.
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,name,is_active,api_key,tenant_id,rate_limited_until) VALUES ('provider-1','openrouter','apikey','My OpenRouter',1,?,'red','2099-01-01T00:00:00.000Z')")
+        .bind(legacy_ciphertext()).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET provider_specific_data='{\"baseUrl\":\"https://other.example\"}'").execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    assert!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    let mut input = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&source))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET provider_specific_data=NULL")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN priority INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET priority=9007199254740992")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy provider priority")
+    );
+    sqlx::query("UPDATE provider_connections SET priority=0")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    // global_priority is a display-only badge in the legacy dashboard: a valid
+    // value imports (and is dropped), an out-of-range one is refused.
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN global_priority INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET global_priority=-1")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy provider global priority")
+    );
+    sqlx::query("UPDATE provider_connections SET global_priority=7")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    // Request queue protection imports onto the connection queue policy.
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN rate_limit_protection INTEGER")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    for field in ["health_check_interval"] {
+        sqlx::query(&format!(
+            "ALTER TABLE provider_connections ADD COLUMN {field} INTEGER"
+        ))
+        .execute(&mut input)
+        .await
+        .unwrap();
+        sqlx::query(&format!("UPDATE provider_connections SET {field}=7"))
+            .execute(&mut input)
+            .await
+            .unwrap();
+        assert_eq!(
+            legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+                .await
+                .err(),
+            Some("legacy provider selection or health policy requires migration")
+        );
+        let check = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        assert!(check.providers().await.unwrap().is_empty());
+        check.close().await.unwrap();
+        sqlx::query(&format!("UPDATE provider_connections SET {field}=0"))
+            .execute(&mut input)
+            .await
+            .unwrap();
+    }
+    let legacy_label = "é".repeat(200);
+    sqlx::query(
+        "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model', test_status='expired', max_concurrent=3",
+    )
+    .execute(&mut input)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE provider_connections SET display_name=?")
+        .bind(&legacy_label)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET provider_specific_data=?")
+        .bind(r#"{"excludedModels":["private-*","vendor/model"]}"#)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE provider_connections SET rate_limit_protection=1, rate_limit_overrides_json=?",
+    )
+    .bind(r#"{"rpm":30,"maxWaitMs":9000}"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    assert!(
+        legacy_providers::import(&source, &dest, "provider-1", "incorrect-password-1234")
+            .await
+            .is_err()
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(db.providers().await.unwrap().is_empty());
+    db.close().await.unwrap();
+    let report = legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (report.imported, report.enabled, report.source_enabled),
+        (1, false, true)
+    );
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert!(!providers[0].enabled);
+    assert_eq!(providers[0].priority, -4);
+    // The legacy per-connection concurrency cap carries over.
+    assert_eq!(providers[0].max_concurrent, Some(3));
+    // So do the request queue protection and overrides.
+    assert_eq!(
+        db.global_settings().await.unwrap()["request_queue_connections"],
+        serde_json::json!({"provider-1":{"protection":true,"requests_per_minute":30,"max_wait_ms":9000}})
+    );
+    assert_eq!(
+        providers[0].default_model.as_deref(),
+        Some("legacy-openrouter-model")
+    );
+    // A terminal legacy health state becomes the native terminal availability.
+    let mut health = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let availability: (i64, i64) = sqlx::query_as("SELECT cooldown_until_unix_ms,last_status FROM redrouter_provider_availability WHERE provider_id='provider-1'")
+        .fetch_one(&mut health)
+        .await
+        .unwrap();
+    assert_eq!(availability, (i64::MAX, 401));
+    health.close().await.unwrap();
+    assert_eq!(providers[0].tenant_id, "red");
+    assert_eq!(
+        providers[0].upstream_url,
+        "https://openrouter.ai/api/v1/chat/completions"
+    );
+    assert_ne!(providers[0].credential_ciphertext, SECRET);
+    assert_eq!(
+        decrypt_rust_ciphertext(&providers[0].credential_ciphertext, "provider-1"),
+        SECRET
+    );
+    assert!(!format!("{providers:?}").contains(SECRET));
+    let auth = db.provider_auth().await.unwrap();
+    assert_eq!(auth[0].label, legacy_label);
+    db.close().await.unwrap();
+    let mut migrated = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let rules: String = sqlx::query_scalar("SELECT patterns_json FROM redrouter_provider_model_rules WHERE provider_id='provider-1' AND tenant_id='red'")
+        .fetch_one(&mut migrated).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&rules).unwrap(),
+        serde_json::json!(["private-*", "vendor/model"])
+    );
+    migrated.close().await.unwrap();
+    assert!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::import(&source, &source, "provider-1", STORAGE_KEY)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn stages_complete_oauth_records_as_encrypted_inert_envelopes() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, access_token TEXT, refresh_token TEXT, provider_specific_data TEXT, priority INTEGER, tenant_id TEXT);")
+        .execute(&mut input).await.unwrap();
+    sqlx::query(
+        "INSERT INTO provider_connections VALUES ('session-1','codex','oauth',?,?,?,17,'acme')",
+    )
+    .bind("oauth-access-private-token")
+    .bind("oauth-refresh-private-token")
+    .bind(r#"{"accountId":"acc-1","extra":"value"}"#)
+    .execute(&mut input)
+    .await
+    .unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    let before = tokio::fs::read(&source).await.unwrap();
+    let report = legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(report.staged, 1);
+    assert_eq!(before, tokio::fs::read(&source).await.unwrap());
+    let mut output = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let encrypted: String = sqlx::query_scalar("SELECT encrypted_record FROM redrouter_legacy_provider_records WHERE provider_id='session-1'").fetch_one(&mut output).await.unwrap();
+    assert!(!encrypted.contains("oauth-refresh-private-token"));
+    let raw = decrypt_rust_ciphertext(&encrypted, "legacy-provider-stage:session-1");
+    let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(record["refresh_token"], "oauth-refresh-private-token");
+    assert_eq!(record["access_token"], "oauth-access-private-token");
+    assert_eq!(
+        record["provider_specific_data"],
+        r#"{"accountId":"acc-1","extra":"value"}"#
+    );
+    assert_eq!(record["tenant_id"], "acme");
+    assert_eq!(record["priority"], 17);
+    let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_control_providers")
+        .fetch_one(&mut output)
+        .await
+        .unwrap();
+    assert_eq!(
+        active, 0,
+        "staging must not create or refresh an OAuth session"
+    );
+    output.close().await.unwrap();
+    let destination_bytes = tokio::fs::read(&dest).await.unwrap();
+    assert!(!destination_bytes
+        .windows(b"oauth-refresh-private-token".len())
+        .any(|part| part == b"oauth-refresh-private-token"));
+    assert!(legacy_providers::stage(&source, &dest, STORAGE_KEY)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    let jwt = |payload: serde_json::Value| {
+        format!(
+            "{}.{}.signature",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#),
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+        )
+    };
+    let id_token = jwt(
+        serde_json::json!({"sub":"user-1", "email":"owner@example.com", "https://api.openai.com/auth":{"chatgpt_account_id":"workspace-1"}, "exp":2000000000}),
+    );
+    let access = jwt(serde_json::json!({"exp":2000000000}));
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("legacy.sqlite");
+    let dest = dir.path().join("rust.sqlite");
+    let mut input = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(&source)
+            .create_if_missing(true),
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE provider_connections (id TEXT PRIMARY KEY,provider TEXT,auth_type TEXT,is_active INTEGER,tenant_id TEXT,name TEXT,display_name TEXT,email TEXT,access_token TEXT,refresh_token TEXT,id_token TEXT,provider_specific_data TEXT,project_id TEXT,token_type TEXT,scope TEXT,per_key_proxy_enabled INTEGER,proxy_enabled INTEGER,max_concurrent INTEGER,priority INTEGER,global_priority INTEGER,backoff_level INTEGER,rate_limit_protection INTEGER,quota_window_thresholds_json TEXT,rate_limit_overrides_json TEXT,rate_limited_until TEXT,default_model TEXT,\"group\" TEXT,api_key TEXT,test_status TEXT,error_code TEXT,last_error TEXT,last_error_type TEXT,last_error_source TEXT,expires_at TEXT,token_expires_at TEXT);")
+        .execute(&mut input).await.unwrap();
+    let legacy_oauth_label = "🦀".repeat(100);
+    for (id, workspace) in [
+        ("codex-good", "workspace-1"),
+        ("codex-wrong", "workspace-other"),
+    ] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES (?,'codex','oauth',1,'red','My Codex',?,?,?,?)")
+            .bind(id).bind(&access).bind("private-refresh-token").bind(&id_token).bind(serde_json::json!({"workspaceId":workspace,"chatgptUserId":"user-1","workspacePlanType":"team","organizations":[{"id":"org-1"}],"requestDefaults":{"reasoningEffort":"high","serviceTier":"fast"},"chatgptPlanType":"plus","openaiStoreEnabled":false,"codexQuotaStateByScope":{"codex":{"usedPercent":10}},"codexExhaustedWindowByScope":{"spark":"5h"},"codexScopeRateLimitedUntil":{"codex":"2000-01-01T00:00:00Z"},"codexScopeRateLimitSource":{"codex":"fallback"},"excludedModels":["private-*","**"]}).to_string()).execute(&mut input).await.unwrap();
+    }
+    sqlx::query("UPDATE provider_connections SET name=? WHERE id='codex-good'")
+        .bind(&legacy_oauth_label)
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE provider_connections SET priority=4, default_model='legacy-codex-model' WHERE id='codex-good'")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-extra','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","accountProxies":{"x":"proxy"}}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-rules','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","excludedModels":[17]}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-cooling','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","codexScopeRateLimitedUntil":{"spark":"2999-01-01T00:00:00Z"}}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":true}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-wrong-user','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","chatgptUserId":"user-other"}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data) VALUES ('codex-invalid-auto','codex','oauth',1,'red','My Codex',?,?,?,?)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1","autoSync":"true"}"#).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,id_token,provider_specific_data,per_key_proxy_enabled) VALUES ('codex-proxy','codex','oauth',1,'red','My Codex',?,?,?,?,1)")
+        .bind(&access).bind("private-refresh-token").bind(&id_token).bind(r#"{"workspaceId":"workspace-1"}"#).execute(&mut input).await.unwrap();
+    for (id, project) in [("agy-good", "project-1"), ("agy-wrong", "project-other")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli","excluded_models":"gemini-private,other-*"}).to_string()).execute(&mut input).await.unwrap();
+    }
+    for (id, token_type) in [("xai-good", "Bearer"), ("xai-bad", "Basic")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'xai-oauth','oauth',1,'red','xAI account','xai@example.com','xai-private-access','xai-private-refresh','xai-private-identity',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"scope":"openid offline_access","tokenType":token_type,"excludedModels":["grok-private-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
+    for (id, token_type) in [("openference-good", "Bearer"), ("openference-bad", "Basic")] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'openference','oauth',1,'red','Openference account','openference@example.com','openference-private-access','openference-private-refresh','openference-private-identity',?,'2033-05-18T03:33:20Z')")
+            .bind(id).bind(serde_json::json!({"scope":"openid model:invoke offline_access","tokenType":token_type,"excluded_models":["private-openference-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
+    for (id, auto_sync, legacy_refresh) in [
+        ("github-good", false, None),
+        ("github-autosync", true, None),
+        ("github-renewal", false, Some("github-legacy-refresh")),
+    ] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data) VALUES (?,'github','oauth',1,'red','GitHub account','github@example.com','github-long-lived',?,?)")
+            .bind(id).bind(legacy_refresh).bind(serde_json::json!({"autoSync":auto_sync,"copilotToken":"copilot-private-token","copilotTokenExpiresAt":2000000000,"githubUserId":123,"githubLogin":"fixture","excludedModels":["private-copilot-*"]}).to_string()).execute(&mut input).await.unwrap();
+    }
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,provider_specific_data,expires_at) VALUES ('claude-good','claude','oauth',1,'red','My Claude','claude@example.com','claude-private-access','claude-private-refresh',?,'2033-05-18T03:33:20Z')")
+        .bind(serde_json::json!({
+            "accountUUID":"123e4567-e89b-42d3-a456-426614174000",
+            "organizationUUID":"123e4567-e89b-42d3-a456-426614174001",
+            "organizationName":"Legacy team",
+            "organizationType":"team",
+            "cliUserID":"abababababababababababababababababababababababababababababababab",
+            "bootstrapEmail":"claude@example.com",
+            "excludedModels":["claude/private-*"],
+            "scopes":["user:inference","user:sessions:claude_code"],
+            "subscriptionType":"pro",
+            "rateLimitTier":"tier-2"
+        }).to_string()).execute(&mut input).await.unwrap();
+    input.close().await.unwrap();
+    let file = Url::from_file_path(&dest).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    Database::connect(Backend::Sqlite, &url)
+        .await
+        .unwrap()
+        .close()
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::stage(&source, &dest, STORAGE_KEY)
+            .await
+            .unwrap()
+            .staged,
+        19
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-extra", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-invalid-rules", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-cooling", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy Codex scope cooldown is still pending")
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-wrong-user", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy Codex user requires reconciliation")
+    );
+    assert_eq!(
+        legacy_providers::adopt_codex(&dest, "codex-invalid-auto", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("invalid legacy model auto-sync setting")
+    );
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-proxy", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_antigravity(&dest, "agy-wrong", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(
+        legacy_providers::adopt_xai(&dest, "xai-bad", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    assert!(legacy_providers::adopt_openference(
+        &dest,
+        "openference-bad",
+        STORAGE_KEY,
+        STORAGE_KEY
+    )
+    .await
+    .is_err());
+    assert_eq!(
+        legacy_providers::adopt_github(&dest, "github-renewal", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy GitHub token renewal requires migration")
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(db.providers().await.unwrap().is_empty());
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_codex(&dest, "codex-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    assert_eq!(providers.len(), 1);
+    assert!(!providers[0].enabled);
+    assert_eq!(providers[0].provider, "codex");
+    assert_eq!(providers[0].priority, 4);
+    assert_eq!(
+        providers[0].default_model.as_deref(),
+        Some("legacy-codex-model")
+    );
+    assert_eq!(
+        db.provider_auth().await.unwrap()[0].label,
+        legacy_oauth_label
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&providers[0].credential_ciphertext, "codex-good"),
+        access
+    );
+    let oauth = db.provider_oauth().await.unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(
+            &oauth[0].refresh_token_ciphertext,
+            "codex-good:oauth-refresh"
+        ),
+        "private-refresh-token"
+    );
+    let sessions = db.provider_sessions().await.unwrap();
+    let metadata =
+        decrypt_rust_ciphertext(&sessions[0].session_ciphertext, "codex-good:oauth-session");
+    let metadata = serde_json::from_str::<serde_json::Value>(&metadata).unwrap();
+    assert_eq!(metadata["id_token"], id_token);
+    assert_eq!(metadata["legacyCodex"]["chatgptUserId"], "user-1");
+    assert_eq!(metadata["legacyCodex"]["workspacePlanType"], "team");
+    assert_eq!(metadata["legacyCodex"]["organizations"][0]["id"], "org-1");
+    // Account-pool runtime state is re-read natively; the plan stays.
+    assert_eq!(metadata["legacyCodex"]["chatgptPlanType"], "plus");
+    assert_eq!(metadata["legacyCodex"]["openaiStoreEnabled"], false);
+    for key in [
+        "codexQuotaStateByScope",
+        "codexExhaustedWindowByScope",
+        "codexScopeRateLimitedUntil",
+        "codexScopeRateLimitSource",
+    ] {
+        assert!(metadata["legacyCodex"].get(key).is_none(), "{key}");
+    }
+    // The Codex request defaults reach the request path through the session.
+    assert_eq!(
+        metadata["legacyCodex"]["requestDefaults"],
+        serde_json::json!({"reasoningEffort":"high","serviceTier":"fast"})
+    );
+    assert!(metadata["legacyCodex"].get("excludedModels").is_none());
+    db.close().await.unwrap();
+    assert!(
+        legacy_providers::adopt_codex(&dest, "codex-good", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .is_err()
+    );
+    let result = legacy_providers::adopt_antigravity(&dest, "agy-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let providers = db.providers().await.unwrap();
+    let provider = providers
+        .iter()
+        .find(|provider| provider.id == "agy-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "agy-good"),
+        "agy-private-access"
+    );
+    let sessions = db.provider_sessions().await.unwrap();
+    let session = sessions
+        .iter()
+        .find(|session| session.provider_id == "agy-good")
+        .unwrap();
+    let metadata = decrypt_rust_ciphertext(&session.session_ciphertext, "agy-good:oauth-session");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&metadata).unwrap()["projectId"],
+        "project-1"
+    );
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_claude(&dest, "claude-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!((result.imported, result.enabled), (1, false));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|provider| provider.id == "claude-good")
+        .unwrap();
+    assert_eq!(provider.provider, "claude");
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.anthropic.com/v1/messages"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.provider_id == "claude-good")
+        .unwrap();
+    let metadata =
+        decrypt_rust_ciphertext(&session.session_ciphertext, "claude-good:oauth-session");
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert_eq!(
+        metadata["accountUUID"],
+        "123e4567-e89b-42d3-a456-426614174000"
+    );
+    assert_eq!(metadata["cliUserID"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        metadata["legacyClaude"]["organizationUUID"],
+        "123e4567-e89b-42d3-a456-426614174001"
+    );
+    assert_eq!(metadata["legacyClaude"]["organizationName"], "Legacy team");
+    assert_eq!(metadata["legacyClaude"]["organizationType"], "team");
+    assert!(metadata["legacyClaude"].get("excludedModels").is_none());
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_xai(&dest, "xai-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let xai = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "xai-good")
+        .unwrap();
+    assert!(!xai.enabled);
+    assert_eq!(xai.provider, "xai-oauth");
+    assert_eq!(xai.upstream_url, "https://api.x.ai/v1/chat/completions");
+    assert_eq!(
+        decrypt_rust_ciphertext(&xai.credential_ciphertext, "xai-good"),
+        "xai-private-access"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(&oauth.refresh_token_ciphertext, "xai-good:oauth-refresh"),
+        "xai-private-refresh"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "xai-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["idToken"], "xai-private-identity");
+    assert_eq!(metadata["scope"], "openid offline_access");
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "xai-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
+    let result = legacy_providers::adopt_github(&dest, "github-good", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "github-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.githubcopilot.com/chat/completions"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "github-good"),
+        "copilot-private-token"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(&oauth.refresh_token_ciphertext, "github-good:oauth-refresh"),
+        "github-long-lived"
+    );
+    let auth = db
+        .provider_auth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(auth.expires_at_unix, 2_000_000_000);
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "github-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["github"]["githubLogin"], "fixture");
+    assert!(metadata["github"].get("copilotToken").is_none());
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "github-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
+    let result =
+        legacy_providers::adopt_openference(&dest, "openference-good", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .unwrap();
+    assert_eq!(
+        (result.imported, result.enabled, result.source_enabled),
+        (1, false, true)
+    );
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    let provider = db
+        .providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == "openference-good")
+        .unwrap();
+    assert!(!provider.enabled);
+    assert_eq!(
+        provider.upstream_url,
+        "https://api.openference.com/v1/chat/completions"
+    );
+    assert_eq!(
+        decrypt_rust_ciphertext(&provider.credential_ciphertext, "openference-good"),
+        "openference-private-access"
+    );
+    let oauth = db
+        .provider_oauth()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    assert_eq!(
+        decrypt_rust_ciphertext(
+            &oauth.refresh_token_ciphertext,
+            "openference-good:oauth-refresh"
+        ),
+        "openference-private-refresh"
+    );
+    let session = db
+        .provider_sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&decrypt_rust_ciphertext(
+        &session.session_ciphertext,
+        "openference-good:oauth-session",
+    ))
+    .unwrap();
+    assert_eq!(metadata["idToken"], "openference-private-identity");
+    assert_eq!(metadata["scope"], "openid model:invoke offline_access");
+    let resilience = db
+        .provider_resilience()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.provider_id == "openference-good")
+        .unwrap();
+    assert_eq!(resilience.rate_limit_scope, "model");
+    db.close().await.unwrap();
+    let mut connection =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+            .await
+            .unwrap();
+    let rules: Vec<(String, String, String)> = sqlx::query_as("SELECT provider_id,tenant_id,patterns_json FROM redrouter_provider_model_rules ORDER BY provider_id")
+        .fetch_all(&mut connection).await.unwrap();
+    assert_eq!(rules.len(), 6);
+    for (id, tenant, json) in rules {
+        assert_eq!(tenant, "red");
+        let expected = match id.as_str() {
+            "agy-good" => serde_json::json!(["gemini-private", "other-*"]),
+            "claude-good" => serde_json::json!(["claude/private-*"]),
+            "codex-good" => serde_json::json!(["private-*"]),
+            "xai-good" => serde_json::json!(["grok-private-*"]),
+            "openference-good" => serde_json::json!(["private-openference-*"]),
+            "github-good" => serde_json::json!(["private-copilot-*"]),
+            _ => panic!("unexpected provider"),
+        };
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&json).unwrap(),
+            expected
+        );
+    }
+    connection.close().await.unwrap();
+    let bytes = tokio::fs::read(&dest).await.unwrap();
+    for secret in [
+        "xai-private-access",
+        "xai-private-refresh",
+        "xai-private-identity",
+        "openference-private-access",
+        "openference-private-refresh",
+        "openference-private-identity",
+        "github-long-lived",
+        "copilot-private-token",
+    ] {
+        assert!(!bytes
+            .windows(secret.len())
+            .any(|window| window == secret.as_bytes()));
+    }
+    // Legacy per-connection autoSync joins the native model auto-sync list.
+    legacy_providers::adopt_codex(&dest, "codex-auto", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    legacy_providers::adopt_github(&dest, "github-autosync", STORAGE_KEY, STORAGE_KEY)
+        .await
+        .unwrap();
+    let mut saved = SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&dest))
+        .await
+        .unwrap();
+    let synced: String = sqlx::query_scalar(
+        "SELECT value_json FROM redrouter_control_global_settings WHERE setting_key='model_auto_sync_providers'",
+    )
+    .fetch_one(&mut saved)
+    .await
+    .unwrap();
+    assert_eq!(synced, r#"["codex-auto","github-autosync"]"#);
+    saved.close().await.unwrap();
+}
