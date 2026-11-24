@@ -423,7 +423,12 @@ async fn adopt_oauth(
         let text = |name: &str| -> Result<Option<&str>, &'static str> {
             match object.get(name) { Some(serde_json::Value::Null) => Ok(None), Some(serde_json::Value::String(value)) => Ok(Some(value)), _ => Err("unsupported staged provider schema") }
         };
-        if text("id")? != Some(id) || text("provider")? != Some(provider) || text("auth_type")? != Some("oauth") { return Err("staged provider is not the expected OAuth session"); }
+        // The legacy IDE profile is stored as provider `antigravity` and the CLI profile as `agy`;
+        // both adopt as the one native `agy` provider and differ by the session client profile.
+        let staged_provider = text("provider")?;
+        let provider_matches = staged_provider == Some(provider) || (provider == "agy" && staged_provider == Some("antigravity"));
+        let ide_profile = provider == "agy" && staged_provider == Some("antigravity");
+        if text("id")? != Some(id) || !provider_matches || text("auth_type")? != Some("oauth") { return Err("staged provider is not the expected OAuth session"); }
         let active = match object.get("is_active").and_then(serde_json::Value::as_i64) { Some(0) => false, Some(1) => true, _ => return Err("invalid staged provider status") };
         let priority = match object.get("priority") {
             Some(serde_json::Value::Null) => 0,
@@ -631,8 +636,16 @@ async fn adopt_oauth(
         } else {
             if text("id_token")?.is_some_and(|value| !value.is_empty()) { return Err("legacy Antigravity identity token requires migration"); }
             if text("scope")?.is_some_and(|value| !value.trim().is_empty()) { return Err("legacy Antigravity OAuth scope requires migration"); }
-            if specific.keys().any(|key| !matches!(key.as_str(), "projectId" | "clientProfile" | "authMethod" | "tokenType")) { return Err("legacy Antigravity configuration requires migration"); }
-            if specific.get("clientProfile").is_some_and(|value| !value.is_null() && value.as_str() != Some("cli")) { return Err("legacy Antigravity client profile requires migration"); }
+            if specific.keys().any(|key| !matches!(key.as_str(), "projectId" | "clientProfile" | "authMethod" | "tokenType") && !(ide_profile && matches!(key.as_str(), "tier" | "subscriptionTier" | "plan" | "autoFetchModels"))) { return Err("legacy Antigravity configuration requires migration"); }
+            // Legacy normalizeAntigravityClientProfile: the IDE account defaults to ide, and the
+            // harness and sdk spellings read as cli; the CLI account is always cli.
+            let profile = if ide_profile {
+                crate::antigravity_headers::ClientProfile::normalize(specific.get("clientProfile"))
+            } else if specific.get("clientProfile").is_some_and(|value| !value.is_null() && value.as_str() != Some("cli")) {
+                return Err("legacy Antigravity client profile requires migration");
+            } else {
+                crate::antigravity_headers::ClientProfile::Cli
+            };
             let direct = text("project_id")?.filter(|value| !value.trim().is_empty());
             let nested = match specific.get("projectId") { None | Some(serde_json::Value::Null) => None, Some(value) => Some(value.as_str().ok_or("invalid Antigravity project")?).filter(|value| !value.trim().is_empty()) };
             if direct.is_some() && nested.is_some() && direct != nested { return Err("legacy Antigravity project requires reconciliation"); }
@@ -644,7 +657,13 @@ async fn adopt_oauth(
             }
             let parsed = crate::control_plane::parse_agy_auth(serde_json::json!({"access_token":access.as_str(),"refresh_token":refresh.as_str(),"expiry":expiry,"token_type":token_type,"auth_method":specific.get("authMethod")}))?;
             let metadata: serde_json::Value = serde_json::from_str(parsed.session_metadata.as_str()).map_err(|_| "invalid Antigravity metadata")?;
-            let session = Zeroizing::new(serde_json::json!({"clientProfile":"cli","tokenType":metadata["tokenType"],"authMethod":metadata["authMethod"],"projectId":project}).to_string());
+            let mut session = serde_json::json!({"clientProfile":profile.as_str(),"tokenType":metadata["tokenType"],"authMethod":metadata["authMethod"],"projectId":project});
+            if ide_profile {
+                // Plan labels are informational; they stay beside the session for the operator.
+                let plan: serde_json::Map<String, serde_json::Value> = ["tier", "subscriptionTier", "plan"].iter().filter_map(|key| specific.get(*key).filter(|value| value.is_string()).map(|value| ((*key).to_owned(), value.clone()))).collect();
+                session["legacyAntigravity"] = serde_json::Value::Object(plan);
+            }
+            let session = Zeroizing::new(session.to_string());
             (parsed.access_token, parsed.refresh_token, session, parsed.expires_at_unix, None, crate::control_plane::AGY_PROVIDER_URL)
         };
         let mut expires = i64::try_from(parsed_expiry).map_err(|_| "invalid legacy OAuth expiry")?;
