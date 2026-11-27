@@ -1340,6 +1340,31 @@ fn retry_after_hint_ms(headers: &HeaderMap) -> Option<u64> {
     .min()
 }
 
+/// Legacy `detectRetryHint`, read when the cooldown profile honors upstream
+/// hints: the response headers first, then a structured JSON body hint
+/// (RetryInfo, a reset time, a millisecond field), then a wait written in the
+/// error text ("try again in 90s").
+fn upstream_retry_hint_ms(
+    headers: &HeaderMap,
+    error_body: Option<&[u8]>,
+    provider: Option<&str>,
+) -> Option<u64> {
+    if let Some(hint) = retry_after_hint_ms(headers).filter(|hint| *hint > 0) {
+        return Some(hint);
+    }
+    let text = std::str::from_utf8(error_body?).ok()?;
+    let now = unix_time_ms();
+    if let Some(hint) = error_text_classification::parse_detailed_retry_hint_from_json_body(
+        text,
+        error_text_classification::MAX_PROVIDER_COOLDOWN_MS,
+        now,
+    ) {
+        return Some(hint.retry_after_ms);
+    }
+    error_text_classification::parse_retry_from_error_text(text, provider, now)
+        .filter(|hint| *hint > 0)
+}
+
 fn reset_hint_ms(value: &str, now_unix_ms: u64) -> Option<u64> {
     if let Some(milliseconds) = value.strip_suffix("ms") {
         return milliseconds.trim().parse::<u64>().ok();
@@ -5179,7 +5204,11 @@ async fn record_internal_provider_health(
         }
         resilience::ProviderFailureClass::AmbiguousExpired => {
             availability
-                .record_ambiguous_auth_failure(permit, status, retry_after_hint_ms(headers))
+                .record_ambiguous_auth_failure(
+                    permit,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::CreditsExhausted => {
@@ -5189,7 +5218,12 @@ async fn record_internal_provider_health(
         }
         resilience::ProviderFailureClass::Model => {
             availability
-                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .record_model_failure(
+                    permit,
+                    &target.model,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::RetiredModel => {
@@ -5211,14 +5245,23 @@ async fn record_internal_provider_health(
             if availability::connection_failure_status(status) =>
         {
             availability
-                .record_connection_failure(permit, status, retry_after_hint_ms(headers))
+                .record_connection_failure(
+                    permit,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::Transient
             if availability::model_failure_status(status) =>
         {
             availability
-                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .record_model_failure(
+                    permit,
+                    &target.model,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::Transient if status.is_success() => {
@@ -8898,7 +8941,11 @@ async fn proxy_request(
                         .record_ambiguous_auth_failure(
                             permit,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8916,7 +8963,11 @@ async fn proxy_request(
                             permit,
                             target_model,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8946,7 +8997,11 @@ async fn proxy_request(
                         .record_connection_failure(
                             permit,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8958,7 +9013,11 @@ async fn proxy_request(
                             permit,
                             target_model,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }

@@ -11232,6 +11232,120 @@ async fn service_supervisor_hint_is_a_fixed_connection_cooldown_without_backoff(
     database.close().await.unwrap();
 }
 
+/// Legacy `detectRetryHint`: without a Retry-After header, an API key
+/// connection takes the wait its error body asks for (here a Google RetryInfo
+/// detail of 90 s) instead of the 3 s base of a plain 429.
+#[tokio::test]
+async fn a_retry_hint_in_the_error_body_sets_the_connection_cooldown() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("availability.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (limited_url, limited_requests, _limited_status, limited_body, limited_task) =
+        counted_status_provider("limited-secret", StatusCode::TOO_MANY_REQUESTS, None, None).await;
+    *limited_body.write().await = serde_json::json!({"error":{
+        "code":429,
+        "message":"Too many requests.",
+        "details":[{
+            "@type":"type.googleapis.com/google.rpc.RetryInfo",
+            "retryDelay":"90s"
+        }]
+    }})
+    .to_string();
+    let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (id, upstream_url, api_key) in [
+        ("limited", limited_url.clone(), "limited-secret"),
+        ("healthy", healthy_url.clone(), "healthy-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider": if id == "limited" { "openai" } else { "openai-compatible" },
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/availability-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Availability client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["availability-combo","upstream-model"],
+                "allowed_provider_ids":["limited","healthy"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/availability-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"priority",
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"limited","model":"upstream-model"},
+                    {"provider_id":"healthy","model":"upstream-model"}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let response = chat_model(&client, &base, RUST_CLIENT_KEY, "availability-combo").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "healthy");
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 1);
+    let health: serde_json::Value = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let limited = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "limited")
+        .unwrap();
+    assert_eq!(limited["connection_last_status"], 429);
+    let retry_after = limited["connection_retry_after_ms"].as_u64().unwrap();
+    assert!(
+        retry_after > 60_000 && retry_after <= 90_000,
+        "retry_after_ms {retry_after}"
+    );
+
+    gateway_task.abort();
+    limited_task.abort();
+    healthy_task.abort();
+    database.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     let directory = TempDir::new().unwrap();
