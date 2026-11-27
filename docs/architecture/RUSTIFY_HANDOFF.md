@@ -46,7 +46,7 @@ Verified means a differential oracle, an integration test or a real-store run, n
 ## Decisions that belong to the maintainer
 
 - **Credit cooldown policy (decided 2026-11-27: terminal).** The legacy rule table gives a timed cooldown and the account returns on its own (an OpenRouter 402 locks the connection for 2 minutes; Cloudflare's daily allocation text locks until UTC midnight; a bare 402 gets no cooldown at all). The maintainer kept the Rust behavior: a terminal `CreditsExhausted` status that only an operator clears.
-- **5xx connection cooldowns.** The legacy `checkFallbackError` gives a 408, 500, 502, 503 or 504 a connection cooldown with the profile backoff (3 s base for an API key connection, 5 s for OAuth, doubling per level). The daemon records a 5xx only in the provider circuit breaker; the availability recorders take 401, 403 and 429 for connections and 402, 404 and 429 for models. Keep the breaker-only design, or add the legacy cooldown.
+- **5xx connection cooldowns (decided 2026-11-27: breaker only).** The legacy `checkFallbackError` gives a 408, 500, 502, 503 or 504 a connection cooldown with the profile backoff (3 s base for an API key connection, 5 s for OAuth, doubling per level). The daemon records a 5xx only in the provider circuit breaker; the availability recorders take 401, 403 and 429 for connections and 402, 404 and 429 for models. The maintainer kept the breaker-only design.
 - **Closing the first goal** on the cutover criterion, and the priority order of the remaining fronts.
 
 ## How to work here
