@@ -69,7 +69,7 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
         .bearer_auth(ADMIN_KEY)
         .json(&serde_json::json!({
             "label":"Logged client","scopes":["inference:chat"],
-            "allowed_models":["logged-combo"],
+            "allowed_models":["logged-combo","upstream-model"],"allowed_provider_ids":["bad","good"],
             "max_tokens_per_day":1000,"reservation_tokens":10
         }))
         .send()
