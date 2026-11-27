@@ -2,6 +2,7 @@
 pub mod account_rotation;
 pub mod accounting;
 mod anthropic_stream;
+pub mod antigravity_headers;
 mod antigravity_translation;
 pub mod audit_export;
 mod availability;
@@ -328,6 +329,7 @@ pub(crate) struct LiveProvider {
     provider_id: Option<Arc<str>>,
     provider_name: Option<Arc<str>>,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     /// The ChatGPT workspace a Codex account is bound to (legacy
     /// `providerSpecificData.workspaceId`).
@@ -688,6 +690,7 @@ pub(crate) struct ModelTarget {
     provider_name: Option<Arc<str>>,
     model_rules: Option<Arc<control_plane::provider_rules::ModelRules>>,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     codex_account: Option<Arc<codex_request::CodexAccount>>,
     rate_limit_scope: resilience::RateLimitScope,
@@ -1846,6 +1849,7 @@ impl ProxyState {
             provider_id: None,
             provider_name: None,
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             codex_account: None,
             tenant_id: Arc::from("red"),
@@ -1918,6 +1922,7 @@ impl ProxyState {
             provider_name: provider.provider_name.clone(),
             model_rules: None,
             antigravity_project: provider.antigravity_project.clone(),
+            antigravity_profile: provider.antigravity_profile,
             claude_identity: provider.claude_identity.clone(),
             codex_account: provider.codex_account.clone(),
             rate_limit_scope: provider.rate_limit_scope,
@@ -2353,6 +2358,7 @@ impl ProxyState {
                     provider_name: None,
                     model_rules: None,
                     antigravity_project: None,
+                    antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
                     claude_identity: None,
                     codex_account: None,
                     rate_limit_scope: resilience::RateLimitScope::Auto,
@@ -4281,8 +4287,6 @@ const CONTEXT_RELAY_SUMMARY_MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const CONTEXT_RELAY_SUMMARY_MAX_HISTORY_CHARS: usize = 32_000;
 const CONTEXT_RELAY_EXHAUSTION_THRESHOLD: f64 = 0.95;
 const CONTEXT_RELAY_SUMMARY_DEADLINE: Duration = Duration::from_secs(45);
-const ANTIGRAVITY_CLI_USER_AGENT: &str =
-    "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)";
 const CLAUDE_CLI_USER_AGENT: &str = "claude-cli/2.1.301 (external, cli)";
 const CLAUDE_SENTINEL: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
@@ -4447,6 +4451,7 @@ struct ContextRelaySummaryTarget {
     provider_name: String,
     model: String,
     antigravity_project: Option<Arc<str>>,
+    antigravity_profile: crate::antigravity_headers::ClientProfile,
     claude_identity: Option<Arc<ClaudeIdentity>>,
     rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
@@ -4627,6 +4632,7 @@ fn context_relay_summary_target(
         provider_name: provider,
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        antigravity_profile: target.antigravity_profile,
         claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
@@ -4878,9 +4884,10 @@ async fn generate_context_relay_summary(
             }
         }
         if antigravity {
-            request = request
-                .header(header::ACCEPT, "text/event-stream")
-                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            request = request.header(header::ACCEPT, "text/event-stream").header(
+                header::USER_AGENT,
+                antigravity_headers::request_user_agent(target.antigravity_profile),
+            );
             if include_antigravity_project {
                 if let Some(project) = target.antigravity_project.as_deref() {
                     request = request.header("x-goog-user-project", project);
@@ -5191,6 +5198,7 @@ fn internal_target_from_model(
             .to_ascii_lowercase(),
         model: target.model.clone(),
         antigravity_project: target.antigravity_project.clone(),
+        antigravity_profile: target.antigravity_profile,
         claude_identity: target.claude_identity.clone(),
         rate_limit_scope: target.rate_limit_scope,
         circuit: target.circuit.clone(),
@@ -5585,9 +5593,10 @@ async fn execute_fusion_panel_target(
             request = request.header("anthropic-version", "2023-06-01");
         }
         if antigravity {
-            request = request
-                .header(header::ACCEPT, "text/event-stream")
-                .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+            request = request.header(header::ACCEPT, "text/event-stream").header(
+                header::USER_AGENT,
+                antigravity_headers::request_user_agent(target.antigravity_profile),
+            );
             if include_project {
                 if let Some(project) = target.antigravity_project.as_deref() {
                     request = request.header("x-goog-user-project", project);
@@ -8266,6 +8275,14 @@ async fn proxy_request(
                     .map(str::to_owned)
             })
             .flatten();
+        let antigravity_profile = target
+            .map(|target| target.antigravity_profile)
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .map(|provider| provider.antigravity_profile)
+            })
+            .unwrap_or(antigravity_headers::ClientProfile::Cli);
         // Keep the finite JSON upload replayable. Antigravity's official CLI
         // retries a project-scoped 403 once without x-goog-user-project because
         // consumer accounts can have a valid session but no permission to bill
@@ -8328,9 +8345,10 @@ async fn proxy_request(
                 }
             }
             if attempt_antigravity {
-                upstream = upstream
-                    .header(header::ACCEPT, "text/event-stream")
-                    .header(header::USER_AGENT, ANTIGRAVITY_CLI_USER_AGENT);
+                upstream = upstream.header(header::ACCEPT, "text/event-stream").header(
+                    header::USER_AGENT,
+                    antigravity_headers::request_user_agent(antigravity_profile),
+                );
                 if include_antigravity_project {
                     if let Some(project) = antigravity_project.as_deref() {
                         upstream = upstream.header("x-goog-user-project", project);
@@ -9281,26 +9299,39 @@ async fn proxy_request(
             return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
         };
         if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
-            // The usage wrapper reads the provider's own stream, so a translated
-            // stream cannot be settled yet; fail closed rather than leave the
-            // reservation open.
-            if final_accounting.is_some() {
-                return error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Usage accounting is unavailable for translated Responses streams",
-                );
-            }
-            let stream = responses_adapter::translate(response).map(move |chunk| {
-                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
-                chunk
-            });
+            // The translated frames are Chat Completions SSE ending in a usage chunk,
+            // so the usage wrapper settles the reservation on the translated stream.
+            let body = if let Some(accounting) = final_accounting {
+                let context = match accounting.into_context(product_access.as_ref()) {
+                    Ok(context) => context,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        )
+                    }
+                };
+                usage_stream::forward_source(
+                    Box::pin(responses_adapter::translate(response)),
+                    ProviderProtocol::OpenAi,
+                    context,
+                    (permit, client_permit),
+                    provider_load_guard,
+                )
+            } else {
+                let stream = responses_adapter::translate(response).map(move |chunk| {
+                    let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                    chunk
+                });
+                Body::from_stream(stream)
+            };
             let mut result = (
                 [
                     (header::CONTENT_TYPE, "text/event-stream"),
                     (header::CACHE_CONTROL, "no-cache"),
                     (header::HeaderName::from_static("x-accel-buffering"), "no"),
                 ],
-                Body::from_stream(stream),
+                body,
             )
                 .into_response();
             attach_served_model(&mut result, final_served_model.as_ref());
@@ -9373,17 +9404,41 @@ async fn proxy_request(
                 .pointer("/stream_options/include_usage")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
-            let stream = anthropic_stream::translate(response, include_usage).map(move |chunk| {
-                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
-                chunk
-            });
+            // The translated frames are Chat Completions SSE ending in a usage chunk
+            // (accounted clients must ask for it), so the usage wrapper settles the
+            // reservation on the translated stream.
+            let body = if let Some(accounting) = final_accounting {
+                let context = match accounting.into_context(product_access.as_ref()) {
+                    Ok(context) => context,
+                    Err(_) => {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        )
+                    }
+                };
+                usage_stream::forward_source(
+                    Box::pin(anthropic_stream::translate(response, include_usage)),
+                    ProviderProtocol::OpenAi,
+                    context,
+                    (permit, client_permit),
+                    provider_load_guard,
+                )
+            } else {
+                let stream =
+                    anthropic_stream::translate(response, include_usage).map(move |chunk| {
+                        let _keep_alive = (&permit, &client_permit, &provider_load_guard);
+                        chunk
+                    });
+                Body::from_stream(stream)
+            };
             let mut result = (
                 [
                     (header::CONTENT_TYPE, "text/event-stream"),
                     (header::CACHE_CONTROL, "no-cache"),
                     (header::HeaderName::from_static("x-accel-buffering"), "no"),
                 ],
-                Body::from_stream(stream),
+                body,
             )
                 .into_response();
             attach_served_model(&mut result, final_served_model.as_ref());
@@ -9406,6 +9461,24 @@ async fn proxy_request(
             Ok(Ok(mut value)) => {
                 if credential_redaction {
                     credential_masker::redact_value(&mut value);
+                }
+                if let Some(accounting) = final_accounting {
+                    let Ok(usage) = accounting::ChatUsage::from_response(&value) else {
+                        return error(
+                            StatusCode::BAD_GATEWAY,
+                            "Provider response is missing valid token usage",
+                        );
+                    };
+                    if accounting
+                        .record(product_access.as_ref(), &usage)
+                        .await
+                        .is_err()
+                    {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Usage accounting unavailable",
+                        );
+                    }
                 }
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
@@ -10176,7 +10249,9 @@ mod address_tests {
                             );
                             assert_eq!(
                                 headers[header::USER_AGENT].to_str().unwrap(),
-                                ANTIGRAVITY_CLI_USER_AGENT
+                                antigravity_headers::request_user_agent(
+                                    antigravity_headers::ClientProfile::Cli
+                                )
                             );
                             observed.lock().unwrap().push(body);
                             if attempt == 0 {
@@ -10234,6 +10309,7 @@ mod address_tests {
             provider_name: "google".to_owned(),
             model: "gemini-2.5-flash".to_owned(),
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
@@ -10280,6 +10356,7 @@ mod address_tests {
             provider_name: "agy".to_owned(),
             model: "gemini-2.5-pro".to_owned(),
             antigravity_project: Some(Arc::from("relay-project")),
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
@@ -10421,6 +10498,7 @@ mod address_tests {
             provider_name: Some(Arc::from("antigravity")),
             model_rules: None,
             antigravity_project: None,
+            antigravity_profile: crate::antigravity_headers::ClientProfile::Cli,
             claude_identity: None,
             codex_account: None,
             rate_limit_scope: resilience::RateLimitScope::Model,

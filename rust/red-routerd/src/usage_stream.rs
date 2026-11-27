@@ -5,7 +5,7 @@ use crate::{
     ProviderLoadGuard, ProviderProtocol,
 };
 use axum::body::{Body, Bytes};
-use futures_util::{stream, StreamExt};
+use futures_util::{stream, Stream, StreamExt};
 use std::io;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
@@ -307,12 +307,33 @@ pub(crate) fn forward(
     permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
     provider_load: Option<ProviderLoadGuard>,
 ) -> Body {
+    forward_source(
+        response.bytes_stream(),
+        protocol,
+        usage,
+        permits,
+        provider_load,
+    )
+}
+
+/// `forward` over any byte stream, so a translated stream (whose frames follow
+/// `protocol`) settles usage the same way a provider's own stream does.
+pub(crate) fn forward_source<S, E>(
+    mut source: S,
+    protocol: ProviderProtocol,
+    usage: UsageContext,
+    permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
+    provider_load: Option<ProviderLoadGuard>,
+) -> Body
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin + Send + 'static,
+    E: Send + 'static,
+{
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
         let mut usage_context = Some(usage);
         let _permits = permits;
         let _provider_load = provider_load;
-        let mut source = response.bytes_stream();
         let mut pending = Vec::<u8>::new();
         let mut usage = None;
         let mut held_complete = None;

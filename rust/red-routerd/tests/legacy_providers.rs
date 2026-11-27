@@ -749,6 +749,13 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES (?,'agy','oauth',1,'red','My Antigravity','agy-private-access','agy-private-refresh','project-1','Bearer',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"projectId":project,"clientProfile":"cli","excluded_models":"gemini-private,other-*"}).to_string()).execute(&mut input).await.unwrap();
     }
+    // The legacy IDE profile is stored as provider `antigravity` with no clientProfile key.
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at,scope) VALUES ('agy-ide','antigravity','oauth',1,'red','My Antigravity IDE','agy-ide-access','agy-ide-refresh','project-ide','Bearer',?,'2033-05-18T03:33:20Z','openid https://www.googleapis.com/auth/cloud-platform')")
+        .bind(serde_json::json!({"projectId":"project-ide","tier":"free-tier","subscriptionTier":"free","plan":"free","autoFetchModels":true,"autoSync":false}).to_string()).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES ('agy-ide-harness','antigravity','oauth',1,'red','My Antigravity IDE','agy-ide-access','agy-ide-refresh','project-ide','Bearer',?,'2033-05-18T03:33:20Z')")
+        .bind(serde_json::json!({"projectId":"project-ide","clientProfile":"harness"}).to_string()).execute(&mut input).await.unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,access_token,refresh_token,project_id,token_type,provider_specific_data,expires_at) VALUES ('agy-ide-extra','antigravity','oauth',1,'red','My Antigravity IDE','agy-ide-access','agy-ide-refresh','project-ide','Bearer',?,'2033-05-18T03:33:20Z')")
+        .bind(serde_json::json!({"projectId":"project-ide","unknownSetting":1}).to_string()).execute(&mut input).await.unwrap();
     for (id, token_type) in [("xai-good", "Bearer"), ("xai-bad", "Basic")] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,tenant_id,name,email,access_token,refresh_token,id_token,provider_specific_data,expires_at) VALUES (?,'xai-oauth','oauth',1,'red','xAI account','xai@example.com','xai-private-access','xai-private-refresh','xai-private-identity',?,'2033-05-18T03:33:20Z')")
             .bind(id).bind(serde_json::json!({"scope":"openid offline_access","tokenType":token_type,"excludedModels":["grok-private-*"]}).to_string()).execute(&mut input).await.unwrap();
@@ -792,7 +799,7 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
             .await
             .unwrap()
             .staged,
-        19
+        22
     );
     assert!(
         legacy_providers::adopt_codex(&dest, "codex-wrong", STORAGE_KEY, STORAGE_KEY)
@@ -952,6 +959,44 @@ async fn adopts_codex_oauth_without_refresh_and_rejects_workspace_mismatch() {
         "project-1"
     );
     db.close().await.unwrap();
+    assert_eq!(
+        legacy_providers::adopt_antigravity(&dest, "agy-ide-extra", STORAGE_KEY, STORAGE_KEY)
+            .await
+            .err(),
+        Some("legacy Antigravity configuration requires migration")
+    );
+    // Both IDE spellings adopt as the native agy provider; the profile rides in the session.
+    for (id, profile) in [("agy-ide", "ide"), ("agy-ide-harness", "cli")] {
+        legacy_providers::adopt_antigravity(&dest, id, STORAGE_KEY, STORAGE_KEY)
+            .await
+            .unwrap();
+        let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+        let provider = db
+            .providers()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .unwrap();
+        assert_eq!(provider.provider, "agy");
+        let sessions = db.provider_sessions().await.unwrap();
+        let session = sessions
+            .iter()
+            .find(|session| session.provider_id == id)
+            .unwrap();
+        let metadata =
+            decrypt_rust_ciphertext(&session.session_ciphertext, &format!("{id}:oauth-session"));
+        let metadata = serde_json::from_str::<serde_json::Value>(&metadata).unwrap();
+        assert_eq!(metadata["clientProfile"], profile);
+        assert_eq!(metadata["projectId"], "project-ide");
+        if id == "agy-ide" {
+            assert_eq!(
+                metadata["legacyAntigravity"]["scope"],
+                "openid https://www.googleapis.com/auth/cloud-platform"
+            );
+        }
+        db.close().await.unwrap();
+    }
     let result = legacy_providers::adopt_claude(&dest, "claude-good", STORAGE_KEY, STORAGE_KEY)
         .await
         .unwrap();
