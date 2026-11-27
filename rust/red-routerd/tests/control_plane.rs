@@ -12189,6 +12189,7 @@ include!("cases/provider_discovery.rs");
 include!("cases/provider_protocol.rs");
 include!("cases/opencode_go_messages.rs");
 include!("cases/image_generation.rs");
+include!("cases/audio_transcription.rs");
 
 include!("cases/provider_nodes.rs");
 

@@ -447,7 +447,7 @@ fn import_endpoint_grants(value: Option<&str>) -> Result<String, &'static str> {
     let mut grants: Vec<String> = Vec::new();
     for category in &categories {
         match category.as_str() {
-            "chat" | "embeddings" | "images" | "rerank" => {
+            "chat" | "embeddings" | "images" | "audio" | "rerank" => {
                 if !grants.contains(category) {
                     grants.push(category.clone());
                 }

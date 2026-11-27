@@ -35,6 +35,7 @@ pub mod fastllm_supervisor;
 mod global_settings;
 mod icon_url;
 mod idempotency;
+mod audio_transcription;
 mod image_generation;
 pub mod ip_utils;
 pub mod json_hash;
@@ -661,6 +662,7 @@ pub(crate) enum ProviderProtocol {
     OpenAiResponses,
     OpenAiEmbeddings,
     OpenAiImages,
+    OpenAiTranscriptions,
     CohereRerank,
     Anthropic,
     OpenAiToAnthropic,
@@ -1738,6 +1740,7 @@ impl ProxyState {
                     }
                     ProviderProtocol::OpenAiEmbeddings => "/embeddings",
                     ProviderProtocol::OpenAiImages => "/images/generations",
+                    ProviderProtocol::OpenAiTranscriptions => "/audio/transcriptions",
                     ProviderProtocol::CohereRerank => "/rerank",
                     ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
                         "/messages"
@@ -1927,6 +1930,11 @@ impl ProxyState {
         } else if protocol == ProviderProtocol::OpenAiImages {
             if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
                 let path = format!("{prefix}/images/generations");
+                upstream.set_path(&path);
+            }
+        } else if protocol == ProviderProtocol::OpenAiTranscriptions {
+            if let Some(prefix) = upstream.path().strip_suffix("/chat/completions") {
+                let path = format!("{prefix}/audio/transcriptions");
                 upstream.set_path(&path);
             }
         }
@@ -2135,6 +2143,9 @@ impl ProxyState {
                 Some(value) if value.as_str() == Some("openai-images") => {
                     ProviderProtocol::OpenAiImages
                 }
+                Some(value) if value.as_str() == Some("openai-transcriptions") => {
+                    ProviderProtocol::OpenAiTranscriptions
+                }
                 Some(value) if value.as_str() == Some("cohere-rerank") => {
                     ProviderProtocol::CohereRerank
                 }
@@ -2193,6 +2204,7 @@ impl ProxyState {
                 protocol,
                 ProviderProtocol::OpenAiEmbeddings
                     | ProviderProtocol::OpenAiImages
+                    | ProviderProtocol::OpenAiTranscriptions
                     | ProviderProtocol::CohereRerank
             ) {
                 return Err("strategy requires a conversational protocol");
@@ -2460,6 +2472,7 @@ impl ProviderProtocol {
             | Self::OpenAiResponses
             | Self::OpenAiEmbeddings
             | Self::OpenAiImages
+            | Self::OpenAiTranscriptions
             | Self::CohereRerank
             | Self::Anthropic
             | Self::Gemini => Ok(protocol),
@@ -2473,6 +2486,7 @@ impl ProviderProtocol {
             "openai-responses" => Ok(Self::OpenAiResponses),
             "openai-embeddings" => Ok(Self::OpenAiEmbeddings),
             "openai-images" => Ok(Self::OpenAiImages),
+            "openai-transcriptions" => Ok(Self::OpenAiTranscriptions),
             "cohere-rerank" => Ok(Self::CohereRerank),
             "anthropic" => Ok(Self::Anthropic),
             "openai-to-anthropic" => Ok(Self::OpenAiToAnthropic),
@@ -2493,6 +2507,8 @@ impl ProviderProtocol {
             Ok(Self::OpenAiResponses)
         } else if path.ends_with("/images/generations") {
             Ok(Self::OpenAiImages)
+        } else if path.ends_with("/audio/transcriptions") {
+            Ok(Self::OpenAiTranscriptions)
         } else if path.ends_with("/embeddings") {
             Ok(Self::OpenAiEmbeddings)
         } else if path.ends_with("/rerank") {
@@ -2951,6 +2967,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/images/generations", post(images_generations))
+        .route("/v1/audio/transcriptions", post(audio_transcriptions))
         .route("/v1/rerank", post(rerank))
         .route("/v1/messages", post(messages))
         .route("/v1/me/status", get(self_service::me_status))
@@ -3038,6 +3055,7 @@ fn payload_rule_format(protocol: ProviderProtocol) -> Option<&'static str> {
         }
         ProviderProtocol::OpenAiEmbeddings
         | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::OpenAiTranscriptions
         | ProviderProtocol::CohereRerank => None,
     }
 }
@@ -3330,6 +3348,7 @@ fn route_category(protocol: ProviderProtocol) -> &'static str {
     match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
         ProviderProtocol::OpenAiImages => "images",
+        ProviderProtocol::OpenAiTranscriptions => "audio",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     }
@@ -3339,6 +3358,7 @@ fn route_model_type(protocol: ProviderProtocol) -> &'static str {
     match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embedding",
         ProviderProtocol::OpenAiImages => "image",
+        ProviderProtocol::OpenAiTranscriptions => "transcription",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     }
@@ -4282,6 +4302,42 @@ async fn responses(State(state): State<ProxyState>, request: Request) -> Respons
 
 async fn embeddings(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::OpenAiEmbeddings, None).await
+}
+
+/// Legacy audioTranscription route: the multipart upload becomes the JSON body
+/// the OpenRouter speech-to-text endpoint takes, then follows the ordinary path.
+async fn audio_transcriptions(State(state): State<ProxyState>, request: Request) -> Response {
+    let Some(boundary) = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(audio_transcription::boundary)
+    else {
+        return error(StatusCode::BAD_REQUEST, "Invalid form data");
+    };
+    let configured = match &state.control_plane {
+        Some(control) => control.max_body_size_bytes().await,
+        None => None,
+    };
+    let limit = body_limits::request_body_limit(request.uri().path(), configured);
+    let (mut parts, body) = request.into_parts();
+    let bytes = match to_bytes(body, limit).await {
+        Ok(bytes) => bytes,
+        Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "Request body too large"),
+    };
+    let json = match audio_transcription::parse_form(&bytes, &boundary)
+        .and_then(|form| audio_transcription::json_body(&form))
+    {
+        Ok(json) => json,
+        Err(message) => return error(StatusCode::BAD_REQUEST, message),
+    };
+    parts.headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    parts.headers.remove(header::CONTENT_LENGTH);
+    let request = Request::from_parts(parts, Body::from(json));
+    proxy_request(state, request, ProviderProtocol::OpenAiTranscriptions, None).await
 }
 
 async fn images_generations(State(state): State<ProxyState>, request: Request) -> Response {
@@ -6292,6 +6348,7 @@ fn inject_context_relay_handoff(
         }
         ProviderProtocol::OpenAiEmbeddings
         | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::OpenAiTranscriptions
         | ProviderProtocol::CohereRerank => return Err(()),
     }
     Ok(())
@@ -6519,6 +6576,7 @@ async fn proxy_request(
     let category = match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
         ProviderProtocol::OpenAiImages => "images",
+        ProviderProtocol::OpenAiTranscriptions => "audio",
         ProviderProtocol::CohereRerank => "rerank",
         _ => "chat",
     };
@@ -9811,6 +9869,7 @@ async fn proxy_request(
                 | ProviderProtocol::Anthropic
                 | ProviderProtocol::OpenAiResponses
                 | ProviderProtocol::OpenAiImages
+                | ProviderProtocol::OpenAiTranscriptions
         )
     {
         return public_upstream_failure(

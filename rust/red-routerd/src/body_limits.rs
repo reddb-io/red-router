@@ -36,6 +36,9 @@ fn limit_for(path: &str, configured: usize) -> usize {
     let path = path.strip_prefix("/api").unwrap_or(path);
     if path.starts_with("/v1/chat/completions") || path.starts_with("/v1/responses") {
         LLM_API_BODY_LIMIT_BYTES.max(configured)
+    } else if path.starts_with("/v1/audio/transcriptions") {
+        // The upload is re-encoded as base64 JSON (a third larger) before it is proxied.
+        configured.saturating_add(configured / 2)
     } else {
         configured
     }
@@ -68,6 +71,11 @@ mod tests {
                 "{path}"
             );
         }
+        // A transcription upload is re-encoded as base64 JSON, a third larger.
+        assert_eq!(
+            limit_for("/v1/audio/transcriptions", configured),
+            configured + configured / 2
+        );
         for path in ["/v1/messages", "/v1/embeddings", "/v1/rerank"] {
             assert_eq!(limit_for(path, configured), configured, "{path}");
         }

@@ -5027,6 +5027,12 @@ impl ControlPlane {
                     {
                         ProviderProtocol::OpenAiImages
                     }
+                    // Legacy audioRegistry: OpenRouter transcribes at its own endpoint.
+                    (ProviderProtocol::OpenAiTranscriptions, ProviderProtocol::OpenAi)
+                        if account.record.provider == "openrouter" =>
+                    {
+                        ProviderProtocol::OpenAiTranscriptions
+                    }
                     (requested, actual) if requested == actual => requested,
                     _ => return None,
                 };
@@ -12513,6 +12519,10 @@ async fn probe_provider(
             "model":&model,
             "prompt":"RedRouter connection test"
         }),
+        ProviderProtocol::OpenAiTranscriptions => serde_json::json!({
+            "model":&model,
+            "input_audio":{"data":"","format":"wav"}
+        }),
         ProviderProtocol::CohereRerank => serde_json::json!({
             "model":&model,
             "query":"RedRouter connection test",
@@ -13862,6 +13872,7 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
                     | "inference:chat"
                     | "inference:embeddings"
                     | "inference:images"
+                    | "inference:audio"
                     | "inference:rerank"
                     | crate::self_service::SELF_USAGE_SCOPE
                     | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
@@ -13880,7 +13891,12 @@ fn validate_endpoint_list(values: &[String]) -> Result<(), &'static str> {
     if values.len() > 20
         || values
             .iter()
-            .any(|value| !matches!(value.as_str(), "chat" | "embeddings" | "images" | "rerank"))
+            .any(|value| {
+                !matches!(
+                    value.as_str(),
+                    "chat" | "embeddings" | "images" | "audio" | "rerank"
+                )
+            })
     {
         return Err("invalid client key endpoint grants");
     }
@@ -14046,6 +14062,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         protocol,
         ProviderProtocol::OpenAiEmbeddings
             | ProviderProtocol::OpenAiImages
+            | ProviderProtocol::OpenAiTranscriptions
             | ProviderProtocol::CohereRerank
     ) {
         return Err("strategy requires a conversational protocol");
