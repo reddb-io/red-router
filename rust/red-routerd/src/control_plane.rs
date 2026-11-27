@@ -13889,14 +13889,12 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
 
 fn validate_endpoint_list(values: &[String]) -> Result<(), &'static str> {
     if values.len() > 20
-        || values
-            .iter()
-            .any(|value| {
-                !matches!(
-                    value.as_str(),
-                    "chat" | "embeddings" | "images" | "audio" | "rerank"
-                )
-            })
+        || values.iter().any(|value| {
+            !matches!(
+                value.as_str(),
+                "chat" | "embeddings" | "images" | "audio" | "rerank"
+            )
+        })
     {
         return Err("invalid client key endpoint grants");
     }
