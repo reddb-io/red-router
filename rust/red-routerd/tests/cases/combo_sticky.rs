@@ -96,12 +96,24 @@ async fn round_robin_combos_send_sticky_batches() {
     // The legacy default batch is the provider pools' limit of three.
     assert_eq!(picks(7).await, ["a", "a", "a", "b", "b", "b", "a"]);
     assert_eq!(limit(2).await.unwrap().status(), StatusCode::OK);
-    // A settings change recompiles the routes, which starts the rotation
-    // over (the legacy state, keyed by combo name, would survive it).
-    assert_eq!(picks(5).await, ["a", "a", "b", "b", "a"]);
+    // A settings write does not recompile the routes, so the open batch
+    // carries over to the new limit as the legacy state (keyed by combo name)
+    // does, unless a background reconcile recompiles them first. Either way
+    // no target serves more than the limit in a row.
+    let longest_run = |picks: &[String]| {
+        picks
+            .chunk_by(|left, right| left == right)
+            .map(<[String]>::len)
+            .max()
+            .unwrap_or(0)
+    };
+    let batch = picks(5).await;
+    assert!(longest_run(&batch) <= 2, "{batch:?}");
+    assert!(batch.iter().any(|pick| pick == "a") && batch.iter().any(|pick| pick == "b"));
     // A limit of one rotates on every request.
     assert_eq!(limit(1).await.unwrap().status(), StatusCode::OK);
-    assert_eq!(picks(3).await, ["a", "b", "a"]);
+    let batch = picks(3).await;
+    assert_eq!(longest_run(&batch), 1, "{batch:?}");
     assert_eq!(limit(0).await.unwrap().status(), StatusCode::BAD_REQUEST);
 
     gateway_task.abort();
