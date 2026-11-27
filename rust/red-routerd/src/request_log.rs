@@ -81,6 +81,84 @@ pub(crate) async fn insert(pool: &AnyPool, attempt: &Attempt) -> Result<(), &'st
         .map_err(|_| "cannot write request log")
 }
 
+/// Legacy `retention.callLogs` (30 days by default) and
+/// `CALL_LOGS_TABLE_MAX_ROWS` (100,000): rows older than the retention, and
+/// the oldest rows past the cap, are deleted.
+pub(crate) const DEFAULT_RETENTION_DAYS: i64 = 30;
+pub(crate) const DEFAULT_MAX_ROWS: i64 = 100_000;
+/// One background prune per this many writes.
+pub(crate) const PRUNE_EVERY: u64 = 500;
+
+static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn positive_env(name: &str, default: i64) -> i64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+/// The configured retention: `CALL_LOG_RETENTION_DAYS` and
+/// `CALL_LOGS_TABLE_MAX_ROWS`, else the legacy defaults.
+pub(crate) fn retention() -> (i64, i64) {
+    (
+        positive_env("CALL_LOG_RETENTION_DAYS", DEFAULT_RETENTION_DAYS),
+        positive_env("CALL_LOGS_TABLE_MAX_ROWS", DEFAULT_MAX_ROWS),
+    )
+}
+
+/// Whether this write should also prune (every `PRUNE_EVERY`-th write).
+pub(crate) fn prune_due() -> bool {
+    WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1
+}
+
+/// Delete rows older than the retention, then the oldest rows past the cap.
+pub(crate) async fn prune(
+    pool: &AnyPool,
+    now_unix_ms: i64,
+    retention_days: i64,
+    max_rows: i64,
+) -> Result<u64, &'static str> {
+    let cutoff = now_unix_ms.saturating_sub(retention_days.saturating_mul(24 * 60 * 60 * 1000));
+    let mut deleted =
+        sqlx::query("DELETE FROM redrouter_request_log WHERE created_at_unix_ms < $1")
+            .bind(cutoff)
+            .execute(pool)
+            .await
+            .map_err(|_| "cannot prune request log")?
+            .rows_affected();
+    // The newest row beyond the cap marks where the kept rows end.
+    let boundary: Option<(i64, String)> = sqlx::query(
+        "SELECT created_at_unix_ms, id FROM redrouter_request_log ORDER BY created_at_unix_ms DESC, id DESC LIMIT 1 OFFSET $1",
+    )
+    .bind(max_rows.saturating_sub(1).max(0))
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| "cannot prune request log")?
+    .map(|row| {
+        Ok::<_, &'static str>((
+            row.try_get::<i64, _>("created_at_unix_ms")
+                .map_err(|_| "cannot prune request log")?,
+            row.try_get::<String, _>("id")
+                .map_err(|_| "cannot prune request log")?,
+        ))
+    })
+    .transpose()?;
+    if let Some((timestamp, id)) = boundary {
+        deleted += sqlx::query(
+            "DELETE FROM redrouter_request_log WHERE created_at_unix_ms < $1 OR (created_at_unix_ms = $1 AND id < $2)",
+        )
+        .bind(timestamp)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|_| "cannot prune request log")?
+        .rows_affected();
+    }
+    Ok(deleted)
+}
+
 /// Filters of `GET /api/admin/request-log`.
 #[derive(Default, Debug)]
 pub(crate) struct Query {
@@ -338,6 +416,65 @@ mod tests {
         for bad in ["", "nodot", "x.cnFfMQ", "1.!!!", "1."] {
             assert!(decode_cursor(Some(bad)).is_err(), "{bad}");
         }
+    }
+
+    fn attempt(id: &str, created_at_unix_ms: i64) -> Attempt {
+        Attempt {
+            id: id.to_owned(),
+            created_at_unix_ms,
+            request_id: format!("rq_{id}"),
+            attempt: 0,
+            tenant_id: "red".to_owned(),
+            key_id: String::new(),
+            protocol: "chat",
+            requested_model: "m".to_owned(),
+            model: "m".to_owned(),
+            provider: "p".to_owned(),
+            provider_id: "p".to_owned(),
+            status: 200,
+            error: String::new(),
+            duration_ms: 1,
+            stream: false,
+            usage_event_id: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn pruning_keeps_the_retention_window_and_the_newest_rows() {
+        let database =
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap();
+        let pool = database.sql_pool().unwrap();
+        let day = 24 * 60 * 60 * 1000;
+        let now = 100 * day;
+        for (id, age_days) in [("old", 31), ("a", 3), ("b", 2), ("c", 1)] {
+            insert(pool, &attempt(id, now - age_days * day))
+                .await
+                .unwrap();
+        }
+        // 30 days drops "old"; a cap of two keeps the two newest.
+        assert_eq!(prune(pool, now, 30, 2).await.unwrap(), 2);
+        let page = list(
+            pool,
+            &Query {
+                from_unix_ms: 0,
+                to_unix_ms: now + 1,
+                limit: 10,
+                ..Query::default()
+            },
+        )
+        .await
+        .unwrap();
+        let ids: Vec<&str> = page
+            .requests
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(ids, ["c", "b"]);
+        // Nothing left to prune.
+        assert_eq!(prune(pool, now, 30, 2).await.unwrap(), 0);
+        assert_eq!(retention(), (DEFAULT_RETENTION_DAYS, DEFAULT_MAX_ROWS));
     }
 
     #[test]

@@ -4188,6 +4188,14 @@ impl ControlPlane {
             if let Err(error) = crate::request_log::insert(pool, &attempt).await {
                 eprintln!("Rust request log write failed: {error}");
             }
+            if crate::request_log::prune_due() {
+                let (days, rows) = crate::request_log::retention();
+                if let Err(error) =
+                    crate::request_log::prune(pool, attempt.created_at_unix_ms, days, rows).await
+                {
+                    eprintln!("Rust request log prune failed: {error}");
+                }
+            }
         });
     }
 
