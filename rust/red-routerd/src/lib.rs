@@ -8913,6 +8913,8 @@ async fn proxy_request(
             response.error_body(),
             availability.is_none_or(|availability| availability.preserves_quota_signals()),
         );
+        // A quota phrase parks the connection and moves on (legacy shouldFallback).
+        let mut quota_text_parked = false;
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
             let daily_lockout = daily_quota_lockout(
                 failure_class,
@@ -8930,6 +8932,7 @@ async fn proxy_request(
                 response.headers(),
                 response.error_body(),
             );
+            quota_text_parked = text_lockout.is_some();
             // Legacy executeTargetAttempt: with the opt-in model lockout policy, a
             // combo target failing with a configured status locks its model first,
             // so the native model lockout below leaves it in place.
@@ -9106,6 +9109,7 @@ async fn proxy_request(
         }
         let retryable = failure_class != resilience::ProviderFailureClass::RequestScoped
             && (failure_class.semantic_fallback()
+                || quota_text_parked
                 || response.status() == StatusCode::TOO_MANY_REQUESTS
                 || response.status().is_server_error()
                 || response.status() == StatusCode::REQUEST_TIMEOUT
