@@ -42,6 +42,7 @@ const ORACLES = {
   "quota-text-cooldowns": { script: "quota-text-oracle", arg: "root-url", hooks: FULL, out: `${src}/quota_text_cooldowns_oracle.json` },
   "error-config": { script: "error-config-oracle", arg: "root-url", hooks: FULL, out: `${src}/error_config_oracle.json` },
   "error-text-classification": { script: "error-text-oracle", arg: "root-url", hooks: FULL, out: `${src}/error_text_classification_oracle.json` },
+  "fallback-cooldown": { script: "af-cooldown", arg: "root-url", hooks: FULL, out: `${src}/fallback_cooldown_oracle.json` },
   // The matrix is large; only a subset is committed (see provider-failure).
   "failure-matrix": { script: "af-matrix", arg: "root-url", hooks: FULL, out: join(here, ".cache", "af-matrix.json"), internal: true },
 };

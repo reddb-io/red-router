@@ -5141,6 +5141,44 @@ fn daily_quota_lockout(
     availability.daily_quota_lockout_ms(tpd, retry_after_hint_ms(headers))
 }
 
+/// The fixed connection cooldown of a recognized quota phrase (legacy
+/// `checkFallbackError` quota text branch), unless an earlier decision owns
+/// the failure or the failure is scoped to a model.
+fn quota_text_lockout(
+    class: resilience::ProviderFailureClass,
+    availability: &availability::ProviderAvailability,
+    scope: resilience::RateLimitScope,
+    provider: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+) -> Option<u64> {
+    if matches!(
+        class,
+        resilience::ProviderFailureClass::Banned
+            | resilience::ProviderFailureClass::CreditsExhausted
+            | resilience::ProviderFailureClass::RetiredModel
+            | resilience::ProviderFailureClass::MovedEndpoint
+            | resilience::ProviderFailureClass::RequestScoped
+    ) || resilience::quota_failure_scope(scope, provider, status, headers)
+        != resilience::FailureScope::Connection
+    {
+        return None;
+    }
+    let hint = availability
+        .uses_upstream_retry_hints()
+        .then(|| upstream_retry_hint_ms(headers, body, provider))
+        .flatten();
+    resilience::quota_text_lockout_ms(
+        status,
+        provider,
+        body,
+        availability.preserves_quota_signals(),
+        hint,
+        unix_time_ms(),
+    )
+}
+
 async fn record_internal_provider_health(
     target: &ContextRelaySummaryTarget,
     circuit_permit: Option<circuit::CircuitPermit>,
@@ -5187,6 +5225,19 @@ async fn record_internal_provider_health(
     if let Some(lockout_ms) =
         daily_quota_lockout(failure_class, availability, status, headers, error_body)
     {
+        return availability
+            .record_connection_lockout(permit, status, lockout_ms)
+            .await;
+    }
+    if let Some(lockout_ms) = quota_text_lockout(
+        failure_class,
+        availability,
+        target.rate_limit_scope,
+        Some(&target.provider_name),
+        status,
+        headers,
+        error_body,
+    ) {
         return availability
             .record_connection_lockout(permit, status, lockout_ms)
             .await;
@@ -8870,6 +8921,15 @@ async fn proxy_request(
                 response.headers(),
                 response.error_body(),
             );
+            let text_lockout = quota_text_lockout(
+                failure_class,
+                availability,
+                rate_limit_scope,
+                provider_name,
+                response.status(),
+                response.headers(),
+                response.error_body(),
+            );
             // Legacy executeTargetAttempt: with the opt-in model lockout policy, a
             // combo target failing with a configured status locks its model first,
             // so the native model lockout below leaves it in place.
@@ -8923,6 +8983,15 @@ async fn proxy_request(
                             permit,
                             response.status(),
                             daily_lockout.unwrap_or_default(),
+                        )
+                        .await
+                }
+                _ if text_lockout.is_some() => {
+                    availability
+                        .record_connection_lockout(
+                            permit,
+                            response.status(),
+                            text_lockout.unwrap_or_default(),
                         )
                         .await
                 }
