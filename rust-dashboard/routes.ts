@@ -10,6 +10,7 @@ export type SpaPageId =
   | "budgets"
   | "usage-sinks"
   | "usage"
+  | "request-log"
   | "legacy-usage"
   | "organizations"
   | "audit"
@@ -126,12 +127,16 @@ export const spaPageRoutes: readonly SpaPageRoute[] = [
       "/dashboard/costs",
       "/dashboard/analytics",
       "/dashboard/activity",
-      "/dashboard/logs",
       "/dashboard/logs/activity",
       "/observe/costs",
-      "/observe/logs",
       "/observe/logs/activity",
     ],
+  },
+  {
+    id: "request-log",
+    path: "/dashboard/request-log",
+    label: "Request log",
+    aliases: ["/dashboard/logs", "/observe/logs"],
   },
   {
     id: "legacy-usage",
