@@ -106,7 +106,9 @@ async fn client_keys_rotate_and_revoke_within_their_tenant_only() {
     let stored = database.client_keys().await.unwrap();
     assert!(!format!("{stored:?}").contains(&new_secret));
     let audit: serde_json::Value = client
-        .get(format!("{base}/api/admin/audit-log"))
+        .get(format!(
+            "{base}/api/compliance/audit-log?action=client_key.rotate"
+        ))
         .bearer_auth(ADMIN_KEY)
         .send()
         .await
