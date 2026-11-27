@@ -5027,6 +5027,10 @@ impl ControlPlane {
                     {
                         ProviderProtocol::OpenAiImages
                     }
+                    // Legacy imageRegistry `gemini-image`: Antigravity image models.
+                    (ProviderProtocol::OpenAiImages, ProviderProtocol::Antigravity) => {
+                        ProviderProtocol::AntigravityImages
+                    }
                     // Legacy audioRegistry: OpenRouter transcribes at its own endpoint.
                     (ProviderProtocol::OpenAiTranscriptions, ProviderProtocol::OpenAi)
                         if account.record.provider == "openrouter" =>
@@ -12515,10 +12519,12 @@ async fn probe_provider(
             "model":&model,
             "input":"RedRouter connection test"
         }),
-        ProviderProtocol::OpenAiImages => serde_json::json!({
-            "model":&model,
-            "prompt":"RedRouter connection test"
-        }),
+        ProviderProtocol::OpenAiImages | ProviderProtocol::AntigravityImages => {
+            serde_json::json!({
+                "model":&model,
+                "prompt":"RedRouter connection test"
+            })
+        }
         ProviderProtocol::OpenAiTranscriptions => serde_json::json!({
             "model":&model,
             "input_audio":{"data":"","format":"wav"}

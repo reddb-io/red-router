@@ -662,6 +662,7 @@ pub(crate) enum ProviderProtocol {
     OpenAiResponses,
     OpenAiEmbeddings,
     OpenAiImages,
+    AntigravityImages,
     OpenAiTranscriptions,
     CohereRerank,
     Anthropic,
@@ -1745,9 +1746,9 @@ impl ProxyState {
                     ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => {
                         "/messages"
                     }
-                    ProviderProtocol::OpenAiToAntigravity | ProviderProtocol::Antigravity => {
-                        "/v1internal:streamGenerateContent"
-                    }
+                    ProviderProtocol::OpenAiToAntigravity
+                    | ProviderProtocol::Antigravity
+                    | ProviderProtocol::AntigravityImages => "/v1internal:streamGenerateContent",
                     ProviderProtocol::Gemini => "/models",
                 }))
         {
@@ -1916,6 +1917,13 @@ impl ProxyState {
             }
         }
         // An image request to a chat provider goes to its sibling images endpoint.
+        // Antigravity generates images with its non-streaming call.
+        if protocol == ProviderProtocol::AntigravityImages {
+            if let Some(prefix) = upstream.path().strip_suffix(":streamGenerateContent") {
+                let path = format!("{prefix}:generateContent");
+                upstream.set_path(&path);
+            }
+        }
         if protocol == ProviderProtocol::OpenAiImages
             && provider
                 .provider_name
@@ -3055,6 +3063,7 @@ fn payload_rule_format(protocol: ProviderProtocol) -> Option<&'static str> {
         }
         ProviderProtocol::OpenAiEmbeddings
         | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::AntigravityImages
         | ProviderProtocol::OpenAiTranscriptions
         | ProviderProtocol::CohereRerank => None,
     }
@@ -6348,6 +6357,7 @@ fn inject_context_relay_handoff(
         }
         ProviderProtocol::OpenAiEmbeddings
         | ProviderProtocol::OpenAiImages
+        | ProviderProtocol::AntigravityImages
         | ProviderProtocol::OpenAiTranscriptions
         | ProviderProtocol::CohereRerank => return Err(()),
     }
@@ -7520,6 +7530,8 @@ async fn proxy_request(
     let mut final_target_identity: Option<(Arc<str>, String)> = None;
     let mut final_accounting = None;
     let mut final_served_model = None;
+    // The answer of an Antigravity image attempt has the Gemini shape.
+    let mut final_antigravity_image = false;
     // The provider that answered, for the legacy upstream error parse.
     let mut final_provider_name: Option<String> = None;
     let mut final_load_guard = None;
@@ -8276,6 +8288,35 @@ async fn proxy_request(
                 Err(()) => return error(StatusCode::BAD_REQUEST, "Invalid Codex request body"),
             };
         }
+        if attempt_protocol == ProviderProtocol::AntigravityImages {
+            let routed = target.map_or(model.as_str(), |target| target.model.as_str());
+            let project = target.and_then(|target| target.antigravity_project.as_deref());
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis());
+            let Some(request_id) = image_generation::antigravity_request_id(now) else {
+                return error(StatusCode::SERVICE_UNAVAILABLE, "Random source unavailable");
+            };
+            let shaped = serde_json::from_slice::<serde_json::Value>(&payload)
+                .map_err(|_| "Invalid JSON body".to_owned())
+                .and_then(|value| {
+                    image_generation::antigravity_request_body(
+                        &value,
+                        routed,
+                        project,
+                        &requested_model,
+                        &request_id,
+                    )
+                });
+            payload = match shaped {
+                Ok(payload) => payload,
+                Err(message) => return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": {"message": message, "type": "proxy_error"}})),
+                )
+                    .into_response(),
+            };
+        }
         if attempt_protocol == ProviderProtocol::OpenAiImages {
             let routed = target.map_or(model.as_str(), |target| target.model.as_str());
             let shaped = serde_json::from_slice::<serde_json::Value>(&payload)
@@ -8479,6 +8520,11 @@ async fn proxy_request(
                         upstream = upstream.header("x-goog-user-project", project);
                     }
                 }
+            } else if attempt_protocol == ProviderProtocol::AntigravityImages {
+                upstream = upstream.header(
+                    header::USER_AGENT,
+                    antigravity_headers::request_user_agent(antigravity_profile),
+                );
             } else if let Some(accept) = accept.as_ref().filter(|_| !codex_attempt) {
                 upstream = upstream.header(header::ACCEPT, accept.clone());
             }
@@ -9139,6 +9185,7 @@ async fn proxy_request(
         final_translated = translate_anthropic;
         final_antigravity_translated = translate_antigravity;
         final_responses_translated = translate_responses;
+        final_antigravity_image = attempt_protocol == ProviderProtocol::AntigravityImages;
         final_codex_folded = codex_folded;
         final_target_identity = target.and_then(|target| {
             target
@@ -9850,7 +9897,12 @@ async fn proxy_request(
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs());
         let prompt = parsed["prompt"].as_str().map(str::to_owned);
-        return match image_generation::normalize_response(&bytes, now, prompt.as_deref()) {
+        let normalized = if final_antigravity_image {
+            image_generation::normalize_antigravity_response(&bytes, now, prompt.as_deref())
+        } else {
+            image_generation::normalize_response(&bytes, now, prompt.as_deref())
+        };
+        return match normalized {
             Ok(value) => {
                 let mut result = (StatusCode::OK, Json(value)).into_response();
                 attach_served_model(&mut result, final_served_model.as_ref());
