@@ -4172,6 +4172,40 @@ impl ControlPlane {
         Ok(deleted)
     }
 
+    /// Write one request log attempt in the background, off the response
+    /// path (legacy `saveCallLog` is fire-and-forget too). The log lives in
+    /// SQLite with the usage ledger; other backends do not keep it.
+    pub(crate) fn record_request_attempt(&self, attempt: crate::request_log::Attempt) {
+        let control = self.clone();
+        tokio::spawn(async move {
+            // Native usage storage exists only on SQLite, like this log.
+            if control.0.native_usage.read().await.is_none() {
+                return;
+            }
+            let Some(pool) = control.0.database.sql_pool() else {
+                return;
+            };
+            if let Err(error) = crate::request_log::insert(pool, &attempt).await {
+                eprintln!("Rust request log write failed: {error}");
+            }
+        });
+    }
+
+    pub(crate) async fn request_log_page(
+        &self,
+        query: &crate::request_log::Query,
+    ) -> Result<crate::request_log::Page, &'static str> {
+        if self.0.native_usage.read().await.is_none() {
+            return Err("request log requires SQLite storage");
+        }
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("request log requires SQLite storage")?;
+        crate::request_log::list(pool, query).await
+    }
+
     pub(crate) async fn begin_native_usage(
         &self,
         identity: &crate::policy::ClientIdentity,
@@ -17834,6 +17868,79 @@ pub async fn provision_client_key(
 }
 
 /// `POST /api/admin/client-keys/{id}/rotate` (legacy `POST /api/keys/{id}/regenerate`).
+#[derive(Deserialize)]
+pub struct RequestLogParams {
+    tenant_id: Option<String>,
+    key_id: Option<String>,
+    request_id: Option<String>,
+    provider_id: Option<String>,
+    outcome: Option<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    limit: Option<i64>,
+    cursor: Option<String>,
+}
+
+/// `GET /api/admin/request-log`: the logged attempts, newest first (legacy
+/// `GET /api/usage/call-logs`), with the usage their ledger events settled.
+/// A tenant-scoped identity sees its own tenant only.
+pub async fn get_request_log(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(params): Query<RequestLogParams>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if scope.tenant_id.as_deref().is_some_and(|tenant| {
+        params
+            .tenant_id
+            .as_deref()
+            .is_some_and(|asked| asked != tenant)
+    }) {
+        return api_error(StatusCode::FORBIDDEN, "Tenant is outside this identity");
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
+    let to = params.to.unwrap_or(now.saturating_add(1));
+    let query = crate::request_log::Query {
+        tenant_id: scope.tenant_id.clone().or(params.tenant_id),
+        key_id: params.key_id,
+        request_id: params.request_id,
+        provider_id: params.provider_id,
+        outcome: params.outcome,
+        from_unix_ms: params
+            .from
+            .unwrap_or(to.saturating_sub(7 * 24 * 60 * 60 * 1000)),
+        to_unix_ms: to,
+        limit: params.limit.unwrap_or(50),
+        cursor: params.cursor,
+    };
+    if crate::request_log::validate(&query).is_err() {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid request log query");
+    }
+    match control.request_log_page(&query).await {
+        Ok(page) => {
+            let mut response = Json(page).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("request log requires SQLite storage") => api_error(
+            StatusCode::NOT_IMPLEMENTED,
+            "The request log requires SQLite storage",
+        ),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Request log unavailable"),
+    }
+}
+
 pub async fn rotate_client_key(
     State(state): State<ProxyState>,
     headers: HeaderMap,

@@ -1203,6 +1203,10 @@ impl Database {
                         CREATE_USAGE_LEDGER_KEY_INDEX,
                         CREATE_USAGE_LEDGER_TENANT_INDEX,
                         CREATE_USAGE_LEDGER_TENANT_KEY_INDEX,
+                        crate::request_log::CREATE,
+                        crate::request_log::CREATE_TIME_INDEX,
+                        crate::request_log::CREATE_TENANT_TIME_INDEX,
+                        crate::request_log::CREATE_REQUEST_INDEX,
                     ] {
                         sqlx::query(statement)
                             .execute(&pool)
