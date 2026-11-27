@@ -14,12 +14,12 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
 use sqlx::{Any, AnyPool, QueryBuilder, Row};
 
-pub(crate) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_log (id TEXT PRIMARY KEY, created_at_unix_ms BIGINT NOT NULL, request_id TEXT NOT NULL, attempt BIGINT NOT NULL, tenant_id TEXT NOT NULL, key_id TEXT NOT NULL, protocol TEXT NOT NULL, requested_model TEXT NOT NULL, model TEXT NOT NULL, provider TEXT NOT NULL, provider_id TEXT NOT NULL, status BIGINT NOT NULL, error TEXT NOT NULL, duration_ms BIGINT NOT NULL, stream BIGINT NOT NULL, usage_event_id TEXT NOT NULL)";
+pub(crate) const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_request_log (id TEXT PRIMARY KEY, created_at_unix_ms BIGINT NOT NULL, request_id TEXT NOT NULL, attempt BIGINT NOT NULL, tenant_id TEXT NOT NULL, key_id TEXT NOT NULL, protocol TEXT NOT NULL, requested_model TEXT NOT NULL, model TEXT NOT NULL, provider TEXT NOT NULL, provider_id TEXT NOT NULL, status BIGINT NOT NULL, error TEXT NOT NULL, duration_ms BIGINT NOT NULL, stream BIGINT NOT NULL, usage_event_id TEXT NOT NULL, ttft_ms BIGINT)";
 pub(crate) const CREATE_TIME_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_request_log_time ON redrouter_request_log (created_at_unix_ms, id)";
 pub(crate) const CREATE_TENANT_TIME_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_request_log_tenant_time ON redrouter_request_log (tenant_id, created_at_unix_ms, id)";
 pub(crate) const CREATE_REQUEST_INDEX: &str = "CREATE INDEX IF NOT EXISTS redrouter_request_log_request ON redrouter_request_log (request_id, attempt)";
 
-const INSERT: &str = "INSERT INTO redrouter_request_log (id, created_at_unix_ms, request_id, attempt, tenant_id, key_id, protocol, requested_model, model, provider, provider_id, status, error, duration_ms, stream, usage_event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)";
+const INSERT: &str = "INSERT INTO redrouter_request_log (id, created_at_unix_ms, request_id, attempt, tenant_id, key_id, protocol, requested_model, model, provider, provider_id, status, error, duration_ms, stream, usage_event_id, ttft_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)";
 
 /// Longest text field kept; longer values are cut on a character boundary.
 const MAX_FIELD: usize = 256;
@@ -44,6 +44,10 @@ pub(crate) struct Attempt {
     pub duration_ms: i64,
     pub stream: bool,
     pub usage_event_id: String,
+    /// Time from the attempt's send to the first body chunk the client
+    /// pulled, for streamed attempts (legacy `call_logs.ttft_ms`, the first
+    /// forwarded SSE chunk rather than a token boundary).
+    pub ttft_ms: Option<i64>,
 }
 
 fn bounded(value: &str) -> String {
@@ -75,10 +79,124 @@ pub(crate) async fn insert(pool: &AnyPool, attempt: &Attempt) -> Result<(), &'st
         .bind(attempt.duration_ms.max(0))
         .bind(i64::from(attempt.stream))
         .bind(bounded(&attempt.usage_event_id))
+        .bind(attempt.ttft_ms.map(|value| value.max(0)))
         .execute(pool)
         .await
         .map(|_| ())
         .map_err(|_| "cannot write request log")
+}
+
+fn elapsed_ms(started: std::time::Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+
+/// A successful attempt whose row waits for its response body to end, so the
+/// row carries the whole duration and, for streams, the time to the first
+/// chunk (legacy `saveCallLog` runs when the stream completes). Dropping it
+/// writes the row: a body that ended cleanly keeps its status, one that broke
+/// or that the client abandoned is marked.
+pub(crate) struct Pending {
+    control: crate::control_plane::ControlPlane,
+    attempt: Option<Attempt>,
+    started: std::time::Instant,
+    first_chunk_ms: Option<i64>,
+    outcome: Option<&'static str>,
+}
+
+/// Error label of a stream that failed after its headers.
+pub(crate) const STREAM_INTERRUPTED: &str = "stream_interrupted";
+/// Error label of a body the client stopped reading before it ended.
+pub(crate) const CLIENT_DISCONNECTED: &str = "client_disconnected";
+/// Error label of a success the request moved past to another attempt.
+pub(crate) const SUPERSEDED: &str = "superseded";
+
+impl Pending {
+    pub(crate) fn new(
+        control: crate::control_plane::ControlPlane,
+        attempt: Attempt,
+        started: std::time::Instant,
+    ) -> Self {
+        Self {
+            control,
+            attempt: Some(attempt),
+            started,
+            first_chunk_ms: None,
+            outcome: None,
+        }
+    }
+
+    /// The final response is not the success this attempt received (its body
+    /// could not be read or translated): log the response the client got.
+    pub(crate) fn replaced_by(&mut self, status: u16) {
+        if let Some(attempt) = self.attempt.as_mut() {
+            attempt.status = status;
+            if attempt.error.is_empty() {
+                attempt.error = "invalid_upstream_response".to_owned();
+            }
+        }
+    }
+
+    fn chunk(&mut self) {
+        if self.first_chunk_ms.is_none() {
+            self.first_chunk_ms = Some(elapsed_ms(self.started));
+        }
+    }
+
+    pub(crate) fn finish(&mut self, outcome: &'static str) {
+        self.outcome.get_or_insert(outcome);
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        let Some(mut attempt) = self.attempt.take() else {
+            return;
+        };
+        attempt.duration_ms = elapsed_ms(self.started);
+        if attempt.stream {
+            attempt.ttft_ms = self.first_chunk_ms;
+        }
+        let outcome = self.outcome.unwrap_or(CLIENT_DISCONNECTED);
+        if !outcome.is_empty() && attempt.error.is_empty() {
+            attempt.error = outcome.to_owned();
+        }
+        // The write is a background task; without a runtime there is none.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            self.control.record_request_attempt(attempt);
+        }
+    }
+}
+
+/// Wrap a response body so its pending row is written when the body ends.
+pub(crate) fn observe(body: axum::body::Body, pending: Pending) -> axum::body::Body {
+    use futures_util::StreamExt;
+    axum::body::Body::from_stream(futures_util::stream::unfold(
+        (body.into_data_stream(), Some(pending)),
+        |(mut stream, mut pending)| async move {
+            match stream.next().await {
+                Some(Ok(chunk)) => {
+                    if !chunk.is_empty() {
+                        if let Some(pending) = pending.as_mut() {
+                            pending.chunk();
+                        }
+                    }
+                    Some((Ok(chunk), (stream, pending)))
+                }
+                Some(Err(error)) => {
+                    if let Some(mut pending) = pending.take() {
+                        pending.finish(STREAM_INTERRUPTED);
+                    }
+                    Some((Err(error), (stream, None)))
+                }
+                None => {
+                    if let Some(mut pending) = pending.take() {
+                        pending.finish("");
+                    }
+                    None
+                }
+            }
+        },
+    ))
 }
 
 /// Legacy `retention.callLogs` (30 days by default) and
@@ -191,6 +309,7 @@ pub(crate) struct Entry {
     pub status: i64,
     pub error: Option<String>,
     pub duration_ms: i64,
+    pub ttft_ms: Option<i64>,
     pub stream: bool,
     pub usage: Option<Usage>,
 }
@@ -268,7 +387,7 @@ pub(crate) async fn list(pool: &AnyPool, query: &Query) -> Result<Page, &'static
     validate(query)?;
     let cursor = decode_cursor(query.cursor.as_deref())?;
     let mut rows = QueryBuilder::<Any>::new(
-        "SELECT r.id, r.created_at_unix_ms, r.request_id, r.attempt, r.tenant_id, r.key_id, r.protocol, r.requested_model, r.model, r.provider, r.provider_id, r.status, r.error, r.duration_ms, r.stream, l.tokens_input, l.tokens_output, l.tokens_cache_read, l.tokens_cache_creation, l.tokens_reasoning, l.amount_microusd, l.pricing_known FROM redrouter_request_log r LEFT JOIN redrouter_usage_ledger l ON r.usage_event_id <> '' AND l.event_id = r.usage_event_id WHERE r.created_at_unix_ms >= ",
+        "SELECT r.id, r.created_at_unix_ms, r.request_id, r.attempt, r.tenant_id, r.key_id, r.protocol, r.requested_model, r.model, r.provider, r.provider_id, r.status, r.error, r.duration_ms, r.stream, r.ttft_ms, l.tokens_input, l.tokens_output, l.tokens_cache_read, l.tokens_cache_creation, l.tokens_reasoning, l.amount_microusd, l.pricing_known FROM redrouter_request_log r LEFT JOIN redrouter_usage_ledger l ON r.usage_event_id <> '' AND l.event_id = r.usage_event_id WHERE r.created_at_unix_ms >= ",
     );
     rows.push_bind(query.from_unix_ms)
         .push(" AND r.created_at_unix_ms < ")
@@ -286,10 +405,10 @@ pub(crate) async fn list(pool: &AnyPool, query: &Query) -> Result<Page, &'static
     }
     match query.outcome.as_deref() {
         Some("ok") => {
-            rows.push(" AND r.status >= 200 AND r.status < 300");
+            rows.push(" AND r.status >= 200 AND r.status < 300 AND r.error = ''");
         }
         Some("error") => {
-            rows.push(" AND (r.status < 200 OR r.status >= 300)");
+            rows.push(" AND (r.status < 200 OR r.status >= 300 OR r.error <> '')");
         }
         _ => {}
     }
@@ -352,6 +471,7 @@ pub(crate) async fn list(pool: &AnyPool, query: &Query) -> Result<Page, &'static
                 status: integer("status")?,
                 error: (!error.is_empty()).then_some(error),
                 duration_ms: integer("duration_ms")?,
+                ttft_ms: optional("ttft_ms")?,
                 stream: integer("stream")? == 1,
                 usage,
             })
@@ -405,6 +525,7 @@ mod tests {
             status: 200,
             error: None,
             duration_ms: 1,
+            ttft_ms: None,
             stream: false,
             usage: None,
         };
@@ -434,6 +555,7 @@ mod tests {
             status: 200,
             error: String::new(),
             duration_ms: 1,
+            ttft_ms: None,
             stream: false,
             usage_event_id: String::new(),
         }
