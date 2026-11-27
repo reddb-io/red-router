@@ -8169,6 +8169,26 @@ impl ControlPlane {
             .collect())
     }
 
+    async fn native_usage_breakdown(
+        &self,
+        tenant_id: Option<&str>,
+        key_id: Option<&str>,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+        by: crate::native_usage::Breakdown,
+    ) -> Result<Vec<crate::native_usage::BreakdownRow>, &'static str> {
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        usage
+            .breakdown(tenant_id, key_id, from_unix_ms, to_unix_ms, by)
+            .await
+    }
+
     async fn native_usage_report(
         &self,
         tenant_id: Option<&str>,
@@ -16141,6 +16161,80 @@ pub async fn get_legacy_usage_report(
             api_error(StatusCode::BAD_REQUEST, "Invalid legacy usage query")
         }
         Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Legacy usage unavailable"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UsageBreakdownQuery {
+    pub by: String,
+    pub tenant_id: Option<String>,
+    pub key_id: Option<String>,
+    pub from_unix_ms: Option<i64>,
+    pub to_unix_ms: Option<i64>,
+}
+
+/// `GET /api/admin/usage/breakdown?by=model|provider|key|day` (legacy
+/// `/api/usage/analytics` breakdowns): ledger totals per group over the last
+/// 30 days by default, scoped like the usage report.
+pub async fn get_usage_breakdown(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<UsageBreakdownQuery>,
+) -> Response {
+    const REPORT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Some(by) = crate::native_usage::Breakdown::parse(&query.by) else {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid usage report query");
+    };
+    let tenant_id = match (scope.tenant_id.as_deref(), query.tenant_id.as_deref()) {
+        (Some(tenant), Some(requested)) if tenant != requested => {
+            return api_error(StatusCode::BAD_REQUEST, "Invalid usage report query");
+        }
+        (Some(tenant), _) => Some(tenant),
+        (None, requested) => requested,
+    };
+    let Ok(now) = unix_time_ms() else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage reporting unavailable",
+        );
+    };
+    let to_unix_ms = query.to_unix_ms.unwrap_or_else(|| now.saturating_add(1));
+    let from_unix_ms = query
+        .from_unix_ms
+        .unwrap_or_else(|| to_unix_ms.saturating_sub(REPORT_WINDOW_MS));
+    match control
+        .native_usage_breakdown(
+            tenant_id,
+            query.key_id.as_deref(),
+            from_unix_ms,
+            to_unix_ms,
+            by,
+        )
+        .await
+    {
+        Ok(groups) => {
+            let mut response =
+                Json(serde_json::json!({"breakdown":{"by":query.by,"groups":groups}}))
+                    .into_response();
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response
+        }
+        Err("invalid usage report query") => {
+            api_error(StatusCode::BAD_REQUEST, "Invalid usage report query")
+        }
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage reporting unavailable",
+        ),
     }
 }
 

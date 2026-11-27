@@ -171,6 +171,33 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+
+    // The same usage, grouped (legacy /api/usage/analytics breakdowns).
+    let breakdown = |by: &str| {
+        let client = client.clone();
+        let url = format!("{base}/api/admin/usage/breakdown?by={by}");
+        async move { client.get(url).bearer_auth(ADMIN_KEY).send().await.unwrap() }
+    };
+    let by_model: serde_json::Value = breakdown("model").await.json().await.unwrap();
+    assert_eq!(by_model["breakdown"]["by"], "model");
+    let groups = by_model["breakdown"]["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1, "{by_model}");
+    assert_eq!(groups[0]["group"], "upstream-model");
+    assert_eq!(groups[0]["label"], "upstream-model");
+    assert_eq!(groups[0]["request_count"], 1);
+    assert_eq!(groups[0]["tokens_input"], 3);
+    assert_eq!(groups[0]["tokens_output"], 2);
+    let by_key: serde_json::Value = breakdown("key").await.json().await.unwrap();
+    assert_eq!(by_key["breakdown"]["groups"][0]["group"], key_id.as_str());
+    assert_eq!(by_key["breakdown"]["groups"][0]["label"], "Logged client");
+    let by_day: serde_json::Value = breakdown("day").await.json().await.unwrap();
+    let day = by_day["breakdown"]["groups"][0]["group"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(day.len(), 10, "{day}");
+    assert_eq!(&day[4..5], "-");
+    assert_eq!(breakdown("hour").await.status(), StatusCode::BAD_REQUEST);
     gateway_task.abort();
     upstream_task.abort();
     database.close().await.unwrap();

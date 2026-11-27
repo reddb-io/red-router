@@ -1070,6 +1070,136 @@ impl NativeUsage {
     }
 }
 
+/// How `GET /api/admin/usage/breakdown` groups the ledger (legacy
+/// `/api/usage/analytics` breakdowns by model, provider, API key and day).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Breakdown {
+    Model,
+    Provider,
+    Key,
+    Day,
+}
+
+impl Breakdown {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "model" => Some(Self::Model),
+            "provider" => Some(Self::Provider),
+            "key" => Some(Self::Key),
+            "day" => Some(Self::Day),
+            _ => None,
+        }
+    }
+}
+
+/// One group of the breakdown. For `day` the group is the UTC date.
+#[derive(Debug, serde::Serialize, PartialEq)]
+pub(crate) struct BreakdownRow {
+    pub group: String,
+    pub label: String,
+    pub request_count: i64,
+    pub priced_request_count: i64,
+    pub tokens_input: i64,
+    pub tokens_output: i64,
+    pub tokens_cache_read: i64,
+    pub tokens_cache_creation: i64,
+    pub tokens_reasoning: i64,
+    pub search_units: i64,
+    pub amount_microusd: i64,
+}
+
+/// Most groups a breakdown returns.
+const MAX_BREAKDOWN_GROUPS: i64 = 500;
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+impl NativeUsage {
+    /// Ledger totals per group in `[from, to)`: by spend for model, provider
+    /// and key (then by requests), chronologically for days.
+    pub(crate) async fn breakdown(
+        &self,
+        tenant_id: Option<&str>,
+        key_id: Option<&str>,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+        by: Breakdown,
+    ) -> Result<Vec<BreakdownRow>, &'static str> {
+        if tenant_id.is_some_and(|value| value.is_empty() || value.len() > 128)
+            || key_id.is_some_and(|value| value.is_empty() || value.len() > 128)
+            || !(MIN_USAGE_TIMESTAMP_MS..MAX_USAGE_TIMESTAMP_MS).contains(&from_unix_ms)
+            || !(MIN_USAGE_TIMESTAMP_MS + 1..=MAX_USAGE_TIMESTAMP_MS).contains(&to_unix_ms)
+            || from_unix_ms >= to_unix_ms
+        {
+            return Err("invalid usage report query");
+        }
+        let pool = self
+            .database
+            .sql_pool()
+            .ok_or("native usage requires SQLite storage")?;
+        let (group, label) = match by {
+            Breakdown::Model => ("model", "''"),
+            Breakdown::Provider => ("provider", "provider"),
+            Breakdown::Key => (
+                "key_id",
+                "MAX(CASE WHEN key_name = '' THEN key_id ELSE key_name END)",
+            ),
+            Breakdown::Day => ("CAST(created_at_unix_ms / 86400000 AS TEXT)", "''"),
+        };
+        let mut rows = QueryBuilder::<Any>::new(format!(
+            "SELECT {group} AS bucket, {label} AS label, COUNT(*) AS request_count, COALESCE(SUM(pricing_known),0) AS priced_request_count, COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read, COALESCE(SUM(tokens_cache_creation),0) AS tokens_cache_creation, COALESCE(SUM(tokens_reasoning),0) AS tokens_reasoning, COALESCE(SUM(search_units),0) AS search_units, COALESCE(SUM(amount_microusd),0) AS amount_microusd FROM redrouter_usage_ledger WHERE created_at_unix_ms >= "
+        ));
+        rows.push_bind(from_unix_ms)
+            .push(" AND created_at_unix_ms < ")
+            .push_bind(to_unix_ms);
+        push_usage_filters(&mut rows, tenant_id, key_id);
+        rows.push(" GROUP BY bucket ORDER BY ");
+        rows.push(if by == Breakdown::Day {
+            "MIN(created_at_unix_ms) ASC"
+        } else {
+            "amount_microusd DESC, request_count DESC, bucket ASC"
+        });
+        rows.push(" LIMIT ").push_bind(MAX_BREAKDOWN_GROUPS);
+        let rows = rows
+            .build()
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "usage ledger unavailable")?;
+        let invalid = "invalid usage ledger";
+        rows.iter()
+            .map(|row| {
+                let integer = |name: &str| row.try_get::<i64, _>(name).map_err(|_| invalid);
+                let bucket = row.try_get::<String, _>("bucket").map_err(|_| invalid)?;
+                let label = row.try_get::<String, _>("label").map_err(|_| invalid)?;
+                let group = if by == Breakdown::Day {
+                    let day = bucket.parse::<i64>().map_err(|_| invalid)?;
+                    chrono::DateTime::from_timestamp_millis(day.saturating_mul(DAY_MS))
+                        .ok_or(invalid)?
+                        .format("%Y-%m-%d")
+                        .to_string()
+                } else {
+                    bucket
+                };
+                Ok(BreakdownRow {
+                    label: if label.is_empty() {
+                        group.clone()
+                    } else {
+                        label
+                    },
+                    group,
+                    request_count: integer("request_count")?,
+                    priced_request_count: integer("priced_request_count")?,
+                    tokens_input: integer("tokens_input")?,
+                    tokens_output: integer("tokens_output")?,
+                    tokens_cache_read: integer("tokens_cache_read")?,
+                    tokens_cache_creation: integer("tokens_cache_creation")?,
+                    tokens_reasoning: integer("tokens_reasoning")?,
+                    search_units: integer("search_units")?,
+                    amount_microusd: integer("amount_microusd")?,
+                })
+            })
+            .collect()
+    }
+}
+
 fn push_usage_filters<'a>(
     query: &mut QueryBuilder<'a, Any>,
     tenant_id: Option<&'a str>,

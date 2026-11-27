@@ -2930,6 +2930,10 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/admin/usage", get(control_plane::get_usage_report))
         .route(
+            "/api/admin/usage/breakdown",
+            get(control_plane::get_usage_breakdown),
+        )
+        .route(
             "/api/admin/legacy-usage",
             get(control_plane::get_legacy_usage_report),
         )
