@@ -8666,6 +8666,63 @@ impl ControlPlane {
         Ok(after)
     }
 
+    /// Legacy `deleteTenant`: the default tenant is kept, and a tenant that
+    /// still owns active client keys (a revoked key is only disabled), provider connections, combos or identity
+    /// bindings is refused until they are moved or deleted.
+    async fn delete_tenant_as(&self, id: &str, actor: &str) -> Result<(), &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        if id == "red" {
+            return Err("default tenant cannot be deleted");
+        }
+        let _mutation = self.0.mutation.lock().await;
+        let database = &self.0.database;
+        let tenant = database
+            .tenants()
+            .await?
+            .into_iter()
+            .find(|tenant| tenant.id == id)
+            .ok_or("tenant not found")?;
+        let owns = database
+            .client_keys()
+            .await?
+            .iter()
+            .any(|key| key.enabled && key.tenant_id == id)
+            || database
+                .providers()
+                .await?
+                .iter()
+                .any(|provider| provider.tenant_id == id)
+            || database
+                .combos()
+                .await?
+                .iter()
+                .any(|combo| combo.tenant_id == id)
+            || database
+                .identity_bindings()
+                .await?
+                .iter()
+                .any(|binding| binding.tenant_id == id);
+        if owns {
+            return Err("tenant still owns resources");
+        }
+        let before = tenant_view(&tenant);
+        database.delete_tenant(id).await?;
+        self.record_audit_event::<TenantView>(
+            AuditContext {
+                action: "tenant.delete",
+                actor,
+                tenant_id: id,
+                target: id,
+                resource_type: "tenant",
+            },
+            Some(&before),
+            None,
+        )
+        .await;
+        Ok(())
+    }
+
     pub async fn configure_identity_binding(
         &self,
         id: &str,
@@ -17656,6 +17713,37 @@ pub async fn put_tenant(
             "Tenant storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid tenant configuration"),
+    }
+}
+
+/// `DELETE /api/admin/tenants/{id}` (legacy `DELETE /api/tenants/:id`).
+pub async fn delete_tenant(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.delete_tenant_as(&id, &actor).await {
+        Ok(()) => Json(serde_json::json!({"success":true})).into_response(),
+        Err("default tenant cannot be deleted") => api_error(
+            StatusCode::FORBIDDEN,
+            "The default tenant cannot be deleted.",
+        ),
+        Err("tenant not found") => api_error(StatusCode::NOT_FOUND, "Tenant not found."),
+        Err("tenant still owns resources") => api_error(
+            StatusCode::CONFLICT,
+            "This tenant still owns API keys, connections, combos or identity bindings. Move or delete them first.",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Tenant storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid tenant identifier"),
     }
 }
 

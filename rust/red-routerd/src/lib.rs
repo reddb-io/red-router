@@ -2877,7 +2877,10 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::test_usage_export),
         )
         .route("/api/admin/tenants", get(control_plane::list_tenants))
-        .route("/api/admin/tenants/{id}", put(control_plane::put_tenant))
+        .route(
+            "/api/admin/tenants/{id}",
+            put(control_plane::put_tenant).delete(control_plane::delete_tenant),
+        )
         .route(
             "/api/admin/identity-bindings",
             get(control_plane::list_identity_bindings),
