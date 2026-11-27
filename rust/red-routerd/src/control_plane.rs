@@ -9771,6 +9771,55 @@ impl ControlPlane {
         self.revoke_client_key_as(id, "bootstrap-admin", None).await
     }
 
+    /// Legacy `regenerateApiKey`: a new server-generated secret replaces the
+    /// stored hash, so the old secret stops working at once; every other
+    /// setting of the key is kept. The secret is returned only here.
+    async fn rotate_client_key_as(
+        &self,
+        id: &str,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        let _mutation = self.0.mutation.lock().await;
+        let key = self
+            .0
+            .database
+            .client_keys()
+            .await?
+            .into_iter()
+            .find(|key| key.id == id)
+            .ok_or("client key configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != key.tenant_id) {
+            return Err("client key tenant is unavailable");
+        }
+        let before = client_view(&key)?;
+        let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
+        let mut rotated = key;
+        rotated.key_hash = hex::encode(Sha256::digest(secret.as_bytes()));
+        rotated.revision = revision()?;
+        self.0.database.upsert_client_key(&rotated).await?;
+        let after = client_view(&rotated)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "client_key.rotate",
+                actor,
+                tenant_id: &rotated.tenant_id,
+                target: id,
+                resource_type: "client_key",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        if self.refresh_clients().await.is_err() {
+            *self.0.clients.write().await = ClientSnapshot::Unavailable;
+            return Err("cannot reload client key configuration");
+        }
+        Ok((after, secret))
+    }
+
     async fn revoke_client_key_as(
         &self,
         id: &str,
@@ -17693,6 +17742,45 @@ pub async fn provision_client_key(
             "Client key storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key configuration"),
+    }
+}
+
+/// `POST /api/admin/client-keys/{id}/rotate` (legacy `POST /api/keys/{id}/regenerate`).
+pub async fn rotate_client_key(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .rotate_client_key_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok((client_key, secret)) => {
+            let mut response = Json(serde_json::json!({
+                "client_key": client_key,
+                "key": secret.as_str(),
+                "warning": "Store this key securely; it will not be shown again."
+            }))
+            .into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("client key configuration not found" | "client key tenant is unavailable") => {
+            api_error(StatusCode::NOT_FOUND, "Client key not found")
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Client key storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key"),
     }
 }
 
