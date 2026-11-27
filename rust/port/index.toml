@@ -1,6 +1,65 @@
 # Port progress. Maintained by `rustify start|done|skip`; edit notes by hand.
 
 [[module]]
+ts = "open-sse/config/errorConfig.ts"
+status = "ported"
+rust = "error_config.rs"
+module = "red_routerd::error_config"
+ported_at = "2026-11-27T18:45:10Z"
+ts_base = "eac5b77995480874654a5ff5208b47ab9e377fc8"
+notes = "ErrorInfo and the ERROR_TYPES / DEFAULT_ERROR_MESSAGES tables are folded into the public_error::error_info and default_error_message matches; BACKOFF_CONFIG is the BACKOFF_BASE_MS / BACKOFF_MAX_MS / BACKOFF_MAX_LEVEL constants."
+
+[module.ts_blobs]
+"open-sse/config/errorConfig.ts" = "faed4e1fcd19e1de5b5003862110d1f17a81a42d"
+
+[module.symbols]
+BACKOFF_CONFIG = "red_routerd::error_config::BACKOFF_BASE_MS"
+COOLDOWN_MS = "red_routerd::error_config::cooldown_ms"
+ConfiguredErrorReason = "red_routerd::error_config::ErrorReason"
+DEFAULT_ERROR_MESSAGES = "red_routerd::public_error::default_error_message"
+ERROR_RULES = "red_routerd::error_config::ERROR_RULES"
+ERROR_TYPES = "red_routerd::public_error::error_info"
+ErrorInfo = "red_routerd::public_error::error_info"
+ErrorRule = "red_routerd::error_config::ErrorRule"
+ServiceSupervisorCooldown = "red_routerd::error_config::ServiceSupervisorCooldown"
+TRANSIENT_COOLDOWN_MS = "red_routerd::error_config::TRANSIENT_COOLDOWN_MS"
+calculateBackoffCooldown = "red_routerd::error_config::calculate_backoff_cooldown"
+findMatchingErrorRule = "red_routerd::error_config::find_matching_error_rule"
+getDefaultErrorMessage = "red_routerd::public_error::default_error_message"
+getErrorInfo = "red_routerd::public_error::error_info"
+isNimFunctionDegraded = "red_routerd::error_config::is_nim_function_degraded"
+matchErrorRuleByStatus = "red_routerd::error_config::match_error_rule_by_status"
+matchErrorRuleByText = "red_routerd::error_config::match_error_rule_by_text"
+serviceSupervisorCooldown = "red_routerd::error_config::service_supervisor_cooldown"
+
+[[module]]
+ts = "open-sse/config/providerErrorRules.ts"
+status = "ported"
+rust = "provider_error_rules.rs"
+module = "red_routerd::provider_error_rules"
+ported_at = "2026-11-27T18:49:05Z"
+ts_base = "eac5b77995480874654a5ff5208b47ab9e377fc8"
+notes = "The built-in registry is the per-provider match in get_provider_error_rule_match. Operator rules are an explicit operator_rules argument (and honors_rule_lock_scope takes has_operator_rule), so there is no global setter or lookup; no settings source feeds operator rules yet, so callers pass an empty list."
+
+[module.ts_blobs]
+"open-sse/config/providerErrorRules.ts" = "4c6e4e094cf7cdaa3601caec0885b550a07ae523"
+
+[module.symbols]
+OperatorProviderErrorRule = "red_routerd::provider_error_rules::OperatorRule"
+ProviderErrorRule = "red_routerd::provider_error_rules::get_provider_error_rule_match"
+ProviderErrorRuleMatch = "red_routerd::provider_error_rules::RuleMatch"
+egressBucketedLockProviders = "red_routerd::provider_error_rules::egress_bucketed_lock_providers"
+getOpencodeModelUnavailableMatch = "red_routerd::provider_error_rules::get_opencode_model_unavailable_match"
+getProviderErrorRuleMatch = "red_routerd::provider_error_rules::get_provider_error_rule_match"
+hasOperatorRuleForProvider = "-"
+honorsRuleLockScope = "red_routerd::provider_error_rules::honors_rule_lock_scope"
+isEgressBucketedLockScope = "red_routerd::provider_error_rules::is_egress_bucketed_lock_scope"
+parseResetCountdownMs = "red_routerd::provider_error_rules::parse_reset_countdown_ms"
+providerRuleRegistry = "red_routerd::provider_error_rules::get_provider_error_rule_match"
+resolveRuleMatchBody = "red_routerd::provider_error_rules::resolve_rule_match_body"
+setOperatorProviderErrorRules = "-"
+
+[[module]]
 ts = "open-sse/executors/codex/reasoningSuffix.ts"
 status = "ported"
 rust = "codex_request.rs"
@@ -247,6 +306,25 @@ notes = "The patterns run over the raw error body (the legacy helper stringifies
 
 [module.symbols]
 isResourceNotFoundResponse = "red_routerd::request_resource_errors::is_resource_not_found_response"
+
+[[module]]
+ts = "open-sse/services/retryAfterJson.ts"
+status = "ported"
+rust = "error_text_classification.rs"
+module = "red_routerd::error_text_classification"
+ported_at = "2026-11-27T18:48:22Z"
+ts_base = "eac5b77995480874654a5ff5208b47ab9e377fc8"
+
+[module.ts_blobs]
+"open-sse/services/retryAfterJson.ts" = "d7f3f3a3ea038cd7db54f0808bdf16fea9522d7a"
+
+[module.symbols]
+DetailedJsonRetryHint = "red_routerd::error_text_classification::RetryHint"
+JsonRetryHintProvenance = "red_routerd::error_text_classification::RetryHintSource"
+MAX_SHORT_RETRY_HINT_MS = "red_routerd::error_text_classification::MAX_SHORT_RETRY_HINT_MS"
+parseDelayString = "red_routerd::error_text_classification::parse_delay_string"
+parseDetailedRetryHintFromJsonBody = "red_routerd::error_text_classification::parse_detailed_retry_hint_from_json_body"
+parseRetryHintFromJsonBody = "red_routerd::error_text_classification::parse_retry_hint_from_json_body"
 
 [[module]]
 ts = "open-sse/services/roleNormalizer.ts"

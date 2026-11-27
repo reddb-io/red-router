@@ -11,7 +11,7 @@
 
 use serde_json::{json, Map, Value};
 
-const VALID_CONTENT_TYPES: [&str; 8] = [
+pub(crate) const VALID_CONTENT_TYPES: [&str; 8] = [
     "text",
     "image_url",
     "image",
