@@ -8813,6 +8813,49 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
             }),
         )
         .route(
+            "/v1internal:generateContent",
+            post(|request: Request| async move {
+                // Legacy imageRegistry `gemini-image`: the non-streaming call
+                // with the image_gen envelope and no project header.
+                assert_eq!(
+                    request.headers()[header::AUTHORIZATION],
+                    "Bearer agy-access-rotated"
+                );
+                assert!(request.headers().get("x-goog-user-project").is_none());
+                assert!(request.headers()[header::USER_AGENT]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("antigravity/cli/"));
+                assert_eq!(request.uri().query(), None);
+                let body = axum::body::to_bytes(request.into_body(), 16 * 1024)
+                    .await
+                    .unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["project"], "agy-project-1");
+                assert_eq!(body["requestType"], "image_gen");
+                assert_eq!(body["userAgent"], "antigravity");
+                assert_eq!(body["model"], "gemini-3.1-flash-image");
+                assert!(body["requestId"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("image_gen/"));
+                assert_eq!(
+                    body["request"],
+                    serde_json::json!({
+                        "contents":[{"role":"user","parts":[{"text":"a red fox"}]}],
+                        "generationConfig":{
+                            "candidateCount":1,
+                            "imageConfig":{"aspectRatio":"16:9"}
+                        }
+                    })
+                );
+                Json(serde_json::json!({"response":{"candidates":[{"content":{"parts":[
+                    {"text":"a fox in the snow"},
+                    {"inlineData":{"mimeType":"image/png","data":"iVBOR"}}
+                ]}}]}}))
+            }),
+        )
+        .route(
             "/v1internal:streamGenerateContent",
             post({
                 let observations = observations.clone();
@@ -9073,6 +9116,25 @@ async fn rust_imports_refreshes_and_serves_agy_cli_sessions_without_nextjs() {
     assert_eq!(
         follow_up["choices"][0]["message"]["content"],
         "weather is sunny"
+    );
+    let image = client
+        .post(format!("{base}/v1/images/generations"))
+        .bearer_auth(CLIENT_KEY)
+        .json(&serde_json::json!({
+            "model":"agy/gemini-3.1-flash-image-preview",
+            "prompt":"a red fox",
+            "size":"1792x1024"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let image_status = image.status();
+    let image = image.text().await.unwrap();
+    assert_eq!(image_status, StatusCode::OK, "{image}");
+    let image: serde_json::Value = serde_json::from_str(&image).unwrap();
+    assert_eq!(
+        image["data"],
+        serde_json::json!([{"b64_json":"iVBOR","revised_prompt":"a fox in the snow"}])
     );
     assert_eq!(
         observations.lock().unwrap().as_slice(),
@@ -12188,6 +12250,8 @@ include!("cases/provider_discovery.rs");
 
 include!("cases/provider_protocol.rs");
 include!("cases/opencode_go_messages.rs");
+include!("cases/image_generation.rs");
+include!("cases/audio_transcription.rs");
 
 include!("cases/provider_nodes.rs");
 

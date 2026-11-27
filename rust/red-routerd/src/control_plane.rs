@@ -5021,6 +5021,22 @@ impl ControlPlane {
                     (ProviderProtocol::OpenAi, ProviderProtocol::Antigravity) => {
                         ProviderProtocol::OpenAiToAntigravity
                     }
+                    // Legacy imageRegistry: these providers serve images beside chat.
+                    (ProviderProtocol::OpenAiImages, ProviderProtocol::OpenAi)
+                        if crate::image_generation::serves_images(&account.record.provider) =>
+                    {
+                        ProviderProtocol::OpenAiImages
+                    }
+                    // Legacy imageRegistry `gemini-image`: Antigravity image models.
+                    (ProviderProtocol::OpenAiImages, ProviderProtocol::Antigravity) => {
+                        ProviderProtocol::AntigravityImages
+                    }
+                    // Legacy audioRegistry: OpenRouter transcribes at its own endpoint.
+                    (ProviderProtocol::OpenAiTranscriptions, ProviderProtocol::OpenAi)
+                        if account.record.provider == "openrouter" =>
+                    {
+                        ProviderProtocol::OpenAiTranscriptions
+                    }
                     (requested, actual) if requested == actual => requested,
                     _ => return None,
                 };
@@ -12503,6 +12519,16 @@ async fn probe_provider(
             "model":&model,
             "input":"RedRouter connection test"
         }),
+        ProviderProtocol::OpenAiImages | ProviderProtocol::AntigravityImages => {
+            serde_json::json!({
+                "model":&model,
+                "prompt":"RedRouter connection test"
+            })
+        }
+        ProviderProtocol::OpenAiTranscriptions => serde_json::json!({
+            "model":&model,
+            "input_audio":{"data":"","format":"wav"}
+        }),
         ProviderProtocol::CohereRerank => serde_json::json!({
             "model":&model,
             "query":"RedRouter connection test",
@@ -13851,6 +13877,8 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
                 "inference:*"
                     | "inference:chat"
                     | "inference:embeddings"
+                    | "inference:images"
+                    | "inference:audio"
                     | "inference:rerank"
                     | crate::self_service::SELF_USAGE_SCOPE
                     | crate::self_service::SELF_ACCOUNT_QUOTA_SCOPE
@@ -13867,9 +13895,12 @@ fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
 
 fn validate_endpoint_list(values: &[String]) -> Result<(), &'static str> {
     if values.len() > 20
-        || values
-            .iter()
-            .any(|value| !matches!(value.as_str(), "chat" | "embeddings" | "rerank"))
+        || values.iter().any(|value| {
+            !matches!(
+                value.as_str(),
+                "chat" | "embeddings" | "images" | "audio" | "rerank"
+            )
+        })
     {
         return Err("invalid client key endpoint grants");
     }
@@ -14033,7 +14064,10 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         "context-relay" | "fusion" | "pipeline"
     ) && matches!(
         protocol,
-        ProviderProtocol::OpenAiEmbeddings | ProviderProtocol::CohereRerank
+        ProviderProtocol::OpenAiEmbeddings
+            | ProviderProtocol::OpenAiImages
+            | ProviderProtocol::OpenAiTranscriptions
+            | ProviderProtocol::CohereRerank
     ) {
         return Err("strategy requires a conversational protocol");
     }
