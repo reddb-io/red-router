@@ -5179,6 +5179,20 @@ fn quota_text_lockout(
     )
 }
 
+/// The opencode family's model-unavailable rule, clamped like the legacy
+/// model lockout to the connection's cooldown ceiling.
+fn opencode_model_lockout_ms(
+    availability: &availability::ProviderAvailability,
+    provider: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+) -> Option<u64> {
+    let text = std::str::from_utf8(body?).ok()?;
+    provider_error_rules::opencode_model_unavailable_ms(provider, status.as_u16(), headers, text)
+        .map(|rule| rule.min(availability.max_cooldown_ms()))
+}
+
 async fn record_internal_provider_health(
     target: &ContextRelaySummaryTarget,
     circuit_permit: Option<circuit::CircuitPermit>,
@@ -5273,7 +5287,16 @@ async fn record_internal_provider_health(
                     permit,
                     &target.model,
                     status,
-                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                    opencode_model_lockout_ms(
+                        availability,
+                        Some(&target.provider_name),
+                        status,
+                        headers,
+                        error_body,
+                    )
+                    .or_else(|| {
+                        upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name))
+                    }),
                 )
                 .await
         }
@@ -9035,11 +9058,20 @@ async fn proxy_request(
                             permit,
                             target_model,
                             response.status(),
-                            upstream_retry_hint_ms(
+                            opencode_model_lockout_ms(
+                                availability,
+                                provider_name,
+                                response.status(),
                                 response.headers(),
                                 response.error_body(),
-                                provider_name,
-                            ),
+                            )
+                            .or_else(|| {
+                                upstream_retry_hint_ms(
+                                    response.headers(),
+                                    response.error_body(),
+                                    provider_name,
+                                )
+                            }),
                         )
                         .await
                 }

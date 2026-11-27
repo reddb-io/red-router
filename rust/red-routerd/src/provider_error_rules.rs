@@ -286,11 +286,52 @@ pub fn get_opencode_model_unavailable_match(
         .filter(|found| found.scope == RuleScope::Model && found.reason == "model_capacity")
 }
 
+/// The model lockout of the opencode family's "Model is unavailable." 400
+/// (legacy `checkFallbackError` 400 pre-check and the model-scope branch of
+/// `markAccountUnavailable`): the rule's hour, read from the raw error text.
+pub fn opencode_model_unavailable_ms(
+    provider: Option<&str>,
+    status: u16,
+    headers: &HeaderMap,
+    error_text: &str,
+) -> Option<u64> {
+    get_opencode_model_unavailable_match(
+        provider,
+        status,
+        headers,
+        &Value::String(error_text.to_owned()),
+    )
+    .map(|found| found.cooldown_ms.unwrap_or(3_600_000))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::http::{HeaderName, HeaderValue};
     use serde_json::json;
+
+    /// The model-scope rows of the fallback cooldown oracle (legacy
+    /// `checkFallbackError` over 1980 status, body and provider rows): only
+    /// the opencode family's "Model is unavailable." 400 locks the model.
+    #[test]
+    fn the_opencode_model_lockout_matches_the_legacy_fallback_rows() {
+        let rows: Vec<Value> =
+            serde_json::from_str(include_str!("fallback_cooldown_oracle.json")).unwrap();
+        let mut matched = 0;
+        for row in &rows {
+            let status = row[0].as_u64().unwrap() as u16;
+            let body = row[1].as_str().unwrap();
+            let provider = row[2].as_str();
+            let actual = opencode_model_unavailable_ms(provider, status, &HeaderMap::new(), body);
+            let expected =
+                (row[7] == "model" && row[4] == "model_capacity").then(|| row[5].as_u64().unwrap());
+            if expected.is_some() {
+                matched += 1;
+            }
+            assert_eq!(actual, expected, "{row}");
+        }
+        assert_eq!(matched, 1);
+    }
 
     fn headers_from(value: &Value) -> HeaderMap {
         let mut map = HeaderMap::new();
