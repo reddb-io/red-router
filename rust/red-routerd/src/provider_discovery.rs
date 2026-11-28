@@ -1582,7 +1582,11 @@ impl ControlPlane {
             let at = now();
             providers
                 .iter()
-                .filter(|provider| provider.enabled && state.due(&provider.id, at))
+                .filter(|provider| {
+                    provider.enabled
+                        && provider.health_check_interval_minutes != Some(0)
+                        && state.due(&provider.id, at)
+                })
                 .collect()
         };
         let mut probed = 0;
@@ -1606,7 +1610,10 @@ impl ControlPlane {
                         &probe,
                         started,
                         latency,
-                        interval_ms,
+                        health::account_interval_ms(
+                            provider.health_check_interval_minutes,
+                            interval_ms,
+                        ),
                     )
                 });
                 if !matches!(probe, health::Probe::Skipped) {
@@ -1863,6 +1870,7 @@ mod tests {
             priority: 0,
             default_model: None,
             max_concurrent: None,
+            health_check_interval_minutes: None,
             id: "account".into(),
             tenant_id: "red".into(),
             provider: "custom".into(),
@@ -2036,6 +2044,7 @@ mod tests {
             priority: 0,
             default_model: None,
             max_concurrent: None,
+            health_check_interval_minutes: None,
             id: "account".into(),
             tenant_id: "red".into(),
             provider: "openai-compatible".into(),
@@ -2114,6 +2123,7 @@ mod tests {
             priority: 0,
             default_model: None,
             max_concurrent: None,
+            health_check_interval_minutes: None,
             id: "account".into(),
             tenant_id: "red".into(),
             provider: "openai-compatible".into(),
@@ -2176,6 +2186,7 @@ mod tests {
                 priority: 0,
                 default_model: None,
                 max_concurrent: None,
+                health_check_interval_minutes: None,
                 id: "account".into(),
                 tenant_id: "red".into(),
                 provider: "openai-compatible".into(),
@@ -2303,6 +2314,7 @@ mod tests {
                     priority: 0,
                     default_model: None,
                     max_concurrent: None,
+                    health_check_interval_minutes: None,
                     id: id.into(),
                     tenant_id: "red".into(),
                     provider: provider.into(),

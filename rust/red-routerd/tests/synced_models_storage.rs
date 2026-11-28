@@ -26,6 +26,7 @@ async fn upgrade_marks_prior_migrated_inventory_unknown_until_a_live_probe() {
         priority: 0,
         default_model: None,
         max_concurrent: None,
+        health_check_interval_minutes: None,
     })
     .await
     .unwrap();
@@ -114,6 +115,7 @@ async fn synced_inventory_is_tenant_scoped_generation_bound_and_survives_restart
         priority: 0,
         default_model: None,
         max_concurrent: None,
+        health_check_interval_minutes: None,
     };
     first.upsert_provider(&provider).await.unwrap();
     assert!(first
@@ -317,6 +319,7 @@ async fn synced_inventory_invalidates_when_shared_provider_definition_changes() 
         priority: 0,
         default_model: None,
         max_concurrent: None,
+        health_check_interval_minutes: None,
     };
     db.upsert_provider(&provider).await.unwrap();
     let ticket = db

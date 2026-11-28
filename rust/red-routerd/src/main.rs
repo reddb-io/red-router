@@ -1069,6 +1069,7 @@ async fn run(
                             priority: None,
                             default_model: None,
                             max_concurrent: None,
+                            health_check_interval_minutes: None,
                             tenant_id: None,
                             provider,
                             upstream_url: upstream.to_owned(),

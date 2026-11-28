@@ -611,6 +611,11 @@ pub struct ProviderInput {
     /// and `null` removes it.
     #[serde(default, deserialize_with = "provider_nodes::present_value")]
     pub max_concurrent: Option<Option<u32>>,
+    /// Credential health cadence in minutes (legacy `healthCheckInterval`):
+    /// omitted keeps the stored value, `null` follows the global sweep and 0
+    /// never probes the account.
+    #[serde(default, deserialize_with = "provider_nodes::present_value")]
+    pub health_check_interval_minutes: Option<Option<u32>>,
     pub tenant_id: Option<String>,
     #[serde(default)]
     pub provider: String,
@@ -642,6 +647,8 @@ pub struct ProviderView {
     pub default_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_concurrent: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_check_interval_minutes: Option<u32>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -5974,6 +5981,7 @@ impl ControlPlane {
                             priority: None,
                             default_model: None,
                             max_concurrent: None,
+                            health_check_interval_minutes: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "xai-oauth".to_owned(),
                             upstream_url: self.0.oauth_refresh.xai_provider_endpoint.to_string(),
@@ -6079,6 +6087,7 @@ impl ControlPlane {
                             priority: None,
                             default_model: None,
                             max_concurrent: None,
+                            health_check_interval_minutes: None,
                             tenant_id: Some(tenant_id.to_owned()),
                             provider: "openference".to_owned(),
                             upstream_url: self
@@ -6187,6 +6196,7 @@ impl ControlPlane {
                     priority: None,
                     default_model: None,
                     max_concurrent: None,
+                    health_check_interval_minutes: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "codex".to_owned(),
                     upstream_url: self.0.oauth_refresh.codex_provider_endpoint.to_string(),
@@ -6307,6 +6317,7 @@ impl ControlPlane {
                     priority: None,
                     default_model: None,
                     max_concurrent: None,
+                    health_check_interval_minutes: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "claude".to_owned(),
                     upstream_url: self.0.oauth_refresh.claude_provider_endpoint.to_string(),
@@ -6429,6 +6440,7 @@ impl ControlPlane {
                     priority: None,
                     default_model: None,
                     max_concurrent: None,
+                    health_check_interval_minutes: None,
                     tenant_id: Some(tenant_id.to_owned()),
                     provider: "agy".to_owned(),
                     upstream_url: self.0.oauth_refresh.agy_provider_endpoint.to_string(),
@@ -6766,6 +6778,19 @@ impl ControlPlane {
         {
             return Err("invalid provider concurrency");
         }
+        let health_check_interval_minutes = input
+            .health_check_interval_minutes
+            .take()
+            .unwrap_or_else(|| {
+                existing
+                    .as_ref()
+                    .and_then(|provider| provider.health_check_interval_minutes)
+            });
+        if health_check_interval_minutes
+            .is_some_and(|minutes| minutes > crate::storage::MAX_PROVIDER_HEALTH_INTERVAL_MINUTES)
+        {
+            return Err("invalid provider health check interval");
+        }
         let node_id = input.node_id.take().unwrap_or_else(|| {
             existing
                 .as_ref()
@@ -7060,6 +7085,7 @@ impl ControlPlane {
                 .unwrap_or(0),
             default_model,
             max_concurrent,
+            health_check_interval_minutes,
             id: id.to_owned(),
             tenant_id: tenant_id.to_owned(),
             provider: input.provider,
@@ -12969,6 +12995,7 @@ fn view(
         priority: record.priority,
         default_model: record.default_model.clone(),
         max_concurrent: record.max_concurrent,
+        health_check_interval_minutes: record.health_check_interval_minutes,
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
         provider: record.provider.clone(),
@@ -18539,6 +18566,7 @@ mod tests {
             priority: 0,
             default_model: None,
             max_concurrent: None,
+            health_check_interval_minutes: None,
             id: "first".to_owned(),
             tenant_id: "red".to_owned(),
             provider: "openai".to_owned(),

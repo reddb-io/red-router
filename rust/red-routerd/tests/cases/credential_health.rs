@@ -1,6 +1,7 @@
 // Legacy credentialHealth scheduler and credentialGate: a sweep probes each
 // account's model listing, a failed credential is reported and cooled down,
-// and combos skip it while the failure is fresh.
+// and combos skip it while the failure is fresh. An account's own cadence
+// (legacy `healthCheckInterval`) paces it, and 0 leaves it out of the sweep.
 #[tokio::test]
 async fn a_failed_credential_probe_is_reported_and_combos_skip_the_account() {
     let directory = TempDir::new().unwrap();
@@ -52,23 +53,54 @@ async fn a_failed_credential_probe_is_reported_and_combos_skip_the_account() {
     let upstream_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let (base, gateway_task) = gateway(control).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    for id in ["bad", "good"] {
-        assert_eq!(
+    let put_provider = |id: &'static str, upstream: &'static str, interval: Option<i64>| {
+        let client = client.clone();
+        let url = format!("{base}/api/admin/providers/{id}");
+        let mut body = serde_json::json!({
+            "provider":"openai-compatible",
+            "upstream_url":format!("http://{address}/{upstream}/v1/chat/completions"),
+            "api_key":format!("{id}-secret")
+        });
+        if let Some(minutes) = interval {
+            body["health_check_interval_minutes"] = serde_json::json!(minutes);
+        }
+        async move {
             client
-                .put(format!("{base}/api/admin/providers/{id}"))
+                .put(url)
                 .bearer_auth(ADMIN_KEY)
-                .json(&serde_json::json!({
-                    "provider":"openai-compatible",
-                    "upstream_url":format!("http://{address}/{id}/v1/chat/completions"),
-                    "api_key":format!("{id}-secret")
-                }))
+                .json(&body)
                 .send()
                 .await
                 .unwrap()
-                .status(),
-            StatusCode::OK
+        }
+    };
+    // More than a day is refused, as the legacy schema does.
+    assert_eq!(
+        put_provider("good", "good", Some(1_441)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    // "quiet" points at the failing upstream but is never probed.
+    for (id, upstream, interval) in [
+        ("bad", "bad", None),
+        ("good", "good", Some(15)),
+        ("quiet", "bad", Some(0)),
+    ] {
+        let response = put_provider(id, upstream, interval).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let view = response.json::<serde_json::Value>().await.unwrap();
+        assert_eq!(
+            view["provider"]["health_check_interval_minutes"],
+            interval.map_or(serde_json::Value::Null, serde_json::Value::from)
         );
     }
+    // An edit that leaves the cadence out keeps it.
+    let kept = put_provider("good", "good", None).await;
+    assert_eq!(kept.status(), StatusCode::OK);
+    assert_eq!(
+        kept.json::<serde_json::Value>().await.unwrap()["provider"]
+            ["health_check_interval_minutes"],
+        15
+    );
     for (combo, targets) in [
         (
             "both",
@@ -154,7 +186,10 @@ async fn a_failed_credential_probe_is_reported_and_combos_skip_the_account() {
         bad["next_check_at_unix_ms"].as_u64().unwrap(),
         checked + 300_000
     );
-    assert!(good["next_check_at_unix_ms"].as_u64().unwrap() > checked + 3_000_000);
+    // The healthy account follows its own 15-minute cadence.
+    let good_next = good["next_check_at_unix_ms"].as_u64().unwrap()
+        - good["checked_at_unix_ms"].as_u64().unwrap();
+    assert!((800_000..=900_000).contains(&good_next), "{good_next}");
     // Nothing is due again yet.
     assert_eq!(
         sweep(ADMIN_KEY)

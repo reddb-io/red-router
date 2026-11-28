@@ -229,6 +229,7 @@ export interface RustProvider {
   protocol?: RustProviderProtocol;
   priority?: number;
   default_model?: string | null;
+  health_check_interval_minutes?: number;
   id: string;
   tenant_id: string;
   provider: string;
@@ -256,6 +257,7 @@ export interface RustProviderInput {
   protocol?: RustProviderProtocol;
   priority?: number;
   default_model?: string | null;
+  health_check_interval_minutes?: number | null;
   tenant_id?: string;
   provider: string;
   upstream_url: string;
@@ -1070,6 +1072,10 @@ function isRustProvider(value: unknown): value is RustProvider {
       provider.oauth_refresh_state === "reauth_required") &&
     (provider.oauth_error_code === undefined || typeof provider.oauth_error_code === "string") &&
     typeof provider.reauth_required === "boolean" &&
+    (provider.health_check_interval_minutes === undefined ||
+      (Number.isInteger(provider.health_check_interval_minutes) &&
+        (provider.health_check_interval_minutes as number) >= 0 &&
+        (provider.health_check_interval_minutes as number) <= 1440)) &&
     (provider.auth_scheme === "auto" ||
       provider.auth_scheme === "none" ||
       provider.auth_scheme === "bearer" ||
