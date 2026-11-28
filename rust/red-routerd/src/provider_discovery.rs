@@ -1387,7 +1387,7 @@ impl ControlPlane {
     /// Claude checks the token lifetime and Codex sends an empty Responses
     /// request, as the legacy OAuth test config does, and Antigravity reads
     /// its quota RPC. Accounts without a native probe (Cloudflare Workers AI,
-    /// other OAuth and non-model upstreams) are skipped.
+    /// other OAuth and upstreams without a model listing) are unsupported.
     async fn probe_credential(
         &self,
         provider: &StoredProvider,
@@ -1444,16 +1444,16 @@ impl ControlPlane {
                 Ok(url) => (url, true),
                 Err(_) => return Probe::Skipped,
             },
-            Some(_) => return Probe::Skipped,
+            Some(_) => return Probe::Unsupported,
             None if matches!(provider.provider.as_str(), "cloudflare-ai" | "cloudflare") => {
-                return Probe::Skipped;
+                return Probe::Unsupported;
             }
             None => {
                 let Ok(view) = self.discovery_view(provider).await else {
                     return Probe::Skipped;
                 };
                 let Some(path) = view.effective_models_path else {
-                    return Probe::Skipped;
+                    return Probe::Unsupported;
                 };
                 let path = if provider.provider == "openrouter" {
                     match path.strip_suffix("/models") {
@@ -1616,7 +1616,7 @@ impl ControlPlane {
                         ),
                     )
                 });
-                if !matches!(probe, health::Probe::Skipped) {
+                if !matches!(probe, health::Probe::Skipped | health::Probe::Unsupported) {
                     probed += 1;
                 }
                 if failed {
@@ -1774,6 +1774,30 @@ pub async fn get_credential_health(
 
 /// `POST /api/admin/credential-health/sweep`: run a sweep now over the
 /// accounts that are due (legacy `forceSweep`). Platform admins only.
+/// `GET /api/monitoring/health`. Anyone gets the readiness answer the CLI
+/// and tray probe read; a platform administrator also gets the legacy
+/// `credentialHealth` summary (`getCachedCredentialHealthSummary`). The rest
+/// of the legacy monitoring payload is not ported.
+pub async fn monitoring_health(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let mut body = serde_json::json!({"status": "ok"});
+    if let Some(control) = &state.control_plane {
+        if headers.contains_key(header::AUTHORIZATION)
+            && control.authorized_admin_actor(&headers).await.is_some()
+        {
+            let now = unix_time_ms().map_or(0, |now| u64::try_from(now).unwrap_or_default());
+            if let Ok(health) = control.0.credential_health.lock() {
+                body["credentialHealth"] =
+                    serde_json::to_value(health.summary(now)).unwrap_or_default();
+            }
+        }
+    }
+    let mut response = Json(body).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 pub async fn sweep_credential_health(
     State(state): State<ProxyState>,
     headers: HeaderMap,

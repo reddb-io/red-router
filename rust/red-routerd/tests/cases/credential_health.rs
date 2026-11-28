@@ -190,6 +190,46 @@ async fn a_failed_credential_probe_is_reported_and_combos_skip_the_account() {
     let good_next = good["next_check_at_unix_ms"].as_u64().unwrap()
         - good["checked_at_unix_ms"].as_u64().unwrap();
     assert!((800_000..=900_000).contains(&good_next), "{good_next}");
+    // Legacy GET /api/monitoring/health: readiness for anyone, the cached
+    // credential summary for an administrator.
+    let monitoring = |token: Option<&'static str>| {
+        let client = client.clone();
+        let url = format!("{base}/api/monitoring/health");
+        async move {
+            let mut request = client.get(url);
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            let response = request.send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            response.json::<serde_json::Value>().await.unwrap()
+        }
+    };
+    assert_eq!(monitoring(None).await, serde_json::json!({"status":"ok"}));
+    assert_eq!(
+        monitoring(Some(CLIENT_KEY)).await,
+        serde_json::json!({"status":"ok"})
+    );
+    let summary = &monitoring(Some(ADMIN_KEY)).await["credentialHealth"];
+    assert_eq!(
+        (
+            &summary["total"],
+            &summary["healthy"],
+            &summary["failed"],
+            &summary["stale"]
+        ),
+        (
+            &serde_json::json!(2),
+            &serde_json::json!(1),
+            &serde_json::json!(1),
+            &serde_json::json!(0)
+        )
+    );
+    assert_eq!(
+        summary["failedConnections"],
+        serde_json::json!([{"connectionId":"bad","status":"error","lastError":"Invalid API key","lastErrorType":"upstream_auth_error"}])
+    );
+    assert!(summary.get("failedOmitted").is_none());
     // Nothing is due again yet.
     assert_eq!(
         sweep(ADMIN_KEY)
