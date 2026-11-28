@@ -153,6 +153,37 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
     assert_eq!(served["usage"]["tokens_output"], 2);
     assert!(page["next_cursor"].is_null());
 
+    // Why the request went where it went (legacy /api/usage/route-explain/[id]),
+    // by request id or by attempt id.
+    let explain = |id: String| {
+        let client = client.clone();
+        let url = format!("{base}/api/admin/request-log/{id}/explain");
+        async move { client.get(url).bearer_auth(ADMIN_KEY).send().await.unwrap() }
+    };
+    let explained = explain(served["id"].as_str().unwrap().to_owned()).await;
+    assert_eq!(explained.status(), StatusCode::OK);
+    assert_eq!(explained.headers()[header::CACHE_CONTROL], "no-store");
+    let explained: serde_json::Value = explained.json().await.unwrap();
+    assert_eq!(explained["request_id"], served["request_id"]);
+    assert_eq!(explained["route_type"], "combo", "{explained}");
+    assert_eq!(explained["combo"]["id"], "logged-combo");
+    assert_eq!(explained["combo"]["strategy"], "priority");
+    assert_eq!(explained["selected_target"]["provider_id"], "good");
+    assert_eq!(explained["selected_target"]["tokens_input"], 3);
+    assert_eq!(explained["attempts"].as_array().unwrap().len(), 2);
+    assert_eq!(explained["attempts"][0]["outcome"], "fallback");
+    assert_eq!(explained["fallbacks_triggered"][0]["provider_id"], "bad");
+    assert_eq!(explained["fallbacks_triggered"][0]["status"], 503);
+    assert_eq!(explained["factors"].as_array().unwrap().len(), 6);
+    assert_eq!(
+        explain(served["request_id"].as_str().unwrap().to_owned()).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        explain("rq_missing".to_owned()).await.status(),
+        StatusCode::NOT_FOUND
+    );
+
     // Filters and paging.
     let errors = log("?outcome=error").await;
     assert_eq!(errors["requests"].as_array().unwrap().len(), 1);

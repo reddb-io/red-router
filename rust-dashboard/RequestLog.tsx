@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { rustAdminFetch } from "./api/browserClient";
+import RouteExplanation from "./RouteExplanation";
 
 type Usage = {
   tokens_input: number;
@@ -61,6 +62,7 @@ export default function RequestLog() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
+  const [explaining, setExplaining] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -160,6 +162,7 @@ export default function RequestLog() {
           Refresh
         </button>
       </form>
+      {explaining && <RouteExplanation id={explaining} onClose={() => setExplaining(null)} />}
       {loading && <p>Loading requests…</p>}
       {error && (
         <p role="alert" className="text-error">
@@ -199,7 +202,15 @@ export default function RequestLog() {
                       >
                         {entry.request_id}
                       </button>{" "}
-                      #{entry.attempt}
+                      #{entry.attempt}{" "}
+                      <button
+                        type="button"
+                        className="underline"
+                        title="Explain why this request went where it went"
+                        onClick={() => setExplaining(entry.id)}
+                      >
+                        Explain
+                      </button>
                     </td>
                     <td>
                       {entry.requested_model === entry.model

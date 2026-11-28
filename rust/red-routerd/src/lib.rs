@@ -100,6 +100,7 @@ pub mod responses_stream_support;
 pub mod responses_tool_identity;
 pub mod retained_size;
 mod role_normalizer;
+mod route_explain;
 pub mod self_service;
 mod session_stickiness;
 pub mod shared_budget;
@@ -2947,6 +2948,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/request-log",
             get(control_plane::get_request_log),
+        )
+        .route(
+            "/api/admin/request-log/{id}/explain",
+            get(control_plane::get_request_explanation),
         )
         .route(
             "/api/admin/budgets",
