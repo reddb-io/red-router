@@ -2950,6 +2950,10 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::get_request_log),
         )
         .route(
+            "/api/admin/request-log/summary",
+            get(control_plane::get_request_log_summary),
+        )
+        .route(
             "/api/admin/request-log/{id}/explain",
             get(control_plane::get_request_explanation),
         )

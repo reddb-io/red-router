@@ -4217,6 +4217,21 @@ impl ControlPlane {
     /// The route explanation of a logged request (legacy
     /// `explainRouteByRequestId`): its attempts, the attempts on the served
     /// account and model within 15 minutes, and the combo it named.
+    pub(crate) async fn request_log_summary(
+        &self,
+        query: &crate::request_log::Query,
+    ) -> Result<crate::request_log::Summary, &'static str> {
+        if self.0.native_usage.read().await.is_none() {
+            return Err("request log requires SQLite storage");
+        }
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("request log requires SQLite storage")?;
+        crate::request_log::summary(pool, query).await
+    }
+
     pub(crate) async fn request_explanation(
         &self,
         id: &str,
@@ -18139,6 +18154,73 @@ pub async fn get_request_explanation(
             response
         }
         Ok(None) => api_error(StatusCode::NOT_FOUND, "Request not found"),
+        Err("request log requires SQLite storage") => api_error(
+            StatusCode::NOT_IMPLEMENTED,
+            "The request log requires SQLite storage",
+        ),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Request log unavailable"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RequestLogSummaryParams {
+    tenant_id: Option<String>,
+    key_id: Option<String>,
+    provider_id: Option<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+}
+
+/// `GET /api/admin/request-log/summary`: success rate, fallback rate,
+/// latency and errors of the logged requests (legacy `/api/usage/analytics`
+/// summary), over the last 7 days by default.
+pub async fn get_request_log_summary(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(params): Query<RequestLogSummaryParams>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if scope.tenant_id.as_deref().is_some_and(|tenant| {
+        params
+            .tenant_id
+            .as_deref()
+            .is_some_and(|asked| asked != tenant)
+    }) {
+        return api_error(StatusCode::FORBIDDEN, "Tenant is outside this identity");
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
+    let to = params.to.unwrap_or(now.saturating_add(1));
+    let query = crate::request_log::Query {
+        tenant_id: scope.tenant_id.clone().or(params.tenant_id),
+        key_id: params.key_id,
+        provider_id: params.provider_id,
+        from_unix_ms: params
+            .from
+            .unwrap_or(to.saturating_sub(7 * 24 * 60 * 60 * 1000)),
+        to_unix_ms: to,
+        limit: 1,
+        ..Default::default()
+    };
+    if crate::request_log::validate(&query).is_err() {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid request log query");
+    }
+    match control.request_log_summary(&query).await {
+        Ok(summary) => {
+            let mut response = Json(serde_json::json!({ "summary": summary })).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
         Err("request log requires SQLite storage") => api_error(
             StatusCode::NOT_IMPLEMENTED,
             "The request log requires SQLite storage",

@@ -383,6 +383,128 @@ pub(crate) fn validate(query: &Query) -> Result<(), &'static str> {
 }
 
 /// Newest first, `limit` rows per page, with the cursor of the next page.
+/// Totals of the logged requests in a window (legacy `/api/usage/analytics`
+/// summary: success rate, average latency, fallback rate and the error type
+/// breakdown).
+#[derive(Debug, Serialize, PartialEq)]
+pub(crate) struct Summary {
+    /// Distinct request ids with an attempt in the window.
+    pub requests: i64,
+    pub attempts: i64,
+    /// Requests with an attempt that succeeded (2xx, no failure label).
+    pub served_requests: i64,
+    pub success_rate_pct: f64,
+    /// Served requests that needed more than one attempt. The legacy counted
+    /// a served model that differed from the requested one; here the attempts
+    /// of a request are correlated, so the fallback is the attempt chain.
+    pub fallback_requests: i64,
+    pub fallback_rate_pct: f64,
+    pub avg_latency_ms: i64,
+    /// Over streamed attempts that forwarded a chunk; `None` when none did.
+    pub avg_ttft_ms: Option<i64>,
+    /// Failed attempts by failure label (`http_<status>` when unlabelled),
+    /// most frequent first.
+    pub errors: Vec<ErrorCount>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub(crate) struct ErrorCount {
+    pub error: String,
+    pub count: i64,
+}
+
+/// Most error labels a summary returns.
+const MAX_ERROR_LABELS: i64 = 50;
+
+fn percent(part: i64, whole: i64) -> f64 {
+    if whole <= 0 {
+        return 0.0;
+    }
+    (part as f64 * 10_000.0 / whole as f64).round() / 100.0
+}
+
+/// The window and the tenant, key and account filters of a query (the
+/// request id, outcome and cursor are listing filters).
+fn push_scope(rows: &mut QueryBuilder<'_, Any>, query: &Query) {
+    rows.push(" WHERE r.created_at_unix_ms >= ")
+        .push_bind(query.from_unix_ms)
+        .push(" AND r.created_at_unix_ms < ")
+        .push_bind(query.to_unix_ms);
+    for (column, value) in [
+        ("r.tenant_id", &query.tenant_id),
+        ("r.key_id", &query.key_id),
+        ("r.provider_id", &query.provider_id),
+    ] {
+        if let Some(value) = value {
+            rows.push(format!(" AND {column} = "))
+                .push_bind(value.clone());
+        }
+    }
+}
+
+pub(crate) async fn summary(pool: &AnyPool, query: &Query) -> Result<Summary, &'static str> {
+    validate(query)?;
+    let unavailable = "request log unavailable";
+    let mut totals = QueryBuilder::<Any>::new(
+        "SELECT COUNT(*) AS requests, COALESCE(SUM(attempts), 0) AS attempts, COALESCE(SUM(served), 0) AS served, COALESCE(SUM(CASE WHEN served = 1 AND attempts > 1 THEN 1 ELSE 0 END), 0) AS fallbacks FROM (SELECT r.request_id, COUNT(*) AS attempts, MAX(CASE WHEN r.status >= 200 AND r.status < 300 AND r.error = '' THEN 1 ELSE 0 END) AS served FROM redrouter_request_log r",
+    );
+    push_scope(&mut totals, query);
+    totals.push(" GROUP BY r.request_id) per_request");
+    let totals = totals
+        .build()
+        .fetch_one(pool)
+        .await
+        .map_err(|_| unavailable)?;
+    let mut latency = QueryBuilder::<Any>::new(
+        "SELECT CAST(COALESCE(ROUND(AVG(r.duration_ms)), 0) AS BIGINT) AS avg_latency, CAST(ROUND(AVG(r.ttft_ms)) AS BIGINT) AS avg_ttft FROM redrouter_request_log r",
+    );
+    push_scope(&mut latency, query);
+    let latency = latency
+        .build()
+        .fetch_one(pool)
+        .await
+        .map_err(|_| unavailable)?;
+    let mut errors = QueryBuilder::<Any>::new(
+        "SELECT CASE WHEN r.error = '' THEN 'http_' || CAST(r.status AS TEXT) ELSE r.error END AS label, COUNT(*) AS count FROM redrouter_request_log r",
+    );
+    push_scope(&mut errors, query);
+    errors
+        .push(" AND (r.status < 200 OR r.status >= 300 OR r.error <> '') GROUP BY label ORDER BY count DESC, label ASC LIMIT ")
+        .push_bind(MAX_ERROR_LABELS);
+    let errors = errors
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|_| unavailable)?;
+    let invalid = "invalid request log";
+    let integer =
+        |row: &sqlx::any::AnyRow, name: &str| row.try_get::<i64, _>(name).map_err(|_| invalid);
+    let requests = integer(&totals, "requests")?;
+    let served_requests = integer(&totals, "served")?;
+    let fallback_requests = integer(&totals, "fallbacks")?;
+    Ok(Summary {
+        requests,
+        attempts: integer(&totals, "attempts")?,
+        served_requests,
+        success_rate_pct: percent(served_requests, requests),
+        fallback_requests,
+        fallback_rate_pct: percent(fallback_requests, requests),
+        avg_latency_ms: integer(&latency, "avg_latency")?,
+        avg_ttft_ms: latency
+            .try_get::<Option<i64>, _>("avg_ttft")
+            .map_err(|_| invalid)?,
+        errors: errors
+            .iter()
+            .map(|row| {
+                Ok(ErrorCount {
+                    error: row.try_get::<String, _>("label").map_err(|_| invalid)?,
+                    count: integer(row, "count")?,
+                })
+            })
+            .collect::<Result<_, &'static str>>()?,
+    })
+}
+
 pub(crate) async fn list(pool: &AnyPool, query: &Query) -> Result<Page, &'static str> {
     validate(query)?;
     let cursor = decode_cursor(query.cursor.as_deref())?;
@@ -597,6 +719,95 @@ mod tests {
         // Nothing left to prune.
         assert_eq!(prune(pool, now, 30, 2).await.unwrap(), 0);
         assert_eq!(retention(), (DEFAULT_RETENTION_DAYS, DEFAULT_MAX_ROWS));
+    }
+
+    #[tokio::test]
+    async fn the_summary_counts_requests_fallbacks_latency_and_errors() {
+        let database =
+            crate::storage::Database::connect(crate::storage::Backend::Sqlite, "sqlite::memory:")
+                .await
+                .unwrap();
+        let pool = database.sql_pool().unwrap();
+        let row =
+            |id: &str, request: &str, attempt: i64, status: u16, error: &str, duration: i64| {
+                Attempt {
+                    request_id: request.to_owned(),
+                    attempt,
+                    status,
+                    error: error.to_owned(),
+                    duration_ms: duration,
+                    ..self::attempt(id, 1_000 + attempt)
+                }
+            };
+        // A fallback served on its second attempt, a streamed success, a
+        // rate limit and a broken stream.
+        let mut streamed = row("b", "rq_b", 0, 200, "", 200);
+        streamed.stream = true;
+        streamed.ttft_ms = Some(40);
+        for attempt in [
+            row("a0", "rq_a", 0, 503, "upstream_error", 100),
+            row("a1", "rq_a", 1, 200, "", 300),
+            streamed,
+            row("c", "rq_c", 0, 429, "rate_limited", 50),
+            row("d", "rq_d", 0, 200, STREAM_INTERRUPTED, 350),
+        ] {
+            insert(pool, &attempt).await.unwrap();
+        }
+        let window = Query {
+            from_unix_ms: 0,
+            to_unix_ms: 10_000,
+            limit: 1,
+            ..Query::default()
+        };
+        let summary = summary(pool, &window).await.unwrap();
+        assert_eq!(
+            summary,
+            Summary {
+                requests: 4,
+                attempts: 5,
+                served_requests: 2,
+                success_rate_pct: 50.0,
+                fallback_requests: 1,
+                fallback_rate_pct: 25.0,
+                avg_latency_ms: 200,
+                avg_ttft_ms: Some(40),
+                errors: vec![
+                    ErrorCount {
+                        error: "rate_limited".to_owned(),
+                        count: 1
+                    },
+                    ErrorCount {
+                        error: "stream_interrupted".to_owned(),
+                        count: 1
+                    },
+                    ErrorCount {
+                        error: "upstream_error".to_owned(),
+                        count: 1
+                    },
+                ],
+            }
+        );
+        // An empty window.
+        let empty = summary_of_nothing(pool).await;
+        assert_eq!(
+            (empty.requests, empty.success_rate_pct, empty.avg_ttft_ms),
+            (0, 0.0, None)
+        );
+        assert!(empty.errors.is_empty());
+    }
+
+    async fn summary_of_nothing(pool: &AnyPool) -> Summary {
+        summary(
+            pool,
+            &Query {
+                from_unix_ms: 20_000,
+                to_unix_ms: 30_000,
+                limit: 1,
+                ..Query::default()
+            },
+        )
+        .await
+        .unwrap()
     }
 
     #[test]

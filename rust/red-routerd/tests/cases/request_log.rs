@@ -294,6 +294,38 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
             .len(),
         2
     );
+
+    // Both requests were served after a fallback (legacy analytics summary).
+    let summary = client
+        .get(format!("{base}/api/admin/request-log/summary"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(summary.status(), StatusCode::OK);
+    let summary: serde_json::Value = summary.json().await.unwrap();
+    let summary = &summary["summary"];
+    assert_eq!(summary["requests"], 2, "{summary}");
+    assert_eq!(summary["attempts"], 4);
+    assert_eq!(summary["served_requests"], 2);
+    assert_eq!(summary["success_rate_pct"], 100.0);
+    assert_eq!(summary["fallback_requests"], 2);
+    assert_eq!(summary["fallback_rate_pct"], 100.0);
+    assert_eq!(summary["avg_ttft_ms"], ttft);
+    assert_eq!(
+        summary["errors"],
+        serde_json::json!([{"error":"upstream_error","count":2}])
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/request-log/summary?from=5&to=5"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     gateway_task.abort();
     upstream_task.abort();
     database.close().await.unwrap();

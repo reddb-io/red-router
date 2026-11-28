@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { rustAdminFetch } from "./api/browserClient";
+import RequestSummary from "./RequestSummary";
 import RouteExplanation from "./RouteExplanation";
 
 type Usage = {
@@ -103,6 +104,7 @@ export default function RequestLog() {
         Every upstream attempt of the last 7 days, newest first · UTC. Attempts of one request share
         a request ID, so a fallback reads as consecutive attempts.
       </p>
+      <RequestSummary refresh={refresh} />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
