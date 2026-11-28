@@ -223,14 +223,15 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(&key)
         .json(&serde_json::json!({
-            "model":"logged-combo","stream":true,
+            "model":"logged-combo","stream":true,"stream_options":{"include_usage":true},
             "messages":[{"role":"user","content":"stream"}]
         }))
         .send()
         .await
         .unwrap();
-    assert_eq!(streamed.status(), StatusCode::OK);
+    let stream_status = streamed.status();
     let streamed = streamed.text().await.unwrap();
+    assert_eq!(stream_status, StatusCode::OK, "{streamed}");
     assert!(streamed.contains("streamed"), "{streamed}");
     let page = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
