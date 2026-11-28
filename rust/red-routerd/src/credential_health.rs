@@ -409,16 +409,6 @@ impl State {
         self.health.insert(health.provider_id.clone(), health);
     }
 
-    /// Legacy `isCredentialStale`: unknown, expired or older than ten minutes.
-    pub(crate) fn stale(&self, provider_id: &str, now_unix_ms: u64) -> bool {
-        self.health
-            .get(provider_id)
-            .filter(|health| now_unix_ms.saturating_sub(health.checked_at_unix_ms) < CACHE_TTL_MS)
-            .is_none_or(|health| {
-                now_unix_ms.saturating_sub(health.checked_at_unix_ms) > STALE_THRESHOLD_MS
-            })
-    }
-
     /// Legacy `getCachedCredentialHealthSummary`: counts every cached result,
     /// expired ones included, and lists the newest failures first.
     pub(crate) fn summary(&self, now_unix_ms: u64) -> Summary {
@@ -572,9 +562,6 @@ mod tests {
         );
         // Rows past the 5-minute TTL count as stale but stay in the counts.
         assert_eq!(state.summary(at + CACHE_TTL_MS + 100).stale, 41);
-        assert!(!state.stale("ok", at + 60));
-        assert!(state.stale("ok", at + CACHE_TTL_MS + 10));
-        assert!(state.stale("missing", at));
         // A healthy cache has no failure list.
         let mut healthy = State::default();
         healthy.record("ok", "openai", &Probe::Valid { warning: None }, at, 5, hour);
