@@ -284,6 +284,31 @@ pub(crate) fn legacy_wait_for_cooldown(
 
 /// Legacy `normalizeComboCooldownWaitSettings` over the stored
 /// `resilienceSettings.comboCooldownWait` (the fallback is the default).
+/// Legacy `resolveCredentialHealthSweepInterval`: a stored
+/// `credentialHealthCheck.intervalMinutes` that `Number()` reads as finite is
+/// the cadence in minutes (0 or less turns the sweep off, at most 1,440);
+/// anything else leaves the environment and the default in charge.
+pub(crate) fn legacy_credential_health_interval(rows: &[(String, String)]) -> Option<u64> {
+    let stored = rows
+        .iter()
+        .find(|(key, _)| key == "resilienceSettings")
+        .and_then(|(_, raw)| parse_value(raw).get("credentialHealthCheck").cloned())?;
+    let minutes = match stored.get("intervalMinutes")? {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) if text.trim().is_empty() => Some(0.0),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        Value::Bool(flag) => Some(f64::from(u8::from(*flag))),
+        Value::Null => Some(0.0),
+        _ => None,
+    }
+    .filter(|minutes| minutes.is_finite())?;
+    Some(if minutes <= 0.0 {
+        0
+    } else {
+        (minutes.trunc() as u64).min(1_440)
+    })
+}
+
 pub(crate) fn legacy_combo_cooldown_wait(
     rows: &[(String, String)],
 ) -> crate::cooldown_retry::ComboCooldownWait {
@@ -666,6 +691,10 @@ pub(crate) fn resilience_import_with(
         }
         if section == "requestQueue" {
             legacy_request_queue_section(value, &Value::Null)?;
+            continue;
+        }
+        // The sweep cadence is imported as a global setting.
+        if section == "credentialHealthCheck" {
             continue;
         }
         // The kill switch only gates the quota-share combo strategy, which the
@@ -1366,6 +1395,12 @@ pub async fn import(
             crate::global_settings::PROVIDER_COOLDOWN,
             serde_json::to_value(provider_cooldown)
                 .map_err(|_| "invalid legacy provider cooldown")?,
+        ));
+    }
+    if let Some(minutes) = legacy_credential_health_interval(&rows) {
+        global.push((
+            crate::global_settings::CREDENTIAL_HEALTH_INTERVAL_MINUTES,
+            Value::from(minutes),
         ));
     }
     let combo_cooldown_wait = legacy_combo_cooldown_wait(&rows);
@@ -2105,6 +2140,37 @@ mod tests {
                 max_retry_cooldown_ms: 2_000,
             }
         );
+        // The credential health cadence imports as a global setting.
+        assert!(resilience_import(r#"{"credentialHealthCheck":{"intervalMinutes":15}}"#).is_ok());
+        let interval = |raw: &str| {
+            legacy_credential_health_interval(&[("resilienceSettings".to_owned(), raw.to_owned())])
+        };
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":15}}"#),
+            Some(15)
+        );
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":"30.9"}}"#),
+            Some(30)
+        );
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":0}}"#),
+            Some(0)
+        );
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":-5}}"#),
+            Some(0)
+        );
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":99999}}"#),
+            Some(1_440)
+        );
+        assert_eq!(
+            interval(r#"{"credentialHealthCheck":{"intervalMinutes":"soon"}}"#),
+            None
+        );
+        assert_eq!(interval(r#"{"credentialHealthCheck":{}}"#), None);
+        assert_eq!(interval(r#"{"connectionCooldown":{}}"#), None);
         assert_eq!(
             resilience_import(r#"{"streamRecovery":{"enabled":true}}"#),
             Err("legacy resilience section has no native equivalent yet")

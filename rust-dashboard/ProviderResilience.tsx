@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import CredentialHealth from "./CredentialHealth";
 import {
   clearRustProviderQuota,
   configureRustProviderHealth,
@@ -361,6 +362,8 @@ export default function ProviderResilience() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+
+      <CredentialHealth />
 
       <form className="space-y-4 rounded border border-border p-4" onSubmit={saveRuntimeSettings}>
         <div>

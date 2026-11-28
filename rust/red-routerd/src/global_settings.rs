@@ -53,6 +53,9 @@
 //!   a combo's successful target to the front of the stored combo.
 //! - `model_lockout_policy`: the legacy opt-in `modelLockout` policy
 //!   (enabled, error codes, base cooldown, exponential backoff).
+//! - `credential_health_interval_minutes`: the legacy
+//!   `credentialHealthCheck.intervalMinutes` resilience setting, the cadence
+//!   of the credential health sweep (0 turns it off, at most a day).
 //! - `responses_previous_response_id_mode`: the legacy
 //!   `responsesPreviousResponseIdMode` (auto, strip, preserve).
 
@@ -80,6 +83,9 @@ pub(crate) const CODEX_SERVICE_TIER: &str = "codex_service_tier";
 pub(crate) const MODEL_LOCKOUT_POLICY: &str = "model_lockout_policy";
 pub(crate) const COMBO_AUTO_PROMOTE: &str = "combo_auto_promote";
 pub(crate) const CREDENTIAL_REDACTION: &str = "credential_redaction";
+pub(crate) const CREDENTIAL_HEALTH_INTERVAL_MINUTES: &str = "credential_health_interval_minutes";
+/// Legacy `resolveCredentialHealthSweepInterval` ceiling (a day).
+const MAX_CREDENTIAL_HEALTH_INTERVAL_MINUTES: u64 = 1_440;
 /// Provider records whose model list is refreshed periodically (legacy
 /// per-connection `providerSpecificData.autoSync`).
 pub(crate) const MODEL_AUTO_SYNC_PROVIDERS: &str = "model_auto_sync_providers";
@@ -222,6 +228,7 @@ pub(crate) struct Snapshot {
     model_lockout_policy: crate::availability::ModelLockoutPolicy,
     combo_auto_promote: bool,
     credential_redaction: bool,
+    credential_health_interval_minutes: Option<u64>,
     model_auto_sync_providers: Vec<String>,
     claude_classifier_compat: crate::claude_classifier_compat::ClaudeClassifierCompatMode,
     signature_cache_mode: crate::antigravity_translation::SignatureCacheMode,
@@ -351,6 +358,12 @@ impl Snapshot {
     /// Whether the credential masker guardrail is on.
     pub(crate) fn credential_redaction(&self) -> bool {
         self.credential_redaction
+    }
+
+    /// The operator's credential health cadence in minutes (0 is off), when
+    /// set; it wins over `CREDENTIAL_HEALTH_CHECK_INTERVAL`.
+    pub(crate) fn credential_health_interval_minutes(&self) -> Option<u64> {
+        self.credential_health_interval_minutes
     }
 
     /// The provider records with periodic model sync.
@@ -493,6 +506,11 @@ pub(crate) fn validate(key: &str, value: Value) -> Result<Value, &'static str> {
             .is_boolean()
             .then_some(value)
             .ok_or("invalid credential redaction"),
+        CREDENTIAL_HEALTH_INTERVAL_MINUTES => value
+            .as_u64()
+            .filter(|minutes| *minutes <= MAX_CREDENTIAL_HEALTH_INTERVAL_MINUTES)
+            .map(Value::from)
+            .ok_or("invalid credential health interval"),
         MODEL_AUTO_SYNC_PROVIDERS => {
             let ids: Vec<String> =
                 serde_json::from_value(value).map_err(|_| "invalid model auto-sync providers")?;
@@ -624,6 +642,9 @@ pub(crate) fn snapshot(stored: &BTreeMap<String, Value>) -> Result<Snapshot, &'s
             }
             CREDENTIAL_REDACTION => {
                 snapshot.credential_redaction = value == Value::Bool(true);
+            }
+            CREDENTIAL_HEALTH_INTERVAL_MINUTES => {
+                snapshot.credential_health_interval_minutes = value.as_u64();
             }
             MODEL_AUTO_SYNC_PROVIDERS => {
                 snapshot.model_auto_sync_providers = serde_json::from_value(value)

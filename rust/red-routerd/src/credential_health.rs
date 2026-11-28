@@ -133,6 +133,24 @@ pub(crate) fn codex_probe(status: u16, body: &str) -> Probe {
     }
 }
 
+/// The Antigravity probe. The legacy sends a one-token `streamGenerateContent`;
+/// here the account's quota RPC (`retrieveUserQuota`, which spends nothing)
+/// proves the token instead. `outcome` is that request's result category.
+pub(crate) fn agy_quota_probe(outcome: Result<(), &str>) -> Probe {
+    match outcome {
+        Ok(()) => Probe::Valid { warning: None },
+        Err("authorization_failed") => failure(401, "Token invalid or revoked".to_owned()),
+        Err("rate_limited") => Probe::Valid {
+            warning: Some("Provider accepted the token but is rate limited (429)"),
+        },
+        Err("upstream_error") => failure(503, "Provider unavailable".to_owned()),
+        Err("timeout") => network_failure(true),
+        Err("unavailable") => network_failure(false),
+        // A rejected or unreadable answer does not tell about the credential.
+        Err(_) => Probe::Skipped,
+    }
+}
+
 /// Legacy `checkExpiry` (Claude): no request, only the token's lifetime. An
 /// account that can refresh is valid; an expired one that cannot is not.
 pub(crate) fn expiry_probe(expires_at_unix: i64, now_unix: i64, can_refresh: bool) -> Probe {
@@ -372,6 +390,27 @@ mod tests {
             }
         ));
         assert_eq!(expiry_probe(0, 200, false), Probe::Valid { warning: None });
+        assert_eq!(agy_quota_probe(Ok(())), Probe::Valid { warning: None });
+        assert!(matches!(
+            agy_quota_probe(Err("authorization_failed")),
+            Probe::Invalid {
+                kind: "upstream_auth_error",
+                status: Some(401),
+                ..
+            }
+        ));
+        assert!(matches!(
+            agy_quota_probe(Err("rate_limited")),
+            Probe::Valid { warning: Some(_) }
+        ));
+        assert!(matches!(
+            agy_quota_probe(Err("timeout")),
+            Probe::Invalid {
+                kind: "network_error",
+                ..
+            }
+        ));
+        assert_eq!(agy_quota_probe(Err("invalid_response")), Probe::Skipped);
     }
 
     #[test]
