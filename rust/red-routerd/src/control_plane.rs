@@ -200,6 +200,10 @@ struct Inner {
     breaker_overrides: RwLock<HashMap<String, CircuitProfile>>,
     oauth_provider_ids: RwLock<HashSet<String>>,
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
+    /// Legacy credential health cache and sweep timing (memory only).
+    credential_health: StdMutex<crate::credential_health::State>,
+    /// One sweep at a time (legacy `sweepInProgress`).
+    credential_sweep: tokio::sync::Mutex<()>,
     runtime_settings: RwLock<RuntimeSettingsView>,
     global_settings: RwLock<crate::global_settings::Snapshot>,
     account_rotation: crate::account_rotation::AccountRotation,
@@ -2404,6 +2408,8 @@ impl ControlPlane {
             breaker_overrides: RwLock::new(breaker_overrides),
             oauth_provider_ids: RwLock::new(oauth_provider_ids),
             availability: RwLock::new(availability),
+            credential_health: StdMutex::new(crate::credential_health::State::default()),
+            credential_sweep: tokio::sync::Mutex::new(()),
             runtime_settings: RwLock::new(runtime_settings),
             global_settings: RwLock::new(global_settings),
             account_rotation: crate::account_rotation::AccountRotation::default(),
