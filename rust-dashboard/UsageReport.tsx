@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { rustAdminFetch } from "./api/browserClient";
+import ActivityHeatmap from "./ActivityHeatmap";
 
 type Entry = {
   event_id: string;
@@ -239,6 +240,7 @@ export default function UsageReport() {
             <p>Rerank search units: {report.search_units.toLocaleString()}</p>
           </div>
           <UsageBreakdown keyId={selection.keyId} until={until} />
+          <ActivityHeatmap keyId={selection.keyId} until={until} />
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
