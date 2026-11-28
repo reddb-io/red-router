@@ -26,6 +26,9 @@ mod global_settings_storage;
 #[path = "provider_concurrency_storage.rs"]
 mod provider_concurrency_storage;
 pub(crate) use provider_concurrency_storage::MAX_PROVIDER_CONCURRENCY;
+#[path = "provider_health_interval_storage.rs"]
+mod provider_health_interval_storage;
+pub(crate) use provider_health_interval_storage::MAX_PROVIDER_HEALTH_INTERVAL_MINUTES;
 #[path = "provider_default_storage.rs"]
 mod provider_default_storage;
 #[path = "provider_discovery_storage.rs"]
@@ -297,6 +300,9 @@ pub struct StoredProvider {
     pub default_model: Option<String>,
     /// Concurrent requests the account accepts; none means no cap.
     pub max_concurrent: Option<u32>,
+    /// Credential health cadence in minutes (legacy `healthCheckInterval`):
+    /// none follows the global sweep, 0 never probes the account.
+    pub health_check_interval_minutes: Option<u32>,
     pub id: String,
     pub tenant_id: String,
     pub provider: String,
@@ -823,6 +829,7 @@ impl Database {
                         provider_priority_storage::CREATE,
                         provider_default_storage::CREATE,
                         provider_concurrency_storage::CREATE,
+                        provider_health_interval_storage::CREATE,
                         provider_nodes_storage::CREATE,
                         provider_models_storage::CREATE,
                         payload_rules_storage::CREATE,
@@ -968,6 +975,8 @@ impl Database {
                 db.remote_schema_query(provider_default_storage::CREATE)
                     .await?;
                 db.remote_schema_query(provider_concurrency_storage::CREATE)
+                    .await?;
+                db.remote_schema_query(provider_health_interval_storage::CREATE)
                     .await?;
                 db.remote_schema_query(model_aliases_storage::STATE).await?;
                 db.remote_schema_query(model_aliases_storage::CREATE)
@@ -1116,6 +1125,7 @@ impl Database {
                     provider_priority_storage::CREATE,
                     provider_default_storage::CREATE,
                     provider_concurrency_storage::CREATE,
+                    provider_health_interval_storage::CREATE,
                     provider_nodes_storage::CREATE,
                     provider_models_storage::CREATE,
                     payload_rules_storage::CREATE,
@@ -1289,11 +1299,14 @@ impl Database {
             Some(self.provider_defaults().await?)
         };
         let mut concurrency = self.provider_concurrency().await?;
+        let mut health_intervals = self.provider_health_intervals().await?;
         let mut bindings = self.provider_node_bindings().await?;
         let nodes = self.provider_nodes().await?;
         for provider in &mut providers {
             provider.max_concurrent =
                 concurrency.remove(&(provider.id.clone(), provider.updated_at));
+            provider.health_check_interval_minutes =
+                health_intervals.remove(&(provider.id.clone(), provider.updated_at));
             if let Some(priorities) = &mut priorities {
                 provider.priority = priorities
                     .remove(&(provider.id.clone(), provider.updated_at))
@@ -1350,6 +1363,7 @@ impl Database {
         self.upsert_provider_priority(provider).await?;
         self.upsert_provider_default(provider).await?;
         self.upsert_provider_concurrency(provider).await?;
+        self.upsert_provider_health_interval(provider).await?;
         self.upsert_provider_node_binding(provider).await?;
         self.upsert_provider_ownership(provider).await?;
         match self {
@@ -1394,6 +1408,7 @@ impl Database {
         self.upsert_provider_priority(&provider).await?;
         self.upsert_provider_default(&provider).await?;
         self.upsert_provider_concurrency(&provider).await?;
+        self.upsert_provider_health_interval(&provider).await?;
         self.upsert_provider_node_binding(&provider).await?;
         self.upsert_provider_ownership(&provider).await?;
         match self {
@@ -1440,6 +1455,7 @@ impl Database {
         self.delete_provider_priorities(id).await?;
         self.delete_provider_defaults(id).await?;
         self.delete_provider_concurrency(id).await?;
+        self.delete_provider_health_intervals(id).await?;
         self.delete_provider_node_bindings(id).await?;
         let params = || vec![reddb_client::Value::Text(id.to_owned())];
         match self {
@@ -5319,6 +5335,7 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
             .map_err(|_| "invalid provider default model")?,
         // Loaded from its revision-bound table by `providers()`.
         max_concurrent: None,
+        health_check_interval_minutes: None,
         id: row.try_get("id").map_err(|_| "invalid provider record")?,
         tenant_id: "red".to_owned(),
         provider: row
@@ -5361,6 +5378,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         priority: 0,
         default_model: None,
         max_concurrent: None,
+        health_check_interval_minutes: None,
         id: text("id")?,
         tenant_id: "red".to_owned(),
         provider: text("provider")?,

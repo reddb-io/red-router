@@ -46,6 +46,38 @@ fn legacy_concurrency(value: Option<i64>) -> Result<Option<u32>, &'static str> {
     }
 }
 
+/// A legacy connection's `healthCheckInterval` (legacy `getConnIntervalMs`):
+/// 0 or less never probes the account, a positive value is its cadence in
+/// minutes (the legacy API caps it at a day).
+fn legacy_health_check_interval(minutes: i64) -> Result<Option<u32>, &'static str> {
+    if minutes <= 0 {
+        return Ok(Some(0));
+    }
+    u32::try_from(minutes)
+        .ok()
+        .filter(|minutes| *minutes <= crate::storage::MAX_PROVIDER_HEALTH_INTERVAL_MINUTES)
+        .map(Some)
+        .ok_or("unsupported legacy provider health check interval")
+}
+
+async fn record_imported_health_interval(
+    db: &mut SqliteConnection,
+    id: &str,
+    minutes: Option<u32>,
+) -> Result<(), &'static str> {
+    let Some(minutes) = minutes else {
+        return Ok(());
+    };
+    sqlx::query("INSERT INTO redrouter_control_provider_health_intervals (record_id,provider_id,interval_minutes,revision) VALUES (?,?,?,1)")
+        .bind(format!("{id}:1"))
+        .bind(id)
+        .bind(i64::from(minutes))
+        .execute(&mut *db)
+        .await
+        .map_err(|_| "cannot write provider health interval")?;
+    Ok(())
+}
+
 /// Write an imported connection's concurrency cap for its first revision.
 /// Legacy `rateLimitProtection` and `rateLimitOverrides` of a connection as
 /// its native request queue policy, none when neither is set. Only positive
@@ -454,6 +486,10 @@ async fn adopt_oauth(
             None | Some(serde_json::Value::Null) => None,
             Some(value) => Some(value.as_i64().ok_or("invalid legacy provider concurrency")?),
         })?;
+        let health_check_interval = match object.get("health_check_interval") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => legacy_health_check_interval(value.as_i64().ok_or("invalid legacy provider health check interval")?)?,
+        };
         // The backoff level and a pending cooldown are runtime health; a
         // future cooldown carries over (see pending_cooldown_ms).
         let backoff_level = match object.get("backoff_level") {
@@ -692,6 +728,7 @@ async fn adopt_oauth(
         sqlx::query("INSERT INTO redrouter_control_providers VALUES (?,?,?,?,0,1)").bind(id).bind(provider).bind(upstream).bind(access_cipher).execute(&mut db).await.map_err(|_| "cannot write OAuth provider")?;
         record_imported_availability(&mut db, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut db, id, max_concurrent).await?;
+        record_imported_health_interval(&mut db, id, health_check_interval).await?;
         if auto_sync {
             record_model_auto_sync(&mut db, id).await?;
         }
@@ -965,11 +1002,12 @@ pub async fn import(
             Err(sqlx::Error::ColumnNotFound(_)) => {}
             Err(_) => return Err("invalid legacy provider global priority"),
         }
-        match row.try_get::<Option<i64>, _>("health_check_interval") {
-            Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => {},
-            Ok(_) => return Err("legacy provider selection or health policy requires migration"),
+        // The per-connection credential health cadence carries over (0 never probes).
+        let health_check_interval = match row.try_get::<Option<i64>, _>("health_check_interval") {
+            Ok(None) | Err(sqlx::Error::ColumnNotFound(_)) => None,
+            Ok(Some(minutes)) => legacy_health_check_interval(minutes)?,
             Err(_) => return Err("invalid legacy provider policy"),
-        }
+        };
         let rate_limit_protection = match row.try_get::<Option<i64>, _>("rate_limit_protection") {
             Ok(None | Some(0)) | Err(sqlx::Error::ColumnNotFound(_)) => false,
             // The legacy row mapping reads any other value as enabled.
@@ -1025,6 +1063,7 @@ pub async fn import(
             .bind(id).bind(&native_provider).bind(&upstream).bind(&encrypted).execute(&mut *target).await.map_err(|_| "cannot write destination provider")?;
         record_imported_availability(&mut target, id, terminal, cooldown_until, backoff_level).await?;
         record_imported_concurrency(&mut target, id, max_concurrent).await?;
+        record_imported_health_interval(&mut target, id, health_check_interval).await?;
         if auto_sync {
             record_model_auto_sync(&mut target, id).await?;
         }

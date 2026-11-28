@@ -488,31 +488,29 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
         .execute(&mut input)
         .await
         .unwrap();
-    for field in ["health_check_interval"] {
-        sqlx::query(&format!(
-            "ALTER TABLE provider_connections ADD COLUMN {field} INTEGER"
-        ))
+    // The per-connection credential health cadence carries over; a cadence
+    // longer than the legacy API allows (a day) is refused.
+    sqlx::query("ALTER TABLE provider_connections ADD COLUMN health_check_interval INTEGER")
         .execute(&mut input)
         .await
         .unwrap();
-        sqlx::query(&format!("UPDATE provider_connections SET {field}=7"))
-            .execute(&mut input)
+    sqlx::query("UPDATE provider_connections SET health_check_interval=99999")
+        .execute(&mut input)
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
             .await
-            .unwrap();
-        assert_eq!(
-            legacy_providers::import(&source, &dest, "provider-1", STORAGE_KEY)
-                .await
-                .err(),
-            Some("legacy provider selection or health policy requires migration")
-        );
-        let check = Database::connect(Backend::Sqlite, &url).await.unwrap();
-        assert!(check.providers().await.unwrap().is_empty());
-        check.close().await.unwrap();
-        sqlx::query(&format!("UPDATE provider_connections SET {field}=0"))
-            .execute(&mut input)
-            .await
-            .unwrap();
-    }
+            .err(),
+        Some("unsupported legacy provider health check interval")
+    );
+    let check = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert!(check.providers().await.unwrap().is_empty());
+    check.close().await.unwrap();
+    sqlx::query("UPDATE provider_connections SET health_check_interval=15")
+        .execute(&mut input)
+        .await
+        .unwrap();
     let legacy_label = "é".repeat(200);
     sqlx::query(
         "UPDATE provider_connections SET priority=-4, default_model='legacy-openrouter-model', test_status='expired', max_concurrent=3",
@@ -562,6 +560,7 @@ async fn stages_encrypted_provider_credential_without_activating_or_exposing_it(
     assert_eq!(providers[0].priority, -4);
     // The legacy per-connection concurrency cap carries over.
     assert_eq!(providers[0].max_concurrent, Some(3));
+    assert_eq!(providers[0].health_check_interval_minutes, Some(15));
     // So do the request queue protection and overrides.
     assert_eq!(
         db.global_settings().await.unwrap()["request_queue_connections"],

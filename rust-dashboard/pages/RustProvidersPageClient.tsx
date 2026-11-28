@@ -46,6 +46,7 @@ type Draft = {
   protocol: RustProviderProtocol;
   priority: string;
   defaultModel: string;
+  healthCheckInterval: string;
   id: string;
   provider: string;
   upstreamUrl: string;
@@ -90,6 +91,7 @@ const EMPTY_DRAFT: Draft = {
   protocol: "auto",
   priority: "0",
   defaultModel: "",
+  healthCheckInterval: "",
   id: "",
   provider: "openai-compatible",
   upstreamUrl: "",
@@ -121,6 +123,10 @@ function providerDraft(provider: RustProvider): Draft {
     protocol: provider.protocol ?? "auto",
     priority: String(provider.priority ?? 0),
     defaultModel: provider.default_model ?? "",
+    healthCheckInterval:
+      provider.health_check_interval_minutes === undefined
+        ? ""
+        : String(provider.health_check_interval_minutes),
     id: provider.id,
     provider: provider.provider,
     upstreamUrl: provider.upstream_url,
@@ -155,6 +161,13 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
   const defaultModel = draft.defaultModel.trim();
   if (new TextEncoder().encode(defaultModel).length > 256) {
     throw new Error("Default model cannot exceed 256 bytes");
+  }
+  const healthCheckInterval = draft.healthCheckInterval.trim();
+  if (
+    healthCheckInterval &&
+    (!/^\d+$/.test(healthCheckInterval) || Number(healthCheckInterval) > 1440)
+  ) {
+    throw new Error("Health check interval must be between 0 and 1440 minutes");
   }
   if (!/^-?\d+$/.test(draft.priority) || !Number.isSafeInteger(priority)) {
     throw new Error("Account priority must be a safe integer");
@@ -219,6 +232,7 @@ function providerInput(draft: Draft, editing: boolean): RustProviderInput {
     protocol: draft.credentialType === "oauth" ? "auto" : draft.protocol,
     priority,
     default_model: defaultModel || null,
+    health_check_interval_minutes: healthCheckInterval ? Number(healthCheckInterval) : null,
     provider,
     upstream_url: upstreamUrl,
     api_key: apiKey,
@@ -946,6 +960,23 @@ export default function RustProvidersPageClient() {
               onChange={(event) => set("defaultModel", event.target.value)}
             />
             <span className="font-normal">Used when an unqualified model alias selects this account.</span>
+          </label>
+          <label className={labelClass}>
+            Health check interval (minutes)
+            <input
+              className={inputClass}
+              type="number"
+              min="0"
+              max="1440"
+              step="1"
+              value={draft.healthCheckInterval}
+              placeholder="Global cadence"
+              onChange={(event) => set("healthCheckInterval", event.target.value)}
+            />
+            <span className="font-normal">
+              How often the credential health sweep probes this account. Empty follows the global
+              cadence; 0 never probes it.
+            </span>
           </label>
           <div className={labelClass}>
             <span>Provider type</span>

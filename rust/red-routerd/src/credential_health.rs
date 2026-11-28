@@ -50,6 +50,15 @@ pub(crate) fn disabled(env: Option<&str>) -> bool {
 }
 
 /// Legacy `resolveInconclusiveProbeRecheckDelayMs`.
+/// Legacy `getConnIntervalMs`: an account's own cadence in minutes wins over
+/// the global sweep cadence. The sweep leaves out an account set to 0.
+pub(crate) fn account_interval_ms(minutes: Option<u32>, global_ms: u64) -> u64 {
+    match minutes {
+        Some(minutes) if minutes > 0 => u64::from(minutes) * 60_000,
+        _ => global_ms,
+    }
+}
+
 pub(crate) fn inconclusive_recheck_ms(interval_ms: u64) -> u64 {
     INCONCLUSIVE_RECHECK_MIN_MS.max(interval_ms.saturating_mul(INCONCLUSIVE_RECHECK_MULTIPLIER))
 }
@@ -331,6 +340,9 @@ mod tests {
     #[test]
     fn the_cadence_follows_the_legacy_environment() {
         assert_eq!(sweep_interval_ms(None), 3_600_000);
+        assert_eq!(account_interval_ms(None, 3_600_000), 3_600_000);
+        assert_eq!(account_interval_ms(Some(15), 3_600_000), 900_000);
+        assert_eq!(account_interval_ms(Some(1_440), 60_000), 86_400_000);
         assert_eq!(sweep_interval_ms(Some("60000")), 60_000);
         assert_eq!(sweep_interval_ms(Some("9999")), 3_600_000);
         assert_eq!(sweep_interval_ms(Some("soon")), 3_600_000);
