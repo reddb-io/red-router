@@ -1397,7 +1397,7 @@ impl ControlPlane {
         let Ok(auth) = self.auth_settings().await.map(|mut settings| {
             settings
                 .remove(&(provider.id.clone(), provider.updated_at))
-                .unwrap_or_else(|| default_provider_auth(&provider))
+                .unwrap_or_else(|| default_provider_auth(provider))
         }) else {
             return Probe::Skipped;
         };

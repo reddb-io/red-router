@@ -12479,6 +12479,7 @@ include!("cases/audio_transcription.rs");
 include!("cases/client_key_rotation.rs");
 include!("cases/tenant_lifecycle.rs");
 include!("cases/request_log.rs");
+include!("cases/credential_health.rs");
 
 include!("cases/provider_nodes.rs");
 
