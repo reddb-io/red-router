@@ -30,6 +30,108 @@ type Report = {
   entries: Entry[];
 };
 
+type BreakdownBy = "model" | "provider" | "key" | "day";
+type BreakdownGroup = {
+  group: string;
+  label: string;
+  request_count: number;
+  priced_request_count: number;
+  tokens_input: number;
+  tokens_output: number;
+  tokens_reasoning: number;
+  search_units: number;
+  amount_microusd: number;
+};
+
+function UsageBreakdown({ keyId, until }: { keyId: string; until: number }) {
+  const [by, setBy] = useState<BreakdownBy>("model");
+  const [groups, setGroups] = useState<BreakdownGroup[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = new URLSearchParams({
+      by,
+      from_unix_ms: String(until - 30 * 24 * 60 * 60 * 1_000),
+      to_unix_ms: String(until),
+    });
+    if (keyId) query.set("key_id", keyId);
+    setGroups(null);
+    setError("");
+    rustAdminFetch(`/api/admin/usage/breakdown?${query}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Usage breakdown unavailable (${response.status})`);
+        const data = await response.json();
+        if (!Array.isArray(data?.breakdown?.groups)) throw new Error("Invalid usage breakdown");
+        setGroups(data.breakdown.groups as BreakdownGroup[]);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "Usage breakdown unavailable");
+      });
+    return () => controller.abort();
+  }, [by, keyId, until]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label>
+        Breakdown by{" "}
+        <select
+          className="rounded border border-border bg-surface px-3 py-2"
+          value={by}
+          onChange={(event) => setBy(event.target.value as BreakdownBy)}
+        >
+          <option value="model">Model</option>
+          <option value="provider">Provider</option>
+          <option value="key">API key</option>
+          <option value="day">Day (UTC)</option>
+        </select>
+      </label>
+      {error && (
+        <p role="alert" className="text-error">
+          {error}
+        </p>
+      )}
+      {!error && !groups && <p>Loading breakdown…</p>}
+      {groups && groups.length === 0 && <p>No usage in this period.</p>}
+      {groups && groups.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr>
+                <th>{by === "day" ? "Day" : by === "key" ? "API key" : by === "provider" ? "Provider" : "Model"}</th>
+                <th>Requests</th>
+                <th>Input tokens</th>
+                <th>Output tokens</th>
+                <th>Spend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((group) => (
+                <tr key={group.group}>
+                  <td>
+                    {group.label}
+                    {group.label !== group.group && <small> ({group.group})</small>}
+                  </td>
+                  <td>
+                    {group.request_count.toLocaleString()}
+                    {group.priced_request_count < group.request_count && (
+                      <small> ({group.priced_request_count.toLocaleString()} priced)</small>
+                    )}
+                  </td>
+                  <td>{group.tokens_input.toLocaleString()}</td>
+                  <td>{group.tokens_output.toLocaleString()}</td>
+                  <td>{money(group.amount_microusd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function money(micros: number): string {
   return Number.isSafeInteger(micros)
     ? `$${(micros / 1_000_000).toFixed(6)}`
@@ -125,6 +227,7 @@ export default function UsageReport() {
             </p>
             <p>Rerank search units: {report.search_units.toLocaleString()}</p>
           </div>
+          <UsageBreakdown keyId={selection.keyId} until={until} />
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>

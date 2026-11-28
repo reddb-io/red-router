@@ -75,6 +75,24 @@ impl ProviderFailureClass {
 /// Multiplexing and generic OpenAI-compatible gateways sometimes use 401 for
 /// model entitlement or format errors; those need bounded body classification
 /// before the entire connection may be parked.
+impl ProviderFailureClass {
+    /// The failure class name the request log records.
+    pub(crate) fn log_label(self) -> &'static str {
+        match self {
+            Self::Transient => "upstream_error",
+            Self::Model => "model_unavailable",
+            Self::RetiredModel => "model_retired",
+            Self::MovedEndpoint => "endpoint_moved",
+            Self::Banned => "account_banned",
+            Self::Expired => "credential_expired",
+            Self::AmbiguousExpired => "credential_rejected",
+            Self::CreditsExhausted => "credits_exhausted",
+            Self::RequestScoped => "request_resource_missing",
+            Self::RequestRefusal => "request_refused",
+        }
+    }
+}
+
 pub(crate) fn authentication_failure_is_terminal(provider: Option<&str>) -> bool {
     matches!(
         provider.unwrap_or_default().to_ascii_lowercase().as_str(),

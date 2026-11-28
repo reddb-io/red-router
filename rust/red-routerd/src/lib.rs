@@ -85,6 +85,7 @@ mod reasoning_placeholder;
 mod reasoning_replay;
 pub mod reconcile;
 mod request_cap;
+mod request_log;
 mod request_queue;
 mod request_resource_errors;
 mod resilience;
@@ -362,6 +363,73 @@ struct ProductFallback {
     provider_key: HeaderValue,
 }
 
+/// The request log of one proxied request: its id, the caller and what it
+/// asked for, and a counter numbering its attempts across combo passes.
+struct RequestLogger {
+    control: control_plane::ControlPlane,
+    request_id: String,
+    tenant_id: String,
+    key_id: String,
+    protocol: &'static str,
+    requested_model: String,
+    stream: bool,
+    attempts: std::sync::atomic::AtomicI64,
+}
+
+impl RequestLogger {
+    #[allow(clippy::too_many_arguments)]
+    fn record(
+        &self,
+        provider: Option<&str>,
+        provider_id: Option<&str>,
+        model: &str,
+        status: u16,
+        error: &str,
+        started: std::time::Instant,
+        usage_event_id: Option<&str>,
+    ) {
+        let attempt = self
+            .attempts
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.control.record_request_attempt(request_log::Attempt {
+            id: format!("{}-{attempt}", self.request_id),
+            created_at_unix_ms: unix_time_ms(),
+            request_id: self.request_id.clone(),
+            attempt,
+            tenant_id: self.tenant_id.clone(),
+            key_id: self.key_id.clone(),
+            protocol: self.protocol,
+            requested_model: self.requested_model.clone(),
+            model: model.to_owned(),
+            provider: provider.unwrap_or_default().to_owned(),
+            provider_id: provider_id.unwrap_or_default().to_owned(),
+            status,
+            error: error.to_owned(),
+            duration_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+            stream: self.stream,
+            usage_event_id: usage_event_id.unwrap_or_default().to_owned(),
+        });
+    }
+}
+
+/// The request log name of a client protocol.
+fn request_log_protocol(protocol: ProviderProtocol) -> &'static str {
+    match protocol {
+        ProviderProtocol::OpenAi => "chat",
+        ProviderProtocol::OpenAiResponses => "responses",
+        ProviderProtocol::Anthropic => "messages",
+        ProviderProtocol::Gemini => "gemini",
+        ProviderProtocol::Antigravity => "antigravity",
+        ProviderProtocol::OpenAiEmbeddings => "embeddings",
+        ProviderProtocol::OpenAiImages | ProviderProtocol::AntigravityImages => "images",
+        ProviderProtocol::OpenAiTranscriptions => "transcriptions",
+        ProviderProtocol::CohereRerank => "rerank",
+        ProviderProtocol::OpenAiToAnthropic
+        | ProviderProtocol::OpenAiToResponses
+        | ProviderProtocol::OpenAiToAntigravity => "chat",
+    }
+}
+
 enum UsageAttempt {
     Product {
         connection: product::ProductConnection,
@@ -390,6 +458,14 @@ enum UsageAttempt {
 }
 
 impl UsageAttempt {
+    fn event_id(&self) -> &str {
+        match self {
+            Self::Product { event_id, .. }
+            | Self::Native { event_id, .. }
+            | Self::NativeRerank { event_id, .. } => event_id,
+        }
+    }
+
     fn into_context(
         self,
         access: Option<&product::ProductAccess>,
@@ -2831,6 +2907,14 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
         )
         .route(
+            "/api/admin/client-keys/{id}/rotate",
+            post(control_plane::rotate_client_key),
+        )
+        .route(
+            "/api/admin/request-log",
+            get(control_plane::get_request_log),
+        )
+        .route(
             "/api/admin/budgets",
             get(control_plane::list_shared_budgets).post(control_plane::create_shared_budget),
         )
@@ -2845,6 +2929,10 @@ pub fn router(state: ProxyState) -> Router {
                 .delete(control_plane::delete_token_limit),
         )
         .route("/api/admin/usage", get(control_plane::get_usage_report))
+        .route(
+            "/api/admin/usage/breakdown",
+            get(control_plane::get_usage_breakdown),
+        )
         .route(
             "/api/admin/legacy-usage",
             get(control_plane::get_legacy_usage_report),
@@ -2873,7 +2961,10 @@ pub fn router(state: ProxyState) -> Router {
             post(control_plane::test_usage_export),
         )
         .route("/api/admin/tenants", get(control_plane::list_tenants))
-        .route("/api/admin/tenants/{id}", put(control_plane::put_tenant))
+        .route(
+            "/api/admin/tenants/{id}",
+            put(control_plane::put_tenant).delete(control_plane::delete_tenant),
+        )
         .route(
             "/api/admin/identity-bindings",
             get(control_plane::list_identity_bindings),
@@ -7701,6 +7792,24 @@ async fn proxy_request(
         );
     }
     let mut offsets = 0..attempts;
+    let request_logger = state.control_plane.as_ref().and_then(|control| {
+        let mut id = [0_u8; 12];
+        getrandom::fill(&mut id).ok()?;
+        let identity = policy.identity();
+        Some(RequestLogger {
+            control: control.clone(),
+            request_id: format!("rq_{}", hex::encode(id)),
+            tenant_id: identity.map_or_else(
+                || "red".to_owned(),
+                |identity| identity.tenant_id.to_string(),
+            ),
+            key_id: identity.map_or_else(String::new, |identity| identity.id.to_string()),
+            protocol: request_log_protocol(protocol),
+            requested_model: requested_model.clone(),
+            stream: parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true),
+            attempts: std::sync::atomic::AtomicI64::new(0),
+        })
+    });
     let target_at = |offset: usize| {
         if direct_alias {
             eligible.get(offset).copied()
@@ -8766,6 +8875,7 @@ async fn proxy_request(
             })
             .map(ProviderLoadGuard::new);
         let mut include_antigravity_project = true;
+        let attempt_started = std::time::Instant::now();
         let response = match tokio::time::timeout(
             HEADER_TIMEOUT,
             build_upstream(include_antigravity_project, &payload).send(),
@@ -8797,6 +8907,17 @@ async fn proxy_request(
         let response = match response {
             Ok(response) => response,
             Err(false) => {
+                if let Some(logger) = request_logger.as_ref() {
+                    logger.record(
+                        target.and_then(|target| target.provider_name.as_deref()),
+                        target.and_then(|target| target.provider_id.as_deref()),
+                        target_model,
+                        502,
+                        "upstream_unavailable",
+                        attempt_started,
+                        accounting_attempt.as_ref().map(UsageAttempt::event_id),
+                    );
+                }
                 if let Some(target) = target {
                     record_route_outcome(
                         &state,
@@ -8822,6 +8943,17 @@ async fn proxy_request(
                 return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
             }
             Err(true) => {
+                if let Some(logger) = request_logger.as_ref() {
+                    logger.record(
+                        target.and_then(|target| target.provider_name.as_deref()),
+                        target.and_then(|target| target.provider_id.as_deref()),
+                        target_model,
+                        504,
+                        "upstream_timeout",
+                        attempt_started,
+                        accounting_attempt.as_ref().map(UsageAttempt::event_id),
+                    );
+                }
                 if let Some(target) = target {
                     record_route_outcome(
                         &state,
@@ -8936,6 +9068,22 @@ async fn proxy_request(
             response.error_body(),
             availability.is_none_or(|availability| availability.preserves_quota_signals()),
         );
+        if let Some(logger) = request_logger.as_ref() {
+            let error = if response.status().is_success() {
+                String::new()
+            } else {
+                failure_class.log_label().to_owned()
+            };
+            logger.record(
+                provider_name,
+                target.and_then(|target| target.provider_id.as_deref()),
+                target_model,
+                response.status().as_u16(),
+                &error,
+                attempt_started,
+                accounting_attempt.as_ref().map(UsageAttempt::event_id),
+            );
+        }
         // A quota phrase parks the connection and moves on (legacy shouldFallback).
         let mut quota_text_parked = false;
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {

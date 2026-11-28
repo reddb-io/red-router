@@ -155,6 +155,7 @@ const UPSERT_CLIENT_KEY_PREFERENCE: &str = "INSERT INTO redrouter_control_client
 const UPSERT_CLIENT_KEY_SCHEDULE: &str = "INSERT INTO redrouter_control_client_key_schedules (key_id, schedule_json, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET schedule_json = $2, revision = $3";
 const UPSERT_CLIENT_KEY_MODEL_ACCESS: &str = "INSERT INTO redrouter_control_client_key_model_access (key_id, model_access_mode, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET model_access_mode = $2, revision = $3";
 const UPSERT_CLIENT_KEY_COMBO_ACCESS: &str = "INSERT INTO redrouter_control_client_key_combo_access (key_id, allowed_combos_json, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET allowed_combos_json = $2, revision = $3";
+const DELETE_TENANT: &str = "DELETE FROM redrouter_control_tenants WHERE id = $1";
 const CREATE_TENANTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const SEED_DEFAULT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ('red','red','Red',1,0) ON CONFLICT (id) DO NOTHING";
 const LIST_TENANTS: &str = "SELECT id, slug, name, enabled, revision FROM redrouter_control_tenants ORDER BY revision DESC, id ASC";
@@ -1202,6 +1203,10 @@ impl Database {
                         CREATE_USAGE_LEDGER_KEY_INDEX,
                         CREATE_USAGE_LEDGER_TENANT_INDEX,
                         CREATE_USAGE_LEDGER_TENANT_KEY_INDEX,
+                        crate::request_log::CREATE,
+                        crate::request_log::CREATE_TIME_INDEX,
+                        crate::request_log::CREATE_TENANT_TIME_INDEX,
+                        crate::request_log::CREATE_REQUEST_INDEX,
                     ] {
                         sqlx::query(statement)
                             .execute(&pool)
@@ -2211,6 +2216,29 @@ impl Database {
                 db.query_with(UPSERT_TENANT, tenant_params(tenant, enabled))
                     .await
                     .map_err(|_| "cannot write tenant configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_tenant(&self, id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_TENANT)
+                    .bind(id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete tenant configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_TENANT, &params()).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_TENANT, params())
+                    .await
+                    .map_err(|_| "cannot delete tenant configuration")?;
             }
         }
         Ok(())

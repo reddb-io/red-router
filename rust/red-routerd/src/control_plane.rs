@@ -4172,6 +4172,48 @@ impl ControlPlane {
         Ok(deleted)
     }
 
+    /// Write one request log attempt in the background, off the response
+    /// path (legacy `saveCallLog` is fire-and-forget too). The log lives in
+    /// SQLite with the usage ledger; other backends do not keep it.
+    pub(crate) fn record_request_attempt(&self, attempt: crate::request_log::Attempt) {
+        let control = self.clone();
+        tokio::spawn(async move {
+            // Native usage storage exists only on SQLite, like this log.
+            if control.0.native_usage.read().await.is_none() {
+                return;
+            }
+            let Some(pool) = control.0.database.sql_pool() else {
+                return;
+            };
+            if let Err(error) = crate::request_log::insert(pool, &attempt).await {
+                eprintln!("Rust request log write failed: {error}");
+            }
+            if crate::request_log::prune_due() {
+                let (days, rows) = crate::request_log::retention();
+                if let Err(error) =
+                    crate::request_log::prune(pool, attempt.created_at_unix_ms, days, rows).await
+                {
+                    eprintln!("Rust request log prune failed: {error}");
+                }
+            }
+        });
+    }
+
+    pub(crate) async fn request_log_page(
+        &self,
+        query: &crate::request_log::Query,
+    ) -> Result<crate::request_log::Page, &'static str> {
+        if self.0.native_usage.read().await.is_none() {
+            return Err("request log requires SQLite storage");
+        }
+        let pool = self
+            .0
+            .database
+            .sql_pool()
+            .ok_or("request log requires SQLite storage")?;
+        crate::request_log::list(pool, query).await
+    }
+
     pub(crate) async fn begin_native_usage(
         &self,
         identity: &crate::policy::ClientIdentity,
@@ -8127,6 +8169,26 @@ impl ControlPlane {
             .collect())
     }
 
+    async fn native_usage_breakdown(
+        &self,
+        tenant_id: Option<&str>,
+        key_id: Option<&str>,
+        from_unix_ms: i64,
+        to_unix_ms: i64,
+        by: crate::native_usage::Breakdown,
+    ) -> Result<Vec<crate::native_usage::BreakdownRow>, &'static str> {
+        let usage = self
+            .0
+            .native_usage
+            .read()
+            .await
+            .clone()
+            .ok_or("native usage storage unavailable")?;
+        usage
+            .breakdown(tenant_id, key_id, from_unix_ms, to_unix_ms, by)
+            .await
+    }
+
     async fn native_usage_report(
         &self,
         tenant_id: Option<&str>,
@@ -8664,6 +8726,63 @@ impl ControlPlane {
             return Err("cannot reload client key configuration");
         }
         Ok(after)
+    }
+
+    /// Legacy `deleteTenant`: the default tenant is kept, and a tenant that
+    /// still owns active client keys (a revoked key is only disabled), provider connections, combos or identity
+    /// bindings is refused until they are moved or deleted.
+    async fn delete_tenant_as(&self, id: &str, actor: &str) -> Result<(), &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        if id == "red" {
+            return Err("default tenant cannot be deleted");
+        }
+        let _mutation = self.0.mutation.lock().await;
+        let database = &self.0.database;
+        let tenant = database
+            .tenants()
+            .await?
+            .into_iter()
+            .find(|tenant| tenant.id == id)
+            .ok_or("tenant not found")?;
+        let owns = database
+            .client_keys()
+            .await?
+            .iter()
+            .any(|key| key.enabled && key.tenant_id == id)
+            || database
+                .providers()
+                .await?
+                .iter()
+                .any(|provider| provider.tenant_id == id)
+            || database
+                .combos()
+                .await?
+                .iter()
+                .any(|combo| combo.tenant_id == id)
+            || database
+                .identity_bindings()
+                .await?
+                .iter()
+                .any(|binding| binding.tenant_id == id);
+        if owns {
+            return Err("tenant still owns resources");
+        }
+        let before = tenant_view(&tenant);
+        database.delete_tenant(id).await?;
+        self.record_audit_event::<TenantView>(
+            AuditContext {
+                action: "tenant.delete",
+                actor,
+                tenant_id: id,
+                target: id,
+                resource_type: "tenant",
+            },
+            Some(&before),
+            None,
+        )
+        .await;
+        Ok(())
     }
 
     pub async fn configure_identity_binding(
@@ -9769,6 +9888,55 @@ impl ControlPlane {
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
         self.revoke_client_key_as(id, "bootstrap-admin", None).await
+    }
+
+    /// Legacy `regenerateApiKey`: a new server-generated secret replaces the
+    /// stored hash, so the old secret stops working at once; every other
+    /// setting of the key is kept. The secret is returned only here.
+    async fn rotate_client_key_as(
+        &self,
+        id: &str,
+        actor: &str,
+        enforced_tenant: Option<&str>,
+    ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
+        validate_id(id)?;
+        validate_actor(actor)?;
+        let _mutation = self.0.mutation.lock().await;
+        let key = self
+            .0
+            .database
+            .client_keys()
+            .await?
+            .into_iter()
+            .find(|key| key.id == id)
+            .ok_or("client key configuration not found")?;
+        if enforced_tenant.is_some_and(|tenant| tenant != key.tenant_id) {
+            return Err("client key tenant is unavailable");
+        }
+        let before = client_view(&key)?;
+        let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
+        let mut rotated = key;
+        rotated.key_hash = hex::encode(Sha256::digest(secret.as_bytes()));
+        rotated.revision = revision()?;
+        self.0.database.upsert_client_key(&rotated).await?;
+        let after = client_view(&rotated)?;
+        self.record_audit_event(
+            AuditContext {
+                action: "client_key.rotate",
+                actor,
+                tenant_id: &rotated.tenant_id,
+                target: id,
+                resource_type: "client_key",
+            },
+            Some(&before),
+            Some(&after),
+        )
+        .await;
+        if self.refresh_clients().await.is_err() {
+            *self.0.clients.write().await = ClientSnapshot::Unavailable;
+            return Err("cannot reload client key configuration");
+        }
+        Ok((after, secret))
     }
 
     async fn revoke_client_key_as(
@@ -15996,6 +16164,80 @@ pub async fn get_legacy_usage_report(
     }
 }
 
+#[derive(Deserialize)]
+pub struct UsageBreakdownQuery {
+    pub by: String,
+    pub tenant_id: Option<String>,
+    pub key_id: Option<String>,
+    pub from_unix_ms: Option<i64>,
+    pub to_unix_ms: Option<i64>,
+}
+
+/// `GET /api/admin/usage/breakdown?by=model|provider|key|day` (legacy
+/// `/api/usage/analytics` breakdowns): ledger totals per group over the last
+/// 30 days by default, scoped like the usage report.
+pub async fn get_usage_breakdown(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(query): Query<UsageBreakdownQuery>,
+) -> Response {
+    const REPORT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Some(by) = crate::native_usage::Breakdown::parse(&query.by) else {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid usage report query");
+    };
+    let tenant_id = match (scope.tenant_id.as_deref(), query.tenant_id.as_deref()) {
+        (Some(tenant), Some(requested)) if tenant != requested => {
+            return api_error(StatusCode::BAD_REQUEST, "Invalid usage report query");
+        }
+        (Some(tenant), _) => Some(tenant),
+        (None, requested) => requested,
+    };
+    let Ok(now) = unix_time_ms() else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage reporting unavailable",
+        );
+    };
+    let to_unix_ms = query.to_unix_ms.unwrap_or_else(|| now.saturating_add(1));
+    let from_unix_ms = query
+        .from_unix_ms
+        .unwrap_or_else(|| to_unix_ms.saturating_sub(REPORT_WINDOW_MS));
+    match control
+        .native_usage_breakdown(
+            tenant_id,
+            query.key_id.as_deref(),
+            from_unix_ms,
+            to_unix_ms,
+            by,
+        )
+        .await
+    {
+        Ok(groups) => {
+            let mut response =
+                Json(serde_json::json!({"breakdown":{"by":query.by,"groups":groups}}))
+                    .into_response();
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store, max-age=0"),
+            );
+            response
+        }
+        Err("invalid usage report query") => {
+            api_error(StatusCode::BAD_REQUEST, "Invalid usage report query")
+        }
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage reporting unavailable",
+        ),
+    }
+}
+
 pub async fn get_usage_report(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -17610,6 +17852,37 @@ pub async fn put_tenant(
     }
 }
 
+/// `DELETE /api/admin/tenants/{id}` (legacy `DELETE /api/tenants/:id`).
+pub async fn delete_tenant(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control.delete_tenant_as(&id, &actor).await {
+        Ok(()) => Json(serde_json::json!({"success":true})).into_response(),
+        Err("default tenant cannot be deleted") => api_error(
+            StatusCode::FORBIDDEN,
+            "The default tenant cannot be deleted.",
+        ),
+        Err("tenant not found") => api_error(StatusCode::NOT_FOUND, "Tenant not found."),
+        Err("tenant still owns resources") => api_error(
+            StatusCode::CONFLICT,
+            "This tenant still owns API keys, connections, combos or identity bindings. Move or delete them first.",
+        ),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Tenant storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid tenant identifier"),
+    }
+}
+
 pub async fn put_identity_binding(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
@@ -17693,6 +17966,118 @@ pub async fn provision_client_key(
             "Client key storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key configuration"),
+    }
+}
+
+/// `POST /api/admin/client-keys/{id}/rotate` (legacy `POST /api/keys/{id}/regenerate`).
+#[derive(Deserialize)]
+pub struct RequestLogParams {
+    tenant_id: Option<String>,
+    key_id: Option<String>,
+    request_id: Option<String>,
+    provider_id: Option<String>,
+    outcome: Option<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    limit: Option<i64>,
+    cursor: Option<String>,
+}
+
+/// `GET /api/admin/request-log`: the logged attempts, newest first (legacy
+/// `GET /api/usage/call-logs`), with the usage their ledger events settled.
+/// A tenant-scoped identity sees its own tenant only.
+pub async fn get_request_log(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Query(params): Query<RequestLogParams>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if scope.tenant_id.as_deref().is_some_and(|tenant| {
+        params
+            .tenant_id
+            .as_deref()
+            .is_some_and(|asked| asked != tenant)
+    }) {
+        return api_error(StatusCode::FORBIDDEN, "Tenant is outside this identity");
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
+    let to = params.to.unwrap_or(now.saturating_add(1));
+    let query = crate::request_log::Query {
+        tenant_id: scope.tenant_id.clone().or(params.tenant_id),
+        key_id: params.key_id,
+        request_id: params.request_id,
+        provider_id: params.provider_id,
+        outcome: params.outcome,
+        from_unix_ms: params
+            .from
+            .unwrap_or(to.saturating_sub(7 * 24 * 60 * 60 * 1000)),
+        to_unix_ms: to,
+        limit: params.limit.unwrap_or(50),
+        cursor: params.cursor,
+    };
+    if crate::request_log::validate(&query).is_err() {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid request log query");
+    }
+    match control.request_log_page(&query).await {
+        Ok(page) => {
+            let mut response = Json(page).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("request log requires SQLite storage") => api_error(
+            StatusCode::NOT_IMPLEMENTED,
+            "The request log requires SQLite storage",
+        ),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Request log unavailable"),
+    }
+}
+
+pub async fn rotate_client_key(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    match control
+        .rotate_client_key_as(&id, &scope.actor, scope.tenant_id.as_deref())
+        .await
+    {
+        Ok((client_key, secret)) => {
+            let mut response = Json(serde_json::json!({
+                "client_key": client_key,
+                "key": secret.as_str(),
+                "warning": "Store this key securely; it will not be shown again."
+            }))
+            .into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err("client key configuration not found" | "client key tenant is unavailable") => {
+            api_error(StatusCode::NOT_FOUND, "Client key not found")
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Client key storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key"),
     }
 }
 

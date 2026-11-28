@@ -26,6 +26,7 @@ const Keys = lazy(() => import("./pages/RustApiManagerPageClient"));
 const SharedBudgets = lazy(() => import("./SharedBudgets"));
 const UsageSinks = lazy(() => import("./UsageSinks"));
 const UsageReport = lazy(() => import("./UsageReport"));
+const RequestLog = lazy(() => import("./RequestLog"));
 const OidcSettings = lazy(() => import("./OidcSettings"));
 const ModelCatalog = lazy(() => import("./ModelCatalog"));
 const LegacyUsage = lazy(() => import("./LegacyUsage"));
@@ -45,6 +46,7 @@ const pageComponents: Record<SpaPageId, ComponentType> = {
   budgets: SharedBudgets,
   "usage-sinks": UsageSinks,
   usage: UsageReport,
+  "request-log": RequestLog,
   "legacy-usage": LegacyUsage,
   organizations: Organizations,
   audit: AuditLog,
