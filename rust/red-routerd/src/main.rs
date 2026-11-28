@@ -1038,6 +1038,9 @@ async fn run(
             allow_private,
         )
         .await?;
+        // Legacy credential health sweep: on by default, off with
+        // OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK.
+        control.spawn_credential_health_sweep();
         if backend == Backend::Sqlite {
             if env::var("RED_ROUTER_MODEL_CATALOG_AUTO_REFRESH").as_deref() != Ok("0") {
                 control.spawn_model_catalog_auto_refresh();

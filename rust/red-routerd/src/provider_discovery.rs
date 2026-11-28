@@ -1377,6 +1377,363 @@ pub async fn adopt_legacy(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Credential health sweep (legacy `credentialHealth/scheduler.ts` over the
+// sweep path of `testSingleConnection`).
+
+impl ControlPlane {
+    /// One sweep probe of an account. API-key accounts list their models (an
+    /// OpenRouter key reads `/auth/key`, since its model list is public);
+    /// Claude checks the token lifetime and Codex sends an empty Responses
+    /// request, as the legacy OAuth test config does. Accounts without a
+    /// native probe (Antigravity, Cloudflare Workers AI, other OAuth and
+    /// non-model upstreams) are skipped.
+    async fn probe_credential(
+        &self,
+        provider: &StoredProvider,
+        oauth: Option<&crate::storage::StoredProviderOAuth>,
+    ) -> crate::credential_health::Probe {
+        use crate::credential_health::{self as health, Probe};
+        let Ok(auth) = self.auth_settings().await.map(|mut settings| {
+            settings
+                .remove(&(provider.id.clone(), provider.updated_at))
+                .unwrap_or_else(|| default_provider_auth(&provider))
+        }) else {
+            return Probe::Skipped;
+        };
+        let Ok(now) = unix_time_seconds().map(|now| i64::try_from(now).unwrap_or(i64::MAX)) else {
+            return Probe::Skipped;
+        };
+        let oauth_provider = oauth.map(|oauth| oauth.oauth_provider.as_str());
+        if oauth_provider == Some("claude") {
+            // The account holds a refresh token, which the daemon rotates.
+            return health::expiry_probe(auth.expires_at_unix, now, true);
+        }
+        if oauth.is_none() && auth.expires_at_unix > 0 && auth.expires_at_unix <= now {
+            return health::expiry_probe(auth.expires_at_unix, now, false);
+        }
+        let (target, codex) = match oauth_provider {
+            Some("codex") => match reqwest::Url::parse(&provider.upstream_url) {
+                Ok(url) => (url, true),
+                Err(_) => return Probe::Skipped,
+            },
+            Some(_) => return Probe::Skipped,
+            None if matches!(provider.provider.as_str(), "cloudflare-ai" | "cloudflare") => {
+                return Probe::Skipped;
+            }
+            None => {
+                let Ok(view) = self.discovery_view(provider).await else {
+                    return Probe::Skipped;
+                };
+                let Some(path) = view.effective_models_path else {
+                    return Probe::Skipped;
+                };
+                let path = if provider.provider == "openrouter" {
+                    match path.strip_suffix("/models") {
+                        Some(base) => format!("{base}/auth/key"),
+                        None => path,
+                    }
+                } else {
+                    path
+                };
+                match models_url(&provider.upstream_url, &path) {
+                    Ok(url) => (url, false),
+                    Err(_) => return Probe::Skipped,
+                }
+            }
+        };
+        let Ok(credential) = decrypt_async(
+            &provider.credential_ciphertext,
+            &provider.id,
+            self.0.encryption_key.as_str(),
+        )
+        .await
+        else {
+            return Probe::Skipped;
+        };
+        let Ok(scheme) = ProviderAuthScheme::parse(&auth.auth_scheme) else {
+            return Probe::Skipped;
+        };
+        let Ok(live) = ProxyState::live_provider(
+            &provider.upstream_url,
+            credential.as_str(),
+            self.0.allow_private,
+            scheme,
+            auth.expires_at_unix,
+            &provider.protocol,
+            provider.node_id.is_some(),
+        )
+        .await
+        else {
+            return Probe::Skipped;
+        };
+        let Ok(headers) = self.request_headers(provider).await else {
+            return Probe::Skipped;
+        };
+        let mut request = if codex {
+            live.client
+                .post(target)
+                .timeout(Duration::from_millis(health::OAUTH_TIMEOUT_MS))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("originator", "codex-cli")
+                .header(header::USER_AGENT, "codex-cli/1.0.18 (macOS; arm64)")
+                .body(r#"{"model":"gpt-5.5","input":[],"stream":false,"store":false}"#)
+        } else {
+            live.client
+                .get(target)
+                .timeout(Duration::from_millis(health::READ_TIMEOUT_MS))
+                .header(header::ACCEPT, "application/json")
+        };
+        request = match live.auth_scheme {
+            ProviderAuthScheme::Bearer => {
+                request.header(header::AUTHORIZATION, live.provider_key.clone())
+            }
+            ProviderAuthScheme::XApiKey => request.header("x-api-key", live.provider_key.clone()),
+            ProviderAuthScheme::XGoogApiKey => {
+                request.header("x-goog-api-key", live.provider_key.clone())
+            }
+            ProviderAuthScheme::None => request,
+            ProviderAuthScheme::Auto => return Probe::Skipped,
+        };
+        if live.protocol == ProviderProtocol::Anthropic {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
+        let response = match request.headers(headers).send().await {
+            Ok(response) => response,
+            Err(error) => return health::network_failure(error.is_timeout()),
+        };
+        let status = response.status().as_u16();
+        if codex {
+            let body = read_bounded_response(response, 16 * 1024)
+                .await
+                .map(|body| String::from_utf8_lossy(&body).into_owned())
+                .unwrap_or_default();
+            health::codex_probe(status, &body)
+        } else {
+            health::models_probe(status)
+        }
+    }
+
+    /// Whether a combo should skip this account: its last health check
+    /// failed within the cache window (legacy `isCredentialHealthy === false`).
+    pub(crate) fn credential_known_bad(&self, provider_id: &str) -> bool {
+        let Ok(now) = unix_time_ms().map(|now| u64::try_from(now).unwrap_or_default()) else {
+            return false;
+        };
+        self.0
+            .credential_health
+            .lock()
+            .is_ok_and(|state| state.healthy(provider_id, now) == Some(false))
+    }
+
+    /// One sweep over the enabled accounts that are due (legacy `sweep`), five
+    /// at a time. Returns how many were probed, or `None` when a sweep is
+    /// already running.
+    pub(crate) async fn run_credential_health_sweep(&self) -> Option<usize> {
+        use crate::credential_health as health;
+        let _sweep = self.0.credential_sweep.try_lock().ok()?;
+        let interval_ms = health::sweep_interval_ms(
+            std::env::var("CREDENTIAL_HEALTH_CHECK_INTERVAL")
+                .ok()
+                .as_deref(),
+        );
+        let (Ok(providers), Ok(oauth)) = (
+            self.0.database.providers().await,
+            self.0.database.provider_oauth().await,
+        ) else {
+            return Some(0);
+        };
+        let now = || unix_time_ms().map_or(0, |now| u64::try_from(now).unwrap_or_default());
+        let live: HashSet<String> = providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect();
+        let due: Vec<&StoredProvider> = {
+            let Ok(mut state) = self.0.credential_health.lock() else {
+                return Some(0);
+            };
+            state.retain(&live);
+            let at = now();
+            providers
+                .iter()
+                .filter(|provider| provider.enabled && state.due(&provider.id, at))
+                .collect()
+        };
+        let mut probed = 0;
+        for batch in due.chunks(health::CONCURRENCY) {
+            let results = futures_util::future::join_all(batch.iter().map(|provider| async {
+                let started = now();
+                let probe = self
+                    .probe_credential(
+                        provider,
+                        oauth.iter().find(|row| row.provider_id == provider.id),
+                    )
+                    .await;
+                (*provider, probe, started, now().saturating_sub(started))
+            }))
+            .await;
+            for (provider, probe, started, latency) in results {
+                let failed = self.0.credential_health.lock().is_ok_and(|mut state| {
+                    state.record(
+                        &provider.id,
+                        &provider.provider,
+                        &probe,
+                        started,
+                        latency,
+                        interval_ms,
+                    )
+                });
+                if !matches!(probe, health::Probe::Skipped) {
+                    probed += 1;
+                }
+                if failed {
+                    let status = match probe {
+                        health::Probe::Invalid {
+                            status: Some(status),
+                            ..
+                        } => StatusCode::from_u16(status).ok(),
+                        _ => None,
+                    }
+                    .filter(|status| status.is_client_error() || status.is_server_error())
+                    .unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
+                    self.cool_down_unhealthy(provider, status).await;
+                }
+            }
+        }
+        Some(probed)
+    }
+
+    /// The 30-second connection cooldown of a failed probe (legacy
+    /// `rateLimitedUntil = now + 30s`). An account already cooling keeps its
+    /// cooldown.
+    async fn cool_down_unhealthy(&self, provider: &StoredProvider, status: StatusCode) {
+        let availability = self.availability_for(&provider.id).await;
+        let model = provider.default_model.as_deref().unwrap_or_default();
+        if let Ok(crate::availability::AvailabilityDecision::Permit(permit)) =
+            availability.try_acquire(model).await
+        {
+            if let Err(error) = availability
+                .record_fixed_connection_cooldown(
+                    permit,
+                    status,
+                    crate::credential_health::FAILURE_COOLDOWN_MS,
+                )
+                .await
+            {
+                eprintln!("Rust credential health cooldown failed: {error}");
+            }
+        }
+    }
+
+    /// Start the sweep: 30 seconds after boot, then every interval (legacy
+    /// `initCredentialHealthCheck`). Off with
+    /// `OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK`.
+    pub fn spawn_credential_health_sweep(&self) {
+        use crate::credential_health as health;
+        if health::disabled(
+            std::env::var("OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK")
+                .ok()
+                .as_deref(),
+        ) {
+            return;
+        }
+        let interval = Duration::from_millis(health::sweep_interval_ms(
+            std::env::var("CREDENTIAL_HEALTH_CHECK_INTERVAL")
+                .ok()
+                .as_deref(),
+        ));
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(health::INITIAL_DELAY_MS)).await;
+            loop {
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                ControlPlane(inner).run_credential_health_sweep().await;
+                tokio::time::sleep(interval).await;
+            }
+        });
+    }
+
+    fn credential_health_view(
+        &self,
+        tenant: Option<&str>,
+        providers: &[StoredProvider],
+    ) -> serde_json::Value {
+        let now = unix_time_ms().map_or(0, |now| u64::try_from(now).unwrap_or_default());
+        let rows: Vec<_> = self
+            .0
+            .credential_health
+            .lock()
+            .map(|state| state.view(now))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|row| {
+                tenant.is_none_or(|tenant| {
+                    providers.iter().any(|provider| {
+                        provider.id == row.health.provider_id && provider.tenant_id == tenant
+                    })
+                })
+            })
+            .collect();
+        let errors = rows
+            .iter()
+            .filter(|row| row.health.status == "error")
+            .count();
+        serde_json::json!({
+            "summary": {"total": rows.len(), "active": rows.len() - errors, "error": errors},
+            "accounts": rows,
+        })
+    }
+}
+
+/// `GET /api/admin/credential-health`: the latest probe of each account
+/// (legacy `getAllCredentialHealth` and its summary).
+pub async fn get_credential_health(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    let Ok(providers) = control.0.database.providers().await else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider storage unavailable",
+        );
+    };
+    let mut response = Json(control.credential_health_view(scope.tenant_id.as_deref(), &providers))
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+/// `POST /api/admin/credential-health/sweep`: run a sweep now over the
+/// accounts that are due (legacy `forceSweep`). Platform admins only.
+pub async fn sweep_credential_health(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    if control.authorized_admin_actor(&headers).await.is_none() {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.run_credential_health_sweep().await {
+        Some(probed) => Json(serde_json::json!({"probed": probed})).into_response(),
+        None => api_error(
+            StatusCode::CONFLICT,
+            "A credential health sweep is already running",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

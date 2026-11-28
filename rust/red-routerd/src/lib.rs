@@ -22,6 +22,7 @@ pub mod client_key_limits;
 mod codex_request;
 pub mod control_plane;
 mod cooldown_retry;
+mod credential_health;
 pub mod credential_masker;
 pub mod credential_patterns;
 mod daily_quota_reset;
@@ -2876,6 +2877,14 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/providers/{id}/test",
             post(control_plane::diagnose_provider),
+        )
+        .route(
+            "/api/admin/credential-health",
+            get(control_plane::provider_discovery::get_credential_health),
+        )
+        .route(
+            "/api/admin/credential-health/sweep",
+            post(control_plane::provider_discovery::sweep_credential_health),
         )
         .route(
             "/api/admin/providers/{id}/oauth/rotate",
@@ -7840,6 +7849,11 @@ async fn proxy_attempts(
     let mut cooldown_wait_restarts = 0_u32;
     let mut cooldown_wait_budget_ms = wait_for_cooldown.budget_ms;
     let mut saw_expired_credential = false;
+    let mut saw_credential_gate = false;
+    // Legacy credentialGate: only combo targets are gated.
+    let combo_route = route
+        .as_ref()
+        .is_some_and(|route| !route.provider_direct && route.public_model_alias.is_none());
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -8012,6 +8026,19 @@ async fn proxy_attempts(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Provider credential expired",
             );
+        }
+        // A combo skips an account whose credential failed its last health
+        // check within the cache window (legacy checkCredentialGate).
+        if combo_route {
+            if let (Some(control), Some(provider_id)) = (
+                state.control_plane.as_ref(),
+                target.and_then(|target| target.provider_id.as_deref()),
+            ) {
+                if control.credential_known_bad(provider_id) {
+                    saw_credential_gate = true;
+                    continue;
+                }
+            }
         }
         let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
         let availability = target
@@ -9582,6 +9609,12 @@ async fn proxy_attempts(
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Provider credentials expired",
+            );
+        }
+        if saw_credential_gate && !saw_availability_block && !saw_open_circuit {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Provider credentials failed their health check",
             );
         }
         if let Some(rejection) = saw_queue_rejection {
