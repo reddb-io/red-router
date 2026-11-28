@@ -4214,6 +4214,67 @@ impl ControlPlane {
         crate::request_log::list(pool, query).await
     }
 
+    /// The route explanation of a logged request (legacy
+    /// `explainRouteByRequestId`): its attempts, the attempts on the served
+    /// account and model within 15 minutes, and the combo it named.
+    pub(crate) async fn request_explanation(
+        &self,
+        id: &str,
+        tenant_id: Option<&str>,
+        now_unix_ms: i64,
+    ) -> Result<Option<crate::route_explain::Explanation>, &'static str> {
+        let attempts = self
+            .request_log_page(&crate::request_log::Query {
+                tenant_id: tenant_id.map(str::to_owned),
+                request_id: Some(crate::route_explain::request_id_of(id).to_owned()),
+                from_unix_ms: 0,
+                to_unix_ms: now_unix_ms.saturating_add(1),
+                limit: crate::request_log::MAX_PAGE,
+                ..Default::default()
+            })
+            .await?
+            .requests;
+        let Some(served) = crate::route_explain::served_attempt(&attempts) else {
+            return Ok(None);
+        };
+        let comparable = if served.provider_id.is_empty() {
+            Vec::new()
+        } else {
+            let window = crate::route_explain::STATS_WINDOW_MS;
+            self.request_log_page(&crate::request_log::Query {
+                tenant_id: tenant_id.map(str::to_owned),
+                provider_id: Some(served.provider_id.clone()),
+                from_unix_ms: served.created_at_unix_ms.saturating_sub(window).max(0),
+                to_unix_ms: served
+                    .created_at_unix_ms
+                    .saturating_add(window)
+                    .saturating_add(1),
+                limit: crate::request_log::MAX_PAGE,
+                ..Default::default()
+            })
+            .await?
+            .requests
+        };
+        let combo = self
+            .0
+            .database
+            .combos()
+            .await?
+            .into_iter()
+            .find(|combo| combo.id == served.requested_model && combo.tenant_id == served.tenant_id)
+            .map(|combo| crate::route_explain::ComboRef {
+                id: combo.id,
+                strategy: combo.strategy,
+                fallback: combo.fallback,
+            });
+        Ok(crate::route_explain::explain(
+            attempts,
+            &comparable,
+            combo,
+            now_unix_ms,
+        ))
+    }
+
     pub(crate) async fn begin_native_usage(
         &self,
         identity: &crate::policy::ClientIdentity,
@@ -18035,6 +18096,49 @@ pub async fn get_request_log(
                 .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
             response
         }
+        Err("request log requires SQLite storage") => api_error(
+            StatusCode::NOT_IMPLEMENTED,
+            "The request log requires SQLite storage",
+        ),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Request log unavailable"),
+    }
+}
+
+/// `GET /api/admin/request-log/{id}/explain` (legacy
+/// `GET /api/usage/route-explain/[id]`): why a logged request went where it
+/// went. `id` is a request id or one of its attempt ids. A tenant-scoped
+/// identity sees its own tenant's requests only.
+pub async fn get_request_explanation(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Management API is disabled");
+    };
+    let Some(scope) = control.management_scope(&headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    };
+    if id.is_empty() || id.len() > 128 {
+        return api_error(StatusCode::BAD_REQUEST, "Invalid request id");
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
+    match control
+        .request_explanation(&id, scope.tenant_id.as_deref(), now)
+        .await
+    {
+        Ok(Some(explanation)) => {
+            let mut response = Json(explanation).into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Ok(None) => api_error(StatusCode::NOT_FOUND, "Request not found"),
         Err("request log requires SQLite storage") => api_error(
             StatusCode::NOT_IMPLEMENTED,
             "The request log requires SQLite storage",

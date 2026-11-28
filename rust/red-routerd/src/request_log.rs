@@ -293,7 +293,7 @@ pub(crate) struct Query {
 }
 
 /// A logged attempt with the usage its ledger event settled, if any.
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub(crate) struct Entry {
     pub id: String,
     pub created_at_unix_ms: i64,
@@ -314,7 +314,7 @@ pub(crate) struct Entry {
     pub usage: Option<Usage>,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub(crate) struct Usage {
     pub tokens_input: i64,
     pub tokens_output: i64,
