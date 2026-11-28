@@ -1385,9 +1385,9 @@ impl ControlPlane {
     /// One sweep probe of an account. API-key accounts list their models (an
     /// OpenRouter key reads `/auth/key`, since its model list is public);
     /// Claude checks the token lifetime and Codex sends an empty Responses
-    /// request, as the legacy OAuth test config does. Accounts without a
-    /// native probe (Antigravity, Cloudflare Workers AI, other OAuth and
-    /// non-model upstreams) are skipped.
+    /// request, as the legacy OAuth test config does, and Antigravity reads
+    /// its quota RPC. Accounts without a native probe (Cloudflare Workers AI,
+    /// other OAuth and non-model upstreams) are skipped.
     async fn probe_credential(
         &self,
         provider: &StoredProvider,
@@ -1411,6 +1411,33 @@ impl ControlPlane {
         }
         if oauth.is_none() && auth.expires_at_unix > 0 && auth.expires_at_unix <= now {
             return health::expiry_probe(auth.expires_at_unix, now, false);
+        }
+        if oauth_provider == Some("agy") {
+            // An expired token is the OAuth refresh sync's to renew.
+            if auth.expires_at_unix > 0 && auth.expires_at_unix <= now {
+                return Probe::Skipped;
+            }
+            let Ok(token) = decrypt_async(
+                &provider.credential_ciphertext,
+                &provider.id,
+                self.0.encryption_key.as_str(),
+            )
+            .await
+            else {
+                return Probe::Skipped;
+            };
+            let Ok(project) = self.agy_quota_project_id(provider).await else {
+                return Probe::Skipped;
+            };
+            return health::agy_quota_probe(
+                self.fetch_agy_quota_value(
+                    &self.0.oauth_refresh.agy_quota_endpoints,
+                    token.as_str(),
+                    &project,
+                )
+                .await
+                .map(|_| ()),
+            );
         }
         let (target, codex) = match oauth_provider {
             Some("codex") => match reqwest::Url::parse(&provider.upstream_url) {
