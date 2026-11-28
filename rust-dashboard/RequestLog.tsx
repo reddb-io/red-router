@@ -24,6 +24,7 @@ type Entry = {
   status: number;
   error: string | null;
   duration_ms: number;
+  ttft_ms: number | null;
   stream: boolean;
   usage: Usage | null;
 };
@@ -218,7 +219,15 @@ export default function RequestLog() {
                       {entry.status}
                       {entry.error && <small> {entry.error}</small>}
                     </td>
-                    <td>{entry.duration_ms.toLocaleString()} ms</td>
+                    <td>
+                      {entry.duration_ms.toLocaleString()} ms
+                      {entry.ttft_ms !== null && (
+                        <>
+                          <br />
+                          <small>first chunk {entry.ttft_ms.toLocaleString()} ms</small>
+                        </>
+                      )}
+                    </td>
                     <td>{usageText(entry.usage)}</td>
                     <td>{costText(entry.usage)}</td>
                   </tr>

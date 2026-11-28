@@ -17,12 +17,30 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
         )
         .route(
             "/good/v1/chat/completions",
-            post(|| async {
-                Json(serde_json::json!({
+            post(|Json(body): Json<serde_json::Value>| async move {
+                if body["stream"] == true {
+                    let first = "data: {\"id\":\"c\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"streamed\"},\"finish_reason\":null}]}\n\n";
+                    let last = "data: {\"id\":\"c\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"upstream-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":1,\"total_tokens\":5}}\n\ndata: [DONE]\n\n";
+                    let chunks = futures_util::stream::unfold(0_u8, move |step| async move {
+                        match step {
+                            0 => Some((Ok::<_, std::io::Error>(first), 1)),
+                            1 => {
+                                tokio::time::sleep(Duration::from_millis(200)).await;
+                                Some((Ok(last), 2))
+                            }
+                            _ => None,
+                        }
+                    });
+                    return axum::response::Response::builder()
+                        .header(header::CONTENT_TYPE, "text/event-stream")
+                        .body(axum::body::Body::from_stream(chunks))
+                        .unwrap();
+                }
+                axum::response::IntoResponse::into_response(Json(serde_json::json!({
                     "id":"chatcmpl-log","object":"chat.completion","created":1,"model":"upstream-model",
                     "choices":[{"index":0,"message":{"role":"assistant","content":"logged"},"finish_reason":"stop"}],
                     "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}
-                }))
+                })))
             }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -198,6 +216,53 @@ async fn every_attempt_of_a_request_is_logged_with_its_usage() {
     assert_eq!(day.len(), 10, "{day}");
     assert_eq!(&day[4..5], "-");
     assert_eq!(breakdown("hour").await.status(), StatusCode::BAD_REQUEST);
+
+    // A streamed attempt is logged when its body ends, with the time to its
+    // first chunk (legacy call_logs.ttft_ms) and the whole stream's duration.
+    let streamed = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(&key)
+        .json(&serde_json::json!({
+            "model":"logged-combo","stream":true,"stream_options":{"include_usage":true},
+            "messages":[{"role":"user","content":"stream"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    let stream_status = streamed.status();
+    let streamed = streamed.text().await.unwrap();
+    assert_eq!(stream_status, StatusCode::OK, "{streamed}");
+    assert!(streamed.contains("streamed"), "{streamed}");
+    let page = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let page = log("").await;
+            if page["requests"].as_array().unwrap().len() == 4
+                && !page["requests"][0]["usage"].is_null()
+            {
+                break page;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("four logged attempts");
+    let stream_row = &page["requests"][0];
+    assert_eq!(stream_row["provider_id"], "good");
+    assert_eq!(stream_row["stream"], true);
+    assert!(stream_row["error"].is_null(), "{stream_row}");
+    assert_eq!(stream_row["usage"]["tokens_input"], 4);
+    let ttft = stream_row["ttft_ms"].as_i64().expect("time to first chunk");
+    let duration = stream_row["duration_ms"].as_i64().unwrap();
+    // The upstream pauses 200 ms between its first and last chunks.
+    assert!(duration >= ttft + 100, "ttft {ttft} duration {duration}");
+    assert!(page["requests"][2]["ttft_ms"].is_null());
+    assert_eq!(
+        log("?outcome=error").await["requests"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     gateway_task.abort();
     upstream_task.abort();
     database.close().await.unwrap();

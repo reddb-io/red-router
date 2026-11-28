@@ -374,6 +374,8 @@ struct RequestLogger {
     requested_model: String,
     stream: bool,
     attempts: std::sync::atomic::AtomicI64,
+    /// The last successful attempt, written when the response body ends.
+    pending: std::sync::Arc<std::sync::Mutex<Option<request_log::Pending>>>,
 }
 
 impl RequestLogger {
@@ -391,7 +393,12 @@ impl RequestLogger {
         let attempt = self
             .attempts
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.control.record_request_attempt(request_log::Attempt {
+        // A later attempt means the earlier success was not the answer.
+        let earlier = self.pending.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(mut earlier) = earlier {
+            earlier.finish(request_log::SUPERSEDED);
+        }
+        let attempt = request_log::Attempt {
             id: format!("{}-{attempt}", self.request_id),
             created_at_unix_ms: unix_time_ms(),
             request_id: self.request_id.clone(),
@@ -408,8 +415,35 @@ impl RequestLogger {
             duration_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
             stream: self.stream,
             usage_event_id: usage_event_id.unwrap_or_default().to_owned(),
-        });
+            ttft_ms: None,
+        };
+        if (200..300).contains(&status) {
+            if let Ok(mut slot) = self.pending.lock() {
+                *slot = Some(request_log::Pending::new(
+                    self.control.clone(),
+                    attempt,
+                    started,
+                ));
+                return;
+            }
+        }
+        self.control.record_request_attempt(attempt);
     }
+}
+
+/// Attach the pending request log row to the response the client receives.
+fn observe_request_log(
+    response: Response,
+    pending: &std::sync::Mutex<Option<request_log::Pending>>,
+) -> Response {
+    let Some(mut pending) = pending.lock().ok().and_then(|mut slot| slot.take()) else {
+        return response;
+    };
+    if !response.status().is_success() {
+        pending.replaced_by(response.status().as_u16());
+    }
+    let (parts, body) = response.into_parts();
+    Response::from_parts(parts, request_log::observe(body, pending))
 }
 
 /// The request log name of a client protocol.
@@ -6680,6 +6714,18 @@ async fn proxy_request(
     protocol: ProviderProtocol,
     gemini: Option<(String, bool)>,
 ) -> Response {
+    let pending = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let response = proxy_attempts(state, request, protocol, gemini, pending.clone()).await;
+    observe_request_log(response, &pending)
+}
+
+async fn proxy_attempts(
+    state: ProxyState,
+    request: Request,
+    protocol: ProviderProtocol,
+    gemini: Option<(String, bool)>,
+    pending_log: std::sync::Arc<std::sync::Mutex<Option<request_log::Pending>>>,
+) -> Response {
     let original_headers = request.headers().clone();
     let claude_code_client = openai_content::is_claude_code_client(
         original_headers
@@ -7808,6 +7854,7 @@ async fn proxy_request(
             requested_model: requested_model.clone(),
             stream: parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true),
             attempts: std::sync::atomic::AtomicI64::new(0),
+            pending: pending_log.clone(),
         })
     });
     let target_at = |offset: usize| {

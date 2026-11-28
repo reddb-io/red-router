@@ -5217,6 +5217,7 @@ async fn migrate_sqlite_usage_schema(pool: &AnyPool) -> Result<(), &'static str>
                 "users_json",
                 "users_json TEXT NOT NULL DEFAULT '[]'",
             ),
+            ("redrouter_request_log", "ttft_ms", "ttft_ms BIGINT"),
         ] {
             let exists: i64 = sqlx::query_scalar(&format!(
                 "SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $1"
