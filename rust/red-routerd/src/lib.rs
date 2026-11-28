@@ -5424,6 +5424,23 @@ async fn record_internal_provider_health(
                 .record_terminal_failure(permit, availability::TerminalStatus::CreditsExhausted)
                 .await
         }
+        resilience::ProviderFailureClass::Model if status == StatusCode::NOT_FOUND => {
+            let window = match target.circuit.as_ref() {
+                Some(circuit) => circuit.reset_timeout_ms().await,
+                None => 30 * 60 * 1_000,
+            };
+            availability
+                .record_not_found(
+                    permit,
+                    &target.model,
+                    resilience::per_model_failure_scope(
+                        target.rate_limit_scope,
+                        Some(&target.provider_name),
+                    ),
+                    window,
+                )
+                .await
+        }
         resilience::ProviderFailureClass::Model => {
             availability
                 .record_model_failure(
@@ -9280,6 +9297,22 @@ async fn proxy_attempts(
                         .record_terminal_failure(
                             permit,
                             availability::TerminalStatus::CreditsExhausted,
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::Model
+                    if response.status() == StatusCode::NOT_FOUND =>
+                {
+                    let window = match circuit.as_ref() {
+                        Some(circuit) => circuit.reset_timeout_ms().await,
+                        None => 30 * 60 * 1_000,
+                    };
+                    availability
+                        .record_not_found(
+                            permit,
+                            target_model,
+                            resilience::per_model_failure_scope(rate_limit_scope, provider_name),
+                            window,
                         )
                         .await
                 }
