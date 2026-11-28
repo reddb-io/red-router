@@ -1,0 +1,141 @@
+{
+ "redact": [
+  [
+   "",
+   ""
+  ],
+  [
+   "plain message without secrets",
+   "plain message without secrets"
+  ],
+  [
+   "Authorization: Bearer abcDEF123._-xyz789",
+   "Authorization: Bearer [REDACTED]"
+  ],
+  [
+   "authorization=bearer abcDEF123._-xyz789",
+   "authorization=bearer [REDACTED]"
+  ],
+  [
+   "AUTHORIZATION :  BEARER   short1",
+   "AUTHORIZATION :  BEARER   [REDACTED]"
+  ],
+  [
+   "Authorization: Bearer abc12",
+   "Authorization: Bearer abc12"
+  ],
+  [
+   "Bearer abcDEF123._-xyz789 trailing",
+   "Bearer [REDACTED] trailing"
+  ],
+  [
+   "bearer abcdefghijk",
+   "bearer abcdefghijk"
+  ],
+  [
+   "bearer abcdefghijkl",
+   "Bearer [REDACTED]"
+  ],
+  [
+   "xbearer abcdefghijklmnop",
+   "xbearer abcdefghijklmnop"
+  ],
+  [
+   "Bearer abcdefghijklmnop",
+   "Bearer [REDACTED]"
+  ],
+  [
+   "Bearerabcdefghijklmnop",
+   "Bearerabcdefghijklmnop"
+  ],
+  [
+   "Bearer﻿abcdefghijklmnop",
+   "Bearer [REDACTED]"
+  ],
+  [
+   "x-api-key: abcDEF123._-xyz789",
+   "x-api-key: [REDACTED]"
+  ],
+  [
+   "X-API-KEY=abcdef",
+   "X-API-KEY=[REDACTED]"
+  ],
+  [
+   "api_key=abcde",
+   "api_key=abcde"
+  ],
+  [
+   "api-key : secretvalue123",
+   "api-key : [REDACTED]"
+  ],
+  [
+   "apikey=secretvalue123",
+   "apikey=[REDACTED]"
+  ],
+  [
+   "API_KEY = 'quoted'",
+   "API_KEY = 'quoted'"
+  ],
+  [
+   "url https://api.telegram.org/bot123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ_-12/sendMessage",
+   "url https://api.telegram.org/bot[REDACTED]/sendMessage"
+  ],
+  [
+   "api.telegram.org/bot12345:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+   "api.telegram.org/bot12345:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  ],
+  [
+   "API.TELEGRAM.ORG/BOT1234567:abcdefghijklmnopqrstuvwxyz",
+   "API.TELEGRAM.ORG/BOT[REDACTED]"
+  ],
+  [
+   "key sk-proj-abcdefghijklmnopqrstuv end",
+   "key sk-[REDACTED] end"
+  ],
+  [
+   "sk-short",
+   "sk-short"
+  ],
+  [
+   "xsk-abcdefghijklmnopqrstuvwxyz",
+   "xsk-abcdefghijklmnopqrstuvwxyz"
+  ],
+  [
+   "SK-ABCDEFGHIJKLMNOPQRSTUV",
+   "SK-ABCDEFGHIJKLMNOPQRSTUV"
+  ],
+  [
+   "Invalid API key: sk-abcdefghijklmnopqrstuvwxyz0123",
+   "Invalid API key: sk-[REDACTED]"
+  ],
+  [
+   "two Bearer aaaaaaaaaaaaaaaa and Bearer bbbbbbbbbbbbbbbb",
+   "two Bearer [REDACTED] and Bearer [REDACTED]"
+  ],
+  [
+   "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz",
+   "Authorization: Bearer [REDACTED]"
+  ],
+  [
+   "api_key=sk-abcdefghijklmnopqrstuvwxyz",
+   "api_key=[REDACTED]"
+  ],
+  [
+   "unicode é Bearer ééééééééééééé",
+   "unicode é Bearer ééééééééééééé"
+  ],
+  [
+   "KKelvin api_Key=abcdefgh",
+   "KKelvin api_Key=abcdefgh"
+  ],
+  [
+   "telegram.org/bot",
+   "telegram.org/bot"
+  ],
+  [
+   "authorization: basic dXNlcjpwYXNz",
+   "authorization: basic dXNlcjpwYXNz"
+  ]
+ ],
+ "sanitize": []
+}

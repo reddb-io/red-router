@@ -54,6 +54,7 @@ pub mod legacy_providers;
 pub mod legacy_quota;
 pub mod legacy_settings;
 pub mod legacy_tables;
+mod log_redaction;
 mod mistral_ambiguous_auth;
 mod model_alias_response;
 mod model_endpoint_policy;
@@ -2801,7 +2802,7 @@ pub fn router(state: ProxyState) -> Router {
         // server owns this route now; no Next.js handler is involved.
         .route(
             "/api/monitoring/health",
-            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
+            get(control_plane::provider_discovery::monitoring_health),
         )
         .route("/readyz", get(ready))
         .route("/api/auth/config", get(control_plane::auth_config))

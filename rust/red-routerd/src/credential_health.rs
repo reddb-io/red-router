@@ -30,6 +30,91 @@ pub(crate) const READ_TIMEOUT_MS: u64 = 8_000;
 pub(crate) const OAUTH_TIMEOUT_MS: u64 = 30_000;
 const INCONCLUSIVE_RECHECK_MIN_MS: u64 = 30 * 60_000;
 const INCONCLUSIVE_RECHECK_MULTIPLIER: u64 = 6;
+const INCONCLUSIVE_WARNING_MARKER: &str = "credential validity is inconclusive";
+/// Legacy cache `STALE_THRESHOLD_MS`.
+const STALE_THRESHOLD_MS: u64 = 10 * 60 * 1_000;
+/// Legacy cache `MAX_ENTRIES`.
+const MAX_ENTRIES: usize = 500;
+/// Legacy `CREDENTIAL_HEALTH_FAILED_LIST_CAP`: the monitoring summary lists at
+/// most this many failed accounts.
+pub(crate) const FAILED_LIST_CAP: usize = 32;
+/// Legacy `FAILED_ERROR_MAX_LEN`, in UTF-16 code units as `String#slice`.
+const FAILED_ERROR_MAX_LEN: usize = 200;
+
+/// JavaScript `\s` (no U+0085, with U+FEFF).
+fn js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
+}
+
+/// Legacy `sanitizeCredentialHealthLastError`: whitespace runs collapse to one
+/// space, secrets are redacted and the text is cut at 200 UTF-16 units.
+pub(crate) fn sanitize_last_error(raw: Option<&str>) -> Option<String> {
+    let mut collapsed = String::new();
+    let mut in_space = false;
+    for character in raw?.chars() {
+        if js_whitespace(character) {
+            if !in_space {
+                collapsed.push(' ');
+            }
+            in_space = true;
+        } else {
+            collapsed.push(character);
+            in_space = false;
+        }
+    }
+    let collapsed = collapsed.trim_matches(js_whitespace);
+    if collapsed.is_empty() {
+        return None;
+    }
+    let redacted = crate::log_redaction::redact_secrets(collapsed);
+    let units: Vec<u16> = redacted.encode_utf16().collect();
+    Some(if units.len() > FAILED_ERROR_MAX_LEN {
+        format!(
+            "{}...",
+            String::from_utf16_lossy(&units[..FAILED_ERROR_MAX_LEN])
+        )
+    } else {
+        redacted.into_owned()
+    })
+}
+
+/// One failed account of the monitoring summary (legacy
+/// `CredentialHealthFailedConnection`).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FailedConnection {
+    pub connection_id: String,
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_type: Option<&'static str>,
+}
+
+/// Legacy `CredentialHealthSummary` for `GET /api/monitoring/health`.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Summary {
+    pub total: usize,
+    pub healthy: usize,
+    pub failed: usize,
+    pub unknown: usize,
+    pub stale: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_connections: Option<Vec<FailedConnection>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_omitted: Option<usize>,
+}
 
 /// Legacy `CREDENTIAL_HEALTH_CHECK_INTERVAL` (milliseconds, at least 10 s),
 /// else the hourly default.
@@ -49,7 +134,6 @@ pub(crate) fn disabled(env: Option<&str>) -> bool {
     })
 }
 
-/// Legacy `resolveInconclusiveProbeRecheckDelayMs`.
 /// Legacy `getConnIntervalMs`: an account's own cadence in minutes wins over
 /// the global sweep cadence. The sweep leaves out an account set to 0.
 pub(crate) fn account_interval_ms(minutes: Option<u32>, global_ms: u64) -> u64 {
@@ -59,8 +143,22 @@ pub(crate) fn account_interval_ms(minutes: Option<u32>, global_ms: u64) -> u64 {
     }
 }
 
+/// Legacy `resolveInconclusiveProbeRecheckDelayMs`: six sweep intervals, at
+/// least 30 minutes; an unset (0) interval is the hourly default.
 pub(crate) fn inconclusive_recheck_ms(interval_ms: u64) -> u64 {
-    INCONCLUSIVE_RECHECK_MIN_MS.max(interval_ms.saturating_mul(INCONCLUSIVE_RECHECK_MULTIPLIER))
+    let interval = if interval_ms > 0 {
+        interval_ms
+    } else {
+        DEFAULT_SWEEP_INTERVAL_MS
+    };
+    INCONCLUSIVE_RECHECK_MIN_MS.max(interval.saturating_mul(INCONCLUSIVE_RECHECK_MULTIPLIER))
+}
+
+/// Legacy `isCredentialProbeInconclusive`: a valid probe whose warning says
+/// the credential's validity could not be told.
+pub(crate) fn probe_inconclusive(probe: &Probe) -> bool {
+    matches!(probe, Probe::Valid { warning: Some(text) }
+        if text.to_lowercase().contains(INCONCLUSIVE_WARNING_MARKER))
 }
 
 /// What one probe concluded.
@@ -77,6 +175,10 @@ pub(crate) enum Probe {
     },
     /// No probe applies (legacy `skipped`): nothing is recorded.
     Skipped,
+    /// No probe exists for this kind of account (legacy diagnosis
+    /// `unsupported`): nothing is written, and the account waits a full
+    /// interval instead of being retried on every sweep.
+    Unsupported,
 }
 
 /// Legacy `classifyFailure` for a probe that got an HTTP status.
@@ -224,10 +326,22 @@ impl State {
         let now = started_unix_ms.saturating_add(latency_ms);
         match probe {
             Probe::Skipped => false,
+            Probe::Unsupported => {
+                let failures = self
+                    .timing
+                    .get(provider_id)
+                    .map_or(0, |timing| timing.failures);
+                self.timing.insert(
+                    provider_id.to_owned(),
+                    Timing {
+                        failures,
+                        next_attempt_unix_ms: started_unix_ms.saturating_add(interval_ms),
+                    },
+                );
+                false
+            }
             Probe::Valid { warning } => {
-                let next = if warning
-                    .is_some_and(|text| text.contains("credential validity is inconclusive"))
-                {
+                let next = if probe_inconclusive(probe) {
                     now.saturating_add(inconclusive_recheck_ms(interval_ms))
                 } else {
                     started_unix_ms.saturating_add(interval_ms)
@@ -281,7 +395,71 @@ impl State {
     }
 
     fn put(&mut self, health: Health) {
+        // Legacy MAX_ENTRIES: a full cache drops its oldest result.
+        if !self.health.contains_key(&health.provider_id) && self.health.len() >= MAX_ENTRIES {
+            if let Some(oldest) = self
+                .health
+                .values()
+                .min_by_key(|health| health.checked_at_unix_ms)
+                .map(|health| health.provider_id.clone())
+            {
+                self.health.remove(&oldest);
+            }
+        }
         self.health.insert(health.provider_id.clone(), health);
+    }
+
+    /// Legacy `getCachedCredentialHealthSummary`: counts every cached result,
+    /// expired ones included, and lists the newest failures first.
+    pub(crate) fn summary(&self, now_unix_ms: u64) -> Summary {
+        let mut summary = Summary {
+            total: 0,
+            healthy: 0,
+            failed: 0,
+            unknown: 0,
+            stale: 0,
+            failed_connections: None,
+            failed_omitted: None,
+        };
+        let mut failed: Vec<&Health> = Vec::new();
+        for health in self.health.values() {
+            summary.total += 1;
+            match health.status {
+                "active" => summary.healthy += 1,
+                "error" => {
+                    summary.failed += 1;
+                    failed.push(health);
+                }
+                _ => summary.unknown += 1,
+            }
+            let age = now_unix_ms.saturating_sub(health.checked_at_unix_ms);
+            if age > STALE_THRESHOLD_MS || age > CACHE_TTL_MS {
+                summary.stale += 1;
+            }
+        }
+        if !failed.is_empty() {
+            failed.sort_by(|left, right| {
+                right
+                    .checked_at_unix_ms
+                    .cmp(&left.checked_at_unix_ms)
+                    .then_with(|| left.provider_id.cmp(&right.provider_id))
+            });
+            let omitted = failed.len().saturating_sub(FAILED_LIST_CAP);
+            summary.failed_connections = Some(
+                failed
+                    .into_iter()
+                    .take(FAILED_LIST_CAP)
+                    .map(|health| FailedConnection {
+                        connection_id: health.provider_id.clone(),
+                        status: "error",
+                        last_error: sanitize_last_error(health.last_error.as_deref()),
+                        last_error_type: health.error_type.filter(|kind| !kind.trim().is_empty()),
+                    })
+                    .collect(),
+            );
+            summary.failed_omitted = (omitted > 0).then_some(omitted);
+        }
+        summary
     }
 
     /// Legacy `isCredentialHealthy`: `Some(true)` for a fresh success,
@@ -338,6 +516,88 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_monitoring_summary_counts_stale_rows_and_caps_failures() {
+        let mut state = State::default();
+        let hour = 3_600_000;
+        let at = 1_700_000_000_000;
+        let invalid = Probe::Invalid {
+            error: "Invalid   API\nkey sk-abcdefghijklmnopqrstuvwxyz".to_owned(),
+            kind: "upstream_auth_error",
+            status: Some(401),
+        };
+        state.record("ok", "openai", &Probe::Valid { warning: None }, at, 5, hour);
+        for index in 0..40_u64 {
+            state.record(
+                &format!("bad-{index:02}"),
+                "openai",
+                &invalid,
+                at + index,
+                0,
+                hour,
+            );
+        }
+        let summary = state.summary(at + 60);
+        assert_eq!(
+            (
+                summary.total,
+                summary.healthy,
+                summary.failed,
+                summary.unknown,
+                summary.stale
+            ),
+            (41, 1, 40, 0, 0)
+        );
+        let failed = summary.failed_connections.as_ref().unwrap();
+        assert_eq!(failed.len(), FAILED_LIST_CAP);
+        assert_eq!(failed[0].connection_id, "bad-39");
+        assert_eq!(
+            failed[0].last_error.as_deref(),
+            Some("Invalid API key sk-[REDACTED]")
+        );
+        assert_eq!(failed[0].last_error_type, Some("upstream_auth_error"));
+        assert_eq!(summary.failed_omitted, Some(8));
+        assert_eq!(
+            serde_json::to_value(&summary).unwrap()["failedConnections"][0],
+            serde_json::json!({"connectionId":"bad-39","status":"error","lastError":"Invalid API key sk-[REDACTED]","lastErrorType":"upstream_auth_error"})
+        );
+        // Rows past the 5-minute TTL count as stale but stay in the counts.
+        assert_eq!(state.summary(at + CACHE_TTL_MS + 100).stale, 41);
+        // A healthy cache has no failure list.
+        let mut healthy = State::default();
+        healthy.record("ok", "openai", &Probe::Valid { warning: None }, at, 5, hour);
+        assert_eq!(
+            serde_json::to_value(healthy.summary(at)).unwrap(),
+            serde_json::json!({"total":1,"healthy":1,"failed":0,"unknown":0,"stale":0})
+        );
+    }
+
+    #[test]
+    fn last_errors_are_collapsed_redacted_and_cut() {
+        assert_eq!(sanitize_last_error(None), None);
+        assert_eq!(sanitize_last_error(Some("")), None);
+        assert_eq!(sanitize_last_error(Some("   \n\t ")), None);
+        assert_eq!(
+            sanitize_last_error(Some(" Invalid   API\nkey ")).as_deref(),
+            Some("Invalid API key")
+        );
+        let long = "x".repeat(250);
+        assert_eq!(
+            sanitize_last_error(Some(&long)),
+            Some(format!("{}...", "x".repeat(200)))
+        );
+        let secret = format!(
+            "Authorization: Bearer abcDEF123._-xyz789 {}",
+            "y".repeat(220)
+        );
+        let cut = sanitize_last_error(Some(&secret)).unwrap();
+        assert!(
+            cut.starts_with("Authorization: Bearer [REDACTED] yyy"),
+            "{cut}"
+        );
+        assert_eq!(cut.encode_utf16().count(), 203);
+    }
+
+    #[test]
     fn the_cadence_follows_the_legacy_environment() {
         assert_eq!(sweep_interval_ms(None), 3_600_000);
         assert_eq!(account_interval_ms(None, 3_600_000), 3_600_000);
@@ -351,6 +611,15 @@ mod tests {
         assert!(!disabled(None));
         assert_eq!(inconclusive_recheck_ms(60_000), 30 * 60_000);
         assert_eq!(inconclusive_recheck_ms(3_600_000), 6 * 3_600_000);
+        assert_eq!(inconclusive_recheck_ms(0), 6 * 3_600_000);
+        assert!(probe_inconclusive(&Probe::Valid {
+            warning: Some("Credential validity is INCONCLUSIVE (timeout)"),
+        }));
+        assert!(!probe_inconclusive(&Probe::Valid {
+            warning: Some("Provider accepted the token but is rate limited (429)"),
+        }));
+        assert!(!probe_inconclusive(&Probe::Valid { warning: None }));
+        assert!(!probe_inconclusive(&Probe::Skipped));
     }
 
     #[test]
@@ -463,6 +732,13 @@ mod tests {
         assert!(!state.record("b", "x", &Probe::Skipped, at, 0, hour));
         assert!(state.due("b", at));
         assert_eq!(state.healthy("b", at), None);
+        // An account without a probe writes nothing either, but waits a full
+        // interval (legacy diagnosis `unsupported`).
+        assert!(!state.record("c", "x", &Probe::Unsupported, at, 0, hour));
+        assert!(!state.due("c", at + hour - 1));
+        assert!(state.due("c", at + hour));
+        assert_eq!(state.healthy("c", at), None);
+        assert_eq!(state.view(at).len(), 1);
         state.retain(&std::collections::HashSet::new());
         assert!(state.view(at).is_empty());
     }

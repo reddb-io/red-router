@@ -655,6 +655,54 @@ catalogVersionFromBody = "red_routerd::catalog_version::catalog_version_from_bod
 computeCatalogVersion = "red_routerd::catalog_version::compute_catalog_version"
 
 [[module]]
+ts = "src/lib/credentialHealth/cache.ts"
+status = "ported"
+rust = "credential_health.rs"
+module = "red_routerd::credential_health"
+ported_at = "2026-11-28T12:50:24Z"
+ts_base = "5efa64239b1fa4c0802c5313d520c2d9927662c0"
+notes = "The cache is the in-memory credential_health::State owned by the control plane. A result keeps its timestamp, and the 5-minute TTL is applied on read (healthy, the view's fresh flag, the summary's stale count) instead of deleting expired rows; the admin view lists expired rows too, marked not fresh. removeCredentialHealth is retain over the live accounts at each sweep. isCredentialStale only feeds a log line of the legacy credentialGate (an untested account is still allowed), and the daemon has no log, so it has no counterpart; the summary computes staleness itself. The test helpers and initCredentialCache (a flag the Rust state does not need) have no counterpart either. The summary is served on GET /api/monitoring/health to an administrator."
+
+[module.ts_blobs]
+"src/lib/credentialHealth/cache.ts" = "dba8d5428f3d47092bdca6719122c1e1b8017c78"
+
+[module.symbols]
+CREDENTIAL_HEALTH_FAILED_LIST_CAP = "red_routerd::credential_health::FAILED_LIST_CAP"
+CredentialCacheEntry = "red_routerd::credential_health::Health"
+CredentialHealthFailedConnection = "red_routerd::credential_health::FailedConnection"
+CredentialHealthStatus = "red_routerd::credential_health::Health"
+CredentialHealthSummary = "red_routerd::credential_health::Summary"
+__test_putCredentialHealth = "-"
+__test_resetCredentialHealthCache = "-"
+getAllCredentialHealth = "red_routerd::credential_health::State::view"
+getCachedCredentialHealthSummary = "red_routerd::credential_health::State::summary"
+getCredentialHealth = "red_routerd::credential_health::State::view"
+getCredentialHealthSummary = "red_routerd::credential_health::State::summary"
+initCredentialCache = "-"
+isCredentialHealthy = "red_routerd::credential_health::State::healthy"
+isCredentialStale = "-"
+removeCredentialHealth = "red_routerd::credential_health::State::retain"
+sanitizeCredentialHealthLastError = "red_routerd::credential_health::sanitize_last_error"
+setCredentialHealth = "red_routerd::credential_health::State::record"
+
+[[module]]
+ts = "src/lib/credentialHealth/probePolicy.ts"
+status = "ported"
+rust = "credential_health.rs"
+module = "red_routerd::credential_health"
+ported_at = "2026-11-28T12:21:10Z"
+ts_base = "5efa64239b1fa4c0802c5313d520c2d9927662c0"
+notes = "Folded into credential_health.rs with the sweep state; the probe result is the Probe enum, so isCredentialProbeInconclusive takes a Probe instead of the legacy {valid, warning} object."
+
+[module.ts_blobs]
+"src/lib/credentialHealth/probePolicy.ts" = "2c6f8a39306f4537c07e3985d5757e78bf3c5851"
+
+[module.symbols]
+DEFAULT_SWEEP_INTERVAL_MS = "red_routerd::credential_health::DEFAULT_SWEEP_INTERVAL_MS"
+isCredentialProbeInconclusive = "red_routerd::credential_health::probe_inconclusive"
+resolveInconclusiveProbeRecheckDelayMs = "red_routerd::credential_health::inconclusive_recheck_ms"
+
+[[module]]
 ts = "src/lib/dataPaths.ts"
 status = "ported"
 rust = "data_paths.rs"
@@ -810,6 +858,22 @@ isAdaptiveThinkingOnly = "red_routerd::model_specs::is_adaptive_thinking_only"
 normalizeForcedToolChoiceForModel = "red_routerd::model_specs::normalize_forced_tool_choice_for_model"
 normalizeThinkingForModel = "red_routerd::model_specs::normalize_thinking_for_model"
 resolveModelAlias = "red_routerd::model_specs::resolve_model_alias"
+
+[[module]]
+ts = "src/shared/utils/logRedaction.ts"
+status = "ported"
+rust = "log_redaction.rs"
+module = "red_routerd::log_redaction"
+ported_at = "2026-11-28T12:28:08Z"
+ts_base = "5efa64239b1fa4c0802c5313d520c2d9927662c0"
+notes = "redactSecrets is pinned by log_redaction_oracle.json (34 cases from the legacy function). redactLogArgs has no counterpart: it walks arbitrary JS log arguments (objects, Error instances) in the pino logMethod hook, and the daemon has no such hook; its tracing fields are typed."
+
+[module.ts_blobs]
+"src/shared/utils/logRedaction.ts" = "b7d5a9a00ed82e91dfa1497ba291c1e210ba207f"
+
+[module.symbols]
+redactLogArgs = "-"
+redactSecrets = "red_routerd::log_redaction::redact_secrets"
 
 [[module]]
 ts = "src/shared/validation/iconUrl.ts"
