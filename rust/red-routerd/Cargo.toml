@@ -41,3 +41,22 @@ zip = { version = "=9.5.0", default-features = false, features = ["deflate-flate
 
 [dev-dependencies]
 tempfile = "3"
+
+# scrypt protects stored credentials (N = 2^14, r = 8). Unoptimized, one
+# derivation takes about two seconds, and tests derive keys on every provider
+# write and first use, queueing on the two crypto workers. Optimize the key
+# derivation crates in dev and test builds too; release is unchanged.
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3
+
+[profile.dev.package.pbkdf2]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.hmac]
+opt-level = 3

@@ -295,3 +295,102 @@ async fn opencode_go_responses_model_is_translated_both_ways() {
     provider_task.abort();
     database.close().await.unwrap();
 }
+
+// A streamed answer of an opencode-go Messages model is translated to chat SSE
+// and settles its usage: 2 tokens used under a 3-token daily limit with a
+// 2-token reservation, so the second request no longer fits (an unsettled
+// reservation would be released and let it through).
+#[tokio::test]
+async fn opencode_go_messages_stream_settles_usage() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("go-stream.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let events = [
+        r#"{"type":"message_start","message":{"id":"msg_go","type":"message","role":"assistant","model":"minimax-m3","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":0}}}"#,
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"streamed messages"}}"#,
+        r#"{"type":"content_block_stop","index":0}"#,
+        r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#,
+        r#"{"type":"message_stop"}"#,
+    ];
+    let stream_body: String = events
+        .iter()
+        .map(|event| {
+            let kind = serde_json::from_str::<serde_json::Value>(event).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            format!("event: {kind}\ndata: {event}\n\n")
+        })
+        .collect();
+    let app = Router::new().route(
+        "/zen/go/v1/messages",
+        post(move || {
+            let stream_body = stream_body.clone();
+            async move { ([(header::CONTENT_TYPE, "text/event-stream")], stream_body) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/go"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "provider":"opencode-go",
+                "upstream_url":format!("http://{address}/zen/go/v1/chat/completions"),
+                "api_key":"go-secret"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let quota_key = "go-stream-quota-key-123456789012345678";
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/go-stream-quota"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Go Messages stream quota","api_key":quota_key,
+                "scopes":["inference:chat"],"allowed_endpoints":["chat"],
+                "allowed_models":["opencode-go/minimax-m3"],"allowed_provider_ids":["go"],
+                "max_tokens_per_day":3,"reservation_tokens":2
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let ask = || {
+        chat_model_with_body(
+            &client,
+            &base,
+            quota_key,
+            serde_json::json!({
+                "model":"opencode-go/minimax-m3","stream":true,
+                "stream_options":{"include_usage":true},
+                "messages":[{"role":"user","content":"hi"}]
+            }),
+        )
+    };
+    let accounted = ask().await;
+    let status = accounted.status();
+    let text = accounted.text().await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert!(text.contains("streamed messages"), "{text}");
+    assert!(text.contains("[DONE]"), "{text}");
+    assert_eq!(ask().await.status(), StatusCode::TOO_MANY_REQUESTS);
+    gateway_task.abort();
+    provider_task.abort();
+    database.close().await.unwrap();
+}

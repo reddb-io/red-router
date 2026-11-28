@@ -1340,6 +1340,31 @@ fn retry_after_hint_ms(headers: &HeaderMap) -> Option<u64> {
     .min()
 }
 
+/// Legacy `detectRetryHint`, read when the cooldown profile honors upstream
+/// hints: the response headers first, then a structured JSON body hint
+/// (RetryInfo, a reset time, a millisecond field), then a wait written in the
+/// error text ("try again in 90s").
+fn upstream_retry_hint_ms(
+    headers: &HeaderMap,
+    error_body: Option<&[u8]>,
+    provider: Option<&str>,
+) -> Option<u64> {
+    if let Some(hint) = retry_after_hint_ms(headers).filter(|hint| *hint > 0) {
+        return Some(hint);
+    }
+    let text = std::str::from_utf8(error_body?).ok()?;
+    let now = unix_time_ms();
+    if let Some(hint) = error_text_classification::parse_detailed_retry_hint_from_json_body(
+        text,
+        error_text_classification::MAX_PROVIDER_COOLDOWN_MS,
+        now,
+    ) {
+        return Some(hint.retry_after_ms);
+    }
+    error_text_classification::parse_retry_from_error_text(text, provider, now)
+        .filter(|hint| *hint > 0)
+}
+
 fn reset_hint_ms(value: &str, now_unix_ms: u64) -> Option<u64> {
     if let Some(milliseconds) = value.strip_suffix("ms") {
         return milliseconds.trim().parse::<u64>().ok();
@@ -5116,6 +5141,58 @@ fn daily_quota_lockout(
     availability.daily_quota_lockout_ms(tpd, retry_after_hint_ms(headers))
 }
 
+/// The fixed connection cooldown of a recognized quota phrase (legacy
+/// `checkFallbackError` quota text branch), unless an earlier decision owns
+/// the failure or the failure is scoped to a model.
+fn quota_text_lockout(
+    class: resilience::ProviderFailureClass,
+    availability: &availability::ProviderAvailability,
+    scope: resilience::RateLimitScope,
+    provider: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+) -> Option<u64> {
+    if matches!(
+        class,
+        resilience::ProviderFailureClass::Banned
+            | resilience::ProviderFailureClass::CreditsExhausted
+            | resilience::ProviderFailureClass::RetiredModel
+            | resilience::ProviderFailureClass::MovedEndpoint
+            | resilience::ProviderFailureClass::RequestScoped
+    ) || resilience::quota_failure_scope(scope, provider, status, headers)
+        != resilience::FailureScope::Connection
+    {
+        return None;
+    }
+    let hint = availability
+        .uses_upstream_retry_hints()
+        .then(|| upstream_retry_hint_ms(headers, body, provider))
+        .flatten();
+    resilience::quota_text_lockout_ms(
+        status,
+        provider,
+        body,
+        availability.preserves_quota_signals(),
+        hint,
+        unix_time_ms(),
+    )
+}
+
+/// The opencode family's model-unavailable rule, clamped like the legacy
+/// model lockout to the connection's cooldown ceiling.
+fn opencode_model_lockout_ms(
+    availability: &availability::ProviderAvailability,
+    provider: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: Option<&[u8]>,
+) -> Option<u64> {
+    let text = std::str::from_utf8(body?).ok()?;
+    provider_error_rules::opencode_model_unavailable_ms(provider, status.as_u16(), headers, text)
+        .map(|rule| rule.min(availability.max_cooldown_ms()))
+}
+
 async fn record_internal_provider_health(
     target: &ContextRelaySummaryTarget,
     circuit_permit: Option<circuit::CircuitPermit>,
@@ -5166,6 +5243,19 @@ async fn record_internal_provider_health(
             .record_connection_lockout(permit, status, lockout_ms)
             .await;
     }
+    if let Some(lockout_ms) = quota_text_lockout(
+        failure_class,
+        availability,
+        target.rate_limit_scope,
+        Some(&target.provider_name),
+        status,
+        headers,
+        error_body,
+    ) {
+        return availability
+            .record_connection_lockout(permit, status, lockout_ms)
+            .await;
+    }
     match failure_class {
         resilience::ProviderFailureClass::Banned => {
             availability
@@ -5179,7 +5269,11 @@ async fn record_internal_provider_health(
         }
         resilience::ProviderFailureClass::AmbiguousExpired => {
             availability
-                .record_ambiguous_auth_failure(permit, status, retry_after_hint_ms(headers))
+                .record_ambiguous_auth_failure(
+                    permit,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::CreditsExhausted => {
@@ -5189,7 +5283,21 @@ async fn record_internal_provider_health(
         }
         resilience::ProviderFailureClass::Model => {
             availability
-                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .record_model_failure(
+                    permit,
+                    &target.model,
+                    status,
+                    opencode_model_lockout_ms(
+                        availability,
+                        Some(&target.provider_name),
+                        status,
+                        headers,
+                        error_body,
+                    )
+                    .or_else(|| {
+                        upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name))
+                    }),
+                )
                 .await
         }
         resilience::ProviderFailureClass::RetiredModel => {
@@ -5211,14 +5319,23 @@ async fn record_internal_provider_health(
             if availability::connection_failure_status(status) =>
         {
             availability
-                .record_connection_failure(permit, status, retry_after_hint_ms(headers))
+                .record_connection_failure(
+                    permit,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::Transient
             if availability::model_failure_status(status) =>
         {
             availability
-                .record_model_failure(permit, &target.model, status, retry_after_hint_ms(headers))
+                .record_model_failure(
+                    permit,
+                    &target.model,
+                    status,
+                    upstream_retry_hint_ms(headers, error_body, Some(&target.provider_name)),
+                )
                 .await
         }
         resilience::ProviderFailureClass::Transient if status.is_success() => {
@@ -8819,6 +8936,8 @@ async fn proxy_request(
             response.error_body(),
             availability.is_none_or(|availability| availability.preserves_quota_signals()),
         );
+        // A quota phrase parks the connection and moves on (legacy shouldFallback).
+        let mut quota_text_parked = false;
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
             let daily_lockout = daily_quota_lockout(
                 failure_class,
@@ -8827,6 +8946,16 @@ async fn proxy_request(
                 response.headers(),
                 response.error_body(),
             );
+            let text_lockout = quota_text_lockout(
+                failure_class,
+                availability,
+                rate_limit_scope,
+                provider_name,
+                response.status(),
+                response.headers(),
+                response.error_body(),
+            );
+            quota_text_parked = text_lockout.is_some();
             // Legacy executeTargetAttempt: with the opt-in model lockout policy, a
             // combo target failing with a configured status locks its model first,
             // so the native model lockout below leaves it in place.
@@ -8883,6 +9012,15 @@ async fn proxy_request(
                         )
                         .await
                 }
+                _ if text_lockout.is_some() => {
+                    availability
+                        .record_connection_lockout(
+                            permit,
+                            response.status(),
+                            text_lockout.unwrap_or_default(),
+                        )
+                        .await
+                }
                 resilience::ProviderFailureClass::Banned => {
                     availability
                         .record_terminal_failure(permit, availability::TerminalStatus::Banned)
@@ -8898,7 +9036,11 @@ async fn proxy_request(
                         .record_ambiguous_auth_failure(
                             permit,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8916,7 +9058,20 @@ async fn proxy_request(
                             permit,
                             target_model,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            opencode_model_lockout_ms(
+                                availability,
+                                provider_name,
+                                response.status(),
+                                response.headers(),
+                                response.error_body(),
+                            )
+                            .or_else(|| {
+                                upstream_retry_hint_ms(
+                                    response.headers(),
+                                    response.error_body(),
+                                    provider_name,
+                                )
+                            }),
                         )
                         .await
                 }
@@ -8946,7 +9101,11 @@ async fn proxy_request(
                         .record_connection_failure(
                             permit,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8958,7 +9117,11 @@ async fn proxy_request(
                             permit,
                             target_model,
                             response.status(),
-                            retry_after_hint_ms(response.headers()),
+                            upstream_retry_hint_ms(
+                                response.headers(),
+                                response.error_body(),
+                                provider_name,
+                            ),
                         )
                         .await
                 }
@@ -8978,6 +9141,7 @@ async fn proxy_request(
         }
         let retryable = failure_class != resilience::ProviderFailureClass::RequestScoped
             && (failure_class.semantic_fallback()
+                || quota_text_parked
                 || response.status() == StatusCode::TOO_MANY_REQUESTS
                 || response.status().is_server_error()
                 || response.status() == StatusCode::REQUEST_TIMEOUT

@@ -373,6 +373,48 @@ fn normalized_error_evidence(body: Option<&[u8]>) -> String {
     evidence
 }
 
+/// The quota text branch of the legacy `checkFallbackError`: a fixed cooldown
+/// for a recognized quota phrase, whatever the status. A subscription or plan
+/// limit takes the upstream hint (when the profile honors hints) or an hour,
+/// and only when quota signals apply and the text is neither a credit nor a
+/// daily quota; a weekly cap takes the quoted reset or a day; a session cap
+/// five hours; a rolling free-usage cap a day. The caller runs it after the
+/// ban, credit, retired-model, moved-endpoint and daily-quota decisions,
+/// which the legacy function checks first.
+pub(crate) fn quota_text_lockout_ms(
+    status: StatusCode,
+    provider: Option<&str>,
+    body: Option<&[u8]>,
+    oauth: bool,
+    upstream_hint_ms: Option<u64>,
+    now_ms: i64,
+) -> Option<u64> {
+    if !(status.is_client_error() || status.is_server_error()) {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(body?);
+    let normalized = normalized_error_evidence(body);
+    let quota_signal =
+        status != StatusCode::TOO_MANY_REQUESTS || oauth || looks_like_quota_exhausted(body);
+    if quota_signal
+        && !credits_exhausted_text(&normalized)
+        && !crate::daily_quota_reset::is_daily_quota_exhausted(&normalized)
+    {
+        if let Some(fallback) = crate::quota_text_cooldowns::build_subscription_quota_fallback(
+            &raw,
+            upstream_hint_ms,
+            None,
+            provider,
+        ) {
+            return Some(fallback.cooldown_ms);
+        }
+    }
+    crate::quota_text_cooldowns::build_weekly_quota_fallback(&raw, now_ms, provider)
+        .or_else(|| crate::quota_text_cooldowns::build_session_quota_fallback(&raw))
+        .or_else(|| crate::quota_text_cooldowns::build_rolling_24h_quota_fallback(&raw))
+        .map(|fallback| fallback.cooldown_ms)
+}
+
 pub(crate) fn antigravity_credits_retry_eligible(body: Option<&[u8]>) -> bool {
     let text = normalized_error_evidence(body);
     if text.contains("reset after 0s") || text.contains("reset in 0s") {
@@ -657,6 +699,59 @@ mod tests {
                 "scoped {row}"
             );
         }
+    }
+
+    /// The quota text cooldowns of the legacy `checkFallbackError` for 1980
+    /// status, body and provider combinations at backoff levels 0 and 3
+    /// (`fallback_cooldown_oracle.json`). Rows are [status, body, provider,
+    /// fallback, reason, cooldown at 0, cooldown at 3, rule scope, used hint,
+    /// credits, permanent, reset hint]. A quota text row whose legacy cooldown
+    /// is the same at both levels is the fixed cooldown this branch returns.
+    #[test]
+    fn quota_text_lockouts_match_the_legacy_check_fallback_error() {
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("fallback_cooldown_oracle.json")).unwrap();
+        assert_eq!(rows.len(), 1980);
+        let quota_texts = [
+            "Monthly usage limit reached. Resets in 13 days.",
+            "monthly usage limit reached",
+            "Usage limit reached for your plan",
+            "You have reached your weekly usage limit",
+            "Session limit reached",
+            "You have used all the included free usage",
+        ];
+        let now = 1_700_000_000_000_i64;
+        let mut checked = 0;
+        for row in &rows {
+            let status = StatusCode::from_u16(row[0].as_u64().unwrap() as u16).unwrap();
+            let body = row[1].as_str().unwrap();
+            let provider = row[2].as_str();
+            let oauth = provider.is_none_or(|p| matches!(p, "agy" | "claude" | "codex"));
+            // A legacy profile honors upstream hints for API key providers;
+            // an unknown provider has no profile.
+            let hints = provider.is_some_and(|p| !matches!(p, "agy" | "claude" | "codex"));
+            let hint = hints
+                .then(|| {
+                    crate::error_text_classification::parse_retry_from_error_text(
+                        body, provider, now,
+                    )
+                })
+                .flatten()
+                .filter(|hint| *hint > 0);
+            let actual =
+                quota_text_lockout_ms(status, provider, Some(body.as_bytes()), oauth, hint, now);
+            let fixed = row[4] == "quota_exhausted"
+                && row[5] == row[6]
+                && row[5].as_u64().unwrap() > 0
+                && row[9] == 0
+                && row[10] == 0;
+            let expected = (quota_texts.contains(&body) && fixed).then(|| row[5].as_u64().unwrap());
+            if expected.is_some() {
+                checked += 1;
+            }
+            assert_eq!(actual, expected, "{row}");
+        }
+        assert!(checked > 500, "{checked}");
     }
 
     #[test]

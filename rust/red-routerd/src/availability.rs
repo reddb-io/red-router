@@ -471,6 +471,17 @@ impl ProviderAvailability {
 
     /// OAuth accounts keep quota semantics on a 429 (legacy
     /// `shouldPreserveQuotaSignals`).
+    /// The ceiling of a scaled connection cooldown, which the legacy model
+    /// lockout also takes as its `maxCooldownMs`.
+    pub(crate) fn max_cooldown_ms(&self) -> u64 {
+        self.cooldown_profile().max_cooldown_ms
+    }
+
+    /// Whether the connection's cooldown profile honors upstream retry hints.
+    pub(crate) fn uses_upstream_retry_hints(&self) -> bool {
+        self.cooldown_profile().use_upstream_retry_hints
+    }
+
     pub(crate) fn preserves_quota_signals(&self) -> bool {
         self.oauth.load(Ordering::Acquire)
     }
