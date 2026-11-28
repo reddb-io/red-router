@@ -120,6 +120,24 @@ pub(crate) fn authentication_failure_is_terminal(provider: Option<&str>) -> bool
 /// providers that multiplex independently limited models behind one
 /// credential (see `model_scope_providers`) lock the model, others the
 /// connection. Operators can override either way per account.
+/// Legacy `hasPerModelFailureScope` for a non-quota failure such as a 404:
+/// the multiplexing providers of `hasPerModelQuota` plus Claude, with the
+/// account's configured scope taking precedence. Codex stays out, as the
+/// legacy `markAccountUnavailable` excludes it from the model-only branch.
+pub(crate) fn per_model_failure_scope(configured: RateLimitScope, provider: Option<&str>) -> bool {
+    let provider = provider.unwrap_or_default().trim().to_ascii_lowercase();
+    if provider == "codex" {
+        return false;
+    }
+    match configured {
+        RateLimitScope::Connection => false,
+        RateLimitScope::Model => true,
+        RateLimitScope::Auto => {
+            provider == "claude" || crate::model_scope_providers::has_per_model_quota(&provider)
+        }
+    }
+}
+
 pub(crate) fn quota_failure_scope(
     configured: RateLimitScope,
     provider: Option<&str>,
@@ -770,6 +788,39 @@ mod tests {
             assert_eq!(actual, expected, "{row}");
         }
         assert!(checked > 500, "{checked}");
+    }
+
+    #[test]
+    fn a_missing_model_is_model_scoped_on_multiplexing_accounts() {
+        assert!(per_model_failure_scope(
+            RateLimitScope::Auto,
+            Some("openrouter")
+        ));
+        assert!(per_model_failure_scope(
+            RateLimitScope::Auto,
+            Some("claude")
+        ));
+        assert!(per_model_failure_scope(
+            RateLimitScope::Auto,
+            Some("openai-compatible-acme")
+        ));
+        assert!(!per_model_failure_scope(
+            RateLimitScope::Auto,
+            Some("codex")
+        ));
+        assert!(!per_model_failure_scope(
+            RateLimitScope::Model,
+            Some("codex")
+        ));
+        assert!(!per_model_failure_scope(RateLimitScope::Auto, None));
+        assert!(per_model_failure_scope(
+            RateLimitScope::Model,
+            Some("mistral")
+        ));
+        assert!(!per_model_failure_scope(
+            RateLimitScope::Connection,
+            Some("openrouter")
+        ));
     }
 
     #[test]

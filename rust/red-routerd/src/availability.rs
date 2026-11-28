@@ -27,6 +27,8 @@ const RETRY_HINT_MAX_MS: u64 = 24 * 60 * 60 * 1_000;
 const MODEL_BASE_MS: u64 = 30_000;
 const MODEL_MAX_MS: u64 = 10 * 60 * 1_000;
 const MAX_BACKOFF_LEVEL: u32 = 16;
+/// Legacy `checkFallbackError` fixed cooldown of a 404 (two minutes).
+pub(crate) const NOT_FOUND_COOLDOWN_MS: u64 = 2 * 60 * 1_000;
 const MAX_MODEL_LOCKOUTS: usize = 1_024;
 const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = crate::mistral_ambiguous_auth::MAX_SOFT_STRIKES;
 const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = crate::mistral_ambiguous_auth::STRIKE_WINDOW_MS;
@@ -853,6 +855,65 @@ impl ProviderAvailability {
         Ok(())
     }
 
+    /// A missing model (404), after legacy `markAccountUnavailable`. On an
+    /// account whose failures are model-scoped (`per_model_scope`, legacy
+    /// `hasPerModelFailureScope`) the model locks from the profile base,
+    /// doubled per repeated failure within the failure window up to the
+    /// profile's steps and ceiling. Elsewhere the legacy cools the whole
+    /// connection for a fixed two minutes; here only the model is locked for
+    /// those two minutes, so the account's other models keep serving
+    /// (maintainer decision, 2026-11-28).
+    pub(crate) async fn record_not_found(
+        &self,
+        permit: AvailabilityPermit,
+        model: &str,
+        per_model_scope: bool,
+        failure_window_ms: u64,
+    ) -> Result<(), &'static str> {
+        validate_model(model)?;
+        let (key, expected) = self.lock_key(permit, model, StatusCode::NOT_FOUND);
+        let model = key.as_str();
+        let now = unix_ms()?;
+        let profile = self.cooldown_profile();
+        let mut inner = self.inner.lock().await;
+        let current = inner.model_lockouts.get(model);
+        if current.map(|lockout| lockout.generation) != expected
+            || current.is_some_and(|lockout| lockout.until_unix_ms > now)
+        {
+            return Ok(());
+        }
+        if current.is_none() && inner.model_lockouts.len() >= MAX_MODEL_LOCKOUTS {
+            return Err("provider model lockout capacity exceeded");
+        }
+        let failure_count = match current {
+            Some(lockout) if now <= lockout.until_unix_ms.saturating_add(failure_window_ms) => {
+                lockout.backoff_level.saturating_add(1)
+            }
+            _ => 1,
+        }
+        .min(MAX_BACKOFF_LEVEL);
+        let duration = if per_model_scope {
+            not_found_lockout_ms(&profile, failure_count)
+        } else {
+            NOT_FOUND_COOLDOWN_MS
+        };
+        let generation = current.map_or(1, |lockout| lockout.generation.wrapping_add(1));
+        let mut candidate = inner.clone();
+        candidate.model_lockouts.insert(
+            model.to_owned(),
+            ModelLockout {
+                until_unix_ms: now.saturating_add(duration),
+                status: StatusCode::NOT_FOUND.as_u16(),
+                backoff_level: failure_count,
+                generation,
+            },
+        );
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
     /// The legacy opt-in model lockout of a combo target. A failure within the
     /// failure window after the previous lockout keeps escalating (legacy
     /// `modelFailureState`), counted on the lockout's backoff level.
@@ -1172,6 +1233,22 @@ fn antigravity_family(model: &str) -> Option<&'static str> {
     }
 }
 
+/// Legacy `getScaledCooldown` from the profile base (1 s when the base is
+/// 0), capped by the profile ceiling (legacy `maxCooldownMs`).
+fn not_found_lockout_ms(profile: &ConnectionCooldownProfile, failure_count: u32) -> u64 {
+    let base = if profile.base_cooldown_ms > 0 {
+        profile.base_cooldown_ms
+    } else {
+        1_000
+    };
+    let exponent = failure_count
+        .saturating_sub(1)
+        .min(profile.max_backoff_steps)
+        .min(32);
+    base.saturating_mul(1_u64 << exponent)
+        .min(profile.max_cooldown_ms)
+}
+
 fn recordable_model_failure_status(status: StatusCode) -> bool {
     // 410 is a retired model's end-of-life answer.
     matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 410 | 429)
@@ -1460,6 +1537,88 @@ mod tests {
                 ..
             }
         ));
+        database.close().await.unwrap();
+    }
+
+    // Legacy markAccountUnavailable: a 404 on a model-scoped account locks the
+    // model from the profile base, doubling per repeated failure; elsewhere it
+    // is a fixed two minutes, and the account's other models stay available.
+    #[test]
+    fn a_missing_model_lockout_scales_from_the_profile_base() {
+        let api_key = ConnectionCooldownProfile::api_key_default();
+        assert_eq!(not_found_lockout_ms(&api_key, 1), 3_000);
+        assert_eq!(not_found_lockout_ms(&api_key, 2), 6_000);
+        assert_eq!(not_found_lockout_ms(&api_key, 4), 24_000);
+        let oauth = ConnectionCooldownProfile::oauth_default();
+        assert_eq!(not_found_lockout_ms(&oauth, 1), 5_000);
+        // The profile's steps stop the doubling (5 s × 2⁸), and its ceiling
+        // caps a longer one.
+        assert_eq!(not_found_lockout_ms(&oauth, 16), 1_280_000);
+        let steep = ConnectionCooldownProfile {
+            max_backoff_steps: 16,
+            ..oauth
+        };
+        assert_eq!(
+            not_found_lockout_ms(&steep, 16),
+            DEFAULT_CONNECTION_MAX_COOLDOWN_MS
+        );
+        let unset = ConnectionCooldownProfile {
+            base_cooldown_ms: 0,
+            ..api_key
+        };
+        assert_eq!(not_found_lockout_ms(&unset, 2), 2_000);
+    }
+
+    #[tokio::test]
+    async fn a_missing_model_locks_only_that_model() {
+        let directory = TempDir::new().unwrap();
+        let file = Url::from_file_path(directory.path().join("not-found.sqlite")).unwrap();
+        let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let availability = ProviderAvailability::new("not-found-account", database.clone());
+        let permit = |decision| match decision {
+            AvailabilityDecision::Permit(permit) => permit,
+            AvailabilityDecision::Blocked { .. } => panic!("expected a permit"),
+        };
+        let scoped = permit(availability.try_acquire("scoped-model").await.unwrap());
+        availability
+            .record_not_found(scoped, "scoped-model", true, 30 * 60 * 1_000)
+            .await
+            .unwrap();
+        let fixed = permit(availability.try_acquire("fixed-model").await.unwrap());
+        availability
+            .record_not_found(fixed, "fixed-model", false, 30 * 60 * 1_000)
+            .await
+            .unwrap();
+        let lockouts = availability.status().await.unwrap().model_lockouts;
+        let retry = |model: &str| {
+            lockouts
+                .iter()
+                .find(|lockout| lockout.model == model)
+                .map(|lockout| (lockout.status, lockout.retry_after_ms))
+                .unwrap()
+        };
+        let (status, scoped_ms) = retry("scoped-model");
+        assert_eq!(status, 404);
+        assert!((2_000..=3_000).contains(&scoped_ms), "{scoped_ms}");
+        let (_, fixed_ms) = retry("fixed-model");
+        assert!(
+            (NOT_FOUND_COOLDOWN_MS - 1_000..=NOT_FOUND_COOLDOWN_MS).contains(&fixed_ms),
+            "{fixed_ms}"
+        );
+        // The connection itself stays available for the account's other models.
+        assert!(matches!(
+            availability.try_acquire("other-model").await.unwrap(),
+            AvailabilityDecision::Permit(_)
+        ));
+        assert_eq!(
+            availability
+                .status()
+                .await
+                .unwrap()
+                .connection_cooldown_until_unix_ms,
+            0
+        );
         database.close().await.unwrap();
     }
 
