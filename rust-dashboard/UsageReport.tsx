@@ -45,32 +45,43 @@ type BreakdownGroup = {
 
 function UsageBreakdown({ keyId, until }: { keyId: string; until: number }) {
   const [by, setBy] = useState<BreakdownBy>("model");
-  const [groups, setGroups] = useState<BreakdownGroup[] | null>(null);
-  const [error, setError] = useState("");
+  // The result of the latest query; one for other parameters reads as loading.
+  const [result, setResult] = useState<{
+    key: string;
+    groups: BreakdownGroup[] | null;
+    error: string;
+  } | null>(null);
+  const requestKey = `${by}|${keyId}|${until}`;
 
   useEffect(() => {
     const controller = new AbortController();
+    const key = `${by}|${keyId}|${until}`;
     const query = new URLSearchParams({
       by,
       from_unix_ms: String(until - 30 * 24 * 60 * 60 * 1_000),
       to_unix_ms: String(until),
     });
     if (keyId) query.set("key_id", keyId);
-    setGroups(null);
-    setError("");
     rustAdminFetch(`/api/admin/usage/breakdown?${query}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Usage breakdown unavailable (${response.status})`);
         const data = await response.json();
         if (!Array.isArray(data?.breakdown?.groups)) throw new Error("Invalid usage breakdown");
-        setGroups(data.breakdown.groups as BreakdownGroup[]);
+        setResult({ key, groups: data.breakdown.groups as BreakdownGroup[], error: "" });
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "Usage breakdown unavailable");
+          setResult({
+            key,
+            groups: null,
+            error: cause instanceof Error ? cause.message : "Usage breakdown unavailable",
+          });
       });
     return () => controller.abort();
   }, [by, keyId, until]);
+  const current = result?.key === requestKey ? result : null;
+  const groups = current?.groups ?? null;
+  const error = current?.error ?? "";
 
   return (
     <div className="flex flex-col gap-2">
