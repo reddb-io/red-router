@@ -1551,8 +1551,15 @@ mod tests {
         assert_eq!(not_found_lockout_ms(&api_key, 4), 24_000);
         let oauth = ConnectionCooldownProfile::oauth_default();
         assert_eq!(not_found_lockout_ms(&oauth, 1), 5_000);
+        // The profile's steps stop the doubling (5 s × 2⁸), and its ceiling
+        // caps a longer one.
+        assert_eq!(not_found_lockout_ms(&oauth, 16), 1_280_000);
+        let steep = ConnectionCooldownProfile {
+            max_backoff_steps: 16,
+            ..oauth
+        };
         assert_eq!(
-            not_found_lockout_ms(&oauth, 16),
+            not_found_lockout_ms(&steep, 16),
             DEFAULT_CONNECTION_MAX_COOLDOWN_MS
         );
         let unset = ConnectionCooldownProfile {
