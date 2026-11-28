@@ -1559,11 +1559,10 @@ impl ControlPlane {
     pub(crate) async fn run_credential_health_sweep(&self) -> Option<usize> {
         use crate::credential_health as health;
         let _sweep = self.0.credential_sweep.try_lock().ok()?;
-        let interval_ms = health::sweep_interval_ms(
-            std::env::var("CREDENTIAL_HEALTH_CHECK_INTERVAL")
-                .ok()
-                .as_deref(),
-        );
+        let Some(interval_ms) = self.credential_health_interval_ms().await else {
+            // The operator turned the sweep off.
+            return Some(0);
+        };
         let (Ok(providers), Ok(oauth)) = (
             self.0.database.providers().await,
             self.0.database.provider_oauth().await,
@@ -1630,6 +1629,28 @@ impl ControlPlane {
         Some(probed)
     }
 
+    /// The sweep cadence: the operator's setting (0 turns it off) over
+    /// `CREDENTIAL_HEALTH_CHECK_INTERVAL` over the hourly default (legacy
+    /// `resolveCredentialHealthSweepInterval`). The legacy documents 0 as
+    /// off but then re-arms its timer at 0 ms; here 0 is off.
+    pub(crate) async fn credential_health_interval_ms(&self) -> Option<u64> {
+        match self
+            .0
+            .global_settings
+            .read()
+            .await
+            .credential_health_interval_minutes()
+        {
+            Some(0) => None,
+            Some(minutes) => Some(minutes.saturating_mul(60_000)),
+            None => Some(crate::credential_health::sweep_interval_ms(
+                std::env::var("CREDENTIAL_HEALTH_CHECK_INTERVAL")
+                    .ok()
+                    .as_deref(),
+            )),
+        }
+    }
+
     /// The 30-second connection cooldown of a failed probe (legacy
     /// `rateLimitedUntil = now + 30s`). An account already cooling keeps its
     /// cooldown.
@@ -1664,11 +1685,6 @@ impl ControlPlane {
         ) {
             return;
         }
-        let interval = Duration::from_millis(health::sweep_interval_ms(
-            std::env::var("CREDENTIAL_HEALTH_CHECK_INTERVAL")
-                .ok()
-                .as_deref(),
-        ));
         let weak = Arc::downgrade(&self.0);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(health::INITIAL_DELAY_MS)).await;
@@ -1676,8 +1692,17 @@ impl ControlPlane {
                 let Some(inner) = weak.upgrade() else {
                     return;
                 };
-                ControlPlane(inner).run_credential_health_sweep().await;
-                tokio::time::sleep(interval).await;
+                let plane = ControlPlane(inner);
+                // Read the cadence every cycle: the setting may change.
+                let interval = plane.credential_health_interval_ms().await;
+                if interval.is_some() {
+                    plane.run_credential_health_sweep().await;
+                }
+                drop(plane);
+                tokio::time::sleep(Duration::from_millis(
+                    interval.unwrap_or(health::DEFAULT_SWEEP_INTERVAL_MS),
+                ))
+                .await;
             }
         });
     }
