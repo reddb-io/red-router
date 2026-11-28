@@ -54,13 +54,15 @@ const TONE: Record<Factor["status"], string> = {
 
 /** Why one logged request went where it went (legacy route explain). */
 export default function RouteExplanation({ id, onClose }: { id: string; onClose: () => void }) {
-  const [explanation, setExplanation] = useState<Explanation | null>(null);
-  const [error, setError] = useState("");
+  // The result for the latest id; one for another id reads as loading.
+  const [result, setResult] = useState<{
+    id: string;
+    explanation: Explanation | null;
+    error: string;
+  } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    setExplanation(null);
-    setError("");
     rustAdminFetch(`/api/admin/request-log/${encodeURIComponent(id)}/explain`, {
       signal: controller.signal,
     })
@@ -69,14 +71,21 @@ export default function RouteExplanation({ id, onClose }: { id: string; onClose:
         if (!response.ok) throw new Error(`Route explanation unavailable (${response.status})`);
         const data: unknown = await response.json();
         if (!isExplanation(data)) throw new Error("Invalid route explanation");
-        setExplanation(data);
+        setResult({ id, explanation: data, error: "" });
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "Route explanation unavailable");
+          setResult({
+            id,
+            explanation: null,
+            error: cause instanceof Error ? cause.message : "Route explanation unavailable",
+          });
       });
     return () => controller.abort();
   }, [id]);
+  const current = result?.id === id ? result : null;
+  const explanation = current?.explanation ?? null;
+  const error = current?.error ?? "";
 
   return (
     <section
